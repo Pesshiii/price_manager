@@ -108,10 +108,6 @@ class SettingCreate(CreateView):
     form.fields['sheet_name'].choices = choices
     form.fields['supplier'].initial=Supplier.objects.get(id=self.kwargs['id'])
     try:
-      form.fields['currency'].initial=Currency.objects.get(name='KZT')
-    except:
-      messages.error(self.request, 'Не настроена валюта')
-    try:
       sheet_name = form.data['sheet_name']
     except:
       sheet_name = choices[0][0]
@@ -134,12 +130,19 @@ class SettingCreate(CreateView):
         form.add_error(None, 'Не уникальные поля')
         return self.form_invalid(form)
       unique.append(buff)
+    if 'article' not in self.mapping:
+      form.add_error(None, 'Не выбрано поле Артикул')
+      return self.form_invalid(form)
+    if 'name' not in self.mapping:
+      form.add_error(None, 'Не выбрано поле Наименование')
+      return self.form_invalid(form)
     if 'priced_only' in form.data and form.data['priced_only']:
-      print(self.mapping)
       if not 'supplier_price' in self.mapping:
         form.add_error(None, 'Не выбрано поле цены')
         return self.form_invalid(form)
       self.df = self.df[self.df[self.mapping['supplier_price']].notnull()]
+    self.df = self.df[self.df[self.mapping['article']].notnull()]
+    self.df = self.df[self.df[self.mapping['name']].notnull()]
     if self.request.POST.get('submit-btn') == 'apply':
       return self.form_invalid(form)
     setting = form.save()
@@ -161,8 +164,6 @@ class SettingCreate(CreateView):
     RequestConfig(context['table'])
     return context
   def render_to_response(self, context, **response_kwargs):
-    if not context['form'].fields['currency'].initial:
-      return redirect('supplier-detail', id=self.kwargs['id'])
     return super().render_to_response(context, **response_kwargs)
   
 class SettingDetail(SingleTableView):
@@ -188,15 +189,17 @@ class SettingUpload(DetailView):
     setting = self.get_object()
     context['setting'] = setting
     context['supplier'] = setting.supplier
+    file_model = FileModel.objects.get(id=self.kwargs['f_id'])
     try:
-      file_model = FileModel.objects.get(id=self.kwargs['f_id'])
       excel_file = pd.ExcelFile(file_model.file)
-      mapping = {get_field_details(Product)[link.link]['verbose_name']:link.column for link in Link.objects.all().filter(setting_id=setting.id)}
+      mapping = {get_field_details(SupplierProduct)[link.link]['verbose_name']:link.column for link in Link.objects.all().filter(setting_id=setting.id)}
       links = {link.link: link.column for link in Link.objects.all().filter(setting_id=setting.id)}
       self.df = excel_file.parse(setting.sheet_name).dropna(axis=0, how='all').dropna(axis=1, how='all')
       self.df = self.df[mapping.values()]
       if setting.priced_only:
         self.df = self.df[self.df[links['supplier_price']].notnull()]
+      self.df = self.df[self.df[links['article']].notnull()]
+      self.df = self.df[self.df[links['name']].notnull()]
       table = UploadListTable(mapping=mapping, data=self.df.to_dict('records'))
       RequestConfig(table)
       context['table'] = table
@@ -206,8 +209,11 @@ class SettingUpload(DetailView):
       file_model.delete()
     return context
   def render_to_response(self, context, **response_kwargs):
-    if self.df.empty:
-      return redirect('file-upload', id=self.kwargs['id'], name='setting-create')
+    try:
+      if self.df.empty:
+        return redirect('supplier')
+    except:
+      return redirect('supplier')
     if not 'table' in context:
       return redirect('/404')
     return super().render_to_response(context, **response_kwargs)
@@ -251,7 +257,8 @@ def upload_supplier_products(request, **kwargs):
   df = df[links.values()]
   if setting.priced_only:
     df = df[df[links['supplier_price']].notnull()]
-  
+  df = df[df[links['article']].notnull()]
+  df = df[df[links['name']].notnull()]
   added_to_main = 0
   updates = 0
   creates = 0

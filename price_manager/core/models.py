@@ -68,7 +68,7 @@ class Product(models.Model):
   article = models.CharField(verbose_name='Артикул поставщика',
                              null=False,
                              blank=False)
-  name = models.CharField(verbose_name='Название',
+  name = models.CharField(verbose_name='Наименование',
                           null=False,
                           blank=False)
   constraint = models.UniqueConstraint(fields=['supplier','article', 'name'], name='unique_product_constraint')
