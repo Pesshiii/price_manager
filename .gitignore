@@ -1,0 +1,73 @@
+# Django
+*.log
+*.pot
+*.pyc
+__pycache__/
+local_settings.py
+db.sqlite3
+db.sqlite3-journal
+media/
+
+# Backup files
+*.bak
+*.swp
+*~
+
+# IDE specific files
+.idea/
+.vscode/
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+
+# Environment files
+.env
+.venv
+env/
+venv/
+ENV/
+env.bak/
+venv.bak/
+pythonenv*
+
+# Node dependencies
+node_modules/
+
+# Coverage reports
+.coverage
+htmlcov/
+
+# Static files collected during deployment
+staticfiles/
+
+# macOS
+.DS_Store
+
+# Testing
+.pytest_cache/
+
+# Celery
+celerybeat-schedule
+celerybeat.pid
+
+# PyCharm
+.idea/
+
+# Visual Studio Code
+.vscode/
+*.code-workspace
+
+# Database migrations (except the migrations directory)
+*/migrations/*.py
+!*/migrations/__init__.py
+
+# Jupyter Notebook
+.ipynb_checkpoints/
+
+# PyCharm
+.idea/
+
+# Virtual environment
+venv/
