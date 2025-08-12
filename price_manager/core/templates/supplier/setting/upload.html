@@ -1,0 +1,20 @@
+{% extends 'base.html' %}
+
+{% block title %}
+Поставщик: {{supplier.title}}
+{% endblock %}
+
+{% block body %}
+  <div class="container">
+    <h1>{{supplier.name}}</h1>
+    <h2>{{setting.name}}</h2>
+    <button onclick="window.location.href='upload'">Загрузить</button>
+    {% if table %}
+      {% load django_tables2 %}
+      {% render_table table %}
+    {% endif %}
+  </div>
+{% endblock %}
+
+{% block script %}
+{% endblock %}

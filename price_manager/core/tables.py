@@ -1,0 +1,194 @@
+import django.forms as forms
+from django.utils.html import format_html
+import django_tables2 as tables
+
+from .models import *
+from .functions import *
+
+import pandas as pd
+
+class SupplierListTable(tables.Table):
+  '''Таблица отображаемая на странице Поставщики'''
+  # actions = tables.TemplateColumn(
+  #   template_name='supplier/actions.html',
+  #   orderable=False,
+  #   verbose_name='Действия',
+  #   attrs = {'td': {'class': 'text-right'}}
+  # )
+  name = tables.LinkColumn('supplier-detail', args=[tables.A('pk')])
+  class Meta:
+    model = Supplier
+    fields = [field for field, value in get_field_details(model).items() if not value['type'] == 'ForeignKey']
+    template_name = 'django_tables2/bootstrap.html'
+    attrs = {
+      'class': 'table table-auto table-stripped table-hover clickable-rows'
+      }
+    
+class SettingListTable(tables.Table):
+  '''Таблица отображаемая на странице Поставщик/Настройки'''
+  actions = tables.TemplateColumn(
+    template_name='supplier/setting/actions.html',
+    orderable=False,
+    verbose_name='Действия',
+    attrs = {'td': {'class': 'text-right'}}
+  )
+  name = tables.LinkColumn('setting-detail', args=[tables.A('pk')])
+  class Meta:
+    model = Setting
+    fields = [field for field in get_field_details(model).keys()]
+    template_name = 'django_tables2/bootstrap.html'
+    attrs = {
+      'class': 'table table-auto table-stripped table-hover clickable-rows'
+      }
+
+class SupplierProductListTable(tables.Table):
+  '''Таблица отображаемая на странице Поставщики'''
+  actions = tables.TemplateColumn(
+    template_name='supplier/actions.html',
+    orderable=False,
+    verbose_name='Действия',
+    attrs = {'td': {'class': 'text-right'}}
+  )
+  class Meta:
+    model = SupplierProduct
+    fields = ['sku']
+    fields.extend([key for key, value in get_field_details(SupplierProduct).items() 
+              if not value['primary_key']
+              and not key == 'supplier'
+              and not key == 'sku'])
+    template_name = 'django_tables2/bootstrap.html'
+    attrs = {
+      'class': 'table table-auto table-stripped table-hover clickable-rows'
+      }
+    
+class LinkListTable(tables.Table):
+  '''Таблица отображаемая на странице Настройка/Связки'''
+  class Meta:
+    model = Link
+    fields = [field for field in get_field_details(model).keys()]
+    template_name = 'django_tables2/bootstrap.html'
+    attrs = {
+      'class': 'table table-auto table-stripped table-hover clickable-rows'
+      }
+
+class LinkCreateTable(tables.Table):
+  """Таблица с выбиралками на хэдэрах для создания Настроек"""
+  class Meta:
+    template_name = 'includes/table.html'
+    attrs = {'class': 'table table-auto table-striped table-bordered'}
+  def __init__(self, *args, **kwargs):
+    # Remove dataframe from kwargs to avoid passing it to parent
+    df = kwargs.pop('df', None)
+    widgets = kwargs.pop('widgets', None)
+    # Initialize columns based on DataFrame columns
+    if df is not None:
+      for i in range(len(df.columns)):
+        self.base_columns[df.columns[i]] = tables.Column(attrs={
+          'th':
+            {'widget':widgets[i]}
+        })
+    super().__init__(*args, **kwargs)
+
+class UploadListTable(tables.Table):
+  """Предварительное отображение загружаемых данных"""
+  class Meta:
+    template_name = 'django_tables2/bootstrap.html'
+    attrs = {'class': 'table table-auto table-striped table-bordered'}
+  def __init__(self, *args, **kwargs):
+    # Remove dataframe from kwargs to avoid passing it to parent
+    mapping = dict(kwargs.pop('mapping', None))
+    # Initialize columns based on DataFrame columns
+    if mapping is not None:
+      for key, value in mapping.items():
+        self.base_columns[value] = tables.Column(verbose_name=f'{key}/{value}')
+    super().__init__(*args, **kwargs)
+
+class ManufacturerListTable(tables.Table):
+  '''Таблица Производителей отображаемая на странице Производители'''
+  # actions = tables.TemplateColumn(
+  #   template_name='manufacturer/actions.html',
+  #   orderable=False,
+  #   verbose_name='Действия',
+  #   attrs = {'td': {'class': 'text-right'}}
+  # )
+  name = tables.LinkColumn('manufacturer-detail', args=[tables.A('pk')])
+  class Meta:
+    model = Manufacturer
+    fields = [field for field in get_field_details(model).keys()]
+    template_name = 'django_tables2/bootstrap.html'
+    attrs = {
+      'class': 'table table-auto table-stripped table-hover clickable-rows'
+      }
+    
+class ManufacturerDictListTable(tables.Table):
+  '''Таблица Словаря отображаемая на странице Производитель/Словарь'''
+  class Meta:
+    model = ManufacturerDict
+    fields = [field for field, value in get_field_details(model).items() if not value['is_relation']]
+    template_name = 'django_tables2/bootstrap.html'
+    attrs = {
+      'class': 'table table-auto table-stripped table-hover clickable-rows'
+      }
+
+class CurrencyListTable(tables.Table):
+  '''Отображает таблицу Валют на странице Валюта'''
+  
+  name = tables.LinkColumn('currency-update', args=[tables.A('pk')])
+  class Meta:
+    model = Currency
+    fields = [field for field, value in get_field_details(model).items() if not value['is_relation']]
+    template_name = 'django_tables2/bootstrap.html'
+    attrs = {
+      'class': 'table table-auto table-stripped table-hover clickable-rows'
+      }
+    
+class MainProductListTable(tables.Table):
+  '''Таблица Главного прайса отображаемая на главной странице'''
+  class Meta:
+    model = MainProduct
+    fields = [key for key, value in get_field_details(Product).items()]
+
+    template_name = 'django_tables2/bootstrap.html'
+    attrs = {
+      'class': 'table table-auto table-stripped table-hover clickable-rows'
+      }
+
+class SortSupplierProductTable(tables.Table):
+  '''Таблица для сортировки Товаров Поставщиков'''
+  selection = tables.CheckBoxColumn(
+                accessor='pk',
+                attrs={
+                  'th__input': {'id': 'selection'},
+                  'td__input': {'class': 'select-row'},
+                },
+                orderable=False
+              )
+  class Meta:
+    model = SupplierProduct
+    fields = ['sku']
+    fields.extend([key for key, value in get_field_details(SupplierProduct).items() 
+              if not value['primary_key']
+              and not key == 'sku'])
+    template_name = 'django_tables2/bootstrap.html'
+    attrs = {
+      'class': 'table table-auto table-stripped table-hover clickable-rows'
+      }
+  def render_selection(self, value):
+      return format_html('<input type="checkbox" name="selected_items" value="{}" />', value)
+
+
+class CategoryListTable(tables.Table):
+  '''Таблица Категорий отображаемая на странице Производители'''
+  # actions = tables.TemplateColumn(
+  #   template_name='manufacturer/actions.html',
+  #   orderable=False,
+  #   verbose_name='Действия',
+  #   attrs = {'td': {'class': 'text-right'}}
+  # )
+  class Meta:
+    model = Category
+    fields = ['parent', 'name']
+    template_name = 'django_tables2/bootstrap.html'
+    attrs = {
+      'class': 'table table-auto table-stripped table-hover clickable-rows'
+      }

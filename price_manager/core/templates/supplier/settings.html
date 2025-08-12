@@ -1,0 +1,23 @@
+{% extends 'base.html' %}
+
+{% block title %}
+Поставщик: {{supplier.title}}
+{% endblock %}
+
+{% block body %}
+  <div class="container">
+    <button type="button"
+            onclick="window.location.href='/upload/setting-create/{{supplier_id}}'">
+            Новая настройка
+    </button>
+  </div>
+  <div class="container table-wrap">
+    <h1>{{supplier.name}}</h1>
+
+    {% load django_tables2 %}
+    {% render_table table %}
+  </div>
+{% endblock %}
+
+{% block script %}
+{% endblock %}

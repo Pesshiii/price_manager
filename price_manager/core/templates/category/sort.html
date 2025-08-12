@@ -1,0 +1,53 @@
+{% extends 'base.html' %}
+
+{% block title %}
+Сортировка
+{% endblock %}
+
+{% block body %}
+  <h1>Сортировка товаров поставщиков по категориям</h1>
+  <form method="get">
+    <div class="form form-control mb-3 w-100">
+      {{search_form.as_p}}
+      <button type="submit" class="btn btn-primary">Поиск</button>
+      <button type="reset" class="btn btn-secondary">Сбросить</button>
+    </div>
+  </form>
+  <form method="post" id="action-form">
+    {% csrf_token %}
+    <div class="form-group mt-3 w-25">
+      <div class="input-group p-2">
+      <button class="btn btn-primary" onclick="window.location.href='/category/create'">Новая</button>
+      <div class="form-floating">
+        {{ form.category }}
+        <label for="floatingSelect">Категория</label>
+      </div>
+      </div>
+      <div class="input-group p-2">
+      <button type="submit" class="btn btn-primary">
+        Выполнить
+      </button>
+      </div>
+    </div>
+    {% load django_tables2 %}
+    {% render_table table %}
+    
+  </form>
+{% endblock %}
+
+{% block script %}
+
+
+// Select all implementation
+document.addEventListener('DOMContentLoaded', function() {
+    const form = document.getElementById('action-form');
+    const checkboxes = form.querySelectorAll('input[type="checkbox"]');
+    const selection = document.getElementById('selection');
+    
+    selection.addEventListener('change', function(){
+        checkboxes.forEach(checkbox => {
+            checkbox.checked = this.checked;
+        });
+    });
+});
+{% endblock %}

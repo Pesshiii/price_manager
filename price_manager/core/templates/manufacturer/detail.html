@@ -1,0 +1,20 @@
+{% extends 'base.html' %}
+
+{% block title %}
+Поставщик: {{supplier.title}}
+{% endblock %}
+
+{% block body %}
+<div class="container table-wrap">
+  <div class="container">
+    <div>
+      <h1>{{manufacturer.name}}</h1>
+    </div>
+  </div>
+    {% load django_tables2 %}
+    {% render_table table %}
+  </div>
+{% endblock %}
+
+{% block script %}
+{% endblock %}

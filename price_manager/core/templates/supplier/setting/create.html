@@ -1,0 +1,26 @@
+{% extends 'base.html' %}
+
+{% block title %}
+Новый поставщик
+{% endblock %}
+
+{% block body %}
+  <div class="container">
+    <h1>Новая настройка</h1>
+  </div>
+  <form method="post">
+    {% csrf_token %}
+    {{form.as_p}}
+    <button type="submit" name="submit-btn" value="apply">Применить</button>
+    <button type="submit" name="submit-btn" value="save">Сохранить</button>
+    <div class="container table-wrap">
+      {{ link_factory.management_form }}
+      {% load django_tables2 %}
+      {% render_table table %}
+    </div>
+  </form>
+{% endblock %}
+
+{% block script %}
+
+{% endblock %}

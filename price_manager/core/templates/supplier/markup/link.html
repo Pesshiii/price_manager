@@ -1,0 +1,35 @@
+{% extends 'base.html' %}
+
+{% block title %}
+Наценка: {{markup.title}}
+{% endblock %}
+
+{% block body %}
+<div>
+  <h1>Нацепка наценок</h1>
+</div>
+<div class="container">
+  <form method="get" class="form form-control mb-3 w-100">
+    <div class="w-100">
+      {{filter_form.as_p }}
+      <button type="submit" class="btn btn-primary ml-2">Поиск</button>
+    </div>
+  </form>
+  <form method="post" class="action-form">
+    <div class="form-group">
+      <button
+      type = "submit"
+      class="btn btn-secondary ml-2">
+      Нацепить
+      </button>
+    </div>
+  </form>
+</div>
+<div class="container table-wrap">
+  {% load django_tables2 %}
+  {% render_table table %}
+</div>
+{% endblock %}
+
+{% block script %}
+{% endblock %}
