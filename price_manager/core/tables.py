@@ -71,23 +71,25 @@ class LinkListTable(tables.Table):
       'class': 'table table-auto table-stripped table-hover clickable-rows'
       }
 
-class LinkCreateTable(tables.Table):
-  """Таблица с выбиралками на хэдэрах для создания Настроек"""
-  class Meta:
-    template_name = 'includes/table.html'
-    attrs = {'class': 'table table-auto table-striped table-bordered'}
-  def __init__(self, *args, **kwargs):
-    # Remove dataframe from kwargs to avoid passing it to parent
-    df = kwargs.pop('df', None)
-    widgets = kwargs.pop('widgets', None)
-    # Initialize columns based on DataFrame columns
-    if df is not None:
-      for i in range(len(df.columns)):
-        self.base_columns[df.columns[i]] = tables.Column(attrs={
-          'th':
-            {'widget':widgets[i]}
-        })
-    super().__init__(*args, **kwargs)
+def get_link_create_table():
+  class LinkCreateTable(tables.Table):
+    """Таблица с выбиралками на хэдэрах для создания Настроек"""
+    class Meta:
+      template_name = 'includes/table.html'
+      attrs = {'class': 'table table-auto table-striped table-bordered'}
+    def __init__(self, *args, **kwargs):
+      # Remove dataframe from kwargs to avoid passing it to parent
+      df = kwargs.pop('df', None)
+      widgets = kwargs.pop('widgets', None)
+      # Initialize columns based on DataFrame columns
+      if df is not None:
+        for i in range(len(df.columns)):
+          self.base_columns[df.columns[i]] = tables.Column(attrs={
+            'th':
+              {'widget':widgets[i]}
+          })
+      super().__init__(*args, **kwargs)
+  return LinkCreateTable
 
 class UploadListTable(tables.Table):
   """Предварительное отображение загружаемых данных"""

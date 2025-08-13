@@ -37,7 +37,7 @@ class MainPage(TemplateView):
         file.file.delete()
         file.delete()
     except BaseException as ex:
-      messages.error(self.request, 'Ничего не произошло')
+      messages.error(self.request, f'{ex}')
     return super().get_context_data(**kwargs)
 
 # Обработка поставщика
@@ -112,6 +112,11 @@ class SettingCreate(CreateView):
     except:
       sheet_name = choices[0][0]
     self.df = excel_file.parse(sheet_name).dropna(axis=0, how='all').dropna(axis=1, how='all')
+
+    # Закрыь файл
+    self.file_model.file.close()
+
+    #  подготовка шторок на столбцы
     self.link_factory = LinkFactory(self.request.POST or None)
     if len(self.link_factory.forms) != len(self.df.columns):
       self.link_factory = LinkFactory()
@@ -125,11 +130,12 @@ class SettingCreate(CreateView):
   def form_valid(self, form):
     unique = []
     for i in range(len(self.df.columns)):
-      buff = self.link_factory.data[f'form-{i}-link']
-      if buff in unique and buff:
-        form.add_error(None, 'Не уникальные поля')
-        return self.form_invalid(form)
-      unique.append(buff)
+      if f'form-{i}-link' in self.link_factory.data:
+        buff = self.link_factory.data[f'form-{i}-link']
+        if buff in unique and buff:
+          form.add_error(None, 'Не уникальные поля')
+          return self.form_invalid(form)
+        unique.append(buff)
     if 'article' not in self.mapping:
       form.add_error(None, 'Не выбрано поле Артикул')
       return self.form_invalid(form)
@@ -148,23 +154,20 @@ class SettingCreate(CreateView):
     setting = form.save()
     self.success_url = reverse('setting-upload', kwargs={'id':setting.id, 'f_id':self.file_model.id})
     for key, value in self.mapping.items():
-      Link.objects.update_or_create(
-        defaults={
-          'setting': setting,
-          'link': key
-        },
+      Link.objects.create(
+        setting = setting,
+        link = key,
         column = value
       )
     return super().form_valid(form)
   def get_context_data(self, **kwargs):
     context = super().get_context_data(**kwargs)
     context['link_factory'] = self.link_factory
-    widgets = [form for form in self.link_factory.forms]
-    context['table'] = LinkCreateTable(df=self.df, widgets=widgets, data=self.df.to_dict('records'))
-    RequestConfig(context['table'])
+    widgets = [self.link_factory.forms[i]
+                for i in range(len(self.df.columns))]
+    context['table'] = get_link_create_table()(df=self.df, widgets=widgets, data=self.df.to_dict('records'))
+    RequestConfig(self.request).configure(context['table'])
     return context
-  def render_to_response(self, context, **response_kwargs):
-    return super().render_to_response(context, **response_kwargs)
   
 class SettingDetail(SingleTableView):
   '''Отображает настройку поставщика <<setting/<int:id>/>>'''
@@ -195,6 +198,7 @@ class SettingUpload(DetailView):
       mapping = {get_field_details(SupplierProduct)[link.link]['verbose_name']:link.column for link in Link.objects.all().filter(setting_id=setting.id)}
       links = {link.link: link.column for link in Link.objects.all().filter(setting_id=setting.id)}
       self.df = excel_file.parse(setting.sheet_name).dropna(axis=0, how='all').dropna(axis=1, how='all')
+      file_model.file.close()
       self.df = self.df[mapping.values()]
       if setting.priced_only:
         self.df = self.df[self.df[links['supplier_price']].notnull()]
@@ -215,7 +219,7 @@ class SettingUpload(DetailView):
     except:
       return redirect('supplier')
     if not 'table' in context:
-      return redirect('/404')
+      return redirect('supplier')
     return super().render_to_response(context, **response_kwargs)
 
 # Обработка файлов
@@ -254,6 +258,7 @@ def upload_supplier_products(request, **kwargs):
   excel_file = pd.ExcelFile(file_model.file)
   links = {link.link: link.column for link in Link.objects.all().filter(setting_id=setting.id)}
   df = excel_file.parse(setting.sheet_name).dropna(axis=0, how='all').dropna(axis=1, how='all')
+  file_model.file.close()
   df = df[links.values()]
   if setting.priced_only:
     df = df[df[links['supplier_price']].notnull()]
@@ -293,7 +298,7 @@ def upload_supplier_products(request, **kwargs):
         updates += 1
     except BaseException as ex:
       errors += 1
-      messages.error(request, ex)
+      messages.error(request, f'{row}\n{ex}')
 
   messages.success(request, f"Создано:{creates}, Обновлено: {updates}, Ошибки: {errors}, Добавлено в главный прайс: {added_to_main}")
   file_model.file.delete()

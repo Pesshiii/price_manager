@@ -5,7 +5,10 @@
 {% endblock %}
 
 {% block body %}
-<div class="container table-wrap">
+<div class="container">
+  <div>
+    <h1>{{supplier.name}}</h1>
+  </div>
   <div class="container">
     <form method="get" class="form form-control mb-3 w-100">
       <div class="w-100">
@@ -18,9 +21,6 @@
     class="btn btn-secondary ml-2">
     Импорт
   </button>
-    <div>
-      <h1>{{supplier.name}}</h1>
-    </div>
   </div>
     {% load django_tables2 %}
     {% render_table table %}

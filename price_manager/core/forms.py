@@ -72,10 +72,10 @@ class SupplierFilterForm(FilterForm):
                               required=False)
   def filter_queryset(self, queryset, request):
     queryset = super().filter_queryset(queryset, request)
-    if 'sku' in request and not request['sku_name'] == '':
+    if 'sku' in request and not request['sku'] == '':
       queryset = queryset.annotate(
-        lower_name=Lower('sku_name')).filter(
-          lower_name__icontains=request['sku_name'].lower()
+        lower_name=Lower('sku__name')).filter(
+          lower_name__icontains=request['sku'].lower()
       )
     return queryset
   

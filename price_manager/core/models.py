@@ -103,7 +103,7 @@ class MainProduct(Product):
       max_digits=8,
       null=True)
   def __str__(self):
-    return self.name
+    return self.sku
   class Meta:
     verbose_name = 'Главный продукт'
   
