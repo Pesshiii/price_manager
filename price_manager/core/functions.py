@@ -31,3 +31,16 @@ FOREIGN = [key for key, value in get_field_details(Product).items() if value['is
 
 def match_manufacturer(name: str)->Manufacturer:
   return ManufacturerDict.objects.all().filter(name__icontains=name)[0].manufacturer
+
+
+def extract_initial_from_post(post, prefix="form"):
+    """Схватить данные после нажатия кнопки добавить"""
+    total = int(post.get(f"{prefix}-TOTAL_FORMS", 0))
+    rows = []
+    for i in range(total):
+        rows.append({
+            "key":  post.get(f"{prefix}-{i}-key", ""),
+            "value":   post.get(f"{prefix}-{i}-value", ""),
+            "enable": post.get(f"{prefix}-{i}-enable", True)
+        })
+    return rows

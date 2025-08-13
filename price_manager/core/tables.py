@@ -91,6 +91,15 @@ def get_link_create_table():
       super().__init__(*args, **kwargs)
   return LinkCreateTable
 
+
+class DictFormTable(tables.Table):
+    # Each record is a Form; we render its fields right in the cells
+    key = tables.TemplateColumn('{{ record.key }}',   verbose_name="Если", orderable=False)
+    value  = tables.TemplateColumn('{{ record.value }}',    verbose_name="То", orderable=False)
+    DELETE = tables.TemplateColumn('{{ record.enable }}', verbose_name="", orderable=False)
+    class Meta:
+        attrs = {"class": "table", "id": "items-table"}
+
 class UploadListTable(tables.Table):
   """Предварительное отображение загружаемых данных"""
   class Meta:

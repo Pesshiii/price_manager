@@ -110,3 +110,17 @@ class CategoryAddForm(forms.Form):
       'class':'form-select'
     })
   )
+
+
+class DictForm(forms.ModelForm):
+  link = forms.ModelChoiceField(Link.objects,
+                                required=False,
+                                widget=forms.HiddenInput(),
+                                label='')
+  enable = forms.BooleanField(label='',
+                              initial=True)
+  class Meta:
+    model = Dict
+    fields = '__all__'
+
+DictFormSet = forms.formset_factory(DictForm, extra=0)

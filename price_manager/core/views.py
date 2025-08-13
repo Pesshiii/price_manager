@@ -126,7 +126,14 @@ class SettingCreate(CreateView):
                 for i in range(len(self.df.columns))
                 if not self.link_factory.data[f'form-{i}-link'] == ''}
     else: self.mapping = {}
+    # Подготовка табличек для замены значений
+    dict_initial = [{'key': '', 'value': None}]
+    self.dict_forms = {}
+    for key, value in self.mapping.items():
+      self.dict_forms[key] = DictFormSet(initial=dict_initial, prefix=f'dict_{key}_form')
     return form
+
+    
   def form_valid(self, form):
     unique = []
     for i in range(len(self.df.columns)):
@@ -142,6 +149,7 @@ class SettingCreate(CreateView):
     if 'name' not in self.mapping:
       form.add_error(None, 'Не выбрано поле Наименование')
       return self.form_invalid(form)
+    # Очистка данных
     if 'priced_only' in form.data and form.data['priced_only']:
       if not 'supplier_price' in self.mapping:
         form.add_error(None, 'Не выбрано поле цены')
@@ -149,20 +157,61 @@ class SettingCreate(CreateView):
       self.df = self.df[self.df[self.mapping['supplier_price']].notnull()]
     self.df = self.df[self.df[self.mapping['article']].notnull()]
     self.df = self.df[self.df[self.mapping['name']].notnull()]
-    if self.request.POST.get('submit-btn') == 'apply':
-      return self.form_invalid(form)
+
+    # Логика замены значений
+    for key, value in self.mapping.items():
+      action = self.request.POST.get(f'{key}_action')
+      initial = extract_initial_from_post(self.request.POST, f'dict_{key}_form')
+      if action == 'add':
+        ExtraFormSet = forms.formset_factory(DictForm, extra=1, can_delete=True)
+        self.dict_forms[key] = ExtraFormSet(initial=initial, prefix=f'dict_{key}_form')
+      else:
+        self.dict_forms[key] = DictFormSet(initial=initial, prefix=f'dict_{key}_form')
+      dict_formset = DictFormSet(self.request.POST, prefix=f'dict_{key}_form')
+      if dict_formset.is_valid():
+        col_dict = {}
+        try:
+          for i, cleaned in enumerate(dict_formset.cleaned_data):
+            if not cleaned or not cleaned.get('enable', None):
+              continue
+            col_key = cleaned.get('key', None)
+            col_value = cleaned.get('value', None)
+            if col_key and col_value:
+              col_dict[col_key] = col_value
+          self.df[value] = self.df[value].astype(str)
+          self.df[value] = self.df[value].replace(col_dict, regex=True)
+        except BaseException as ex:
+          form.add_error(None, f'Что-то не так с заменами: {ex}')
+
+    if not self.request.POST.get('submit-btn') == 'save':
+      return super().form_invalid(form)
     setting = form.save()
     self.success_url = reverse('setting-upload', kwargs={'id':setting.id, 'f_id':self.file_model.id})
     for key, value in self.mapping.items():
-      Link.objects.create(
+      link = Link.objects.create(
         setting = setting,
         link = key,
         column = value
       )
+      dict_formset = DictFormSet(self.request.POST, prefix=f'dict_{key}_form')
+      if dict_formset.is_valid():
+        for i, cleaned in enumerate(dict_formset.cleaned_data):
+          if not cleaned or not cleaned.get('enable'):
+            continue
+          Dict.objects.create(
+              link=link,
+              key=cleaned.get('key',''),
+              value=cleaned.get('value','')
+            )
     return super().form_valid(form)
+  
   def get_context_data(self, **kwargs):
     context = super().get_context_data(**kwargs)
     context['link_factory'] = self.link_factory
+    # Таблички замен и формы для них
+    context['dict_forms'] = self.dict_forms.items()
+    tables = {key:DictFormTable(value.forms) for key, value in self.dict_forms.items()}
+    context['tables'] = tables
     widgets = [self.link_factory.forms[i]
                 for i in range(len(self.df.columns))]
     context['table'] = get_link_create_table()(df=self.df, widgets=widgets, data=self.df.to_dict('records'))
@@ -195,7 +244,7 @@ class SettingUpload(DetailView):
     file_model = FileModel.objects.get(id=self.kwargs['f_id'])
     try:
       excel_file = pd.ExcelFile(file_model.file)
-      mapping = {get_field_details(SupplierProduct)[link.link]['verbose_name']:link.column for link in Link.objects.all().filter(setting_id=setting.id)}
+      mapping = {get_field_details(SupplierProduct)[link.link]['verbose_name']:link.column for link in Link.objects.filter(setting_id=setting.id)}
       links = {link.link: link.column for link in Link.objects.all().filter(setting_id=setting.id)}
       self.df = excel_file.parse(setting.sheet_name).dropna(axis=0, how='all').dropna(axis=1, how='all')
       file_model.file.close()
@@ -204,6 +253,14 @@ class SettingUpload(DetailView):
         self.df = self.df[self.df[links['supplier_price']].notnull()]
       self.df = self.df[self.df[links['article']].notnull()]
       self.df = self.df[self.df[links['name']].notnull()]
+      # Применение заменок
+      for link in Link.objects.filter(setting_id=setting.id):
+        col_dict = {entry.key: entry.value for entry in Dict.objects.filter(link=link)}
+        try:
+          self.df[link.column] = self.df[link.column].astype(str)
+          self.df[link.column] = self.df[link.column].replace(col_dict, regex=True)
+        except BaseException as ex:
+          messages.error(None, f'Что-то не так с заменами: {ex}')
       table = UploadListTable(mapping=mapping, data=self.df.to_dict('records'))
       RequestConfig(table)
       context['table'] = table
@@ -264,6 +321,12 @@ def upload_supplier_products(request, **kwargs):
     df = df[df[links['supplier_price']].notnull()]
   df = df[df[links['article']].notnull()]
   df = df[df[links['name']].notnull()]
+  for link in Link.objects.filter(setting_id=setting.id):
+        col_dict = {entry.key: entry.value for entry in Dict.objects.filter(link=link)}
+        col_type =df[link.column].dtype
+        df[link.column] = df[link.column].astype(str)
+        df[link.column] = df[link.column].replace(col_dict, regex=True)
+        df[link.column] = df[link.column].astype(col_type)
   added_to_main = 0
   updates = 0
   creates = 0

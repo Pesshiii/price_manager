@@ -188,6 +188,15 @@ class Link(models.Model):
   column = models.CharField()
   constraint = models.UniqueConstraint(fields=['setting', 'link'], name='product-field-constraint')
 
+class Dict(models.Model):
+  link = models.ForeignKey(Link,
+                           on_delete=models.CASCADE,
+                           verbose_name='Столбец',
+                           blank=True,
+                           null=True)
+  key = models.CharField(verbose_name='Если')
+  value = models.CharField(verbose_name='То')
+
 # Обработка файлов
 
 class FileModel(models.Model):
