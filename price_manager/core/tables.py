@@ -99,6 +99,7 @@ class DictFormTable(tables.Table):
     DELETE = tables.TemplateColumn('{{ record.enable }}', verbose_name="", orderable=False)
     class Meta:
         attrs = {"class": "table", "id": "items-table"}
+
 def get_upload_list_table():
   class UploadListTable(tables.Table):
     """Предварительное отображение загружаемых данных"""
@@ -158,8 +159,10 @@ class MainProductListTable(tables.Table):
   '''Таблица Главного прайса отображаемая на главной странице'''
   class Meta:
     model = MainProduct
-    fields = [key for key, value in get_field_details(Product).items()]
-
+    fields = ['sku']
+    fields.extend([key for key, value in get_field_details(MainProduct).items()
+                   if not key in FOREIGN
+                   and not key == 'sku'])
     template_name = 'django_tables2/bootstrap.html'
     attrs = {
       'class': 'table table-auto table-stripped table-hover clickable-rows'

@@ -2,7 +2,7 @@ from django.db import models
 from django.db.models import Q
 from django.db.models.functions import Lower
 from django.core.validators import FileExtensionValidator
-
+import typing
 
 
 class Supplier(models.Model):
@@ -58,6 +58,41 @@ class Category(models.Model):
       return f'{self.parent}>{self.name}'
     else:
       return self.name
+    
+def icontains(name, value):
+  return  Q(
+    Q(**{f"{name}__icontains": value}) |
+    Q(**{f"{name}__icontains": value.lower()}) |
+    Q(**{f"{name}__icontains": value.upper()}) |
+    Q(**{f"{name}__icontains": value.capitalize()}))
+
+
+class ProductQuerySet(models.QuerySet):
+  def search_fields(self, request: typing.Dict[str, str]):
+    query = Q()
+    s_query = Q()
+    search = [chunk for chunk in request.get('search', '').split() if not chunk == '']
+    for field in self.model._meta.fields:
+        value = request.get(field.name, None)
+        if not value:
+          continue
+        if field.get_internal_type() in {"CharField", "TextField"}:
+          query &= icontains(f"{field.name}", value)
+        else:
+          query &= Q(**{field.name: value})
+    for field in self.model._meta.fields:
+      if not field.get_internal_type() in {"CharField", "TextField"} and not field.is_relation:
+        continue
+      for chunk in search:
+        s_query |= icontains(f"{field.name}{'__name'*(field.is_relation)}", chunk)
+    return self.filter(s_query).filter(query)
+
+
+class ProductManager(models.Manager):
+  def get_queryset(self):
+    return ProductQuerySet(self.model, using=self._db)
+  def search_fields(self, request: typing.Dict[str, str]):
+    return self.get_queryset().search_fields(request)
 
 class Product(models.Model):
   supplier=models.ForeignKey(Supplier,
@@ -88,9 +123,10 @@ class Product(models.Model):
                                    null=True)
   stock = models.PositiveIntegerField(verbose_name='Остаток',
                               default=0)
+  objects = ProductManager()
 
 class MainProduct(Product):
-  sku = models.CharField(verbose_name='Артикуль товара',
+  sku = models.CharField(verbose_name='Артикул товара',
                          unique=True)
   rmp_kzt = models.DecimalField(
       verbose_name='РРЦ в тенге',
@@ -107,40 +143,10 @@ class MainProduct(Product):
   class Meta:
     verbose_name = 'Главный продукт'
   
-class SupplierProductManager(models.Manager):
-  def search_all(self, search):
-    chunks = search.split(' ')
-    fields = ['sku', 'supplier', 'manufacturer']
-    query = Q()
-    annotations = {
-      f'lower_{field}_name': Lower(f'{field}__name') for field in fields
-    }
-    annotations['lower_name'] = Lower('name')
-    queryset = self.get_queryset().annotate(**annotations)
-    for chunk in chunks:
-      for field in fields:
-          query |= Q(**{f"lower_{field}_name__icontains": chunk.lower()})
-      query |= Q(lower_name__icontains=chunk.lower())
-    return queryset.filter(query)
-  def search_fields(self, request):
-    query = Q()
-    search = request.get('search', '')
-    queryset = self.search_all(search)
-    annotations = {}
-    for field in self.model._meta.fields:
-        value = request.get(field.name, '').lower()
-        if not value == '':
-          if field.is_relation:
-            annotations[f'lower_{field.name}_name'] = Lower(f'{field.name}__name')
-            query &= Q(**{f"lower_{field.name}_name__icontains": value})
-          else:
-            annotations[f'lower_{field.name}'] = Lower(f'{field.name}')
-            query &= Q(**{f"lower_{field.name}__icontains": value})
-    return queryset.filter(query)
-
 class SupplierProduct(Product):
   sku=models.ForeignKey(MainProduct,
                         verbose_name='sku',
+                        related_name='sku_ptr',
                         on_delete=models.SET_NULL,
                         null=True,
                         blank=True)
@@ -154,7 +160,6 @@ class SupplierProduct(Product):
                                on_delete=models.PROTECT,
                                blank=False,
                                null=True)
-  objects = SupplierProductManager()
 
 # Модели для менджмента загрузки/обновления поставщиков
 

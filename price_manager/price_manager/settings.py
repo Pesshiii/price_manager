@@ -83,6 +83,9 @@ DATABASES = {
     'default': {
         'ENGINE': 'django.db.backends.sqlite3',
         'NAME': BASE_DIR / 'db.sqlite3',
+        "OPTIONS": {
+            "transaction_mode": "IMMEDIATE",   # ADDED FOR SQLITE DB   /
+        },                                     # TRY REMOVE ON OTHER DB/
     }
 }
 

@@ -27,18 +27,24 @@ import pandas as pd
 import json
 
 
-class MainPage(TemplateView):
-  # model = Product
-  # table_class = ProductTable
-  template_name = 'core/main.html'
+class MainPage(SingleTableView):
+  model = MainProduct
+  table_class = MainProductListTable
+  template_name = 'main/main.html'
+  paginate_by = 100
+  def get_table_data(self):
+    return self.model.objects.search_fields(self.request.GET)
   def get_context_data(self, **kwargs):
+    # Чистка базы файлов
+    context = super().get_context_data(**kwargs)
+    context['filter_form'] = MainProductFilterForm(self.request.GET)
     try:
       for file in FileModel.objects.all():
         file.file.delete()
         file.delete()
     except BaseException as ex:
       messages.error(self.request, f'{ex}')
-    return super().get_context_data(**kwargs)
+    return context
 
 # Обработка поставщика
 
@@ -260,7 +266,7 @@ class SettingUpload(DetailView):
         except BaseException as ex:
           messages.error(None, f'Что-то не так с заменами: {ex}')
       table = get_upload_list_table()(mapping=mapping, data=self.df.to_dict('records'))
-      RequestConfig(table)
+      RequestConfig(self.request, paginate=True).configure(table)
       context['table'] = table
     except BaseException as ex:
       messages.error(self.request, ex)
@@ -286,7 +292,7 @@ class FileUpload(CreateView):
   '''
   model = FileForm
   form_class = FileForm
-  template_name = 'core/upload.html'
+  template_name = 'upload/upload.html'
   def form_valid(self, form):
     f_id = form.save().id
     self.success_url = reverse(self.kwargs['name'],
@@ -335,11 +341,21 @@ def upload_supplier_products(request, **kwargs):
       data={}
       # Map DataFrame columns to model fields
       for model_field, df_col in links.items():
-        if df_col in row and not model_field in FOREIGN and not model_field in NECESSARY:
+        if df_col in row and not model_field in NECESSARY:
           data[model_field] = row[df_col]
       data['currency'] = setting.currency
 
-      kwargs = {field: row[links[field]] for field in NECESSARY if field not in FOREIGN}
+      # Создание и присвоение производителя
+      if 'manufacturer' in links:
+        manu_dict = ManufacturerDict.objects.filter(name=row[links['manufacturer']]).first()
+        if manu_dict:
+          manu = manu_dict.manufacturer
+        else:
+          manu, created = Manufacturer.objects.update_or_create(name=row[links['manufacturer']])
+        data['manufacturer']=manu
+
+
+      kwargs = {field: row[links[field]] for field in NECESSARY if field in links}
       kwargs['supplier'] = supplier
       # Update or create
       product, created = SupplierProduct.objects.update_or_create(
@@ -359,7 +375,7 @@ def upload_supplier_products(request, **kwargs):
         updates += 1
     except BaseException as ex:
       errors += 1
-      messages.error(request, f'{row}\n{ex}')
+      messages.error(request, f'{row}\n\n{ex}')
 
   messages.success(request, f"Создано:{creates}, Обновлено: {updates}, Ошибки: {errors}, Добавлено в главный прайс: {added_to_main}")
   file_model.file.delete()

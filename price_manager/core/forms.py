@@ -43,7 +43,7 @@ class FileForm(forms.ModelForm):
     fields = '__all__'
 
 class FilterForm(forms.Form):
-  search = forms.CharField(label='Поиск по всем полям(workn`t)',
+  search = forms.CharField(label='Поиск по всем полям',
                            required=False,
                            widget=forms.TextInput(attrs={
                              'class':'w-100'

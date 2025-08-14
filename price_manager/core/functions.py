@@ -26,7 +26,7 @@ LINKS.extend([(key, value['verbose_name']) for key, value in get_field_details(S
 
 NECESSARY = ['supplier', 'article', 'name']
 
-FOREIGN = [key for key, value in get_field_details(Product).items() if value['is_relation']]
+FOREIGN = ['product_ptr', 'sku_ptr']
 
 
 def match_manufacturer(name: str)->Manufacturer:
