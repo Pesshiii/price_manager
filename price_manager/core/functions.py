@@ -33,14 +33,15 @@ def match_manufacturer(name: str)->Manufacturer:
   return ManufacturerDict.objects.all().filter(name__icontains=name)[0].manufacturer
 
 
-def extract_initial_from_post(post, prefix="form"):
+def extract_initial_from_post(post, prefix="form", data={}, length=None):
     """Схватить данные после нажатия кнопки добавить"""
-    total = int(post.get(f"{prefix}-TOTAL_FORMS", 0))
+    if not length:
+      total = int(post.get(f"{prefix}-TOTAL_FORMS", 0))
+    else:
+      total = length
     rows = []
     for i in range(total):
         rows.append({
-            "key":  post.get(f"{prefix}-{i}-key", ""),
-            "value":   post.get(f"{prefix}-{i}-value", ""),
-            "enable": post.get(f"{prefix}-{i}-enable", True)
+            key:  post.get(f"{prefix}-{i}-{key}", value) for key, value in data.items()
         })
     return rows

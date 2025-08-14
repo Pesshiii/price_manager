@@ -37,9 +37,6 @@ class LinksForm(forms.Form):
   class Meta:
     fields = ['link']
 
-LinkFactory = forms.formset_factory(
-                    form=LinksForm)
-
 class FileForm(forms.ModelForm):
   class Meta:
     model = FileModel

@@ -117,15 +117,14 @@ class SettingCreate(CreateView):
     self.file_model.file.close()
 
     #  подготовка шторок на столбцы
-    self.link_factory = LinkFactory(self.request.POST or None)
-    if len(self.link_factory.forms) != len(self.df.columns):
-      self.link_factory = LinkFactory()
-      self.link_factory.extra = len(self.df.columns)
-    if not self.link_factory.data == {}:
-      self.mapping = {self.link_factory.data[f'form-{i}-link'] : self.df.columns[i] 
+    initial = extract_initial_from_post(self.request.POST, 'widget_form',{'link':''}, len(self.df.columns))
+    LinkFactory = forms.formset_factory(
+                        form=LinksForm,
+                        extra=len(self.df.columns))
+    self.link_factory = LinkFactory(initial=initial, prefix='widget_form')
+    self.mapping = {initial[i]['link'] : self.df.columns[i] 
                 for i in range(len(self.df.columns))
-                if not self.link_factory.data[f'form-{i}-link'] == ''}
-    else: self.mapping = {}
+                if not initial[i]['link'] == ''}
     # Подготовка табличек для замены значений
     dict_initial = [{'key': '', 'value': None}]
     self.dict_forms = {}
@@ -161,12 +160,12 @@ class SettingCreate(CreateView):
     # Логика замены значений
     for key, value in self.mapping.items():
       action = self.request.POST.get(f'{key}_action')
-      initial = extract_initial_from_post(self.request.POST, f'dict_{key}_form')
+      dict_initial = extract_initial_from_post(self.request.POST, f'dict_{key}_form', {'key':'', 'value':'', 'enable': True})
       if action == 'add':
         ExtraFormSet = forms.formset_factory(DictForm, extra=1, can_delete=True)
-        self.dict_forms[key] = ExtraFormSet(initial=initial, prefix=f'dict_{key}_form')
+        self.dict_forms[key] = ExtraFormSet(initial=dict_initial, prefix=f'dict_{key}_form')
       else:
-        self.dict_forms[key] = DictFormSet(initial=initial, prefix=f'dict_{key}_form')
+        self.dict_forms[key] = DictFormSet(initial=dict_initial, prefix=f'dict_{key}_form')
       dict_formset = DictFormSet(self.request.POST, prefix=f'dict_{key}_form')
       if dict_formset.is_valid():
         col_dict = {}
@@ -182,7 +181,6 @@ class SettingCreate(CreateView):
           self.df[value] = self.df[value].replace(col_dict, regex=True)
         except BaseException as ex:
           form.add_error(None, f'Что-то не так с заменами: {ex}')
-
     if not self.request.POST.get('submit-btn') == 'save':
       return super().form_invalid(form)
     setting = form.save()
@@ -244,8 +242,8 @@ class SettingUpload(DetailView):
     file_model = FileModel.objects.get(id=self.kwargs['f_id'])
     try:
       excel_file = pd.ExcelFile(file_model.file)
-      mapping = {get_field_details(SupplierProduct)[link.link]['verbose_name']:link.column for link in Link.objects.filter(setting_id=setting.id)}
-      links = {link.link: link.column for link in Link.objects.all().filter(setting_id=setting.id)}
+      mapping = {get_field_details(SupplierProduct)[link.link]['verbose_name']:link.column for link in Link.objects.filter(setting=setting)}
+      links = {link.link: link.column for link in Link.objects.all().filter(setting=setting)}
       self.df = excel_file.parse(setting.sheet_name).dropna(axis=0, how='all').dropna(axis=1, how='all')
       file_model.file.close()
       self.df = self.df[mapping.values()]
@@ -261,7 +259,7 @@ class SettingUpload(DetailView):
           self.df[link.column] = self.df[link.column].replace(col_dict, regex=True)
         except BaseException as ex:
           messages.error(None, f'Что-то не так с заменами: {ex}')
-      table = UploadListTable(mapping=mapping, data=self.df.to_dict('records'))
+      table = get_upload_list_table()(mapping=mapping, data=self.df.to_dict('records'))
       RequestConfig(table)
       context['table'] = table
     except BaseException as ex:

@@ -99,20 +99,21 @@ class DictFormTable(tables.Table):
     DELETE = tables.TemplateColumn('{{ record.enable }}', verbose_name="", orderable=False)
     class Meta:
         attrs = {"class": "table", "id": "items-table"}
-
-class UploadListTable(tables.Table):
-  """Предварительное отображение загружаемых данных"""
-  class Meta:
-    template_name = 'django_tables2/bootstrap.html'
-    attrs = {'class': 'table table-auto table-striped table-bordered'}
-  def __init__(self, *args, **kwargs):
-    # Remove dataframe from kwargs to avoid passing it to parent
-    mapping = dict(kwargs.pop('mapping', None))
-    # Initialize columns based on DataFrame columns
-    if mapping is not None:
-      for key, value in mapping.items():
-        self.base_columns[value] = tables.Column(verbose_name=f'{key}/{value}')
-    super().__init__(*args, **kwargs)
+def get_upload_list_table():
+  class UploadListTable(tables.Table):
+    """Предварительное отображение загружаемых данных"""
+    class Meta:
+      template_name = 'django_tables2/bootstrap.html'
+      attrs = {'class': 'table table-auto table-striped table-bordered'}
+    def __init__(self, *args, **kwargs):
+      # Remove dataframe from kwargs to avoid passing it to parent
+      mapping = dict(kwargs.pop('mapping', None))
+      # Initialize columns based on DataFrame columns
+      if mapping is not None:
+        for key, value in mapping.items():
+          self.base_columns[value] = tables.Column(verbose_name=f'{key}/{value}')
+      super().__init__(*args, **kwargs)
+  return UploadListTable
 
 class ManufacturerListTable(tables.Table):
   '''Таблица Производителей отображаемая на странице Производители'''
