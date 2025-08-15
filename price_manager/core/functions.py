@@ -20,13 +20,14 @@ def get_field_details(Model) -> dict:
     for field in Model._meta.get_fields() if not 'id' in field.name
   }
 
-LINKS.extend([(key, value['verbose_name']) for key, value in get_field_details(SupplierProduct).items() 
+LINKS.update({key: value['verbose_name'] for key, value in get_field_details(SupplierProduct).items() 
               if not value['primary_key']
-              and not key == 'supplier'])
-
+              and not key == 'supplier'})
 NECESSARY = ['supplier', 'article', 'name']
 
 FOREIGN = ['product_ptr', 'sku_ptr']
+
+NA_VALUES = ['nan', '', '—', None]
 
 
 def match_manufacturer(name: str)->Manufacturer:

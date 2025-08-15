@@ -117,33 +117,39 @@ class SettingCreate(CreateView):
       sheet_name = form.data['sheet_name']
     except:
       sheet_name = choices[0][0]
-    self.df = excel_file.parse(sheet_name).dropna(axis=0, how='all').dropna(axis=1, how='all')
+    self.df = excel_file.parse(sheet_name).dropna(how='all').dropna(axis=1, how='all')
 
     # Закрыь файл
     self.file_model.file.close()
 
     #  подготовка шторок на столбцы
-    initial = extract_initial_from_post(self.request.POST, 'widget_form',{'link':''}, len(self.df.columns))
+    initial = extract_initial_from_post(self.request.POST, 'widget_form',{'key':''}, len(self.df.columns))
     LinkFactory = forms.formset_factory(
                         form=LinksForm,
                         extra=len(self.df.columns))
     self.link_factory = LinkFactory(initial=initial, prefix='widget_form')
-    self.mapping = {initial[i]['link'] : self.df.columns[i] 
+    self.mapping = {initial[i]['key'] : self.df.columns[i] 
                 for i in range(len(self.df.columns))
-                if not initial[i]['link'] == ''}
-    # Подготовка табличек для замены значений
-    dict_initial = [{'key': '', 'value': None}]
-    self.dict_forms = {}
-    for key, value in self.mapping.items():
-      self.dict_forms[key] = DictFormSet(initial=dict_initial, prefix=f'dict_{key}_form')
+                if not initial[i]['key'] == ''}
+    # Подготовка табличек для замены значений(с вводом для филлера пустых полей)
+    self.ins_initial = extract_initial_from_post(self.request.POST, 'initial_form', {'initial':''}, len(LINKS)-1)
+    self.dict_formset = {}
+    self.initial_formset = InitialsFormSet(initial=self.ins_initial, prefix='initial_form')
+    InDictFormSet = forms.formset_factory(DictForm, extra=0)
+    for key in LINKS.keys():
+      if key == '': continue
+      dict_initial = extract_initial_from_post(self.request.POST, f'dict_{key}_form', {'key':'', 'value':'', 'enable': True})
+      if dict_initial == []:
+        dict_initial = [{'key': '', 'value': None}]
+      self.dict_formset[key] = InDictFormSet(initial=dict_initial, prefix=f'dict_{key}_form')
     return form
 
     
   def form_valid(self, form):
     unique = []
     for i in range(len(self.df.columns)):
-      if f'form-{i}-link' in self.link_factory.data:
-        buff = self.link_factory.data[f'form-{i}-link']
+      if f'form-{i}-key' in self.link_factory.data:
+        buff = self.link_factory.data[f'form-{i}-key']
         if buff in unique and buff:
           form.add_error(None, 'Не уникальные поля')
           return self.form_invalid(form)
@@ -164,38 +170,44 @@ class SettingCreate(CreateView):
     self.df = self.df[self.df[self.mapping['name']].notnull()]
 
     # Логика замены значений
-    for key, value in self.mapping.items():
+    for key in LINKS.keys():
+      if key == '' or not key in self.mapping:
+        continue
+      value = self.mapping[key]
+
+      # Изначальные значения
+      indx = list(LINKS.keys()).index(key)-1
+      if not self.ins_initial[indx]['initial'] == '':
+        try:
+          self.df.fillna({value: self.ins_initial[indx]['initial']}, inplace=True)
+        except BaseException as ex:
+          form.add_error(None, f'Что-то не так с начальными данными: {ex}')
+
+      # Заменки
       action = self.request.POST.get(f'{key}_action')
       dict_initial = extract_initial_from_post(self.request.POST, f'dict_{key}_form', {'key':'', 'value':'', 'enable': True})
       if action == 'add':
         ExtraFormSet = forms.formset_factory(DictForm, extra=1, can_delete=True)
-        self.dict_forms[key] = ExtraFormSet(initial=dict_initial, prefix=f'dict_{key}_form')
-      else:
-        self.dict_forms[key] = DictFormSet(initial=dict_initial, prefix=f'dict_{key}_form')
-      dict_formset = DictFormSet(self.request.POST, prefix=f'dict_{key}_form')
-      if dict_formset.is_valid():
-        col_dict = {}
-        try:
-          for i, cleaned in enumerate(dict_formset.cleaned_data):
-            if not cleaned or not cleaned.get('enable', None):
-              continue
-            col_key = cleaned.get('key', None)
-            col_value = cleaned.get('value', None)
-            if col_key and col_value:
-              col_dict[col_key] = col_value
-          self.df[value] = self.df[value].astype(str)
-          self.df[value] = self.df[value].replace(col_dict, regex=True)
-        except BaseException as ex:
-          form.add_error(None, f'Что-то не так с заменами: {ex}')
+        self.dict_formset[key] = ExtraFormSet(initial=dict_initial, prefix=f'dict_{key}_form')
+      try:
+        col_dict = {item['key']:item['value'] for item in dict_initial if item['enable']}
+        dtype = self.df[value].dtype
+        self.df[value] = self.df[value].astype(str)
+        self.df[value] = self.df[value].replace(col_dict, regex=True)
+        self.df[value] = self.df[value].astype(dtype)
+      except BaseException as ex:
+        form.add_error(None, f'Что-то не так с заменами: {ex}')
     if not self.request.POST.get('submit-btn') == 'save':
       return super().form_invalid(form)
     setting = form.save()
     self.success_url = reverse('setting-upload', kwargs={'id':setting.id, 'f_id':self.file_model.id})
     for key, value in self.mapping.items():
+      initial = self.ins_initial[list(LINKS.keys()).index(key)-1]['initial']
       link = Link.objects.create(
         setting = setting,
-        link = key,
-        column = value
+        initial = initial,
+        key = key,
+        value = value
       )
       dict_formset = DictFormSet(self.request.POST, prefix=f'dict_{key}_form')
       if dict_formset.is_valid():
@@ -212,9 +224,14 @@ class SettingCreate(CreateView):
   def get_context_data(self, **kwargs):
     context = super().get_context_data(**kwargs)
     context['link_factory'] = self.link_factory
+    context['LINKS'] = LINKS
     # Таблички замен и формы для них
-    context['dict_forms'] = self.dict_forms.items()
-    tables = {key:DictFormTable(value.forms) for key, value in self.dict_forms.items()}
+    context['dict_forms'] = self.dict_formset.items()
+    context['initial_formset'] = self.initial_formset
+    context['initial_forms'] = {
+      list(LINKS.keys())[i]:self.initial_formset[i-1] for i in range(1, len(LINKS))
+      }
+    tables = {key:DictFormTable(value.forms) for key, value in self.dict_formset.items()}
     context['tables'] = tables
     widgets = [self.link_factory.forms[i]
                 for i in range(len(self.df.columns))]
@@ -248,8 +265,8 @@ class SettingUpload(DetailView):
     file_model = FileModel.objects.get(id=self.kwargs['f_id'])
     try:
       excel_file = pd.ExcelFile(file_model.file)
-      mapping = {get_field_details(SupplierProduct)[link.link]['verbose_name']:link.column for link in Link.objects.filter(setting=setting)}
-      links = {link.link: link.column for link in Link.objects.all().filter(setting=setting)}
+      mapping = {get_field_details(SupplierProduct)[link.key]['verbose_name']:link.value for link in Link.objects.filter(setting=setting)}
+      links = {link.key: link.value for link in Link.objects.all().filter(setting=setting)}
       self.df = excel_file.parse(setting.sheet_name).dropna(axis=0, how='all').dropna(axis=1, how='all')
       file_model.file.close()
       self.df = self.df[mapping.values()]
@@ -261,8 +278,14 @@ class SettingUpload(DetailView):
       for link in Link.objects.filter(setting_id=setting.id):
         col_dict = {entry.key: entry.value for entry in Dict.objects.filter(link=link)}
         try:
-          self.df[link.column] = self.df[link.column].astype(str)
-          self.df[link.column] = self.df[link.column].replace(col_dict, regex=True)
+          self.df[link.value] = self.df[link.value].fillna(link.initial)
+        except BaseException as ex:
+          messages.error(None, f'Что-то не так с начальными данными: {ex}')
+        try:
+          dtype = self.df[link.value].dtype
+          self.df[link.value] = self.df[link.value].astype(str)
+          self.df[link.value] = self.df[link.value].replace(col_dict, regex=True)
+          self.df[link.value] = self.df[link.value].astype(dtype)
         except BaseException as ex:
           messages.error(None, f'Что-то не так с заменами: {ex}')
       table = get_upload_list_table()(mapping=mapping, data=self.df.to_dict('records'))
@@ -317,7 +340,7 @@ def upload_supplier_products(request, **kwargs):
   supplier = setting.supplier
   file_model = FileModel.objects.get(id=kwargs['f_id'])
   excel_file = pd.ExcelFile(file_model.file)
-  links = {link.link: link.column for link in Link.objects.all().filter(setting_id=setting.id)}
+  links = {link.key: link.value for link in Link.objects.all().filter(setting_id=setting.id)}
   df = excel_file.parse(setting.sheet_name).dropna(axis=0, how='all').dropna(axis=1, how='all')
   file_model.file.close()
   df = df[links.values()]
@@ -327,10 +350,11 @@ def upload_supplier_products(request, **kwargs):
   df = df[df[links['name']].notnull()]
   for link in Link.objects.filter(setting_id=setting.id):
         col_dict = {entry.key: entry.value for entry in Dict.objects.filter(link=link)}
-        col_type =df[link.column].dtype
-        df[link.column] = df[link.column].astype(str)
-        df[link.column] = df[link.column].replace(col_dict, regex=True)
-        df[link.column] = df[link.column].astype(col_type)
+        df[link.value] = df[link.value].fillna(link.initial)
+        col_type =df[link.value].dtype
+        df[link.value] = df[link.value].astype(str)
+        df[link.value] = df[link.value].replace(col_dict, regex=True)
+        df[link.value] = df[link.value].astype(col_type)
   added_to_main = 0
   updates = 0
   creates = 0
@@ -340,9 +364,9 @@ def upload_supplier_products(request, **kwargs):
     try:
       data={}
       # Map DataFrame columns to model fields
-      for model_field, df_col in links.items():
-        if df_col in row and not model_field in NECESSARY:
-          data[model_field] = row[df_col]
+      for key, value in links.items():
+        if value in row and not key in NECESSARY:
+          data[key] = row[value]
       data['currency'] = setting.currency
 
       # Создание и присвоение производителя

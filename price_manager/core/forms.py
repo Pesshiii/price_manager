@@ -30,12 +30,20 @@ class SettingForm(forms.ModelForm):
 
 class LinksForm(forms.Form):
   """Форма для связки столбцы/дата_поинты"""
-  link = forms.CharField(widget=forms.Select(choices=LINKS),
+  key = forms.CharField(widget=forms.Select(choices=LINKS),
                          label='',
                          required=False,
-                         initial=LINKS[0])
+                         initial=LINKS[''])
   class Meta:
-    fields = ['link']
+    fields = ['key']
+
+class InitialValue(forms.Form):
+  """Форма для задания начальных значений"""
+  initial = forms.CharField(label='Начальное значение',
+                            required=False,
+                            empty_value='')
+
+InitialsFormSet = forms.formset_factory(InitialValue)
 
 class FileForm(forms.ModelForm):
   class Meta:

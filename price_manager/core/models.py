@@ -165,9 +165,7 @@ class SupplierProduct(Product):
 
 # Базовые данные
 # Переопределяется в functions.py
-LINKS = [
-  (None, 'Не включать')
-]
+LINKS = {'': 'Не включать'}
 
 class Setting(models.Model):
   name = models.CharField(verbose_name='Название',
@@ -189,8 +187,9 @@ class Setting(models.Model):
 class Link(models.Model):
   setting = models.ForeignKey(Setting,
                               on_delete=models.CASCADE)
-  link = models.CharField(choices=LINKS)
-  column = models.CharField()
+  initial = models.CharField(null=True)
+  key = models.CharField(choices=LINKS)
+  value = models.CharField()
   constraint = models.UniqueConstraint(fields=['setting', 'link'], name='product-field-constraint')
 
 class Dict(models.Model):
