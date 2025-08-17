@@ -1,0 +1,13 @@
+{% extends "base.html" %}
+
+{% block body %}
+<h1>Удалить Категорию</h1>
+
+<p>Вы собираетесь удалить: {{ category.name }}?</p>
+
+<form action="" method="POST">
+  {% csrf_token %}
+  <button type="submit" class="button button-dngr"> Да</button>
+  <button onclick="window.location.href=''" class="btn btn-secondary">Отмена</a>
+</form>
+{% endblock %}

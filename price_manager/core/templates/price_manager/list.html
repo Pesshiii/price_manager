@@ -1,0 +1,15 @@
+{% extends 'base.html' %}
+
+{% block title %}
+Наценки
+{% endblock %}
+
+{% block body %}
+  <button onclick="window.location.href='create/'">Добавить</button>
+  {% load django_tables2 %}
+  {% render_table table %}
+{% endblock %}
+
+{% block script %}
+
+{% endblock %}

@@ -124,6 +124,7 @@ class SettingCreate(CreateView):
 
     #  подготовка шторок на столбцы
     initial = extract_initial_from_post(self.request.POST, 'widget_form',{'key':''}, len(self.df.columns))
+    print(SP_FOREIGN)
     LinkFactory = forms.formset_factory(
                         form=LinksForm,
                         extra=len(self.df.columns))
@@ -162,10 +163,15 @@ class SettingCreate(CreateView):
       return self.form_invalid(form)
     # Очистка данных
     if 'priced_only' in form.data and form.data['priced_only']:
-      if not 'supplier_price' in self.mapping:
+      failed_prices = []
+      for price in PRICE_FIELDS:
+        if not price in self.mapping:
+          failed_prices.append(price)
+          continue
+        self.df = self.df[self.df[self.mapping[price]].notnull()]
+      if len(failed_prices) == len(PRICE_FIELDS):
         form.add_error(None, 'Не выбрано поле цены')
         return self.form_invalid(form)
-      self.df = self.df[self.df[self.mapping['supplier_price']].notnull()]
     self.df = self.df[self.df[self.mapping['article']].notnull()]
     self.df = self.df[self.df[self.mapping['name']].notnull()]
 
@@ -271,7 +277,10 @@ class SettingUpload(DetailView):
       file_model.file.close()
       self.df = self.df[mapping.values()]
       if setting.priced_only:
-        self.df = self.df[self.df[links['supplier_price']].notnull()]
+        for price in PRICE_FIELDS:
+          if not price in mapping:
+            continue
+          self.df = self.df[self.df[mapping[price]].notnull()]
       self.df = self.df[self.df[links['article']].notnull()]
       self.df = self.df[self.df[links['name']].notnull()]
       # Применение заменок
@@ -324,6 +333,7 @@ class FileUpload(CreateView):
 
 # Обработка продуктов
 
+# !!!Временно: добавить класс удаления потом!!!
 def delete_supplier_product(request, **kwargs):
   '''
   Подвязка к функции удаления на странице поставщика
@@ -333,7 +343,8 @@ def delete_supplier_product(request, **kwargs):
   id = product.supplier.id
   product.delete()
   return redirect('supplier-detail', id = id)
-  
+
+# !!!Временно: не загружать через ссылку!!!
 def upload_supplier_products(request, **kwargs):
   '''Тригер загрузки товаров <<setting/<int:id>/upload/<int:f_id>/upload/>>'''
   setting = Setting.objects.get(id=kwargs['id'])
@@ -345,7 +356,9 @@ def upload_supplier_products(request, **kwargs):
   file_model.file.close()
   df = df[links.values()]
   if setting.priced_only:
-    df = df[df[links['supplier_price']].notnull()]
+    for price in PRICE_FIELDS:
+      if price in links:
+        df = df[df[links[price]].notnull()]
   df = df[df[links['article']].notnull()]
   df = df[df[links['name']].notnull()]
   for link in Link.objects.filter(setting_id=setting.id):
@@ -378,6 +391,8 @@ def upload_supplier_products(request, **kwargs):
           manu, created = Manufacturer.objects.update_or_create(name=row[links['manufacturer']])
         data['manufacturer']=manu
 
+      if 'rmp_raw' in data and not 'rmp_kzt' in data:
+        data['rmp_kzt'] = data['rmp_raw']*data['currency'].value
 
       kwargs = {field: row[links[field]] for field in NECESSARY if field in links}
       kwargs['supplier'] = supplier
@@ -387,10 +402,13 @@ def upload_supplier_products(request, **kwargs):
         defaults=data
       )
       if created and setting.id_as_sku:
-        sku = MainProduct.objects.create(sku=f'{product.supplier.id}-{product.article}',
-                                   **kwargs)
+        mp_kwargs = kwargs
+        if 'rmp_kzt' in data:
+          mp_kwargs['rmp'] = data['rmp_kzt']
+        main_product = MainProduct.objects.create(sku=f'{product.supplier.id}-{product.article}',
+                                   **mp_kwargs)
         added_to_main += 1
-        product.sku = sku
+        product.main_product = main_product
         product.save()
 
       if created:
@@ -516,3 +534,58 @@ class CategoryDelete(DeleteView):
   pk_url_kwarg = 'id'
   success_url = '/category/'
   template_name = 'category/confirm_delete.html'
+
+# Обработка наценок
+
+class PriceManagerList(SingleTableView):
+  '''Отображение наценок <<price_manager/>>'''
+  model = PriceManager
+  table_class = PriceManagerListTable
+  template_name = 'price_manager/list.html'
+
+class PriceManagerCreate(CreateView):
+  '''Создание Наценки <<price-manager/create/>>'''
+  model = PriceManager
+  fields = '__all__'
+  success_url = '/price-manager/'
+  template_name = 'price_manager/create.html'
+
+class PriceManagerDetail(DetailView):
+  '''Детали Наценки <<price-manager/<int:id>/>>'''
+  model = PriceManager
+  template_name = 'price_manager/detail.html'
+  pk_url_kwarg = 'id'
+  context_object_name = 'price_manager'
+
+def price_manager_apply(request, **kwargs):
+  id = kwargs.pop('id')
+  if not id:
+    messages.error(request, 'Нет такой наценки')
+    return redirect('price-manager')
+  price_manager = PriceManager.objects.get(id=id)
+  if price_manager.source in ['rmp_kzt', 'supplier_price']:
+    supplier_products = SupplierProduct.objects.filter(
+      Q(**{f'{price_manager.source}__gte': price_manager.price_from})|
+      Q(**{f'{price_manager.source}__lte': price_manager.price_to})
+    )
+    products = MainProduct.objects.filter(pk__in=supplier_products.values_list('main_product', flat=True))
+  else:
+    products = MainProduct.objects.filter(
+      Q(**{f'{price_manager.source}__gte': price_manager.price_from})|
+      Q(**{f'{price_manager.source}__lte': price_manager.price_to}))
+  if price_manager.supplier:
+    products.filter(supplier=price_manager.supplier)
+  if price_manager.category:
+    products.filter(category=price_manager.category)
+  for product in products:
+    product.price_manager = price_manager
+    if price_manager.source in ['rmp_kzt', 'supplier_price']:
+      price_source = getattr(
+        SupplierProduct.objects.filter(main_product=product).first(),
+        price_manager.source)
+    else:
+      price_source = getattr(product,
+        price_manager.source)
+    setattr(product, price_manager.dest, price_source*(1+price_manager.markup/100)+price_manager.increase)
+  MainProduct.objects.bulk_update(products, fields=[price_manager.dest, 'price_manager', 'updated_at'])
+  return redirect('price-manager')

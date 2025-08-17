@@ -1,9 +1,10 @@
 from django.db import models
 from django.db.models import Q
 from django.db.models.functions import Lower
-from django.core.validators import FileExtensionValidator
+from django.core.validators import (FileExtensionValidator, MinValueValidator, MaxValueValidator)
 import typing
 
+# Основные классы для продуктов(главных/поставщика)
 
 class Supplier(models.Model):
   name = models.CharField(verbose_name='Поставщик',
@@ -22,8 +23,13 @@ class Manufacturer(models.Model):
     return self.name
   
 class ManufacturerDict(models.Model):
+  '''
+  Подвязывает производителя потом\\
+  По этому словарю выбирается производитель
+  '''
   manufacturer = models.ForeignKey(Manufacturer,
                                    verbose_name='Производитель',
+                                   related_name='md_manufacturer_ptr',
                                    on_delete=models.CASCADE)
   name = models.CharField(verbose_name='Вариация',
                           unique=True,
@@ -59,13 +65,75 @@ class Category(models.Model):
     else:
       return self.name
     
+# Модели для применения наценок
+
+class PriceManager(models.Model):
+  '''
+  Используется для нацепки класса наценок на товары\\
+  '''
+  name = models.CharField(verbose_name='Название',
+                          unique=True)
+  supplier = models.ForeignKey(Supplier,
+                               on_delete=models.CASCADE,
+                               verbose_name='Поставщик',
+                               related_name='pm_supplier_ptr',
+                               unique=False,
+                               null=True)
+  category = models.ForeignKey(Category,
+                               on_delete=models.CASCADE,
+                               verbose_name='Категория',
+                               related_name='pm_category_ptr',
+                               unique=False,
+                               null=True,
+                               blank=True)
+  source = models.CharField(verbose_name='От какой цены считать',
+                                 choices=[
+                                  ('rmp_kzt', 'РРЦ в тенге (поставщика)'),
+                                  ('supplier_price', 'Цена поставщика'),
+                                  ('basic_price', 'Базовая цена'),
+                                  ('prime_cost', 'Себестоимость'),
+                                  ('rmp', 'РРЦ'),
+                                  ('wholesale_price', 'Оптовая цена'),
+                                  ('wholesale_price_extra', 'Оптовая цена1')])
+  dest = models.CharField(verbose_name='Какую цену считать',
+                                 choices=[
+                                  ('basic_price', 'Базовая цена'),
+                                  ('prime_cost', 'Себестоимость'),
+                                  ('rmp', 'РРЦ'),
+                                  ('wholesale_price', 'Оптовая цена'),
+                                  ('wholesale_price_extra', 'Оптовая цена1')])
+  price_from = models.DecimalField(
+      verbose_name='Цена от',
+      decimal_places=2,
+      max_digits=20,
+      validators=[MinValueValidator(0)],
+      default=0)
+  price_to = models.DecimalField(
+      verbose_name='Цена до',
+      decimal_places=2,
+      max_digits=20,
+      validators=[MinValueValidator(0)],
+      default=0)
+  markup = models.DecimalField(
+      verbose_name='Накрутка',
+      decimal_places=2,
+      max_digits=5,
+      validators=[MinValueValidator(0), MaxValueValidator(100)],
+      default=0)
+  increase = models.DecimalField(
+      verbose_name='Надбавка',
+      decimal_places=2,
+      validators=[MinValueValidator(0)],
+      max_digits=20,
+      default=0)
+    
 def icontains(name, value):
+  '''Иммитирует _icontains для sqlite3(потом будет убрано) '''
   return  Q(
     Q(**{f"{name}__icontains": value}) |
     Q(**{f"{name}__icontains": value.lower()}) |
     Q(**{f"{name}__icontains": value.upper()}) |
     Q(**{f"{name}__icontains": value.capitalize()}))
-
 
 class ProductQuerySet(models.QuerySet):
   def search_fields(self, request: typing.Dict[str, str]):
@@ -88,6 +156,7 @@ class ProductQuerySet(models.QuerySet):
     return self.filter(s_query).filter(query)
 
 
+
 class ProductManager(models.Manager):
   def get_queryset(self):
     return ProductQuerySet(self.model, using=self._db)
@@ -95,15 +164,17 @@ class ProductManager(models.Manager):
     return self.get_queryset().search_fields(request)
 
 class Product(models.Model):
+  objects = ProductManager()
   supplier=models.ForeignKey(Supplier,
                              verbose_name='Поставщик',
+                             related_name='supplier_ptr',
                              on_delete=models.CASCADE,
                              null=False,
                              blank=False)
   article = models.CharField(verbose_name='Артикул поставщика',
                              null=False,
                              blank=False)
-  name = models.CharField(verbose_name='Наименование',
+  name = models.CharField(verbose_name='Название',
                           null=False,
                           blank=False)
   constraint = models.UniqueConstraint(fields=['supplier','article', 'name'], name='unique_product_constraint')
@@ -112,51 +183,91 @@ class Product(models.Model):
                                verbose_name='Категория',
                                null=True,
                                blank=True,)
-  supplier_price = models.DecimalField(
-      verbose_name='Цена поставщика',
-      decimal_places=2,
-      max_digits=20,
-      default=0)
   manufacturer = models.ForeignKey(Manufacturer,
                                    verbose_name='Производитель',
+                                   related_name='manufacturer_ptr',
                                    on_delete=models.SET_NULL,
                                    null=True)
   stock = models.PositiveIntegerField(verbose_name='Остаток',
                               default=0)
-  objects = ProductManager()
+  updated_at = models.DateTimeField(verbose_name='Последнее обновление',
+                                    auto_now=True)
 
 class MainProduct(Product):
   sku = models.CharField(verbose_name='Артикул товара',
                          unique=True)
-  rmp_kzt = models.DecimalField(
-      verbose_name='РРЦ в тенге',
-      decimal_places=2,
-      max_digits=20,
-      default=0)
   weight = models.DecimalField(
       verbose_name='Вес',
       decimal_places=1,
       max_digits=8,
       null=True)
+  prime_cost = models.DecimalField(
+      verbose_name='Себестоимость',
+      decimal_places=2,
+      max_digits=20,
+      default=0)
+  rmp = models.DecimalField(
+      verbose_name='РРЦ',
+      decimal_places=2,
+      max_digits=20,
+      default=0)
+  wholesale_price = models.DecimalField(
+      verbose_name='Оптовая цена',
+      decimal_places=2,
+      max_digits=20,
+      default=0)
+  basic_price = models.DecimalField(
+      verbose_name='Базовая цена',
+      decimal_places=2,
+      max_digits=20,
+      default=0)
+  m_price = models.DecimalField(
+      verbose_name='Цена ИМ',
+      decimal_places=2,
+      max_digits=20,
+      default=0)
+  wholesale_price_extra = models.DecimalField(
+      verbose_name='Оптовая цена доп.',
+      decimal_places=2,
+      max_digits=20,
+      default=0)
+  price_manager = models.ForeignKey(
+    PriceManager,
+    verbose_name='Наценка',
+    related_name='mp_price_manager_ptr',
+    on_delete=models.SET_NULL,
+    null=True
+  )
   def __str__(self):
     return self.sku
   class Meta:
     verbose_name = 'Главный продукт'
   
 class SupplierProduct(Product):
-  sku=models.ForeignKey(MainProduct,
+  main_product=models.ForeignKey(MainProduct,
                         verbose_name='sku',
-                        related_name='sku_ptr',
+                        related_name='sp_main_product_ptr',
                         on_delete=models.SET_NULL,
                         null=True,
                         blank=True)
+  supplier_price = models.DecimalField(
+      verbose_name='Цена поставщика',
+      decimal_places=2,
+      max_digits=20,
+      default=0)
   rmp_raw = models.DecimalField(
       verbose_name='РРЦ в валюте закупа',
       decimal_places=2,
       max_digits=20,
       default=0)
+  rmp_kzt = models.DecimalField(
+      verbose_name='РРЦ в тенге',
+      decimal_places=2,
+      max_digits=20,
+      default=0)
   currency = models.ForeignKey(Currency,
                                verbose_name='Валюта',
+                               related_name='sp_currency_ptr',
                                on_delete=models.PROTECT,
                                blank=False,
                                null=True)
@@ -165,7 +276,16 @@ class SupplierProduct(Product):
 
 # Базовые данные
 # Переопределяется в functions.py
-LINKS = {'': 'Не включать'}
+LINKS = {'': 'Не включать',
+         'article': 'Артикул поставщика',
+         'name': 'Название',
+         'category': 'Категория',
+         'manufacturer': 'Производитель',
+         'stock': 'Остаток',
+         'supplier_price': 'Цена поставщика',
+         'rmp_raw': 'РРЦ в валюте закупа',
+         'rmp_kzt': 'РРЦ в тенге',
+         }
 
 class Setting(models.Model):
   name = models.CharField(verbose_name='Название',

@@ -51,11 +51,11 @@ class SupplierProductListTable(tables.Table):
   )
   class Meta:
     model = SupplierProduct
-    fields = ['sku']
+    fields = ['main_product']
     fields.extend([key for key, value in get_field_details(SupplierProduct).items() 
               if not value['primary_key']
               and not key == 'supplier'
-              and not key == 'sku'])
+              and not key == 'main_product'])
     template_name = 'django_tables2/bootstrap.html'
     attrs = {
       'class': 'table table-auto table-stripped table-hover clickable-rows'
@@ -127,7 +127,8 @@ class ManufacturerListTable(tables.Table):
   name = tables.LinkColumn('manufacturer-detail', args=[tables.A('pk')])
   class Meta:
     model = Manufacturer
-    fields = [field for field in get_field_details(model).keys()]
+    fields = [field for field, value in get_field_details(model).items()
+              if not '_ptr' in field]
     template_name = 'django_tables2/bootstrap.html'
     attrs = {
       'class': 'table table-auto table-stripped table-hover clickable-rows'
@@ -155,17 +156,16 @@ class CurrencyListTable(tables.Table):
       'class': 'table table-auto table-stripped table-hover clickable-rows'
       }
     
+
+# Поля отвечающие за порядок отображения полей на главной странице
 class MainProductListTable(tables.Table):
   '''Таблица Главного прайса отображаемая на главной странице'''
   class Meta:
     model = MainProduct
-    fields = ['sku']
-    fields.extend([key for key, value in get_field_details(MainProduct).items()
-                   if not key in FOREIGN
-                   and not key == 'sku'])
+    fields = ['sku', 'category', 'supplier','article', 'name', 'manufacturer', 'weight', 'stock', 'm_price', 'basic_price', 'wholesale_price','wholesale_price_extra','updated_at']
     template_name = 'django_tables2/bootstrap.html'
     attrs = {
-      'class': 'table table-auto table-stripped table-hover clickable-rows'
+      'class': 'clickable-rows table table-auto table-stripped table-hover'
       }
 
 class SortSupplierProductTable(tables.Table):
@@ -180,10 +180,10 @@ class SortSupplierProductTable(tables.Table):
               )
   class Meta:
     model = SupplierProduct
-    fields = ['sku']
+    fields = ['main_product']
     fields.extend([key for key, value in get_field_details(SupplierProduct).items() 
               if not value['primary_key']
-              and not key == 'sku'])
+              and not key == 'main_product'])
     template_name = 'django_tables2/bootstrap.html'
     attrs = {
       'class': 'table table-auto table-stripped table-hover clickable-rows'
@@ -203,6 +203,24 @@ class CategoryListTable(tables.Table):
   class Meta:
     model = Category
     fields = ['parent', 'name']
+    template_name = 'django_tables2/bootstrap.html'
+    attrs = {
+      'class': 'table table-auto table-stripped table-hover clickable-rows'
+      }
+    
+
+class PriceManagerListTable(tables.Table):
+  '''Таблица Наценок отображаемая на странице Наценки'''
+  actions = tables.TemplateColumn(
+    template_name='price_manager/actions.html',
+    orderable=False,
+    verbose_name='Действия',
+    attrs = {'td': {'class': 'text-right'}}
+  )
+  name = tables.LinkColumn('price-manager-detail', args=[tables.A('pk')])
+  class Meta:
+    model = PriceManager
+    fields = [key for key, value in get_field_details(PriceManager).items() if not '_ptr' in key]
     template_name = 'django_tables2/bootstrap.html'
     attrs = {
       'class': 'table table-auto table-stripped table-hover clickable-rows'

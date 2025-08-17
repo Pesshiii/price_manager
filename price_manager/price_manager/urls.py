@@ -34,6 +34,11 @@ urlpatterns = [
     path('currency/create/', views.CurrencyCreate.as_view(), name='currency-create'),
     path('currency/<int:id>/update', views.CurrencyUpdate.as_view(), name='currency-update'),
 
+    path('price-manager/', views.PriceManagerList.as_view(), name='price-manager'),
+    path('price-manager/create/', views.PriceManagerCreate.as_view(), name='price-manager-create'),
+    path('price-manager/<int:id>/', views.PriceManagerDetail.as_view(), name='price-manager-detail'),
+    path('price-manger/<int:id>/apply', views.price_manager_apply, name='price-manager-apply'),
+
     path('supplier-product/<int:id>/delete/', views.delete_supplier_product, name='supplier-product-delete'),
 
     path('upload/<str:name>/<int:id>/', views.FileUpload.as_view(), name='upload'),

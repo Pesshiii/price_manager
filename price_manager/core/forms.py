@@ -24,6 +24,12 @@ class SettingForm(forms.ModelForm):
     widget=forms.HiddenInput,
     required=False
   )
+  currency = forms.ModelChoiceField(
+    Currency.objects,
+    label='Валюта',
+    required=True,
+    initial=Currency.objects.get(name='KZT')
+  )
   class Meta:
     model = Setting
     fields = ['name', 'sheet_name', 'priced_only', 'id_as_sku', 'currency', 'supplier']

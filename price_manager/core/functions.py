@@ -20,13 +20,18 @@ def get_field_details(Model) -> dict:
     for field in Model._meta.get_fields() if not 'id' in field.name
   }
 
-LINKS.update({key: value['verbose_name'] for key, value in get_field_details(SupplierProduct).items() 
-              if not value['primary_key']
-              and not key == 'supplier'})
+SP_FOREIGN = [key for key, value in get_field_details(SupplierProduct).items() 
+              if '_ptr' in key
+              or (value['is_relation'] and not key in ['category', 'manufacturer'])
+              ]
+MP_FOREIGN = [key for key, value in get_field_details(MainProduct).items() if '_ptr' in key]
+
 NECESSARY = ['supplier', 'article', 'name']
 
-FOREIGN = ['product_ptr', 'sku_ptr']
 
+PRICE_FIELDS = ['supplier_price', 'rmp_raw', 'rmp_kzt']
+
+# Проверить надо это или нет
 NA_VALUES = ['nan', '', '—', None]
 
 
