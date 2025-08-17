@@ -589,3 +589,12 @@ def price_manager_apply(request, **kwargs):
     setattr(product, price_manager.dest, price_source*(1+price_manager.markup/100)+price_manager.increase)
   MainProduct.objects.bulk_update(products, fields=[price_manager.dest, 'price_manager', 'updated_at'])
   return redirect('price-manager')
+
+# Обработка продуктов главного прайса
+
+class MainProductUpdate(UpdateView):
+  model = MainProduct
+  form_class = MainProductForm
+  template_name = 'main/product/update.html'
+  success_url = '/'
+  pk_url_kwarg = 'id'

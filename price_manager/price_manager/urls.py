@@ -41,5 +41,7 @@ urlpatterns = [
 
     path('supplier-product/<int:id>/delete/', views.delete_supplier_product, name='supplier-product-delete'),
 
+    path('main-product/<int:id>/update', views.MainProductUpdate.as_view(), name='main-product-update'),
+
     path('upload/<str:name>/<int:id>/', views.FileUpload.as_view(), name='upload'),
 ] + static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)

@@ -14,8 +14,10 @@
         </div>
     </form>
   </div>
+  <div class="table-responsive">
     {% load django_tables2 %}
     {% render_table table %}
+  </div>
 {% endblock %}
 
 {% block script %}

@@ -157,12 +157,18 @@ class CurrencyListTable(tables.Table):
       }
     
 
-# Поля отвечающие за порядок отображения полей на главной странице
 class MainProductListTable(tables.Table):
   '''Таблица Главного прайса отображаемая на главной странице'''
+  actions = tables.TemplateColumn(
+    template_name='main/product/actions.html',
+    orderable=False,
+    verbose_name='',
+    attrs = {'td': {'class': 'text-right'}}
+  )
   class Meta:
     model = MainProduct
-    fields = ['sku', 'category', 'supplier','article', 'name', 'manufacturer', 'weight', 'stock', 'm_price', 'basic_price', 'wholesale_price','wholesale_price_extra','updated_at']
+    fields = ['actions']
+    fields.extend(MP_FIELDS)
     template_name = 'django_tables2/bootstrap.html'
     attrs = {
       'class': 'clickable-rows table table-auto table-stripped table-hover'

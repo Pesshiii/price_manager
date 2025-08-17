@@ -135,3 +135,11 @@ class DictForm(forms.ModelForm):
     fields = '__all__'
 
 DictFormSet = forms.formset_factory(DictForm, extra=0)
+
+
+class MainProductForm(forms.ModelForm):
+  name = forms.CharField(widget=forms.Textarea(attrs={'class':'form-control w-50'}),
+                         label='Название')
+  class Meta:
+    model = MainProduct
+    fields = '__all__'

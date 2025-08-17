@@ -126,6 +126,8 @@ class PriceManager(models.Model):
       validators=[MinValueValidator(0)],
       max_digits=20,
       default=0)
+  def __str__(self):
+    return self.name
     
 def icontains(name, value):
   '''Иммитирует _icontains для sqlite3(потом будет убрано) '''
@@ -193,6 +195,9 @@ class Product(models.Model):
   updated_at = models.DateTimeField(verbose_name='Последнее обновление',
                                     auto_now=True)
 
+MP_FIELDS = ['sku', 'category', 'supplier','article', 'name', 'manufacturer', 'weight', 'stock', 'm_price', 'basic_price', 'wholesale_price','wholesale_price_extra','updated_at', 'length', 'width', 'depth']
+
+
 class MainProduct(Product):
   sku = models.CharField(verbose_name='Артикул товара',
                          unique=True)
@@ -238,6 +243,18 @@ class MainProduct(Product):
     on_delete=models.SET_NULL,
     null=True
   )
+  length = models.DecimalField(verbose_name='Длина',
+                               max_digits=10,
+                               decimal_places=2,
+                               default=0)
+  width = models.DecimalField(verbose_name='Ширина',
+                               max_digits=10,
+                               decimal_places=2,
+                               default=0)
+  depth = models.DecimalField(verbose_name='Глубина',
+                               max_digits=10,
+                               decimal_places=2,
+                               default=0)
   def __str__(self):
     return self.sku
   class Meta:
@@ -275,7 +292,6 @@ class SupplierProduct(Product):
 # Модели для менджмента загрузки/обновления поставщиков
 
 # Базовые данные
-# Переопределяется в functions.py
 LINKS = {'': 'Не включать',
          'article': 'Артикул поставщика',
          'name': 'Название',
