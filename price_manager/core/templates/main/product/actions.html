@@ -1,5 +1,14 @@
-<div class="container">
-<a href="{% url 'main-product-update' record.id %}" class="btn btn-sm btn-success">
-  <i class="bi bi-pencil-square"></i>
-</a>
+<form hx-post="{% url 'toggle-basket' pk=record.pk %}"
+hx-target="this"
+hx-swap="outerHTML"
+style="display:inline;">
+<div class="container d-flex">
+<a href="{% url 'main-product-update' record.id %}" class="btn btn-sm btn-primary">
+    <i class="bi bi-pencil-square"></i>
+  </a>
+<button type="submit"
+class="btn btn-sm {% if record.pk in basket %}btn-danger{% else %}btn-success{% endif %}">
+{% if record.pk in basket %}<i class="bi bi-cart-plus-fill"></i>{% else %}<i class="bi bi-cart-plus"></i>{% endif %}
+</button>
 </div>
+</form>

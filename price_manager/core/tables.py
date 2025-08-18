@@ -1,5 +1,5 @@
-import django.forms as forms
 from django.utils.html import format_html
+from django.template.loader import render_to_string
 import django_tables2 as tables
 
 from .models import *
@@ -159,12 +159,13 @@ class CurrencyListTable(tables.Table):
 
 class MainProductListTable(tables.Table):
   '''Таблица Главного прайса отображаемая на главной странице'''
-  actions = tables.TemplateColumn(
-    template_name='main/product/actions.html',
-    orderable=False,
-    verbose_name='',
-    attrs = {'td': {'class': 'text-right'}}
-  )
+  actions = tables.Column(empty_values=(),
+                         orderable=False,
+                         verbose_name='')
+  def __init__(self, *args, **kwargs):
+    self.request = kwargs.pop('request')
+    super().__init__(*args, **kwargs)
+  
   class Meta:
     model = MainProduct
     fields = ['actions']
@@ -173,6 +174,15 @@ class MainProductListTable(tables.Table):
     attrs = {
       'class': 'clickable-rows table table-auto table-stripped table-hover'
       }
+  def render_actions(self, record):
+        return render_to_string(
+            'main/product/actions.html',
+            {
+                'record': record,
+                'basket': self.request.session.get('basket', []),
+            }
+        )
+
 
 class SortSupplierProductTable(tables.Table):
   '''Таблица для сортировки Товаров Поставщиков'''

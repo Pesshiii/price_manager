@@ -4,6 +4,7 @@ from django.shortcuts import (render,
                               get_object_or_404,
                               HttpResponse,
 )
+from django.http import HttpResponseRedirect
 from django.contrib import messages
 from django.views.generic import (ListView,
                                   DetailView,
@@ -12,6 +13,7 @@ from django.views.generic import (ListView,
                                   DeleteView,
                                   FormView,
                                   TemplateView)
+from django.views.decorators.http import require_POST
 from django.urls import reverse
 from django.views.generic.edit import FormMixin
 from django_tables2 import SingleTableView, RequestConfig
@@ -27,16 +29,44 @@ import pandas as pd
 import json
 
 
-class MainPage(SingleTableView):
+from django.http import HttpResponse
+from django.shortcuts import get_object_or_404
+from django.template.loader import render_to_string
+from django.views.decorators.http import require_POST
+
+
+@require_POST
+def toggle_basket(request, pk):
+    basket = request.session.setdefault('basket', [])
+    pk = int(pk)
+
+    if pk in basket:
+        basket.remove(pk)
+    else:
+        basket.append(pk)
+
+    request.session.modified = True
+
+    # return only the fresh button
+    html = render_to_string(
+        'main/product/actions.html',
+        {
+            'record': get_object_or_404(MainProduct, pk=pk),
+            'basket': basket,
+        },
+        request=request
+    )
+    return HttpResponse(html)
+
+class MainPage(FormView):
   model = MainProduct
-  table_class = MainProductListTable
+  form_class = MainProductForm
   template_name = 'main/main.html'
-  paginate_by = 100
-  def get_table_data(self):
-    return self.model.objects.search_fields(self.request.GET)
   def get_context_data(self, **kwargs):
     # Чистка базы файлов
     context = super().get_context_data(**kwargs)
+    context['table'] = MainProductListTable(self.model.objects.search_fields(self.request.GET), request=self.request)
+    RequestConfig(self.request).configure(context['table'])
     context['filter_form'] = MainProductFilterForm(self.request.GET)
     try:
       for file in FileModel.objects.all():

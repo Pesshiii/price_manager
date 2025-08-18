@@ -21,5 +21,11 @@
 {% endblock %}
 
 {% block script %}
-
+<script src="https://unpkg.com/htmx.org@1.9.12"></script>
+<script>
+  // HTMX will send the token automatically on every POST/PUT/DELETE
+  document.body.addEventListener('htmx:configRequest', (evt) => {
+      evt.detail.headers['X-CSRFToken'] = '{{ csrf_token }}';
+  });
+</script>
 {% endblock %}
