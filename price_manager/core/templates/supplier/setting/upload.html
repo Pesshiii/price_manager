@@ -8,7 +8,10 @@
   <div class="container">
     <h1>{{supplier.name}}</h1>
     <h2>{{setting.name}}</h2>
-    <button onclick="window.location.href='upload'">Загрузить</button>
+    <form method="post">
+      {% csrf_token %}
+      <button type="submit">Загрузить</button>
+    </form>
     {% if table %}
       {% load django_tables2 %}
       {% render_table table %}

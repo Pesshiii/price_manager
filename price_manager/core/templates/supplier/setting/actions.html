@@ -1,1 +1,8 @@
-<a href="{% url 'upload' 'setting-upload' record.id %}" class="btn btn-sm btn-primary">Загрузить</a>
+<div class="container d-flex">
+  <a href="{% url 'upload' 'setting-update' record.id %}" class="btn btn-sm btn-primary">
+    <i class="bi bi-upload"></i>
+  </a>
+  <a href="{% url 'setting-delete' record.id %}" class="btn btn-sm btn-danger">
+    <i class="bi bi-trash-fill"></i>
+  </a>
+</div>

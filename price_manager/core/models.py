@@ -92,6 +92,7 @@ class PriceManager(models.Model):
                                   ('supplier_price', 'Цена поставщика'),
                                   ('basic_price', 'Базовая цена'),
                                   ('prime_cost', 'Себестоимость'),
+                                  ('m_price', 'Цена ИМ'),
                                   ('rmp', 'РРЦ'),
                                   ('wholesale_price', 'Оптовая цена'),
                                   ('wholesale_price_extra', 'Оптовая цена1')])
@@ -99,7 +100,7 @@ class PriceManager(models.Model):
                                  choices=[
                                   ('basic_price', 'Базовая цена'),
                                   ('prime_cost', 'Себестоимость'),
-                                  ('rmp', 'РРЦ'),
+                                  ('m_price', 'Цена ИМ'),
                                   ('wholesale_price', 'Оптовая цена'),
                                   ('wholesale_price_extra', 'Оптовая цена1')])
   price_from = models.DecimalField(
@@ -118,12 +119,11 @@ class PriceManager(models.Model):
       verbose_name='Накрутка',
       decimal_places=2,
       max_digits=5,
-      validators=[MinValueValidator(0), MaxValueValidator(100)],
+      validators=[MinValueValidator(-100), MaxValueValidator(100)],
       default=0)
   increase = models.DecimalField(
       verbose_name='Надбавка',
       decimal_places=2,
-      validators=[MinValueValidator(0)],
       max_digits=20,
       default=0)
   def __str__(self):
@@ -189,13 +189,14 @@ class Product(models.Model):
                                    verbose_name='Производитель',
                                    related_name='manufacturer_ptr',
                                    on_delete=models.SET_NULL,
-                                   null=True)
+                                   null=True,
+                                   blank=True)
   stock = models.PositiveIntegerField(verbose_name='Остаток',
                               default=0)
   updated_at = models.DateTimeField(verbose_name='Последнее обновление',
                                     auto_now=True)
 
-MP_FIELDS = ['sku', 'category', 'supplier','article', 'name', 'manufacturer', 'weight', 'stock', 'm_price', 'basic_price', 'wholesale_price','wholesale_price_extra','updated_at', 'length', 'width', 'depth']
+MP_FIELDS = ['sku', 'category', 'supplier','article', 'name', 'manufacturer', 'weight', 'stock', 'm_price', 'basic_price', 'wholesale_price','wholesale_price_extra','updated_at']
 
 
 class MainProduct(Product):
@@ -205,7 +206,7 @@ class MainProduct(Product):
       verbose_name='Вес',
       decimal_places=1,
       max_digits=8,
-      null=True)
+      default=0)
   prime_cost = models.DecimalField(
       verbose_name='Себестоимость',
       decimal_places=2,
@@ -241,7 +242,8 @@ class MainProduct(Product):
     verbose_name='Наценка',
     related_name='mp_price_manager_ptr',
     on_delete=models.SET_NULL,
-    null=True
+    null=True,
+    blank=True
   )
   length = models.DecimalField(verbose_name='Длина',
                                max_digits=10,

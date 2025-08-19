@@ -9,12 +9,12 @@ import pandas as pd
 
 class SupplierListTable(tables.Table):
   '''Таблица отображаемая на странице Поставщики'''
-  # actions = tables.TemplateColumn(
-  #   template_name='supplier/actions.html',
-  #   orderable=False,
-  #   verbose_name='Действия',
-  #   attrs = {'td': {'class': 'text-right'}}
-  # )
+  actions = tables.TemplateColumn(
+    template_name='supplier/actions.html',
+    orderable=False,
+    verbose_name='Действия',
+    attrs = {'td': {'class': 'text-left'}}
+  )
   name = tables.LinkColumn('supplier-detail', args=[tables.A('pk')])
   class Meta:
     model = Supplier
@@ -42,9 +42,9 @@ class SettingListTable(tables.Table):
       }
 
 class SupplierProductListTable(tables.Table):
-  '''Таблица отображаемая на странице Поставщики'''
+  '''Таблица отображаемая на странице Постащик:имя'''
   actions = tables.TemplateColumn(
-    template_name='supplier/actions.html',
+    template_name='supplier/product/actions.html',
     orderable=False,
     verbose_name='Действия',
     attrs = {'td': {'class': 'text-right'}}
@@ -230,7 +230,9 @@ class PriceManagerListTable(tables.Table):
   actions = tables.TemplateColumn(
     template_name='price_manager/actions.html',
     orderable=False,
-    verbose_name='Действия',
+    verbose_name=format_html(
+            '''<button class="btn btn-sm btn-primary" onclick="window.location.href='/price-manager/apply-all'">Применить все</button>'''
+        ),
     attrs = {'td': {'class': 'text-right'}}
   )
   name = tables.LinkColumn('price-manager-detail', args=[tables.A('pk')])
