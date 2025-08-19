@@ -350,6 +350,7 @@ class SettingUpdate(UpdateView):
     InDictFormSet = forms.formset_factory(DictForm, extra=0)
     for key in LINKS.keys():
       if key == '': continue
+      link = Link.objects.filter(setting__id=self.kwargs.get('id', None), key=key).first()
       dict_initial = extract_initial_from_post(self.request.POST, f'dict_{key}_form', {'key':'', 'value':'', 'enable': True})
       if dict_initial == []:
         dicts = Dict.objects.filter(link=link).values_list('key', 'value')
