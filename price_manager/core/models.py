@@ -196,7 +196,7 @@ class Product(models.Model):
   updated_at = models.DateTimeField(verbose_name='Последнее обновление',
                                     auto_now=True)
 
-MP_FIELDS = ['sku', 'category', 'supplier','article', 'name', 'manufacturer', 'weight', 'stock', 'm_price', 'basic_price', 'wholesale_price','wholesale_price_extra','updated_at']
+MP_FIELDS = ['sku', 'category', 'supplier', 'name', 'manufacturer', 'stock', 'm_price', 'basic_price', 'wholesale_price','wholesale_price_extra','updated_at']
 
 
 class MainProduct(Product):
@@ -262,6 +262,8 @@ class MainProduct(Product):
   class Meta:
     verbose_name = 'Главный продукт'
   
+SP_FIELDS = ['main_product', 'category', 'supplier','article', 'name', 'manufacturer', 'supplier_price', 'rmp_raw', 'rmp_kzt','currency']
+
 class SupplierProduct(Product):
   main_product=models.ForeignKey(MainProduct,
                         verbose_name='sku',

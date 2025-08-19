@@ -780,8 +780,7 @@ class CategorySortSupplierProduct(FormView):
   def form_valid(self, form):
     selected_products = self.request.POST.getlist('selected_items')
     category = form.cleaned_data['category']
-    queryset = SortSupplierProductFilterForm().filter_queryset(
-      SortSupplierProductFilterForm().compile(self.request.GET.get('search', '').split(' ')), self.request.GET).all()
+    queryset = SupplierProduct.objects.search_fields(self.request.GET)
     if selected_products and category:
       queryset.filter(pk__in=selected_products).update(category=category)
     return super().form_valid(form)
