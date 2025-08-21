@@ -47,6 +47,8 @@ urlpatterns = [
 
     path('main-product/<int:id>/update', views.MainProductUpdate.as_view(), name='main-product-update'),
     path('toggle-basket/<int:pk>/', views.toggle_basket, name='toggle-basket'),
+    path("main/sync/", views.sync_main_products, name="main-sync"),
+
 
     path('upload/<str:name>/<int:id>/', views.FileUpload.as_view(), name='upload'),
 ] + static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)

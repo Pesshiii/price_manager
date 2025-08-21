@@ -5,19 +5,55 @@
 {% endblock %}
 
 {% block body %}
-  <h1>Главный прайс</h1>
-  <div class="container">
-    <form method="get" class="form form-control mb-3 w-100">
-        <div class="w-100">
-          {{filter_form.as_p }}
-          <button type="submit" class="btn btn-primary ml-2">Поиск</button>
+<div class="container mt-4">
+  <h1 class="mb-4">Главный прайс</h1>
+
+  <!-- Панель поиска и действий -->
+  <div class="card shadow-sm mb-4">
+    <div class="card-body">
+      <form method="get" class="row g-3 align-items-end">
+
+        <!-- Поиск по всем полям -->
+        <div class="col-md-4">
+          <label for="id_search" class="form-label">
+            🔎 Поиск по всем полям
+          </label>
+          {{ filter_form.search }}
+          <div class="form-text">
+            Будет найдено любое совпадение (артикул, производитель, категория и т.п.).
+          </div>
         </div>
-    </form>
+
+        <!-- Поиск по названию -->
+        <div class="col-md-4">
+          <label for="id_name" class="form-label">
+            📌 Название (строгое совпадение)
+          </label>
+          {{ filter_form.name }}
+          <div class="form-text">
+            В результат попадут только товары, у которых в названии есть это слово.
+          </div>
+        </div>
+
+        <!-- Кнопки -->
+        <div class="col-md-4 d-flex gap-2">
+          <button type="submit" class="btn btn-primary flex-fill">
+            🔍 Искать
+          </button>
+          <a href="{% url 'main-sync' %}" class="btn btn-success flex-fill">
+            🔄 Обновить остатки
+          </a>
+        </div>
+      </form>
+    </div>
   </div>
-  <div class="table-responsive">
+
+  <!-- Таблица -->
+  <div class="table-responsive shadow-sm rounded bg-white p-2">
     {% load django_tables2 %}
     {% render_table table %}
   </div>
+</div>
 {% endblock %}
 
 {% block script %}

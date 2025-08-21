@@ -35,6 +35,9 @@ from django.http import HttpResponse
 from django.shortcuts import get_object_or_404
 from django.template.loader import render_to_string
 from django.views.decorators.http import require_POST
+from django.db.models import F
+from django.contrib import messages
+from django.shortcuts import redirect
 
 
 @require_POST
@@ -909,9 +912,37 @@ def price_manager_apply(request, **kwargs):
 
 # Обработка продуктов главного прайса
 
+# Обработка продуктов главного прайса
+
 class MainProductUpdate(UpdateView):
-  model = MainProduct
-  form_class = MainProductForm
-  template_name = 'main/product/update.html'
-  success_url = '/'
-  pk_url_kwarg = 'id'
+    model = MainProduct
+    form_class = MainProductForm
+    template_name = 'main/product/update.html'
+    success_url = '/'
+    pk_url_kwarg = 'id'
+
+
+# === СИНХРОНИЗАЦИЯ MAIN PRODUCTS ===
+def sync_main_products(request):
+    """Обновляет только остатки (stock) в MainProduct из SupplierProduct"""
+    updated = 0
+    errors = 0
+
+    supplier_products = SupplierProduct.objects.select_related("main_product").all()
+
+    for sp in supplier_products:
+        try:
+            if not sp.main_product:
+                continue  # пропускаем без связи
+
+            mp = sp.main_product
+            mp.stock = sp.stock
+            mp.save(update_fields=["stock", "updated_at"])  # обновляем только остаток
+            updated += 1
+
+        except Exception as ex:
+            errors += 1
+            messages.error(request, f"Ошибка при обновлении {sp}: {ex}")
+
+    messages.success(request, f"Остатки обновлены у {updated} товаров, ошибок: {errors}")
+    return redirect("main")  # замени "main" на url главного прайса
