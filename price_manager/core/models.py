@@ -165,11 +165,16 @@ class ProductManager(models.Manager):
   def search_fields(self, request: typing.Dict[str, str]):
     return self.get_queryset().search_fields(request)
 
-class Product(models.Model):
+MP_FIELDS = ['sku', 'category', 'supplier', 'name', 'manufacturer', 'stock', 'm_price', 'basic_price', 'wholesale_price','wholesale_price_extra','updated_at']
+
+
+class MainProduct(models.Model):
   objects = ProductManager()
+  sku = models.CharField(verbose_name='Артикул товара',
+                         unique=True)
   supplier=models.ForeignKey(Supplier,
                              verbose_name='Поставщик',
-                             related_name='supplier_ptr',
+                             related_name='mp_supplier_ptr',
                              on_delete=models.CASCADE,
                              null=False,
                              blank=False)
@@ -179,7 +184,6 @@ class Product(models.Model):
   name = models.CharField(verbose_name='Название',
                           null=False,
                           blank=False)
-  constraint = models.UniqueConstraint(fields=['supplier','article', 'name'], name='unique_product_constraint')
   category = models.ForeignKey(Category,
                                on_delete=models.SET_NULL,
                                verbose_name='Категория',
@@ -187,21 +191,12 @@ class Product(models.Model):
                                blank=True,)
   manufacturer = models.ForeignKey(Manufacturer,
                                    verbose_name='Производитель',
-                                   related_name='manufacturer_ptr',
+                                   related_name='mp_manufacturer_ptr',
                                    on_delete=models.SET_NULL,
                                    null=True,
                                    blank=True)
   stock = models.PositiveIntegerField(verbose_name='Остаток',
                               default=0)
-  updated_at = models.DateTimeField(verbose_name='Последнее обновление',
-                                    auto_now=True)
-
-MP_FIELDS = ['sku', 'category', 'supplier', 'name', 'manufacturer', 'stock', 'm_price', 'basic_price', 'wholesale_price','wholesale_price_extra','updated_at']
-
-
-class MainProduct(Product):
-  sku = models.CharField(verbose_name='Артикул товара',
-                         unique=True)
   weight = models.DecimalField(
       verbose_name='Вес',
       decimal_places=1,
@@ -257,20 +252,55 @@ class MainProduct(Product):
                                max_digits=10,
                                decimal_places=2,
                                default=0)
+  updated_at = models.DateTimeField(verbose_name='Последнее обновление',
+                                    auto_now=True)
   def __str__(self):
     return self.sku
   class Meta:
     verbose_name = 'Главный продукт'
+    constraints = [
+      models.UniqueConstraint(
+        fields=['supplier', 'article', 'name'],
+        name='mp_uniqe_supplier_article_name'
+      )
+    ]
   
 SP_FIELDS = ['main_product', 'category', 'supplier','article', 'name', 'manufacturer', 'supplier_price', 'rmp_raw', 'rmp_kzt','currency']
 
-class SupplierProduct(Product):
+class SupplierProduct(models.Model):
   main_product=models.ForeignKey(MainProduct,
                         verbose_name='sku',
                         related_name='sp_main_product_ptr',
                         on_delete=models.SET_NULL,
                         null=True,
                         blank=True)
+  
+  objects = ProductManager()
+  supplier=models.ForeignKey(Supplier,
+                             verbose_name='Поставщик',
+                             related_name='sp_supplier_ptr',
+                             on_delete=models.CASCADE,
+                             null=False,
+                             blank=False)
+  article = models.CharField(verbose_name='Артикул поставщика',
+                             null=False,
+                             blank=False)
+  name = models.CharField(verbose_name='Название',
+                          null=False,
+                          blank=False)
+  category = models.ForeignKey(Category,
+                               on_delete=models.SET_NULL,
+                               verbose_name='Категория',
+                               null=True,
+                               blank=True,)
+  manufacturer = models.ForeignKey(Manufacturer,
+                                   verbose_name='Производитель',
+                                   related_name='sp_manufacturer_ptr',
+                                   on_delete=models.SET_NULL,
+                                   null=True,
+                                   blank=True)
+  stock = models.PositiveIntegerField(verbose_name='Остаток',
+                              default=0)
   supplier_price = models.DecimalField(
       verbose_name='Цена поставщика',
       decimal_places=2,
@@ -292,6 +322,16 @@ class SupplierProduct(Product):
                                on_delete=models.PROTECT,
                                blank=False,
                                null=True)
+  updated_at = models.DateTimeField(verbose_name='Последнее обновление',
+                                    auto_now=True)
+  
+  class Meta:
+    constraints = [
+      models.UniqueConstraint(
+        fields=['supplier', 'article', 'name'],
+        name='sp_uniqe_supplier_article_name'
+      )
+    ]
 
 # Модели для менджмента загрузки/обновления поставщиков
 

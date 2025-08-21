@@ -87,6 +87,14 @@ DATABASES = {
             "transaction_mode": "IMMEDIATE",   # ADDED FOR SQLITE DB   /
         },                                     # TRY REMOVE ON OTHER DB/
     }
+    # 'default': {
+    #     'ENGINE': 'django.db.backends.postgresql',
+    #     'NAME': 'postgres',
+    #     'USER': 'postgres',
+    #     'PASSWORD': 'postgres',
+    #     'HOST': 'localhost',
+    #     'PORT': '5432',
+    # }
 }
 
 

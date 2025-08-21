@@ -192,7 +192,6 @@ class SettingCreate(CreateView):
     for key, value in LINKS.items():
       if key == '': continue
       initial_value = self.ins_initial[list(LINKS.keys()).index(key)-1]['initial']
-      print(initial_value)
       if not key in self.mapping and not initial_value == '':
         buf = 0
         while f"{value}{' копия'*buf}" in self.df.columns: buf += 1
@@ -353,7 +352,7 @@ class SettingUpdate(UpdateView):
     InDictFormSet = forms.formset_factory(DictForm, extra=0)
     for key in LINKS.keys():
       if key == '': continue
-      link = Link.objects.get(setting__id=self.kwargs.get('id', None), key=key)
+      link = Link.objects.filter(setting__id=self.kwargs.get('id', None), key=key).first()
       dict_initial = extract_initial_from_post(self.request.POST, f'dict_{key}_form', {'key':'', 'value':'', 'enable': True})
       if dict_initial == []:
         dicts = Dict.objects.filter(link=link).values_list('key', 'value')
@@ -629,71 +628,62 @@ def upload_supplier_products(request, **kwargs):
         df[link.value] = df[link.value].astype(str)
         df[link.value] = df[link.value].replace(col_dict, regex=True)
         df[link.value] = df[link.value].astype(col_type)
-  added_to_main = 0
-  updates = 0
-  creates = 0
-  errors = 0
-  manufacturers_list = list(Manufacturer.objects.values_list('name', flat=True))
-  categories_list = list(Category.objects.values_list('name', flat=True))
+  manufacturers = {}
+  categories = {}
+  products = []
+  m_products = []
+  sp_fields = ['supplier','article', 'name', 'category', 'stock', 'manufacturer', 'supplier_price', 'rmp_raw', 'rmp_kzt','currency', 'updated_at']
+  if setting.id_as_sku:
+    sp_fields.append('main_product')
+  mp_fields = ['sku', 'supplier','article', 'name', 'category', 'stock', 'manufacturer', 'rmp', 'updated_at']
+  if 'manufacturer' in links:
+    for manu_name in df[links['manufacturer']].unique():
+      manufacturer, _ = Manufacturer.objects.get_or_create(name=manu_name)
+      manufacturers[manu_name] = manufacturer
+  if 'category' in links:
+    for cate_name in df[links['category']].unique():
+      category, _ = Category.objects.get_or_create(name=cate_name)
+      categories[cate_name] = category
   for _, row in df.iterrows():
-    try:
-      data={}
-      # Map DataFrame columns to model fields
-      for key, value in links.items():
-        if value in row and not key in NECESSARY:
-          data[key] = row[value]
-      data['currency'] = setting.currency
-
-      # Создание и присвоение производителя
-      if 'manufacturer' in links:
-        manu_dict = ManufacturerDict.objects.filter(name=row[links['manufacturer']]).first()
-        if manu_dict:
-          manu = manu_dict.manufacturer
-        elif not row[links['manufacturer']] in manufacturers_list:
-          manu = Manufacturer.objects.create(name=row[links['manufacturer']])
-          manufacturers_list.append(row[links['manufacturer']])
-        else:
-          manu = Manufacturer.objects.get(name=row[links['manufacturer']])
-        data['manufacturer']=manu
-
-      # Создание и присвоение категории
-      if 'category' in links:
-        if not row[links['category']] in categories_list:
-          category = Category.objects.create(name=row[links['category']])
-          categories_list.append(row[links['category']])
-        else:
-          category = Category.objects.get(name=row[links['category']])
-        data['category']=category
-
-      if 'rmp_raw' in data and not 'rmp_kzt' in data:
-        data['rmp_kzt'] = data['rmp_raw']*data['currency'].value
-
-      kwargs = {field: row[links[field]] for field in NECESSARY if field in links}
-      kwargs['supplier'] = supplier
-      # Update or create
-      product, created = SupplierProduct.objects.update_or_create(
-        **kwargs,
-        defaults=data
-      )
-      if created and setting.id_as_sku:
-        mp_kwargs = kwargs
-        if 'rmp_kzt' in data:
-          mp_kwargs['rmp'] = data['rmp_kzt']
-        main_product = MainProduct.objects.create(sku=f'{product.supplier.id}-{product.article}',
-                                   **mp_kwargs)
-        added_to_main += 1
-        product.main_product = main_product
-        product.save()
-
-      if created:
-        creates += 1
-      else:
-        updates += 1
-    except BaseException as ex:
-      errors += 1
-      messages.error(request, f'{row}\n\n{ex}')
-
-  messages.success(request, f"Создано:{creates}, Обновлено: {updates}, Ошибки: {errors}, Добавлено в главный прайс: {added_to_main}")
+    data = {}
+    m_data = {}
+    data['supplier'] = supplier
+    data['currency'] = setting.currency
+    if 'category' in links:
+      data['category'] = categories[row[links['category']]]
+    else:
+      data['category'] = None
+    if 'manufacturer' in links:
+      data['manufacturer'] = manufacturers[row[links['manufacturer']]]
+    else:
+      data['manufacturer'] = None
+    for key in sp_fields:
+      if key in data: continue
+      if key == 'rmp_kzt' and not 'rmp_kzt' in links:
+        data['rmp_kzt'] = data['rmp_raw']*setting.currency.value
+        continue
+      if key in links:
+        data[key] = row[links[key]]
+    for key in mp_fields:
+      if key in data:
+        m_data[key] = data[key]
+    if 'rmp_kzt' in data:
+      m_data['rmp'] = data['rmp_kzt']
+    m_data['sku'] = f'''{data['supplier'].pk}-{data['article']}'''
+    if setting.id_as_sku:
+      m_products.append(MainProduct(**m_data))
+      products.append(SupplierProduct(main_product = m_products[-1], **data))
+    else:
+      products.append(SupplierProduct(**data))
+  mp = MainProduct.objects.bulk_create(m_products,
+                                       update_conflicts=True,
+                                       unique_fields=NECESSARY,
+                                       update_fields=[field for field in mp_fields if not field in NECESSARY])
+  sp = SupplierProduct.objects.bulk_create(products,
+                                      update_conflicts=True,
+                                      unique_fields=NECESSARY,
+                                      update_fields=[field for field in sp_fields if not field in NECESSARY])
+  messages.success(request, f'Создано {len(sp)}. Обновлено {len(products) - len(sp)}. Добавлено в главный прайс {len(mp)}')
   file_model.file.delete()
   file_model.delete()
   setting.id_as_sku= False
@@ -912,8 +902,6 @@ def price_manager_apply(request, **kwargs):
 
 # Обработка продуктов главного прайса
 
-# Обработка продуктов главного прайса
-
 class MainProductUpdate(UpdateView):
     model = MainProduct
     form_class = MainProductForm
@@ -922,7 +910,6 @@ class MainProductUpdate(UpdateView):
     pk_url_kwarg = 'id'
 
 
-# === СИНХРОНИЗАЦИЯ MAIN PRODUCTS ===
 def sync_main_products(request):
     """Обновляет только остатки (stock) в MainProduct из SupplierProduct"""
     updated = 0
@@ -937,12 +924,11 @@ def sync_main_products(request):
 
             mp = sp.main_product
             mp.stock = sp.stock
-            mp.save(update_fields=["stock", "updated_at"])  # обновляем только остаток
-            updated += 1
 
         except Exception as ex:
             errors += 1
             messages.error(request, f"Ошибка при обновлении {sp}: {ex}")
+    updated = SupplierProduct.objects.bulk_update(supplier_products, ['stock', 'updated_at'])
 
     messages.success(request, f"Остатки обновлены у {updated} товаров, ошибок: {errors}")
-    return redirect("main")  # замени "main" на url главного прайса
+    return redirect("main")

@@ -63,10 +63,13 @@
         </div>
 
         <!-- Кнопки -->
-        <div class="d-flex flex-column gap-2">
-          <button type="submit" class="btn btn-primary">Применить</button>
-          <a href="{% url 'main' %}" class="btn btn-outline-danger">✖ Очистить</a>
-          <a href="{% url 'main-sync' %}" class="btn btn-warning">Обновить остатки</a>
+        <div class="col-md-4 d-flex gap-2">
+          <button type="submit" class="btn btn-primary flex-fill">
+            🔍 Искать
+          </button>
+          <a href="{% url 'main-product-sync' %}" class="btn btn-success flex-fill">
+            🔄 Обновить остатки
+          </a>
         </div>
       </form>
     </div>
