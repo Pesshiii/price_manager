@@ -5,53 +5,79 @@
 {% endblock %}
 
 {% block body %}
-<div class="container mt-4">
+<div class="container-fluid mt-4">
   <h1 class="mb-4">Главный прайс</h1>
 
-  <!-- Панель поиска и действий -->
-  <div class="card shadow-sm mb-4">
-    <div class="card-body">
-      <form method="get" class="row g-3 align-items-end">
+  <div class="row">
+    <!-- Блок фильтров -->
+    <div class="col-md-3">
+      <form method="get" class="card p-3 shadow-sm">
+        <h5 class="mb-3">Фильтры</h5>
 
         <!-- Поиск по всем полям -->
-        <div class="col-md-4">
-          <label for="id_search" class="form-label">
-            🔎 Поиск по всем полям
-          </label>
+        <div class="mb-3">
+          <label class="form-label">Поиск</label>
           {{ filter_form.search }}
-          <div class="form-text">
-            Будет найдено любое совпадение (артикул, производитель, категория и т.п.).
-          </div>
+          <small class="form-text text-muted">
+            Поиск по всем полям (примерное совпадение)
+          </small>
         </div>
 
-        <!-- Поиск по названию -->
-        <div class="col-md-4">
-          <label for="id_name" class="form-label">
-            📌 Название (строгое совпадение)
-          </label>
+        <!-- По названию -->
+        <div class="mb-3">
+          <label class="form-label">Название</label>
           {{ filter_form.name }}
-          <div class="form-text">
-            В результат попадут только товары, у которых в названии есть это слово.
-          </div>
+          <small class="form-text text-muted">
+            Должно входить в название товара (строго)
+          </small>
+        </div>
+
+        <!-- Поставщик -->
+        <div class="mb-3">
+          <label class="form-label">Поставщик</label>
+          {{ filter_form.supplier }}
+        </div>
+
+        <!-- Производитель -->
+        <div class="mb-3">
+          <label class="form-label">Производитель</label>
+          {{ filter_form.manufacturer }}
+        </div>
+
+        <!-- Категория -->
+        <div class="mb-3">
+          <label class="form-label">Категория</label>
+          {{ filter_form.category }}
+        </div>
+
+        <!-- Артикул -->
+        <div class="mb-3">
+          <label class="form-label">Артикул</label>
+          {{ filter_form.article }}
+        </div>
+
+        <!-- Только в наличии -->
+        <div class="form-check mb-3">
+          {{ filter_form.in_stock }}
+          <label class="form-check-label">Только в наличии</label>
         </div>
 
         <!-- Кнопки -->
-        <div class="col-md-4 d-flex gap-2">
-          <button type="submit" class="btn btn-primary flex-fill">
-            🔍 Искать
-          </button>
-          <a href="{% url 'main-sync' %}" class="btn btn-success flex-fill">
-            🔄 Обновить остатки
-          </a>
+        <div class="d-flex flex-column gap-2">
+          <button type="submit" class="btn btn-primary">Применить</button>
+          <a href="{% url 'main' %}" class="btn btn-outline-danger">✖ Очистить</a>
+          <a href="{% url 'main-sync' %}" class="btn btn-warning">Обновить остатки</a>
         </div>
       </form>
     </div>
-  </div>
 
-  <!-- Таблица -->
-  <div class="table-responsive shadow-sm rounded bg-white p-2">
-    {% load django_tables2 %}
-    {% render_table table %}
+    <!-- Таблица -->
+    <div class="col-md-9">
+      <div class="table-responsive card p-3 shadow-sm">
+        {% load django_tables2 %}
+        {% render_table table %}
+      </div>
+    </div>
   </div>
 </div>
 {% endblock %}
@@ -59,9 +85,8 @@
 {% block script %}
 <script src="https://unpkg.com/htmx.org@1.9.12"></script>
 <script>
-  // HTMX will send the token automatically on every POST/PUT/DELETE
   document.body.addEventListener('htmx:configRequest', (evt) => {
-      evt.detail.headers['X-CSRFToken'] = '{{ csrf_token }}';
+    evt.detail.headers['X-CSRFToken'] = '{{ csrf_token }}';
   });
 </script>
 {% endblock %}
