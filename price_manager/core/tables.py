@@ -51,11 +51,7 @@ class SupplierProductListTable(tables.Table):
   )
   class Meta:
     model = SupplierProduct
-    fields = ['main_product']
-    fields.extend([key for key, value in get_field_details(SupplierProduct).items() 
-              if not value['primary_key']
-              and not key == 'supplier'
-              and not key == 'main_product'])
+    fields = SP_FIELDS
     template_name = 'django_tables2/bootstrap.html'
     attrs = {
       'class': 'table table-auto table-stripped table-hover clickable-rows'

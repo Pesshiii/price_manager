@@ -65,6 +65,14 @@ class Category(models.Model):
     else:
       return self.name
     
+
+class Discount(models.Model):
+  name = models.CharField(verbose_name='Название',
+                          null=False,
+                          unique=True)
+  def __str__(self):
+    return self.name
+    
 # Модели для применения наценок
 
 class PriceManager(models.Model):
@@ -79,17 +87,17 @@ class PriceManager(models.Model):
                                related_name='pm_supplier_ptr',
                                unique=False,
                                null=True)
-  category = models.ForeignKey(Category,
+  discount = models.ForeignKey(Discount,
                                on_delete=models.CASCADE,
-                               verbose_name='Категория',
-                               related_name='pm_category_ptr',
+                               verbose_name='Группа скидок',
+                               related_name='pm_discount_ptr',
                                unique=False,
                                null=True,
                                blank=True)
   source = models.CharField(verbose_name='От какой цены считать',
                                  choices=[
-                                  ('rmp_kzt', 'РРЦ в тенге (поставщика)'),
-                                  ('supplier_price', 'Цена поставщика'),
+                                  ('rmp_kzt', 'РРЦ в тенге'),
+                                  ('supplier_price_kzt', 'Цена поставщика в тенге'),
                                   ('basic_price', 'Базовая цена'),
                                   ('prime_cost', 'Себестоимость'),
                                   ('m_price', 'Цена ИМ'),
@@ -108,13 +116,15 @@ class PriceManager(models.Model):
       decimal_places=2,
       max_digits=20,
       validators=[MinValueValidator(0)],
-      default=0)
+      null=True,
+      blank=True)
   price_to = models.DecimalField(
       verbose_name='Цена до',
       decimal_places=2,
       max_digits=20,
       validators=[MinValueValidator(0)],
-      default=0)
+      null=True,
+      blank=True)
   markup = models.DecimalField(
       verbose_name='Накрутка',
       decimal_places=2,
@@ -165,7 +175,7 @@ class ProductManager(models.Manager):
   def search_fields(self, request: typing.Dict[str, str]):
     return self.get_queryset().search_fields(request)
 
-MP_FIELDS = ['sku', 'category', 'supplier', 'name', 'manufacturer', 'stock', 'm_price', 'basic_price', 'wholesale_price','wholesale_price_extra','updated_at']
+MP_FIELDS = ['sku', 'category', 'supplier', 'name', 'manufacturer', 'stock', 'prime_cost', 'm_price', 'basic_price', 'wholesale_price','wholesale_price_extra','updated_at']
 
 
 class MainProduct(models.Model):
@@ -189,6 +199,11 @@ class MainProduct(models.Model):
                                verbose_name='Категория',
                                null=True,
                                blank=True,)
+  discount = models.ForeignKey(Discount,
+                               on_delete=models.SET_NULL,
+                               verbose_name='Группа скидок',
+                               null=True,
+                               blank=True)
   manufacturer = models.ForeignKey(Manufacturer,
                                    verbose_name='Производитель',
                                    related_name='mp_manufacturer_ptr',
@@ -265,7 +280,8 @@ class MainProduct(models.Model):
       )
     ]
   
-SP_FIELDS = ['main_product', 'category', 'supplier','article', 'name', 'manufacturer', 'supplier_price', 'rmp_raw', 'rmp_kzt','currency']
+SP_FIELDS = ['main_product', 'category', 'supplier','article', 'name', 'manufacturer', 'supplier_price_kzt', 'rmp_kzt']
+PRICE_FIELDS = ['supplier_price', 'supplier_price_kzt', 'rmp_raw', 'rmp_kzt']
 
 class SupplierProduct(models.Model):
   main_product=models.ForeignKey(MainProduct,
@@ -293,6 +309,11 @@ class SupplierProduct(models.Model):
                                verbose_name='Категория',
                                null=True,
                                blank=True,)
+  discount = models.ForeignKey(Discount,
+                               on_delete=models.SET_NULL,
+                               verbose_name='Группа скидок',
+                               null=True,
+                               blank=True)
   manufacturer = models.ForeignKey(Manufacturer,
                                    verbose_name='Производитель',
                                    related_name='sp_manufacturer_ptr',
@@ -303,6 +324,11 @@ class SupplierProduct(models.Model):
                               default=0)
   supplier_price = models.DecimalField(
       verbose_name='Цена поставщика',
+      decimal_places=2,
+      max_digits=20,
+      default=0)
+  supplier_price_kzt = models.DecimalField(
+      verbose_name='Цена поставщика в тенге',
       decimal_places=2,
       max_digits=20,
       default=0)
@@ -340,9 +366,11 @@ LINKS = {'': 'Не включать',
          'article': 'Артикул поставщика',
          'name': 'Название',
          'category': 'Категория',
+         'discount': 'Группа скидок',
          'manufacturer': 'Производитель',
          'stock': 'Остаток',
          'supplier_price': 'Цена поставщика',
+         'supplier_price_kzt': 'Цена поставщика в тенге',
          'rmp_raw': 'РРЦ в валюте закупа',
          'rmp_kzt': 'РРЦ в тенге',
          }

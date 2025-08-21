@@ -28,9 +28,6 @@ MP_FOREIGN = [key for key, value in get_field_details(MainProduct).items() if '_
 
 NECESSARY = ['supplier', 'article', 'name']
 
-
-PRICE_FIELDS = ['supplier_price', 'rmp_raw', 'rmp_kzt']
-
 # Проверить надо это или нет
 NA_VALUES = ['nan', '', '—', None]
 

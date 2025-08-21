@@ -630,9 +630,11 @@ def upload_supplier_products(request, **kwargs):
         df[link.value] = df[link.value].astype(col_type)
   manufacturers = {}
   categories = {}
+  discounts = {}
   products = []
   m_products = []
-  sp_fields = ['supplier','article', 'name', 'category', 'stock', 'manufacturer', 'supplier_price', 'rmp_raw', 'rmp_kzt','currency', 'updated_at']
+  sp_fields = ['supplier', 'updated_at']
+  sp_fields.extend(list(LINKS.keys())[1:])
   if setting.id_as_sku:
     sp_fields.append('main_product')
   mp_fields = ['sku', 'supplier','article', 'name', 'category', 'stock', 'manufacturer', 'rmp', 'updated_at']
@@ -644,6 +646,10 @@ def upload_supplier_products(request, **kwargs):
     for cate_name in df[links['category']].unique():
       category, _ = Category.objects.get_or_create(name=cate_name)
       categories[cate_name] = category
+  if 'discount' in links:
+    for discount_name in df[links['discount']].unique():
+      discount, _ = Discount.objects.get_or_create(name=discount_name)
+      discounts[discount_name] = discount
   for _, row in df.iterrows():
     data = {}
     m_data = {}
@@ -657,10 +663,17 @@ def upload_supplier_products(request, **kwargs):
       data['manufacturer'] = manufacturers[row[links['manufacturer']]]
     else:
       data['manufacturer'] = None
+    if 'discount' in links:
+      data['discount'] = discounts[row[links['discount']]]
+    else:
+      data['discount'] = None
     for key in sp_fields:
       if key in data: continue
-      if key == 'rmp_kzt' and not 'rmp_kzt' in links:
+      if key == 'rmp_kzt' and not 'rmp_kzt' in links and 'rmp_raw' in data:
         data['rmp_kzt'] = data['rmp_raw']*setting.currency.value
+        continue
+      if key == 'supplier_price_kzt' and not 'supplier_price_kzt' in links and 'supplier_price' in data:
+        data['supplier_price_kzt'] = data['supplier_price']*setting.currency.value
         continue
       if key in links:
         data[key] = row[links[key]]
@@ -820,7 +833,7 @@ class PriceManagerCreate(CreateView):
         return self.form_invalid(form)
       price_manager = PriceManager.objects.filter(
         supplier=cleaned_data['supplier'],
-        category=cleaned_data['category'],
+        discount=cleaned_data['discount'],
         dest=cleaned_data['dest'],
         price_from__range=(cleaned_data['price_from'], cleaned_data['price_to']),
         price_to__range=(cleaned_data['price_from'], cleaned_data['price_to']),
@@ -874,22 +887,29 @@ def price_manager_apply(request, **kwargs):
     return redirect('price-manager')
   price_manager = PriceManager.objects.get(id=id)
   if price_manager.source in ['rmp_kzt', 'supplier_price']:
-    supplier_products = SupplierProduct.objects.filter(
-      Q(**{f'{price_manager.source}__gte': price_manager.price_from})|
-      Q(**{f'{price_manager.source}__lte': price_manager.price_to})
-    )
+    supplier_products = SupplierProduct.objects.all()
+    if price_manager.price_from:
+      supplier_products = supplier_products.filter(
+        Q(**{f'{price_manager.source}__gte': price_manager.price_from}))
+    if price_manager.price_to:
+      supplier_products = supplier_products.filter(
+        Q(**{f'{price_manager.source}__lte': price_manager.price_to}))
     products = MainProduct.objects.filter(pk__in=supplier_products.values_list('main_product', flat=True))
   else:
-    products = MainProduct.objects.filter(
-      Q(**{f'{price_manager.source}__gte': price_manager.price_from})|
-      Q(**{f'{price_manager.source}__lte': price_manager.price_to}))
+    products = MainProduct.objects.all()
+    if price_manager.price_from:
+      products = products.filter(
+        Q(**{f'{price_manager.source}__gte': price_manager.price_from}))
+    if price_manager.price_to:
+      products = products.filter(
+        Q(**{f'{price_manager.source}__lte': price_manager.price_to}))
   if price_manager.supplier:
-    products.filter(supplier=price_manager.supplier)
-  if price_manager.category:
-    products.filter(category=price_manager.category)
+    products = products.filter(supplier=price_manager.supplier)
+  if price_manager.discount:
+    products = products.filter(discount=price_manager.discount)
   for product in products:
     product.price_manager = price_manager
-    if price_manager.source in ['rmp_kzt', 'supplier_price']:
+    if price_manager.source in ['rmp_kzt', 'price_kzt']:
       price_source = getattr(
         SupplierProduct.objects.filter(main_product=product).first(),
         price_manager.source)
