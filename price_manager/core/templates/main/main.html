@@ -76,6 +76,8 @@
 
     <!-- Таблица -->
     <div class="col-md-9">
+      {% load export_url from django_tables2 %}
+
       <div class="table-responsive card p-3 shadow-sm">
         {% load django_tables2 %}
         {% render_table table %}

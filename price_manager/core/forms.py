@@ -27,7 +27,8 @@ class SettingForm(forms.ModelForm):
   currency = forms.ModelChoiceField(
     Currency.objects,
     label='Валюта',
-    required=True
+    required=True,
+    initial=Currency.objects.get(name='KZT')
   )
   class Meta:
     model = Setting

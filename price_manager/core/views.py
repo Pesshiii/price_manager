@@ -18,6 +18,7 @@ from django.views.decorators.http import require_POST
 from django.urls import reverse
 from django.views.generic.edit import FormMixin
 from django_tables2 import SingleTableView, RequestConfig
+from django_tables2.export.views import ExportMixin
 
 # Импорты моделей, функций, форм, таблиц
 from .models import *
@@ -63,15 +64,20 @@ def toggle_basket(request, pk):
     )
     return HttpResponse(html)
 
-class MainPage(FormView):
+class MainPage(ExportMixin, FormView, SingleTableView):
   model = MainProduct
   form_class = MainProductForm
   template_name = 'main/main.html'
+  table_class = MainProductListTable
+  export_name = "MainProduct"
+  exclude_columns = ['actions', 'supplier', 'updated_at']
+  def get_table(self, **kwargs):
+    return super().get_table(**kwargs, request=self.request)
+  def get_table_data(self):
+    return self.model.objects.search_fields(self.request.GET)
   def get_context_data(self, **kwargs):
     # Чистка базы файлов
     context = super().get_context_data(**kwargs)
-    context['table'] = MainProductListTable(self.model.objects.search_fields(self.request.GET), request=self.request)
-    RequestConfig(self.request).configure(context['table'])
     context['filter_form'] = MainProductFilterForm(self.request.GET)
     try:
       for file in FileModel.objects.all():
@@ -584,8 +590,13 @@ class FileUpload(CreateView):
   template_name = 'upload/upload.html'
   def form_valid(self, form):
     f_id = form.save().id
-    self.success_url = reverse(self.kwargs['name'],
-                               kwargs={'id' : self.kwargs['id'], 'f_id':f_id})
+    id = self.kwargs.get('id', 0)
+    if not id==0:
+      self.success_url = reverse(self.kwargs['name'],
+                                kwargs={'id' : id, 'f_id':f_id})
+    else:
+      self.success_url = reverse(self.kwargs['name'],
+                                kwargs={'f_id':f_id})
     return super().form_valid(form)
 
 # Обработка продуктов
@@ -850,6 +861,12 @@ class PriceManagerDetail(DetailView):
   pk_url_kwarg = 'id'
   context_object_name = 'price_manager'
 
+class PriceManagerDelete(DeleteView):
+  model = PriceManager
+  template_name = 'price_manager/confirm_delete.html'
+  pk_url_kwarg = 'id'
+  success_url = '/price-manager/'
+
 def price_manager_apply_all(request, **kwargs):
   for price_manager in PriceManager.objects.all():
     if price_manager.source in ['rmp_kzt', 'supplier_price']:
@@ -878,7 +895,7 @@ def price_manager_apply_all(request, **kwargs):
       setattr(product, price_manager.dest, math.ceil(price_source*(1+price_manager.markup/100)+price_manager.increase))
     MainProduct.objects.bulk_update(products, fields=[price_manager.dest, 'price_manager', 'updated_at'])
   messages.success(request, 'Наценки применены')
-  return redirect('price-manager')
+  return redirect('main')
 
 def price_manager_apply(request, **kwargs):
   id = kwargs.pop('id')
@@ -886,7 +903,7 @@ def price_manager_apply(request, **kwargs):
     messages.error(request, 'Нет такой наценки')
     return redirect('price-manager')
   price_manager = PriceManager.objects.get(id=id)
-  if price_manager.source in ['rmp_kzt', 'supplier_price']:
+  if price_manager.source in ['rmp_kzt', 'supplier_price_kzt']:
     supplier_products = SupplierProduct.objects.all()
     if price_manager.price_from:
       supplier_products = supplier_products.filter(
@@ -909,7 +926,7 @@ def price_manager_apply(request, **kwargs):
     products = products.filter(discount=price_manager.discount)
   for product in products:
     product.price_manager = price_manager
-    if price_manager.source in ['rmp_kzt', 'price_kzt']:
+    if price_manager.source in ['rmp_kzt', 'supplier_price_kzt']:
       price_source = getattr(
         SupplierProduct.objects.filter(main_product=product).first(),
         price_manager.source)
@@ -929,26 +946,26 @@ class MainProductUpdate(UpdateView):
     success_url = '/'
     pk_url_kwarg = 'id'
 
+def sync_main_products(request, **kwargs):
+  """Обновляет только остатки (stock) в MainProduct из SupplierProduct"""
+  updated = 0
+  errors = 0
 
-def sync_main_products(request):
-    """Обновляет только остатки (stock) в MainProduct из SupplierProduct"""
-    updated = 0
-    errors = 0
+  supplier_products = SupplierProduct.objects.select_related("main_product").all()
 
-    supplier_products = SupplierProduct.objects.select_related("main_product").all()
+  for sp in supplier_products:
+      try:
+          if not sp.main_product:
+              continue  # пропускаем без связи
 
-    for sp in supplier_products:
-        try:
-            if not sp.main_product:
-                continue  # пропускаем без связи
+          mp = sp.main_product
+          mp.stock = sp.stock
 
-            mp = sp.main_product
-            mp.stock = sp.stock
+      except Exception as ex:
+          errors += 1
+          messages.error(request, f"Ошибка при обновлении {sp}: {ex}")
+  updated = SupplierProduct.objects.bulk_update(supplier_products, ['stock', 'updated_at'])
 
-        except Exception as ex:
-            errors += 1
-            messages.error(request, f"Ошибка при обновлении {sp}: {ex}")
-    updated = SupplierProduct.objects.bulk_update(supplier_products, ['stock', 'updated_at'])
+  messages.success(request, f"Остатки обновлены у {updated} товаров, ошибок: {errors}")
+  return price_manager_apply_all(request, **kwargs)
 
-    messages.success(request, f"Остатки обновлены у {updated} товаров, ошибок: {errors}")
-    return redirect("main")

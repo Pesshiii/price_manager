@@ -1,14 +1,43 @@
-<header>
-  <div class="container">
-    <nav>
-      <ul>
-        <li><a href="\">На главную</a></li>
-        <li><a href="\supplier\">Поставщики</a></li>
-        <li><a href="\manufacturer\">Производители</a></li>
-        <li><a href="\currency\">Валюта</a></li>
-        <li><a href="\category\sort\">Категории</a></li>
-        <li><a href="\price-manager\">Наценки</a></li>
+<nav class="navbar navbar-expand-lg sticky-top bg-light">
+  <div class="container-fluid">
+    <!-- Brand -->
+    <a class="navbar-brand" href="/">PriceManager</a>
+
+    <!-- Toggler -->
+    <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#mainNav"
+            aria-controls="mainNav" aria-expanded="false" aria-label="Toggle navigation">
+      <span class="navbar-toggler-icon"></span>
+    </button>
+
+    <!-- Collapsible content -->
+    <div class="collapse navbar-collapse" id="mainNav">
+      <ul class="navbar-nav me-auto mb-2 mb-lg-0">
+        <li class="nav-item">
+          <a class="nav-link active" aria-current="page" href="\">На главную</a>
+        </li>
+        <li class="nav-item">
+          <a class="nav-link" href="\supplier\">Поставщики</a>
+        </li>
+        <li class="nav-item">
+          <a class="nav-link" href="\price-manager">Наценки</a>
+        </li>
+        <li class="nav-item dropdown">
+          <a class="nav-link dropdown-toggle" href="#" role="button" data-bs-toggle="dropdown">
+            Еще
+          </a>
+          <ul class="dropdown-menu">
+            <li><a class="dropdown-item" href="\currency\">Валюта</a></li>
+            <li><a class="dropdown-item" href="\category\sort">Категории</a></li>
+            <li><hr class="dropdown-divider"></li>
+            <li><a class="dropdown-item" href="\manufacturer">Производители</a></li>
+          </ul>
+        </li>
       </ul>
-    </nav>
+
+      <!-- Right-aligned item(s) -->
+      <div class="d-flex">
+        <a class="btn" href="\admin\">Админ</a>
+      </div>
+    </div>
   </div>
-</header>
+</nav>

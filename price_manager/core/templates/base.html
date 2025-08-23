@@ -4,85 +4,42 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>{% block title %}{% endblock %}</title>
-    {% include 'includes/bootstrap.html' %}
-    <style>
-        body {
-            font-family: Arial, sans-serif;
-            margin: 0 auto;
-        }
-
-        /* Layout Styles */
-        .container {
-            max-width: 100%;
-        }
-
-        nav {
-            background-color: #333;
-            padding: 1rem;
-        }
-        
-        nav ul {
-            list-style-type: none;
-            margin: 0;
-            padding: 0;
-            display: flex;
-            gap: 1rem;
-        }
-        
-        nav a {
-            color: white;
-            text-decoration: none;
-            padding: 0.5rem 1rem;
-        }
-        
-        nav a:hover {
-            background-color: #555;
-            border-radius: 4px;
-        }
-
-        .table-wrap {
-            max-height: 700px;
-            overflow: auto;
-        }
-
-        .content { 
-            max-width: 1400px;
-            margin: 30px auto; 
-            background: #fff; 
-            border-radius: 13px; 
-            box-shadow: 0 6px 28px 0 rgba(44,62,80,0.10);
-            padding: 36px 36px 16px 36px; 
-            position: relative;
-        }
-
-        {% block style %}{% endblock %}
-
-        .toggle-widget {
-            display: none;
-        }
-
-        .visible {
-            display: block;
-        }
-    </style>
+    <link 
+    href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" 
+    rel="stylesheet">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.1/font/bootstrap-icons.css">
 </head>
 <body>
     {% include 'includes\header.html' %}
-    <div class="content">
-    {% if messages %}
-    <div class="callout">
-    <ul class="messages">
+    <div class="container">
+        {% if messages %}
+        <div class="alert-container m-5 position-fixed end-0 top-0 p-3" style="z-index: 10;">
         {% for message in messages %}
-        <li>{{ message }}</li>
+            <div class="alert {{ message.tags }} alert-dismissible fade show d-flex align-items-center"
+                role="alert">
+                <div>
+                {{ message }}
+                </div>
+                <button type="button"
+                        class="btn-close ms-auto"
+                        data-bs-dismiss="alert"
+                        aria-label="Close"></button>
+            </div>
         {% endfor %}
-    </ul>
-    </div>
-    {% endif %}
+        </div>
+        {% endif %}
     {% block body %}{% endblock %}
     </div>
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"
+            integrity="sha384-geWF76RCwLtnZ8qwWowPQNguL3RmwHVBC9FhGdlKrxdiJJigb/j/68SIy3Te4Bkz"
+            crossorigin="anonymous"></script>
+    <script>
+        document.addEventListener('DOMContentLoaded', () => {
+        const delay = 4000;
+        document.querySelectorAll('.alert-dismissible').forEach(el => {
+          setTimeout(() => bootstrap.Alert.getOrCreateInstance(el).close(), delay);
+        });
+      });
+    </script>
 </body>
-<script>
-    {% block script %}
-    {% endblock %}
-</script>
 </html>

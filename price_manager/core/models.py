@@ -185,7 +185,7 @@ class MainProduct(models.Model):
   supplier=models.ForeignKey(Supplier,
                              verbose_name='Поставщик',
                              related_name='mp_supplier_ptr',
-                             on_delete=models.CASCADE,
+                             on_delete=models.PROTECT,
                              null=False,
                              blank=False)
   article = models.CharField(verbose_name='Артикул поставщика',

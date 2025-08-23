@@ -97,8 +97,8 @@ class DictFormTable(tables.Table):
         attrs = {"class": "table", "id": "items-table"}
 
 def get_upload_list_table():
+  """Предварительное отображение загружаемых данных"""
   class UploadListTable(tables.Table):
-    """Предварительное отображение загружаемых данных"""
     class Meta:
       template_name = 'django_tables2/bootstrap.html'
       attrs = {'class': 'table table-auto table-striped table-bordered'}
