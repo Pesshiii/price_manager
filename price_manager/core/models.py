@@ -1,7 +1,13 @@
 from django.db import models
 from django.db.models import Q
-from django.db.models.functions import Lower
 from django.core.validators import (FileExtensionValidator, MinValueValidator, MaxValueValidator)
+from django.db.models.signals import post_save
+from django.dispatch import receiver
+
+from django.contrib.postgres.indexes import GinIndex
+from django.contrib.postgres.search import (SearchVectorField, SearchVector, SearchQuery, SearchRank)
+
+
 import typing
 
 # Основные классы для продуктов(главных/поставщика)
@@ -181,7 +187,9 @@ MP_FIELDS = ['sku', 'category', 'supplier', 'name', 'manufacturer', 'stock', 'pr
 class MainProduct(models.Model):
   objects = ProductManager()
   sku = models.CharField(verbose_name='Артикул товара',
-                         unique=True)
+                         null=True,
+                         blank=True,
+                         unique=False)
   supplier=models.ForeignKey(Supplier,
                              verbose_name='Поставщик',
                              related_name='mp_supplier_ptr',
@@ -269,6 +277,7 @@ class MainProduct(models.Model):
                                default=0)
   updated_at = models.DateTimeField(verbose_name='Последнее обновление',
                                     auto_now=True)
+  search_vector = SearchVectorField(null=True, editable=False, unique=False, verbose_name="Вектор поиска")
   def __str__(self):
     return self.sku
   class Meta:
@@ -278,6 +287,9 @@ class MainProduct(models.Model):
         fields=['supplier', 'article', 'name'],
         name='mp_uniqe_supplier_article_name'
       )
+    ]
+    indexes = [
+      GinIndex(fields=['search_vector']),
     ]
   
 SP_FIELDS = ['main_product', 'category', 'supplier','article', 'name', 'manufacturer', 'supplier_price_kzt', 'rmp_kzt']

@@ -6,3 +6,4 @@ xlrd>=2.0.1
 psycopg2>=2.9.10
 tablib>=3.8.0
 django-import-export>=4.3.9
+django-filter>=25.1

@@ -1,0 +1,20 @@
+import django_filters as filters
+from .models import *
+
+class MainProductFilter(filters.FilterSet):
+  search = filters.CharFilter(method='search_method', label='Поиск')
+  basic_price = filters.RangeFilter()
+  stock = filters.RangeFilter()
+  updated_at = filters.DateRangeFilter(field_name='updated_at')
+  class Meta:
+    model = MainProduct
+    fields = ['search', 'name', 'supplier', 'category', 'stock', 'basic_price', 'm_price']
+  def search_method(self, queryset, name, value):
+    query = SearchQuery(value, search_type="plain")  # or "websearch"
+    rank  = SearchRank("search_vector", query)
+
+    return (
+        queryset.annotate(rank=rank)
+        .filter(search_vector=query)      # uses GIN index
+        .order_by("-rank")
+    )

@@ -15,55 +15,17 @@
         <h5 class="mb-3">Фильтры</h5>
 
         <!-- Поиск по всем полям -->
-        <div class="mb-3">
-          <label class="form-label">Поиск</label>
-          {{ filter_form.search }}
-          <small class="form-text text-muted">
-            Поиск по всем полям (примерное совпадение)
-          </small>
+        {% for item in filter.form %}
+        <div class="container overflow-hidden">
+          <label>{{item.label}}</label>
+          <div class="mb-r">
+            {{ item}}
+          </div>
         </div>
-
-        <!-- По названию -->
-        <div class="mb-3">
-          <label class="form-label">Название</label>
-          {{ filter_form.name }}
-          <small class="form-text text-muted">
-            Должно входить в название товара (строго)
-          </small>
-        </div>
-
-        <!-- Поставщик -->
-        <div class="mb-3">
-          <label class="form-label">Поставщик</label>
-          {{ filter_form.supplier }}
-        </div>
-
-        <!-- Производитель -->
-        <div class="mb-3">
-          <label class="form-label">Производитель</label>
-          {{ filter_form.manufacturer }}
-        </div>
-
-        <!-- Категория -->
-        <div class="mb-3">
-          <label class="form-label">Категория</label>
-          {{ filter_form.category }}
-        </div>
-
-        <!-- Артикул -->
-        <div class="mb-3">
-          <label class="form-label">Артикул</label>
-          {{ filter_form.article }}
-        </div>
-
-        <!-- Только в наличии -->
-        <div class="form-check mb-3">
-          {{ filter_form.in_stock }}
-          <label class="form-check-label">Только в наличии</label>
-        </div>
+        {%endfor%}
 
         <!-- Кнопки -->
-        <div class=" d-flex gap-2">
+        <div class=" d-flex gap-2 mt-5">
           <button type="submit" class="btn btn-primary">
             🔍 Искать
           </button>

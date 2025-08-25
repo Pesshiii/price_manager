@@ -16,15 +16,15 @@ from django.views.generic import (View,
                                   TemplateView)
 from django.views.decorators.http import require_POST
 from django.urls import reverse
-from django.views.generic.edit import FormMixin
-from django_tables2 import SingleTableView, RequestConfig
-from django_tables2.export.views import ExportMixin
+from django_tables2 import SingleTableView, RequestConfig, SingleTableMixin
+from django_filters.views import FilterView
 
 # Импорты моделей, функций, форм, таблиц
 from .models import *
 from .functions import *
 from .forms import *
 from .tables import *
+from .filters import *
 
 # Импорты сторонних библиотек
 import pandas as pd
@@ -64,21 +64,16 @@ def toggle_basket(request, pk):
     )
     return HttpResponse(html)
 
-class MainPage(ExportMixin, FormView, SingleTableView):
+class MainPage(SingleTableMixin, FilterView):
   model = MainProduct
-  form_class = MainProductForm
-  template_name = 'main/main.html'
+  filterset_class = MainProductFilter
   table_class = MainProductListTable
-  export_name = "MainProduct"
-  exclude_columns = ['actions', 'supplier', 'updated_at']
+  template_name = 'main/main.html'
   def get_table(self, **kwargs):
     return super().get_table(**kwargs, request=self.request)
-  def get_table_data(self):
-    return self.model.objects.search_fields(self.request.GET)
   def get_context_data(self, **kwargs):
     # Чистка базы файлов
     context = super().get_context_data(**kwargs)
-    context['filter_form'] = MainProductFilterForm(self.request.GET)
     try:
       for file in FileModel.objects.all():
         file.file.delete()
@@ -506,7 +501,7 @@ class SettingDetail(SingleTableView):
   def get_context_data(self, **kwargs):
     context = super().get_context_data(**kwargs)
     context['setting_id'] = self.kwargs['id']
-    context['setting'] = Link.objects.get(id=context['setting_id'])
+    context['setting'] = Setting.objects.get(id=context['setting_id'])
     return context
 
 class SettingUpload(View):
@@ -618,6 +613,7 @@ def upload_supplier_products(request, **kwargs):
   excel_file = pd.ExcelFile(file_model.file)
   links = {link.key: link.value for link in Link.objects.all().filter(setting_id=setting.id)}
   df = excel_file.parse(setting.sheet_name).dropna(axis=0, how='all').dropna(axis=1, how='all')
+  df = df.drop_duplicates(subset=[links['name'], links['article']])
   file_model.file.close()
   for link in Link.objects.all().filter(setting_id=setting.id):
     if link.value not in df.columns:
@@ -688,6 +684,7 @@ def upload_supplier_products(request, **kwargs):
     for key in mp_fields:
       if key in data:
         m_data[key] = data[key]
+        continue
     if 'rmp_kzt' in data:
       m_data['rmp'] = data['rmp_kzt']
     m_data['sku'] = f'''{data['supplier'].pk}-{data['article']}'''
@@ -704,6 +701,7 @@ def upload_supplier_products(request, **kwargs):
                                       update_conflicts=True,
                                       unique_fields=NECESSARY,
                                       update_fields=[field for field in sp_fields if not field in NECESSARY])
+  MainProduct.objects.update(search_vector=SearchVector('name', config='russian'))
   messages.success(request, f'Создано {len(sp)}. Обновлено {len(products) - len(sp)}. Добавлено в главный прайс {len(mp)}')
   file_model.file.delete()
   file_model.delete()

@@ -37,9 +37,11 @@ INSTALLED_APPS = [
     'django.contrib.sessions',
     'django.contrib.messages',
     'django.contrib.staticfiles',
+    'django.contrib.postgres',
     'core',
     'django_tables2',
     'import_export',
+    'django_filters',
 ]
 
 MIDDLEWARE = [
@@ -97,6 +99,8 @@ DATABASES = {
         'PORT': '5432',
     }
 }
+
+DATA_UPLOAD_MAX_NUMBER_FIELDS = 20000
 
 
 # Password validation
