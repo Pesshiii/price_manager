@@ -118,11 +118,8 @@ class SupplierDetail(SingleTableView):
   table_class = SupplierProductListTable
   template_name = 'supplier/detail.html'
   def get_queryset(self):
-    queryset = SupplierFilterForm().filter_queryset(
-      super().get_queryset().filter(
-      supplier_id=self.kwargs['id']),
-      self.request.GET
-    )
+    queryset = super().get_queryset().search_fields(self.request.GET).filter(
+      supplier_id=self.kwargs['id'])
     return queryset
   def get_context_data(self, **kwargs):
     context = super().get_context_data(**kwargs)
@@ -497,7 +494,7 @@ class SettingDelete(DeleteView):
   template_name = 'supplier/setting/confirm_delete.html'
   pk_url_kwarg='id'
   def get_success_url(self):
-    return f'''/supplier/{self.get_object().supplier}/settings'''
+    return f'''/supplier/{self.get_object().supplier.pk}/settings'''
 
 class SettingDetail(SingleTableView):
   '''Отображает настройку поставщика <<setting/<int:id>/>>'''

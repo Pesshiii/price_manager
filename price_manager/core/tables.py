@@ -19,7 +19,7 @@ class SupplierListTable(tables.Table):
   class Meta:
     model = Supplier
     fields = [field for field, value in get_field_details(model).items() if not value['type'] == 'ForeignKey']
-    template_name = 'django_tables2/bootstrap.html'
+    template_name = 'django_tables2/bootstrap5.html'
     attrs = {
       'class': 'table table-auto table-stripped table-hover clickable-rows'
       }
@@ -36,7 +36,7 @@ class SettingListTable(tables.Table):
   class Meta:
     model = Setting
     fields = [field for field in get_field_details(model).keys()]
-    template_name = 'django_tables2/bootstrap.html'
+    template_name = 'django_tables2/bootstrap5.html'
     attrs = {
       'class': 'table table-auto table-stripped table-hover clickable-rows'
       }
@@ -52,7 +52,7 @@ class SupplierProductListTable(tables.Table):
   class Meta:
     model = SupplierProduct
     fields = SP_FIELDS
-    template_name = 'django_tables2/bootstrap.html'
+    template_name = 'django_tables2/bootstrap5.html'
     attrs = {
       'class': 'table table-auto table-stripped table-hover clickable-rows'
       }
@@ -62,7 +62,7 @@ class LinkListTable(tables.Table):
   class Meta:
     model = Link
     fields = [field for field in get_field_details(model).keys()]
-    template_name = 'django_tables2/bootstrap.html'
+    template_name = 'django_tables2/bootstrap5.html'
     attrs = {
       'class': 'table table-auto table-stripped table-hover clickable-rows'
       }
@@ -100,7 +100,7 @@ def get_upload_list_table():
   """Предварительное отображение загружаемых данных"""
   class UploadListTable(tables.Table):
     class Meta:
-      template_name = 'django_tables2/bootstrap.html'
+      template_name = 'django_tables2/bootstrap5.html'
       attrs = {'class': 'table table-auto table-striped table-bordered'}
     def __init__(self, *args, **kwargs):
       # Remove dataframe from kwargs to avoid passing it to parent
@@ -125,7 +125,7 @@ class ManufacturerListTable(tables.Table):
     model = Manufacturer
     fields = [field for field, value in get_field_details(model).items()
               if not '_ptr' in field]
-    template_name = 'django_tables2/bootstrap.html'
+    template_name = 'django_tables2/bootstrap5.html'
     attrs = {
       'class': 'table table-auto table-stripped table-hover clickable-rows'
       }
@@ -135,7 +135,7 @@ class ManufacturerDictListTable(tables.Table):
   class Meta:
     model = ManufacturerDict
     fields = [field for field, value in get_field_details(model).items() if not value['is_relation']]
-    template_name = 'django_tables2/bootstrap.html'
+    template_name = 'django_tables2/bootstrap5.html'
     attrs = {
       'class': 'table table-auto table-stripped table-hover clickable-rows'
       }
@@ -147,7 +147,7 @@ class CurrencyListTable(tables.Table):
   class Meta:
     model = Currency
     fields = [field for field, value in get_field_details(model).items() if not value['is_relation']]
-    template_name = 'django_tables2/bootstrap.html'
+    template_name = 'django_tables2/bootstrap5.html'
     attrs = {
       'class': 'table table-auto table-stripped table-hover clickable-rows'
       }
@@ -166,7 +166,7 @@ class MainProductListTable(tables.Table):
     model = MainProduct
     fields = ['actions']
     fields.extend(MP_FIELDS)
-    template_name = 'django_tables2/bootstrap.html'
+    template_name = 'django_tables2/bootstrap5.html'
     attrs = {
       'class': 'clickable-rows table table-auto table-stripped table-hover'
       }
@@ -196,7 +196,7 @@ class SortSupplierProductTable(tables.Table):
     fields.extend([key for key, value in get_field_details(SupplierProduct).items() 
               if not value['primary_key']
               and not key == 'main_product'])
-    template_name = 'django_tables2/bootstrap.html'
+    template_name = 'django_tables2/bootstrap5.html'
     attrs = {
       'class': 'table table-auto table-stripped table-hover clickable-rows'
       }
@@ -215,7 +215,7 @@ class CategoryListTable(tables.Table):
   class Meta:
     model = Category
     fields = ['parent', 'name']
-    template_name = 'django_tables2/bootstrap.html'
+    template_name = 'django_tables2/bootstrap5.html'
     attrs = {
       'class': 'table table-auto table-stripped table-hover clickable-rows'
       }
@@ -235,7 +235,7 @@ class PriceManagerListTable(tables.Table):
   class Meta:
     model = PriceManager
     fields = [key for key, value in get_field_details(PriceManager).items() if not '_ptr' in key]
-    template_name = 'django_tables2/bootstrap.html'
+    template_name = 'django_tables2/bootstrap5.html'
     attrs = {
       'class': 'table table-auto table-stripped table-hover clickable-rows'
       }
