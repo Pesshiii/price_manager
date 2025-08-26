@@ -6,9 +6,10 @@ class MainProductFilter(filters.FilterSet):
   basic_price = filters.RangeFilter()
   stock = filters.RangeFilter()
   updated_at = filters.DateRangeFilter(field_name='updated_at')
+  category = filters.CharFilter('category__name', lookup_expr='icontains', label='Категория')
   class Meta:
     model = MainProduct
-    fields = ['search', 'name', 'supplier', 'category', 'stock', 'basic_price', 'm_price']
+    fields = ['search', 'supplier', 'category', 'stock', 'basic_price', 'm_price']
   def search_method(self, queryset, name, value):
     query = SearchQuery(value, search_type="plain")  # or "websearch"
     rank  = SearchRank("search_vector", query)

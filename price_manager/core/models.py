@@ -181,7 +181,7 @@ class ProductManager(models.Manager):
   def search_fields(self, request: typing.Dict[str, str]):
     return self.get_queryset().search_fields(request)
 
-MP_FIELDS = ['sku', 'category', 'supplier', 'name', 'manufacturer', 'stock', 'prime_cost', 'm_price', 'basic_price', 'wholesale_price','wholesale_price_extra','updated_at']
+MP_FIELDS = ['category', 'supplier', 'name', 'manufacturer', 'stock', 'updated_at']
 
 
 class MainProduct(models.Model):
