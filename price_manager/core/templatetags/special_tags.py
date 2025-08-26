@@ -26,3 +26,9 @@ def is_in(left, right):
 @register.filter
 def get(obj, indx):
   return obj[indx]
+
+@register.filter
+def margin(first, second):
+  if first == 0:
+    return 0
+  return (float(first) - float(second))/float(first) * 100

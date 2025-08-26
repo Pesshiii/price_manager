@@ -9,3 +9,9 @@ class MainProductAdmin(ImportExportModelAdmin):
   resource_classes = [MainProductResource]
   list_display = MP_FIELDS
   search_fields = ['article', 'name', 'sku', 'stock']
+
+
+@admin.register(SupplierProduct)
+class SupplierProductAdmin(admin.ModelAdmin):
+  list_display = MP_FIELDS
+  search_fields = ['article', 'name', 'sku', 'stock']

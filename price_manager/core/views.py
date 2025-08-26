@@ -4,7 +4,8 @@ from django.shortcuts import (render,
                               get_object_or_404,
                               HttpResponse,
 )
-from django.http import HttpResponseRedirect
+from django.http import HttpResponseRedirect, HttpResponse
+from django.template.loader import render_to_string
 from django.contrib import messages
 from django.views.generic import (View,
                                   ListView,
@@ -30,16 +31,9 @@ from .filters import *
 import pandas as pd
 import json
 import math
-
-
-from django.http import HttpResponse
-from django.shortcuts import get_object_or_404
-from django.template.loader import render_to_string
-from django.views.decorators.http import require_POST
-from django.db.models import F
-from django.contrib import messages
-from django.shortcuts import redirect
 from decimal import Decimal
+
+
 
 
 @require_POST
@@ -614,7 +608,6 @@ def upload_supplier_products(request, **kwargs):
   excel_file = pd.ExcelFile(file_model.file)
   links = {link.key: link.value for link in Link.objects.all().filter(setting_id=setting.id)}
 
-  # --- чтение Excel: сразу конвертируем ценовые поля в Decimal ---
   price_columns = []
   if 'supplier_price' in links:
     price_columns.append(links['supplier_price'])
@@ -622,9 +615,8 @@ def upload_supplier_products(request, **kwargs):
     price_columns.append(links['rmp_raw'])
 
   df = excel_file.parse(
-    setting.sheet_name,
-    converters={col: (lambda x: Decimal(str(x)) if pd.notnull(x) else None) for col in price_columns}
-  ).dropna(axis=0, how='all').dropna(axis=1, how='all')
+    setting.sheet_name
+    ).dropna(axis=0, how='all').dropna(axis=1, how='all')
   # ----------------------------------------------------------------
 
   df = df.drop_duplicates(subset=[links['name'], links['article']])
@@ -693,16 +685,10 @@ def upload_supplier_products(request, **kwargs):
       if key in data:
         continue
       if key == 'rmp_kzt' and not 'rmp_kzt' in links and 'rmp_raw' in data:
-        try:
-          data['rmp_kzt'] = Decimal(str(data['rmp_raw'])) * setting.currency.value
-        except (InvalidOperation, TypeError, ValueError):
-          data['rmp_kzt'] = None
+        data['rmp_kzt'] = data['rmp_raw'] * setting.currency.value
         continue
       if key == 'supplier_price_kzt' and not 'supplier_price_kzt' in links and 'supplier_price' in data:
-        try:
-          data['supplier_price_kzt'] = Decimal(str(data['supplier_price'])) * setting.currency.value
-        except (InvalidOperation, TypeError, ValueError):
-          data['supplier_price_kzt'] = None
+        data['supplier_price_kzt'] = data['supplier_price'] * setting.currency.value
         continue
       if key in links:
         data[key] = row[links[key]]

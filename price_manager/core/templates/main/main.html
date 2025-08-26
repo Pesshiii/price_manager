@@ -11,7 +11,7 @@
     }
     .hover-card {
       position: absolute;
-      top: 100%;            /* drop below the cell text  */
+      top: 50%;            /* drop below the cell text  */
       left: 100%;
       z-index: 9;        /* above table borders       */
       display: none;
@@ -24,7 +24,7 @@
 {% endblock %}
 
 {% block body %}
-<div class="container-fluid mt-4">
+<div class="container-fluid mt-4 mb-5">
   <h1 class="mb-4">Главный прайс</h1>
 
   <div class="row">
@@ -56,10 +56,10 @@
     </div>
 
     <!-- Таблица -->
-    <div class="col-md-9">
+    <div class="col-md-9 mb-5">
       {% load export_url from django_tables2 %}
 
-      <div class="table-responsive card p-3 shadow-sm">
+      <div class="table-responsive card p-3 shadow-sm overflow-visible">
         {% load django_tables2 %}
         {% render_table table %}
       </div>

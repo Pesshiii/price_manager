@@ -1,9 +1,14 @@
 <span class="hover-wrapper">
   {{record.name}}
   <div class="card hover-card shadow-sm">
-    <div class="card-body">
+    <div class="card-header">
       <h6 class="card-title mb-1">{{record.name}}</h6>
-      <p class="card-text small">{{record.basic_price}}</p>
+    </div>
+    <div class="card-body">
+      <p class="card-text small">Себестоимость: {{record.basic_price}} тг.</p>
+      <p class="card-text small">Цена ИМ: {{record.m_price}} тг.</p>
+      {% load special_tags %}
+      <p class="card-text small">Маржинальность: {{record.basic_price|margin:record.m_price}}%</p>
     </div>
   </div>
 </span>
