@@ -892,8 +892,8 @@ def price_manager_apply_all(request, **kwargs):
         Q(**{f'{price_manager.source}__lte': price_manager.price_to}))
     if price_manager.supplier:
       products.filter(supplier=price_manager.supplier)
-    if price_manager.category:
-      products.filter(category=price_manager.category)
+    if price_manager.discount:
+      products.filter(category=price_manager.discount)
     for product in products:
       product.price_manager = price_manager
       if price_manager.source in ['rmp_kzt', 'supplier_price']:
