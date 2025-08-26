@@ -178,6 +178,13 @@ class MainProductListTable(tables.Table):
                 'basket': self.request.session.get('basket', []),
             }
         )
+  def render_name(self, record):
+    return render_to_string(
+      'main/product/card.html',
+      {
+        'record': record,
+      }
+    )
 
 
 class SortSupplierProductTable(tables.Table):
