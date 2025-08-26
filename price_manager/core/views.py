@@ -31,9 +31,6 @@ from .filters import *
 import pandas as pd
 import json
 import math
-from decimal import Decimal
-
-
 
 
 @require_POST
@@ -617,8 +614,7 @@ def upload_supplier_products(request, **kwargs):
   df = excel_file.parse(
     setting.sheet_name
     ).dropna(axis=0, how='all').dropna(axis=1, how='all')
-  # ----------------------------------------------------------------
-
+  
   df = df.drop_duplicates(subset=[links['name'], links['article']])
   file_model.file.close()
   for link in Link.objects.all().filter(setting_id=setting.id):
