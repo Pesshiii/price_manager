@@ -39,6 +39,7 @@ from django.views.decorators.http import require_POST
 from django.db.models import F
 from django.contrib import messages
 from django.shortcuts import redirect
+from decimal import Decimal
 
 
 @require_POST
@@ -612,7 +613,20 @@ def upload_supplier_products(request, **kwargs):
   file_model = FileModel.objects.get(id=kwargs['f_id'])
   excel_file = pd.ExcelFile(file_model.file)
   links = {link.key: link.value for link in Link.objects.all().filter(setting_id=setting.id)}
-  df = excel_file.parse(setting.sheet_name).dropna(axis=0, how='all').dropna(axis=1, how='all')
+
+  # --- чтение Excel: сразу конвертируем ценовые поля в Decimal ---
+  price_columns = []
+  if 'supplier_price' in links:
+    price_columns.append(links['supplier_price'])
+  if 'rmp_raw' in links:
+    price_columns.append(links['rmp_raw'])
+
+  df = excel_file.parse(
+    setting.sheet_name,
+    converters={col: (lambda x: Decimal(str(x)) if pd.notnull(x) else None) for col in price_columns}
+  ).dropna(axis=0, how='all').dropna(axis=1, how='all')
+  # ----------------------------------------------------------------
+
   df = df.drop_duplicates(subset=[links['name'], links['article']])
   file_model.file.close()
   for link in Link.objects.all().filter(setting_id=setting.id):
@@ -626,12 +640,13 @@ def upload_supplier_products(request, **kwargs):
   df = df[df[links['article']].notnull()]
   df = df[df[links['name']].notnull()]
   for link in Link.objects.filter(setting_id=setting.id):
-        col_dict = {entry.key: entry.value for entry in Dict.objects.filter(link=link)}
-        df[link.value] = df[link.value].fillna(link.initial)
-        col_type =df[link.value].dtype
-        df[link.value] = df[link.value].astype(str)
-        df[link.value] = df[link.value].replace(col_dict, regex=True)
-        df[link.value] = df[link.value].astype(col_type)
+    col_dict = {entry.key: entry.value for entry in Dict.objects.filter(link=link)}
+    df[link.value] = df[link.value].fillna(link.initial)
+    col_type = df[link.value].dtype
+    df[link.value] = df[link.value].astype(str)
+    df[link.value] = df[link.value].replace(col_dict, regex=True)
+    df[link.value] = df[link.value].astype(col_type)
+
   manufacturers = {}
   categories = {}
   discounts = {}
@@ -641,7 +656,8 @@ def upload_supplier_products(request, **kwargs):
   sp_fields.extend(list(LINKS.keys())[1:])
   if setting.id_as_sku:
     sp_fields.append('main_product')
-  mp_fields = ['sku', 'supplier','article', 'name', 'category', 'stock', 'manufacturer', 'rmp', 'updated_at']
+  mp_fields = ['sku', 'supplier', 'article', 'name', 'category', 'stock', 'manufacturer', 'rmp', 'updated_at']
+
   if 'manufacturer' in links:
     for manu_name in df[links['manufacturer']].unique():
       manufacturer, _ = Manufacturer.objects.get_or_create(name=manu_name)
@@ -654,6 +670,7 @@ def upload_supplier_products(request, **kwargs):
     for discount_name in df[links['discount']].unique():
       discount, _ = Discount.objects.get_or_create(name=discount_name)
       discounts[discount_name] = discount
+
   for _, row in df.iterrows():
     data = {}
     m_data = {}
@@ -671,16 +688,25 @@ def upload_supplier_products(request, **kwargs):
       data['discount'] = discounts[row[links['discount']]]
     else:
       data['discount'] = None
+
     for key in sp_fields:
-      if key in data: continue
+      if key in data:
+        continue
       if key == 'rmp_kzt' and not 'rmp_kzt' in links and 'rmp_raw' in data:
-        data['rmp_kzt'] = data['rmp_raw']*setting.currency.value
+        try:
+          data['rmp_kzt'] = Decimal(str(data['rmp_raw'])) * setting.currency.value
+        except (InvalidOperation, TypeError, ValueError):
+          data['rmp_kzt'] = None
         continue
       if key == 'supplier_price_kzt' and not 'supplier_price_kzt' in links and 'supplier_price' in data:
-        data['supplier_price_kzt'] = data['supplier_price']*setting.currency.value
+        try:
+          data['supplier_price_kzt'] = Decimal(str(data['supplier_price'])) * setting.currency.value
+        except (InvalidOperation, TypeError, ValueError):
+          data['supplier_price_kzt'] = None
         continue
       if key in links:
         data[key] = row[links[key]]
+
     for key in mp_fields:
       if key in data:
         m_data[key] = data[key]
@@ -688,24 +714,32 @@ def upload_supplier_products(request, **kwargs):
     if 'rmp_kzt' in data:
       m_data['rmp'] = data['rmp_kzt']
     m_data['sku'] = f'''{data['supplier'].pk}-{data['article']}'''
+
     if setting.id_as_sku:
       m_products.append(MainProduct(**m_data))
-      products.append(SupplierProduct(main_product = m_products[-1], **data))
+      products.append(SupplierProduct(main_product=m_products[-1], **data))
     else:
       products.append(SupplierProduct(**data))
-  mp = MainProduct.objects.bulk_create(m_products,
-                                       update_conflicts=True,
-                                       unique_fields=NECESSARY,
-                                       update_fields=[field for field in mp_fields if not field in NECESSARY])
-  sp = SupplierProduct.objects.bulk_create(products,
-                                      update_conflicts=True,
-                                      unique_fields=NECESSARY,
-                                      update_fields=[field for field in sp_fields if not field in NECESSARY])
+
+  mp = MainProduct.objects.bulk_create(
+    m_products,
+    update_conflicts=True,
+    unique_fields=NECESSARY,
+    update_fields=[field for field in mp_fields if not field in NECESSARY]
+  )
+  sp = SupplierProduct.objects.bulk_create(
+    products,
+    update_conflicts=True,
+    unique_fields=NECESSARY,
+    update_fields=[field for field in sp_fields if not field in NECESSARY]
+  )
+
   MainProduct.objects.update(search_vector=SearchVector('name', config='russian'))
-  messages.success(request, f'Создано {len(sp)}. Обновлено {len(products) - len(sp)}. Добавлено в главный прайс {len(mp)}')
+  messages.success(request,
+                   f'Создано {len(sp)}. Обновлено {len(products) - len(sp)}. Добавлено в главный прайс {len(mp)}')
   file_model.file.delete()
   file_model.delete()
-  setting.id_as_sku= False
+  setting.id_as_sku = False
   setting.save()
   return redirect('supplier-detail', id=supplier.id)
 
