@@ -33,54 +33,6 @@ import pandas as pd
 import json
 import math
 
-# Хелпер для безопасного перевода в Decimal
-def to_decimal(val):
-  """Безопасно конвертирует любое значение в Decimal или None."""
-  try:
-    if val is None or (isinstance(val, float) and pd.isna(val)):
-      return None
-    return Decimal(str(val))
-  except (InvalidOperation, TypeError, ValueError):
-    return None
-
-
-def to_number(val, as_int=False):
-  """Конвертирует в Decimal или int.
-  - Если мусор → 0 (для int) или None (для Decimal).
-  - Если отрицательное значение → 0.
-  """
-  try:
-    if val is None or (isinstance(val, float) and pd.isna(val)):
-      return 0 if as_int else None
-
-    if as_int:
-      num = int(float(val))
-      return num if num >= 0 else 0
-    else:
-      num = Decimal(str(val))
-      return num if num >= 0 else Decimal(0)
-  except (InvalidOperation, TypeError, ValueError):
-    return 0 if as_int else None
-
-  def to_price(val):
-    """Конвертирует значение в Decimal (>=0). Мусор или None -> Decimal(0)."""
-    try:
-      if val is None or (isinstance(val, float) and pd.isna(val)):
-        return Decimal("0.00")
-      num = Decimal(str(val))
-      return num if num >= 0 else Decimal("0.00")
-    except (InvalidOperation, TypeError, ValueError):
-      return Decimal("0.00")
-
-def to_price(val):
-    """Конвертирует значение в Decimal (>=0). Мусор или None -> Decimal(0)."""
-    try:
-      if val is None or (isinstance(val, float) and pd.isna(val)):
-        return Decimal("0.00")
-      num = Decimal(str(val))
-      return num if num >= 0 else Decimal("0.00")
-    except (InvalidOperation, TypeError, ValueError):
-      return Decimal("0.00")
 
 @require_POST
 def toggle_basket(request, pk):
@@ -658,12 +610,6 @@ def upload_supplier_products(request, **kwargs):
   df = df.drop_duplicates(subset=[links['name'], links['article']])
   file_model.file.close()
 
-  # Добавляем отсутствующие колонки
-  for link in Link.objects.all().filter(setting_id=setting.id):
-    if link.value not in df.columns:
-      df[link.value] = link.initial
-  df = df[links.values()]
-
   # Фильтры
   if setting.priced_only:
     for price in PRICE_FIELDS:
@@ -686,12 +632,12 @@ def upload_supplier_products(request, **kwargs):
   discounts = {}
   products = []
   m_products = []
-  sp_fields = ['supplier', 'updated_at']
+  sp_fields = ['supplier']
   sp_fields.extend(list(LINKS.keys())[1:])
   if setting.id_as_sku:
     sp_fields.append('main_product')
   mp_fields = ['sku', 'supplier', 'article', 'name', 'category', 'stock',
-               'manufacturer', 'rmp', 'updated_at']
+               'manufacturer', 'updated_at']
 
   # Справочники
   if 'manufacturer' in links:
@@ -713,35 +659,49 @@ def upload_supplier_products(request, **kwargs):
     m_data = {}
     data['supplier'] = supplier
     data['currency'] = setting.currency
-    data['category'] = categories.get(row[links['category']]) if 'category' in links else None
-    data['manufacturer'] = manufacturers.get(row[links['manufacturer']]) if 'manufacturer' in links else None
-    data['discount'] = discounts.get(row[links['discount']]) if 'discount' in links else None
+    if 'category' in links:
+      data['category'] = categories.get(row[links['category']]) if 'category' in links else None
+    if 'manufacturer' in links:
+      data['manufacturer'] = manufacturers.get(row[links['manufacturer']]) if 'manufacturer' in links else None
+    if 'discount' in links:
+      data['discount'] = discounts.get(row[links['discount']]) if 'discount' in links else None
+
+    def get_decimal(val):
+      try:
+        return Decimal(val)
+      except:
+        return Decimal()
+    def get_int(val):
+      try:
+        return int(val)
+      except:
+        return 0
 
     for key in sp_fields:
       if key in data:
         continue
       if key == 'rmp_kzt' and 'rmp_raw' in data and not 'rmp_kzt' in links:
-        raw_val = to_decimal(data['rmp_raw'])
-        data['rmp_kzt'] = raw_val * setting.currency.value if raw_val else None
+        raw_rmp = get_decimal(data['rmp_raw'])
+        data['rmp_kzt'] = raw_rmp * setting.currency.value
         continue
       if key == 'supplier_price_kzt' and 'supplier_price' in data and not 'supplier_price_kzt' in links:
-        sup_val = to_decimal(data['supplier_price'])
-        data['supplier_price_kzt'] = sup_val * setting.currency.value if sup_val else None
+        sup_price = get_decimal(data['supplier_price'])
+        data['supplier_price_kzt'] = sup_price * setting.currency.value
         continue
       if key in links:
         val = row[links[key]]
         if key in ['supplier_price', 'rmp_raw', 'rmp_kzt', 'supplier_price_kzt']:
-          data[key] = to_price(val)  # Decimal ≥ 0
-        elif key in ['stock', 'width', 'length', 'weight']:
-          data[key] = to_number(val, as_int=True)  # int ≥ 0
+          data[key] = get_decimal(val)
+        elif key in ['stock']:
+          stock = get_int(val)
+          if stock < 0: continue
+          data[key] = stock
         else:
           data[key] = val
 
     for key in mp_fields:
       if key in data:
         m_data[key] = data[key]
-    if 'rmp_kzt' in data:
-      m_data['rmp'] = data['rmp_kzt']
     m_data['sku'] = f'''{data['supplier'].pk}-{data['article']}'''
 
     if setting.id_as_sku:
@@ -766,7 +726,7 @@ def upload_supplier_products(request, **kwargs):
   MainProduct.objects.update(search_vector=SearchVector('name', config='russian'))
   messages.success(
     request,
-    f'Создано {len(sp)}. Обновлено {len(products) - len(sp)}. Добавлено в главный прайс {len(mp)}'
+    f'Обработано {len(sp)}. Добавлено в главный прайс {len(mp)}'
   )
   file_model.file.delete()
   file_model.delete()
