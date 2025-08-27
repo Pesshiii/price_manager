@@ -19,6 +19,7 @@ from django.views.decorators.http import require_POST
 from django.urls import reverse
 from django_tables2 import SingleTableView, RequestConfig, SingleTableMixin
 from django_filters.views import FilterView
+from decimal import Decimal, InvalidOperation
 
 # Импорты моделей, функций, форм, таблиц
 from .models import *
@@ -32,6 +33,15 @@ import pandas as pd
 import json
 import math
 
+# Хелпер для безопасного перевода в Decimal
+def to_decimal(val):
+    """Безопасно конвертирует любое значение в Decimal или None."""
+    try:
+        if val is None or (isinstance(val, float) and pd.isna(val)):
+            return None
+        return Decimal(str(val))
+    except (InvalidOperation, TypeError, ValueError):
+        return None
 
 @require_POST
 def toggle_basket(request, pk):
@@ -605,28 +615,25 @@ def upload_supplier_products(request, **kwargs):
   excel_file = pd.ExcelFile(file_model.file)
   links = {link.key: link.value for link in Link.objects.all().filter(setting_id=setting.id)}
 
-  price_columns = []
-  if 'supplier_price' in links:
-    price_columns.append(links['supplier_price'])
-  if 'rmp_raw' in links:
-    price_columns.append(links['rmp_raw'])
-
-  df = excel_file.parse(
-    setting.sheet_name
-    ).dropna(axis=0, how='all').dropna(axis=1, how='all')
-  
+  df = excel_file.parse(setting.sheet_name).dropna(axis=0, how='all').dropna(axis=1, how='all')
   df = df.drop_duplicates(subset=[links['name'], links['article']])
   file_model.file.close()
+
+  # Добавляем отсутствующие колонки
   for link in Link.objects.all().filter(setting_id=setting.id):
     if link.value not in df.columns:
       df[link.value] = link.initial
   df = df[links.values()]
+
+  # Фильтры
   if setting.priced_only:
     for price in PRICE_FIELDS:
       if price in links:
         df = df[df[links[price]].notnull()]
   df = df[df[links['article']].notnull()]
   df = df[df[links['name']].notnull()]
+
+  # Замены по словарям
   for link in Link.objects.filter(setting_id=setting.id):
     col_dict = {entry.key: entry.value for entry in Dict.objects.filter(link=link)}
     df[link.value] = df[link.value].fillna(link.initial)
@@ -644,8 +651,10 @@ def upload_supplier_products(request, **kwargs):
   sp_fields.extend(list(LINKS.keys())[1:])
   if setting.id_as_sku:
     sp_fields.append('main_product')
-  mp_fields = ['sku', 'supplier', 'article', 'name', 'category', 'stock', 'manufacturer', 'rmp', 'updated_at']
+  mp_fields = ['sku', 'supplier', 'article', 'name', 'category', 'stock',
+               'manufacturer', 'rmp', 'updated_at']
 
+  # Справочники
   if 'manufacturer' in links:
     for manu_name in df[links['manufacturer']].unique():
       manufacturer, _ = Manufacturer.objects.get_or_create(name=manu_name)
@@ -659,40 +668,38 @@ def upload_supplier_products(request, **kwargs):
       discount, _ = Discount.objects.get_or_create(name=discount_name)
       discounts[discount_name] = discount
 
+  # Основной цикл
   for _, row in df.iterrows():
     data = {}
     m_data = {}
     data['supplier'] = supplier
     data['currency'] = setting.currency
-    if 'category' in links:
-      data['category'] = categories[row[links['category']]]
-    else:
-      data['category'] = None
-    if 'manufacturer' in links:
-      data['manufacturer'] = manufacturers[row[links['manufacturer']]]
-    else:
-      data['manufacturer'] = None
-    if 'discount' in links:
-      data['discount'] = discounts[row[links['discount']]]
-    else:
-      data['discount'] = None
+    data['category'] = categories.get(row[links['category']]) if 'category' in links else None
+    data['manufacturer'] = manufacturers.get(row[links['manufacturer']]) if 'manufacturer' in links else None
+    data['discount'] = discounts.get(row[links['discount']]) if 'discount' in links else None
 
     for key in sp_fields:
       if key in data:
         continue
-      if key == 'rmp_kzt' and not 'rmp_kzt' in links and 'rmp_raw' in data:
-        data['rmp_kzt'] = data['rmp_raw'] * setting.currency.value
+      if key == 'rmp_kzt' and 'rmp_raw' in data and not 'rmp_kzt' in links:
+        raw_val = to_decimal(data['rmp_raw'])
+        data['rmp_kzt'] = raw_val * setting.currency.value if raw_val else None
         continue
-      if key == 'supplier_price_kzt' and not 'supplier_price_kzt' in links and 'supplier_price' in data:
-        data['supplier_price_kzt'] = data['supplier_price'] * setting.currency.value
+      if key == 'supplier_price_kzt' and 'supplier_price' in data and not 'supplier_price_kzt' in links:
+        sup_val = to_decimal(data['supplier_price'])
+        data['supplier_price_kzt'] = sup_val * setting.currency.value if sup_val else None
         continue
       if key in links:
-        data[key] = row[links[key]]
+        # Приводим к Decimal только для числовых ключей
+        val = row[links[key]]
+        if key in ['supplier_price', 'rmp_raw']:
+          data[key] = to_decimal(val)
+        else:
+          data[key] = val
 
     for key in mp_fields:
       if key in data:
         m_data[key] = data[key]
-        continue
     if 'rmp_kzt' in data:
       m_data['rmp'] = data['rmp_kzt']
     m_data['sku'] = f'''{data['supplier'].pk}-{data['article']}'''
@@ -717,14 +724,15 @@ def upload_supplier_products(request, **kwargs):
   )
 
   MainProduct.objects.update(search_vector=SearchVector('name', config='russian'))
-  messages.success(request,
-                   f'Создано {len(sp)}. Обновлено {len(products) - len(sp)}. Добавлено в главный прайс {len(mp)}')
+  messages.success(
+    request,
+    f'Создано {len(sp)}. Обновлено {len(products) - len(sp)}. Добавлено в главный прайс {len(mp)}'
+  )
   file_model.file.delete()
   file_model.delete()
   setting.id_as_sku = False
   setting.save()
   return redirect('supplier-detail', id=supplier.id)
-
 # Обработка производителей
 
 class ManufacturerList(SingleTableView):
