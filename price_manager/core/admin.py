@@ -13,5 +13,5 @@ class MainProductAdmin(ImportExportModelAdmin):
 
 @admin.register(SupplierProduct)
 class SupplierProductAdmin(admin.ModelAdmin):
-  list_display = MP_FIELDS
-  search_fields = ['article', 'name', 'sku', 'stock']
+  list_display = [field.name for field in SupplierProduct._meta.get_fields() if not field.one_to_many]
+  search_fields = ['article', 'name', 'stock']

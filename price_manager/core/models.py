@@ -102,12 +102,11 @@ class PriceManager(models.Model):
                                blank=True)
   source = models.CharField(verbose_name='От какой цены считать',
                                  choices=[
-                                  ('rmp_kzt', 'РРЦ в тенге'),
+                                  ('rmp_kzt', 'РРЦ поставщика в тенге'),
                                   ('supplier_price_kzt', 'Цена поставщика в тенге'),
                                   ('basic_price', 'Базовая цена'),
                                   ('prime_cost', 'Себестоимость'),
                                   ('m_price', 'Цена ИМ'),
-                                  ('rmp', 'РРЦ'),
                                   ('wholesale_price', 'Оптовая цена'),
                                   ('wholesale_price_extra', 'Оптовая цена1')])
   dest = models.CharField(verbose_name='Какую цену считать',
@@ -181,7 +180,7 @@ class ProductManager(models.Manager):
   def search_fields(self, request: typing.Dict[str, str]):
     return self.get_queryset().search_fields(request)
 
-MP_FIELDS = ['category', 'supplier', 'name', 'manufacturer', 'stock', 'updated_at']
+MP_FIELDS = ['category', 'supplier', 'name', 'manufacturer', 'stock', 'm_price']
 
 
 class MainProduct(models.Model):
@@ -227,11 +226,6 @@ class MainProduct(models.Model):
       default=0)
   prime_cost = models.DecimalField(
       verbose_name='Себестоимость',
-      decimal_places=2,
-      max_digits=20,
-      default=0)
-  rmp = models.DecimalField(
-      verbose_name='РРЦ',
       decimal_places=2,
       max_digits=20,
       default=0)

@@ -1,0 +1,13 @@
+{% extends "base.html" %}
+
+{% block body %}
+<h1>Удалить {{item.name}}</h1>
+
+<p>Вы собираетесь удалить: {{ item.name }}?</p>
+
+<form action="" method="POST">
+  {% csrf_token %}
+  <button type="submit" class="btn btn-primary"> Да</button>
+  <button onclick="window.location.href=''" class="btn btn-secondary">Отмена</a>
+</form>
+{% endblock %}

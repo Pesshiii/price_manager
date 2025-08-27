@@ -9,7 +9,10 @@
     <form method="post">
       {% csrf_token %}
       {{form.as_p}}
-      <button type="submit" value="add">Обновить</button>
+      <button class="btn btn-primary" type="submit" value="add">Обновить</button>
+      <a href="{% url 'main-product-delete' form.instance.id %}" class="btn btn-danger">
+        Удалить <i class="bi bi-trash-fill"></i>
+      </a>
     </form>
   </div>
 {% endblock %}
