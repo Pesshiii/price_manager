@@ -35,13 +35,52 @@ import math
 
 # Хелпер для безопасного перевода в Decimal
 def to_decimal(val):
-    """Безопасно конвертирует любое значение в Decimal или None."""
+  """Безопасно конвертирует любое значение в Decimal или None."""
+  try:
+    if val is None or (isinstance(val, float) and pd.isna(val)):
+      return None
+    return Decimal(str(val))
+  except (InvalidOperation, TypeError, ValueError):
+    return None
+
+
+def to_number(val, as_int=False):
+  """Конвертирует в Decimal или int.
+  - Если мусор → 0 (для int) или None (для Decimal).
+  - Если отрицательное значение → 0.
+  """
+  try:
+    if val is None or (isinstance(val, float) and pd.isna(val)):
+      return 0 if as_int else None
+
+    if as_int:
+      num = int(float(val))
+      return num if num >= 0 else 0
+    else:
+      num = Decimal(str(val))
+      return num if num >= 0 else Decimal(0)
+  except (InvalidOperation, TypeError, ValueError):
+    return 0 if as_int else None
+
+  def to_price(val):
+    """Конвертирует значение в Decimal (>=0). Мусор или None -> Decimal(0)."""
     try:
-        if val is None or (isinstance(val, float) and pd.isna(val)):
-            return None
-        return Decimal(str(val))
+      if val is None or (isinstance(val, float) and pd.isna(val)):
+        return Decimal("0.00")
+      num = Decimal(str(val))
+      return num if num >= 0 else Decimal("0.00")
     except (InvalidOperation, TypeError, ValueError):
-        return None
+      return Decimal("0.00")
+
+def to_price(val):
+    """Конвертирует значение в Decimal (>=0). Мусор или None -> Decimal(0)."""
+    try:
+      if val is None or (isinstance(val, float) and pd.isna(val)):
+        return Decimal("0.00")
+      num = Decimal(str(val))
+      return num if num >= 0 else Decimal("0.00")
+    except (InvalidOperation, TypeError, ValueError):
+      return Decimal("0.00")
 
 @require_POST
 def toggle_basket(request, pk):
@@ -690,10 +729,11 @@ def upload_supplier_products(request, **kwargs):
         data['supplier_price_kzt'] = sup_val * setting.currency.value if sup_val else None
         continue
       if key in links:
-        # Приводим к Decimal только для числовых ключей
         val = row[links[key]]
-        if key in ['supplier_price', 'rmp_raw']:
-          data[key] = to_decimal(val)
+        if key in ['supplier_price', 'rmp_raw', 'rmp_kzt', 'supplier_price_kzt']:
+          data[key] = to_price(val)  # Decimal ≥ 0
+        elif key in ['stock', 'width', 'length', 'weight']:
+          data[key] = to_number(val, as_int=True)  # int ≥ 0
         else:
           data[key] = val
 
