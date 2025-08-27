@@ -660,11 +660,11 @@ def upload_supplier_products(request, **kwargs):
     data['supplier'] = supplier
     data['currency'] = setting.currency
     if 'category' in links:
-      data['category'] = categories.get(row[links['category']]) if 'category' in links else None
+      data['category'] = categories.get(row[links['category']])
     if 'manufacturer' in links:
-      data['manufacturer'] = manufacturers.get(row[links['manufacturer']]) if 'manufacturer' in links else None
+      data['manufacturer'] = manufacturers.get(row[links['manufacturer']])
     if 'discount' in links:
-      data['discount'] = discounts.get(row[links['discount']]) if 'discount' in links else None
+      data['discount'] = discounts.get(row[links['discount']])
 
     def get_decimal(val):
       try:
