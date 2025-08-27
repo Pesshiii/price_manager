@@ -2,7 +2,6 @@
 from django.contrib import admin
 from django.urls import path
 from core import views
-from core import models
 from django.conf import settings
 from django.conf.urls.static import static
 
@@ -13,13 +12,13 @@ urlpatterns = [
     path('supplier/', views.SupplierList.as_view(), name='supplier'),
     path('supplier/<int:id>/', views.SupplierDetail.as_view(), name='supplier-detail'),
     path('supplier/<int:id>/update', views.SupplierUpdate.as_view(), name='supplier-update'),
-    path('supplier/<int:id>/delete/', views.get_delete_view(models.Supplier, '/supplier').as_view(), name='supplier-delete'),
+    path('supplier/<int:id>/delete/', views.SupplierDelete.as_view(), name='supplier-delete'),
     path('supplier/<int:id>/settings/', views.SupplierSettingList.as_view(), name='supplier-settings'),
     path('supplier/create/', views.SupplierCreate.as_view(), name='supplier-create'),
     path('supplier/<int:id>/setting/create/<int:f_id>/', views.SettingCreate.as_view(), name='setting-create'),
 
     path('setting/<int:id>/', views.SettingDetail.as_view(), name='setting-detail'),
-    path('setting/<int:id>/delete', views.get_delete_view(models.Setting, '/supplier').as_view(), name='setting-delete'),
+    path('setting/<int:id>/delete', views.SettingDelete.as_view(), name='setting-delete'),
     path('setting/<int:id>/upload/<int:f_id>/', views.SettingUpdate.as_view(), name='setting-update'),
     path('setting/<int:id>/upload/<int:f_id>/upload', views.SettingUpload.as_view(), name='setting-upload'),
 
@@ -29,7 +28,7 @@ urlpatterns = [
     path('manufacturer/create/', views.ManufacturerCreate.as_view(), name='manufacturer-create'),
     
     path('category/', views.CategoryList.as_view(), name='category'),
-    path('category/<int:id>/delete/', views.get_delete_view(models.Category, '/category').as_view(), name='category-delete'),
+    path('category/<int:id>/delete/', views.CategoryDelete.as_view(), name='category-delete'),
     path('category/sort/', views.CategorySortSupplierProduct.as_view(), name='category-sort'),
     path('category/create/', views.CategoryCreate.as_view(), name='category-create'),
 
@@ -48,8 +47,7 @@ urlpatterns = [
     path('supplier-product/<int:id>/delete/', views.delete_supplier_product, name='supplier-product-delete'),
 
     path('main-product/<int:id>/update', views.MainProductUpdate.as_view(), name='main-product-update'),
-    path('main-product/<int:id>/delete', views.get_delete_view(models.MainProduct, '/').as_view(), name='main-product-delete'),
-    path('main-product/sync/', views.sync_main_products, name="main-product-sync"),
+    path("main-product/sync/", views.sync_main_products, name="main-product-sync"),
     path('toggle-basket/<int:pk>/', views.toggle_basket, name='toggle-basket'),
 
     path('upload/<str:name>/<int:id>/', views.FileUpload.as_view(), name='upload'),
