@@ -988,10 +988,3 @@ def sync_main_products(request, **kwargs):
   messages.success(request, f"Остатки обновлены у {updated} товаров, ошибок: {errors}")
   return price_manager_apply_all(request, **kwargs)
 
-def get_delete_view(model, success_url):
-  return type('DeleteModel', (DeleteView,),
-              {'model': model,
-              'success_url': success_url, 
-              'template_name': 'generic/confirm_delete.html',
-              'pk_url_kwarg' : 'id',
-              'context_object_name':'item'})
