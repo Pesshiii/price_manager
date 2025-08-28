@@ -888,7 +888,7 @@ class PriceManagerDelete(DeleteView):
 
 def price_manager_apply_all(request, **kwargs):
   for price_manager in PriceManager.objects.all():
-    if price_manager.source in ['rmp_kzt', 'supplier_price']:
+    if price_manager.source in ['rmp_kzt', 'supplier_price_kzt']:
       supplier_products = SupplierProduct.objects.filter(
         Q(**{f'{price_manager.source}__gte': price_manager.price_from})|
         Q(**{f'{price_manager.source}__lte': price_manager.price_to})
@@ -904,7 +904,7 @@ def price_manager_apply_all(request, **kwargs):
       products.filter(category=price_manager.discount)
     for product in products:
       product.price_manager = price_manager
-      if price_manager.source in ['rmp_kzt', 'supplier_price']:
+      if price_manager.source in ['rmp_kzt', 'supplier_price_kzt']:
         price_source = getattr(
           SupplierProduct.objects.filter(main_product=product).first(),
           price_manager.source)
