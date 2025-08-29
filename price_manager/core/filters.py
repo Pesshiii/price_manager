@@ -15,7 +15,12 @@ class MainProductFilter(filters.FilterSet):
     rank  = SearchRank("search_vector", query)
 
     return (
-        queryset.annotate(rank=rank)
-        .filter(search_vector=query)      # uses GIN index
-        .order_by("-rank")
+      queryset.annotate(rank=rank)
+      .filter(search_vector=query)      # uses GIN index
+      .order_by("-rank")
     )
+  
+class SupplierProductFilter(filters.FilterSet):
+  class Meta:
+    model = SupplierProduct
+    fields = ['supplier', 'category', 'stock', 'supplier_price', 'rmp_raw']

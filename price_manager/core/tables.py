@@ -1,9 +1,10 @@
-from django.utils.html import format_html
+from django.utils.html import format_html, mark_safe
 from django.template.loader import render_to_string
 import django_tables2 as tables
 
 from .models import *
 from .functions import *
+from .forms import *
 
 import pandas as pd
 
@@ -51,7 +52,7 @@ class SupplierProductListTable(tables.Table):
   )
   class Meta:
     model = SupplierProduct
-    fields = SP_FIELDS
+    fields = SP_TABLE_FIELDS
     template_name = 'django_tables2/bootstrap5.html'
     attrs = {
       'class': 'table table-auto table-stripped table-hover clickable-rows'
@@ -67,34 +68,51 @@ class LinkListTable(tables.Table):
       'class': 'table table-auto table-stripped table-hover clickable-rows'
       }
 
+class HTMLColumn(tables.Column):
+  def render_header(self, bound_column, **kwargs):
+    return mark_safe(str(bound_column.header))
+
 def get_link_create_table():
   class LinkCreateTable(tables.Table):
     """Таблица с выбиралками на хэдэрах для создания Настроек"""
     class Meta:
-      template_name = 'includes/table.html'
+      template_name = 'django_tables2/bootstrap5.html'
       attrs = {'class': 'table table-auto table-striped table-bordered'}
     def __init__(self, *args, **kwargs):
       # Remove dataframe from kwargs to avoid passing it to parent
-      df = kwargs.pop('df', None)
-      widgets = kwargs.pop('widgets', None)
+      columns = kwargs.pop('columns', None)
       # Initialize columns based on DataFrame columns
-      if df is not None:
-        for i in range(len(df.columns)):
-          self.base_columns[df.columns[i]] = tables.Column(attrs={
-            'th':
-              {'widget':widgets[i]}
-          })
+      links = kwargs.pop('links', {})
+      for i in range(len(columns)):
+        if columns[i] in links:
+          initial = {'key': links[columns[i]], 'value': columns[i]}
+        else:
+          initial = {'key':'', 'value':columns[i]}
+        self.base_columns[columns[i]] = HTMLColumn(
+          verbose_name=format_html('''
+              <div class="header-content">
+                  <div class="header-title">
+                    <span>{}</span>
+                    <div class="header-widget">
+                        {}
+                    </div>
+                  </div>
+              </div>''', 
+              columns[i],
+              LinkForm(initial=initial, 
+                        prefix=f'link-form-{i}').as_p()),
+          orderable=False
+        )
       super().__init__(*args, **kwargs)
   return LinkCreateTable
 
 
 class DictFormTable(tables.Table):
-    # Each record is a Form; we render its fields right in the cells
-    key = tables.TemplateColumn('{{ record.key }}',   verbose_name="Если", orderable=False)
-    value  = tables.TemplateColumn('{{ record.value }}',    verbose_name="То", orderable=False)
-    DELETE = tables.TemplateColumn('{{ record.enable }}', verbose_name="", orderable=False)
-    class Meta:
-        attrs = {"class": "table", "id": "items-table"}
+  key = tables.TemplateColumn('''{% load special_tags %}{{ record|get:'key' }}''',   verbose_name="Если", orderable=False)
+  value  = tables.TemplateColumn('''{% load special_tags %}{{ record|get:'value' }}''',    verbose_name="То", orderable=False)
+  DELETE = tables.TemplateColumn('''{% load special_tags %}<button type='submit' class='btn btn-danger' name='delete' value='{{record|get:'btn'}}'><i class="bi bi-x"></i></button>''', verbose_name="", orderable=False)
+  class Meta:
+    attrs = {"class": "table-auto"}
 
 def get_upload_list_table():
   """Предварительное отображение загружаемых данных"""
@@ -165,7 +183,7 @@ class MainProductListTable(tables.Table):
   class Meta:
     model = MainProduct
     fields = ['actions']
-    fields.extend(MP_FIELDS)
+    fields.extend(MP_TABLE_FIELDS)
     template_name = 'django_tables2/bootstrap5.html'
     attrs = {
       'class': 'clickable-rows table table-auto table-stripped table-hover'

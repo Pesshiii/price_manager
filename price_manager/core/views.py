@@ -30,7 +30,7 @@ from .filters import *
 
 # Импорты сторонних библиотек
 import pandas as pd
-import json
+import re
 import math
 
 
@@ -96,7 +96,7 @@ class SupplierSettingList(SingleTableView):
     context['supplier'] = Supplier.objects.get(id=context['supplier_id'])
     return context
   
-class SupplierDetail(SingleTableView):
+class SupplierDetail(SingleTableMixin, FilterView):
   '''
   Таблица отображения товаров на странице поставщиков
   <<supplier/<int:id>/>>
@@ -104,17 +104,9 @@ class SupplierDetail(SingleTableView):
 
   model = SupplierProduct
   table_class = SupplierProductListTable
+  filterset_class = SupplierProductFilter
   template_name = 'supplier/detail.html'
-  def get_queryset(self):
-    queryset = super().get_queryset().search_fields(self.request.GET).filter(
-      supplier_id=self.kwargs['id'])
-    return queryset
-  def get_context_data(self, **kwargs):
-    context = super().get_context_data(**kwargs)
-    context['supplier_id'] = self.kwargs['id']
-    context['supplier'] = Supplier.objects.get(id=context['supplier_id'])
-    context['filter_form'] = SupplierFilterForm(self.request.GET or None)
-    return context
+
 
 class SupplierCreate(CreateView):
   '''Таблица создания Поставщиков <<supplier/create/>>'''
@@ -140,16 +132,52 @@ class SupplierUpdate(UpdateView):
 
 # Обработка настройки
 
-class SettingCreate(CreateView):
+def get_dict_table(request, key, value):
+  initial = extract_initial_from_post(post=request.POST, prefix=f'dict-form-{key}', data={'key':'', 'value':''})
+  extra = int('submit-btn' in request.POST and request.POST['submit-btn'] == key)
+  if 'delete' in request.POST:
+    raw_to_del = request.POST.get('delete', None)
+    idx_del = re.findall(f'{key}-(\\d+)', raw_to_del)
+    if not idx_del == []:
+      initial.pop(int(idx_del[0]))
+  dict_form_set = forms.formset_factory(
+    DictForm, 
+    extra=extra)(
+      initial=initial, 
+      prefix=f'dict-form-{key}')
+  data = [{'key':dict_form_set.forms[i]['key'], 'value':dict_form_set.forms[i]['value'], 'btn': f'{key}-{i}'} for i in range(len(dict_form_set.forms))]
+  if not initial == [] or extra == 1:
+    table = DictFormTable(data=data)
+    RequestConfig(request).configure(table)
+    table = table.as_html(request)
+  else:
+    table = None
+  return render_to_string(
+    'supplier/setting/dict_table.html',
+    context={
+      'key':key,
+      'value':value,
+      'manager': dict_form_set.management_form.as_div(),
+      'initial':InitialForm(initial={'initial' : request.POST.get(f'initial-form-{key}-initial', '')}, prefix=f'initial-form-{key}').as_p(),
+      'table':table
+    }
+  )
+
+class SettingCreate(SingleTableMixin, CreateView):
   '''Создание настроек <<supplier/<int:id>/setting/create/<int:f_id>/>>'''
   model = Setting
   form_class = SettingForm
   template_name = 'supplier/setting/create.html'
-  def get_form(self, **kwargs):
-    form = super().get_form(**kwargs)
-    # Сетап листов и датафрейма
-    self.file_model = FileModel.objects.get(id=self.kwargs['f_id'])
-    excel_file = pd.ExcelFile(self.file_model.file)
+  table_class = get_link_create_table()
+  prefix = 'settin-form'
+  def get_table(self, **kwargs):
+    return super().get_table(**kwargs, columns=list(self.df.columns), links=self.links)
+  def get_table_data(self):
+    return self.df.to_dict('records')
+  def get_form(self):
+    form = super().get_form(form_class = self.form_class)
+    file_model = FileModel.objects.get(id=self.kwargs['f_id'])
+    excel_file = pd.ExcelFile(file_model.file)
     choices = [(name, name) for name in excel_file.sheet_names]
     # Установка начальных значений
     form.fields['sheet_name'].choices = choices
@@ -159,145 +187,76 @@ class SettingCreate(CreateView):
     except:
       sheet_name = choices[0][0]
     self.df = excel_file.parse(sheet_name).dropna(how='all').dropna(axis=1, how='all')
-
-    # Закрыть файл
-    self.file_model.file.close()
-
-    # Подготовка табличек для замены значений(с вводом для филлера пустых полей)
-    initial = extract_initial_from_post(self.request.POST, 'widget_form',{'key':''}, len(self.df.columns))
-    self.ins_initial = extract_initial_from_post(self.request.POST, 'initial_form', {'initial':''}, len(LINKS)-1)
-    self.dict_formset = {}
-    self.initial_formset = InitialsFormSet(initial=self.ins_initial, prefix='initial_form')
-    InDictFormSet = forms.formset_factory(DictForm, extra=0)
-    for key in LINKS.keys():
-      if key == '': continue
-      dict_initial = extract_initial_from_post(self.request.POST, f'dict_{key}_form', {'key':'', 'value':'', 'enable': True})
-      if dict_initial == []:
-        dict_initial = [{'key': '', 'value': None}]
-      self.dict_formset[key] = InDictFormSet(initial=dict_initial, prefix=f'dict_{key}_form')
-
-    self.mapping = {initial[i]['key'] : self.df.columns[i] 
-                for i in range(len(self.df.columns))
-                if not initial[i]['key'] == ''}
-    
+    post = self.request.POST
+    self.links = {
+      link['value']: link['key'] for link in extract_initial_from_post(
+      post, 
+      prefix='link-form',
+      data={'key':'', 'value':''},
+      length=len(self.df.columns))
+      if not link['key'] == ''
+      }
+    self.initials = {
+      key: post.get(f'initial-form-{key}-initial', '')
+      for key, value in LINKS.items() if not key == ''
+    }
     for key, value in LINKS.items():
       if key == '': continue
-      initial_value = self.ins_initial[list(LINKS.keys()).index(key)-1]['initial']
-      if not key in self.mapping and not initial_value == '':
-        buf = 0
-        while f"{value}{' копия'*buf}" in self.df.columns: buf += 1
-        self.df[f"{value}{' копия'*buf}"] = initial_value
-        self.mapping[key] = f"{value}{' копия'*buf}"
-        initial.append({'key':key})
-
-    #  подготовка шторок на столбцы
-    LinkFactory = forms.formset_factory(
-                        form=LinksForm,
-                        extra=len(self.df.columns))
-    self.link_factory = LinkFactory(initial=initial, prefix='widget_form')
-
-
-    return form
-
-    
-  def form_valid(self, form):
-    unique = []
-    for i in range(len(self.df.columns)):
-      if f'form-{i}-key' in self.link_factory.data:
-        buff = self.link_factory.data[f'form-{i}-key']
-        if buff in unique and buff:
-          form.add_error(None, 'Не уникальные поля')
-          return self.form_invalid(form)
-        unique.append(buff)
-    if 'article' not in self.mapping:
-      form.add_error(None, 'Не выбрано поле Артикул')
-      return self.form_invalid(form)
-    if 'name' not in self.mapping:
-      form.add_error(None, 'Не выбрано поле Наименование')
-      return self.form_invalid(form)
-    # Очистка данных
-    if 'priced_only' in form.data and form.data['priced_only']:
-      failed_prices = []
-      for price in PRICE_FIELDS:
-        if not price in self.mapping:
-          failed_prices.append(price)
-          continue
-        self.df = self.df[self.df[self.mapping[price]].notnull()]
-      if len(failed_prices) == len(PRICE_FIELDS):
-        form.add_error(None, 'Не выбрано поле цены')
-        return self.form_invalid(form)
-    self.df = self.df[self.df[self.mapping['article']].notnull()]
-    self.df = self.df[self.df[self.mapping['name']].notnull()]
-
-    # Логика замены значений
+      buf = value
+      if key not in self.links.values():
+        if self.initials[key] == '': continue
+        while buf in self.df.columns:
+          buf += ' Копия'
+        self.links[buf] = key
+    for column_name, model_name in self.links.items():
+      if not column_name in self.df.columns:
+        self.df[column_name] = None
+    self.dicts = {}
     for key in LINKS.keys():
-      if key == '' or not key in self.mapping:
-        continue
-      value = self.mapping[key]
-
-      # Изначальные значения
-      indx = list(LINKS.keys()).index(key)-1
-      if not self.ins_initial[indx]['initial'] == '':
-        try:
-          self.df.fillna({value: self.ins_initial[indx]['initial']}, inplace=True)
-        except BaseException as ex:
-          form.add_error(None, f'Что-то не так с начальными данными: {ex}')
-
-      # Заменки
-      action = self.request.POST.get(f'{key}_action')
-      dict_initial = extract_initial_from_post(self.request.POST, f'dict_{key}_form', {'key':'', 'value':'', 'enable': True})
-      if action == 'add':
-        ExtraFormSet = forms.formset_factory(DictForm, extra=1, can_delete=True)
-        self.dict_formset[key] = ExtraFormSet(initial=dict_initial, prefix=f'dict_{key}_form')
-      try:
-        col_dict = {item['key']:item['value'] for item in dict_initial if item['enable']}
-        dtype = self.df[value].dtype
-        self.df[value] = self.df[value].astype(str)
-        self.df[value] = self.df[value].replace(col_dict, regex=True)
-        self.df[value] = self.df[value].astype(dtype)
-      except BaseException as ex:
-        form.add_error(None, f'Что-то не так с заменами: {ex}')
-    if not self.request.POST.get('submit-btn') == 'save':
-      return super().form_invalid(form)
-    setting = form.save()
-    self.success_url = reverse('setting-upload', kwargs={'id':setting.id, 'f_id':self.file_model.id})
-    for key, value in self.mapping.items():
-      initial = self.ins_initial[list(LINKS.keys()).index(key)-1]['initial']
-      link = Link.objects.create(
-        setting = setting,
-        initial = initial,
-        key = key,
-        value = value
-      )
-      dict_formset = DictFormSet(self.request.POST, prefix=f'dict_{key}_form')
-      if dict_formset.is_valid():
-        for i, cleaned in enumerate(dict_formset.cleaned_data):
-          if not cleaned or not cleaned.get('enable'):
-            continue
-          Dict.objects.create(
-              link=link,
-              key=cleaned.get('key',''),
-              value=cleaned.get('value','')
-            )
+      if key == '': continue
+      self.dicts[key] = {}
+      for item in extract_initial_from_post(
+                  post, 
+                  prefix=f'dict-form-{key}', 
+                  data={'key':'', 'value':''}
+                  ):
+        if not item['key'] in self.dicts[key]:
+          self.dicts[key][item['key']] = item['value']
+        else:
+          form.add_error(error='Проверьте словарь')
+    for column, field in self.links.items():
+      self.df.replace({column:self.dicts[field]}, regex=True, inplace=True)
+      self.df.fillna({column:self.initials[field]}, inplace=True)
+    file_model.file.close()
+    return form
+  def form_valid(self, form):
+    setting = form.instance
+    # Подстановка начальных значений
+    for key, value in LINKS.items():
+      if key == '': continue
+      if key not in self.links.values() and not self.initials[key] == '':
+        buf = value
+        while buf in self.links:
+          buf += ' Копия'
+        self.links[buf] = key
+    if not form.is_valid():
+      return self.form_invalid()
+    for column, key in self.links.items():
+      if key in SP_PRICES and setting.priced_only:
+        self.df = self.df[self.df[column].notnull()]
+    if not 'submit-btn' in self.request.POST or not self.request.POST['submit-btn'] == 'save':
+      return self.form_invalid(form)
+    form.instance.save()
     return super().form_valid(form)
-  
   def get_context_data(self, **kwargs):
     context = super().get_context_data(**kwargs)
-    context['link_factory'] = self.link_factory
-    context['LINKS'] = LINKS
-    # Таблички замен и формы для них
-    context['dict_forms'] = self.dict_formset.items()
-    context['initial_formset'] = self.initial_formset
-    context['initial_forms'] = {
-      list(LINKS.keys())[i]:self.initial_formset[i-1] for i in range(1, len(LINKS))
-      }
-    tables = {key:DictFormTable(value.forms) for key, value in self.dict_formset.items()}
-    context['tables'] = tables
-    widgets = [self.link_factory.forms[i]
-                for i in range(len(self.df.columns))]
-    context['table'] = get_link_create_table()(df=self.df, widgets=widgets, data=self.df.to_dict('records'))
-    RequestConfig(self.request).configure(context['table'])
+    dicts = []
+    for key, value in LINKS.items():
+      if key == '': continue
+      dicts.append(get_dict_table(self.request, key, value))
+    context['dicts'] = dicts
     return context
+
   
 class SettingUpdate(UpdateView):
   '''Обновление настройки <</setting/<int:id>/update/<int:f_id>/>>'''
@@ -368,7 +327,7 @@ class SettingUpdate(UpdateView):
 
     #  подготовка шторок на столбцы
     LinkFactory = forms.formset_factory(
-                        form=LinksForm,
+                        form=LinkForm,
                         extra=len(self.df.columns))
     self.link_factory = LinkFactory(initial=initial, prefix='widget_form')
 

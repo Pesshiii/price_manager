@@ -37,14 +37,13 @@ def match_manufacturer(name: str)->Manufacturer:
 
 
 def extract_initial_from_post(post, prefix="form", data={}, length=None):
-    """Схватить данные после нажатия кнопки добавить"""
-    if not length:
-      total = int(post.get(f"{prefix}-TOTAL_FORMS", 0))
-    else:
-      total = length
-    rows = []
-    for i in range(total):
-        rows.append({
-            key:  post.get(f"{prefix}-{i}-{key}", value) for key, value in data.items()
-        })
-    return rows
+  rows = []
+  if not length:
+    total = int(post.get(f"{prefix}-TOTAL_FORMS", 0))
+  else:
+    total = length
+  for i in range(total):
+      rows.append({
+          key:  post.get(f"{prefix}-{i}-{key}", value) for key, value in data.items()
+      })
+  return rows

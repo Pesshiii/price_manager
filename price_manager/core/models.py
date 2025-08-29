@@ -173,19 +173,15 @@ class ProductQuerySet(models.QuerySet):
         s_query |= icontains(f"{field.name}{'__name'*(field.is_relation)}", chunk)
     return self.filter(s_query).filter(query)
 
-
-
-class ProductManager(models.Manager):
-  def get_queryset(self):
-    return ProductQuerySet(self.model, using=self._db)
-  def search_fields(self, request: typing.Dict[str, str]):
-    return self.get_queryset().search_fields(request)
-
-MP_FIELDS = ['category', 'supplier', 'name', 'manufacturer', 'stock', 'updated_at']
-
+MP_TABLE_FIELDS = ['category', 'supplier', 'name', 'manufacturer', 'stock', 'updated_at']
+MP_CHARS = ['sku', 'article', 'name']
+MP_FKS = ['supplier', 'category', 'discount', 'manufacturer', 'price_manager']
+MP_DECIMALS = ['weight', 'length', 'width', 'depth']
+MP_INTEGERS = ['stock']
+MP_PRICES = ['prime_cost', 'wholesale_price', 'basic_price', 'm_price', 'wholesale_price_extra']
+MP_MANAGMENT = ['updated_at', 'search_vector']
 
 class MainProduct(models.Model):
-  objects = ProductManager()
   sku = models.CharField(verbose_name='Артикул товара',
                          null=True,
                          blank=True,
@@ -227,11 +223,6 @@ class MainProduct(models.Model):
       default=0)
   prime_cost = models.DecimalField(
       verbose_name='Себестоимость',
-      decimal_places=2,
-      max_digits=20,
-      default=0)
-  rmp = models.DecimalField(
-      verbose_name='РРЦ',
       decimal_places=2,
       max_digits=20,
       default=0)
@@ -292,8 +283,12 @@ class MainProduct(models.Model):
       GinIndex(fields=['search_vector']),
     ]
   
-SP_FIELDS = ['main_product', 'category', 'supplier','article', 'name', 'manufacturer', 'supplier_price_kzt', 'rmp_kzt']
-PRICE_FIELDS = ['supplier_price', 'supplier_price_kzt', 'rmp_raw', 'rmp_kzt']
+SP_TABLE_FIELDS = ['main_product', 'category', 'supplier','article', 'name', 'manufacturer', 'supplier_price_kzt', 'rmp_kzt']
+SP_CHARS = ['article', 'name']
+SP_FKS = ['main_product', 'category', 'supplier', 'manufacturer']
+SP_PRICES = ['supplier_price', 'supplier_price_kzt', 'rmp_raw', 'rmp_kzt']
+SP_INTEGERS = ['stock']
+SP_MANAGMENT = ['updated_at']
 
 class SupplierProduct(models.Model):
   main_product=models.ForeignKey(MainProduct,
@@ -302,8 +297,6 @@ class SupplierProduct(models.Model):
                         on_delete=models.SET_NULL,
                         null=True,
                         blank=True)
-  
-  objects = ProductManager()
   supplier=models.ForeignKey(Supplier,
                              verbose_name='Поставщик',
                              related_name='sp_supplier_ptr',
@@ -396,8 +389,10 @@ class Setting(models.Model):
   sheet_name = models.CharField(verbose_name='Название листа')
   priced_only = models.BooleanField(verbose_name='Не включать поля без цены',
                                     default=True)
-  id_as_sku = models.BooleanField(verbose_name='Использывать артикул как SKU',
+  update_main = models.BooleanField(verbose_name='Обновлять главный прайс',
                                   default=True)
+  differ_by_name = models.BooleanField(verbose_name='Различать по имени',
+                                       default=True)
   currency = models.ForeignKey(Currency,
                                verbose_name='Валюта',
                                on_delete=models.PROTECT,
