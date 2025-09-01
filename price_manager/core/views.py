@@ -163,23 +163,33 @@ def get_dict_table(request, key, value):
     }
   )
 
+def get_safe(field, value):
+  if value == '':return value
+  if field in SP_INTEGERS:
+    return int(value)
+  if field in SP_PRICES:
+    return Decimal(value)
+  return value
+
+
 class SettingCreate(SingleTableMixin, CreateView):
   '''Создание настроек <<supplier/<int:id>/setting/create/<int:f_id>/>>'''
   model = Setting
   form_class = SettingForm
   template_name = 'supplier/setting/create.html'
-  table_class = get_link_create_table()
   prefix = 'settin-form'
+  def get_table_class(self):
+    return get_link_create_table()
   def get_table(self, **kwargs):
     return super().get_table(**kwargs, columns=list(self.df.columns), links=self.links)
   def get_table_data(self):
     return self.df.to_dict('records')
   def get_form(self):
     form = super().get_form(form_class = self.form_class)
+
     file_model = FileModel.objects.get(id=self.kwargs['f_id'])
     excel_file = pd.ExcelFile(file_model.file)
     choices = [(name, name) for name in excel_file.sheet_names]
-    # Установка начальных значений
     form.fields['sheet_name'].choices = choices
     form.fields['supplier'].initial=Supplier.objects.get(id=self.kwargs['id'])
     try:
@@ -187,6 +197,8 @@ class SettingCreate(SingleTableMixin, CreateView):
     except:
       sheet_name = choices[0][0]
     self.df = excel_file.parse(sheet_name).dropna(how='all').dropna(axis=1, how='all')
+    file_model.file.close()
+
     post = self.request.POST
     self.links = {
       link['value']: link['key'] for link in extract_initial_from_post(
@@ -200,6 +212,7 @@ class SettingCreate(SingleTableMixin, CreateView):
       key: post.get(f'initial-form-{key}-initial', '')
       for key, value in LINKS.items() if not key == ''
     }
+
     for key, value in LINKS.items():
       if key == '': continue
       buf = value
@@ -208,42 +221,38 @@ class SettingCreate(SingleTableMixin, CreateView):
         while buf in self.df.columns:
           buf += ' Копия'
         self.links[buf] = key
-    for column_name, model_name in self.links.items():
+
+        
+    self.dicts = {}
+    for column_name, field_name in self.links.items():
       if not column_name in self.df.columns:
         self.df[column_name] = None
-    self.dicts = {}
-    for key in LINKS.keys():
-      if key == '': continue
-      self.dicts[key] = {}
+      self.dicts[field_name] = {}
       for item in extract_initial_from_post(
                   post, 
-                  prefix=f'dict-form-{key}', 
+                  prefix=f'dict-form-{field_name}', 
                   data={'key':'', 'value':''}
                   ):
-        if not item['key'] in self.dicts[key]:
-          self.dicts[key][item['key']] = item['value']
+        if not item['key'] in self.dicts[field_name]:
+          if self.df[column_name].dtype == int:
+            self.dicts[field_name][int(item['key'])] = int(item['value'])
+          elif self.df[column_name].dtype == float:
+            self.dicts[field_name][float(item['key'])] = float(item['value'])
+          else:
+            self.dicts[field_name][item['key']] = item['value']
         else:
           form.add_error(error='Проверьте словарь')
+
     for column, field in self.links.items():
-      self.df.replace({column:self.dicts[field]}, regex=True, inplace=True)
+      if field in SP_CHARS:
+        self.df.replace({column:self.dicts[field]}, regex=True, inplace=True)
+      else:
+        self.df.replace({column:self.dicts[field]}, inplace=True)
       self.df.fillna({column:self.initials[field]}, inplace=True)
+
     file_model.file.close()
     return form
   def form_valid(self, form):
-    setting = form.instance
-    # Подстановка начальных значений
-    for key, value in LINKS.items():
-      if key == '': continue
-      if key not in self.links.values() and not self.initials[key] == '':
-        buf = value
-        while buf in self.links:
-          buf += ' Копия'
-        self.links[buf] = key
-    if not form.is_valid():
-      return self.form_invalid()
-    for column, key in self.links.items():
-      if key in SP_PRICES and setting.priced_only:
-        self.df = self.df[self.df[column].notnull()]
     if not 'submit-btn' in self.request.POST or not self.request.POST['submit-btn'] == 'save':
       return self.form_invalid(form)
     form.instance.save()
