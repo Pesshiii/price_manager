@@ -109,6 +109,10 @@ class SupplierDetail(SingleTableMixin, FilterView):
 
   def get_table_data(self):
     return super().get_table_data().filter(supplier=self.kwargs.get('id', None))
+  def get_context_data(self, **kwargs):
+    context = super().get_context_data(**kwargs)
+    context['supplier'] = Supplier.objects.get(id=self.kwargs.get('id'))
+    return context
 
 
 class SupplierCreate(CreateView):
@@ -535,7 +539,7 @@ def upload_supplier_products(request, **kwargs):
   MainProduct.objects.bulk_update(mp, fields=['article', 'name', 'search_vector', 'available'])
   SupplierProduct.objects.bulk_update(sp, fields=links.values())
   SupplierProduct.objects.bulk_update(sp, fields=['main_product'])
-  messages.success(request, f'Товаров: {overall}, Новых: {new}')
+  messages.success(request, f'Добавлено товаров: {overall}, Новых: {new}')
   if not exs == []:
     ex_str = '''\n'''.join([f'{ex}' for ex in exs[:min(len(exs), 5)]])
     messages.error(
@@ -654,10 +658,12 @@ class CategoryDelete(DeleteView):
 # Обработка наценок
 
 class PriceManagerList(SingleTableView):
-  '''Отображение наценок <<price_manager/>>'''
+  '''Отображение наценок <<supplier/<int:id>/price_manager/>>'''
   model = PriceManager
   table_class = PriceManagerListTable
   template_name = 'price_manager/list.html'
+  def get_table_data(self):
+    return PriceManager.objects.filter(supplier__pk=self.kwargs.get('id'))
 
 class PriceManagerCreate(CreateView):
   '''Создание Наценки <<supplier/<int:id>/price-manager/create/>>'''
@@ -676,28 +682,23 @@ class PriceManagerCreate(CreateView):
     if not form.is_valid():
       return self.form_invalid(form)
     price_manager = form.instance
+    price_manager.supplier = self.supplier
     if price_manager.dest == price_manager.source:
       messages.error(self.request, f'Поле не может считатсься от себя же')
       return self.form_invalid(form)
-    # print(
-    #   self.supplier,
-    #   price_manager.discount,
-    #   price_manager.dest,
-    #   price_manager.price_from, price_manager.price_to)
-    price_manager = PriceManager.objects.filter(
-      supplier=self.supplier,
-      discount=price_manager.discount,
-      dest=price_manager.dest,
-      price_from__range=(price_manager.price_from, price_manager.price_to),
-      # price_to__range=(price_manager.price_from, price_manager.price_to),
-    ).first()
-    print(price_manager)
-    return self.form_invalid(form)
-    if price_manager:
-      messages.error(self.request, f'Пересечение с другой наценкой: {price_manager.name}')
+    if price_manager.price_from >= price_manager.price_to:
+      messages.error(self.request, f'Неверная ценовая зона')
       return self.form_invalid(form)
-    price_manager = form.instance
-    price_manager.supplier = self.supplier
+    conf_price_manager = PriceManager.objects.filter(
+      (Q(price_from__gte=price_manager.price_from)&Q(price_from__lte=price_manager.price_to))|
+      (Q(price_to__gte=price_manager.price_from)&Q(price_to__lte=price_manager.price_to)))
+    conf_price_manager = conf_price_manager.filter(
+      supplier=price_manager.supplier, 
+      discount=price_manager.discount, 
+      dest=price_manager.dest).first()
+    if conf_price_manager:
+      messages.error(self.request, f'Пересечение с другой наценкой: {conf_price_manager.name}')
+      return self.form_invalid(form)
     price_manager.save()
     return super().form_valid(form)
 
@@ -713,76 +714,6 @@ class PriceManagerDelete(DeleteView):
   template_name = 'price_manager/confirm_delete.html'
   pk_url_kwarg = 'id'
   success_url = '/price-manager/'
-
-def price_manager_apply_all(request, **kwargs):
-  for price_manager in PriceManager.objects.all():
-    if price_manager.source in ['rmp_kzt', 'supplier_price_kzt']:
-      supplier_products = SupplierProduct.objects.filter(
-        Q(**{f'{price_manager.source}__gte': price_manager.price_from})|
-        Q(**{f'{price_manager.source}__lte': price_manager.price_to})
-      )
-      products = MainProduct.objects.filter(pk__in=supplier_products.values_list('main_product', flat=True))
-    else:
-      products = MainProduct.objects.filter(
-        Q(**{f'{price_manager.source}__gte': price_manager.price_from})|
-        Q(**{f'{price_manager.source}__lte': price_manager.price_to}))
-    if price_manager.supplier:
-      products.filter(supplier=price_manager.supplier)
-    if price_manager.discount:
-      products.filter(category=price_manager.discount)
-    for product in products:
-      product.price_manager = price_manager
-      if price_manager.source in ['rmp_kzt', 'supplier_price_kzt']:
-        price_source = getattr(
-          SupplierProduct.objects.filter(main_product=product).first(),
-          price_manager.source)
-      else:
-        price_source = getattr(product,
-          price_manager.source)
-      setattr(product, price_manager.dest, math.ceil(price_source*(1+price_manager.markup/100)+price_manager.increase))
-    MainProduct.objects.bulk_update(products, fields=[price_manager.dest, 'price_manager', 'updated_at'])
-  messages.success(request, 'Наценки применены')
-  return redirect('main')
-
-def price_manager_apply(request, **kwargs):
-  id = kwargs.pop('id')
-  if not id:
-    messages.error(request, 'Нет такой наценки')
-    return redirect('price-manager')
-  price_manager = PriceManager.objects.get(id=id)
-  if price_manager.source in ['rmp_kzt', 'supplier_price_kzt']:
-    supplier_products = SupplierProduct.objects.all()
-    if price_manager.price_from:
-      supplier_products = supplier_products.filter(
-        Q(**{f'{price_manager.source}__gte': price_manager.price_from}))
-    if price_manager.price_to:
-      supplier_products = supplier_products.filter(
-        Q(**{f'{price_manager.source}__lte': price_manager.price_to}))
-    products = MainProduct.objects.filter(pk__in=supplier_products.values_list('main_product', flat=True))
-  else:
-    products = MainProduct.objects.all()
-    if price_manager.price_from:
-      products = products.filter(
-        Q(**{f'{price_manager.source}__gte': price_manager.price_from}))
-    if price_manager.price_to:
-      products = products.filter(
-        Q(**{f'{price_manager.source}__lte': price_manager.price_to}))
-  if price_manager.supplier:
-    products = products.filter(supplier=price_manager.supplier)
-  if price_manager.discount:
-    products = products.filter(discount=price_manager.discount)
-  for product in products:
-    product.price_manager = price_manager
-    if price_manager.source in ['rmp_kzt', 'supplier_price_kzt']:
-      price_source = getattr(
-        SupplierProduct.objects.filter(main_product=product).first(),
-        price_manager.source)
-    else:
-      price_source = getattr(product,
-        price_manager.source)
-    setattr(product, price_manager.dest, math.ceil(price_source*(1+price_manager.markup/100)+price_manager.increase))
-  MainProduct.objects.bulk_update(products, fields=[price_manager.dest, 'price_manager', 'updated_at'])
-  return redirect('price-manager')
 
 # Обработка продуктов главного прайса
 
@@ -812,8 +743,34 @@ def sync_main_products(request, **kwargs):
           errors += 1
           messages.error(request, f"Ошибка при обновлении {sp}: {ex}")
   updated = SupplierProduct.objects.bulk_update(supplier_products, ['stock', 'updated_at'])
-
-  messages.success(request, f"Остатки обновлены у {updated} товаров, ошибок: {errors}")
-  return price_manager_apply_all(request, **kwargs)
+  messages.success(request, f"Обновлены {updated} товаров, ошибок: {errors}")
+  for price_manager in PriceManager.objects.all():
+    if price_manager.source in ['rmp_kzt', 'supplier_price_kzt']:
+      supplier_products = SupplierProduct.objects.filter(
+        Q(**{f'{price_manager.source}__gte': price_manager.price_from})|
+        Q(**{f'{price_manager.source}__lte': price_manager.price_to})
+      )
+      products = MainProduct.objects.filter(pk__in=supplier_products.values_list('main_product', flat=True))
+    else:
+      products = MainProduct.objects.filter(
+        Q(**{f'{price_manager.source}__gte': price_manager.price_from})|
+        Q(**{f'{price_manager.source}__lte': price_manager.price_to}))
+    if price_manager.supplier:
+      products.filter(supplier=price_manager.supplier)
+    if price_manager.discount:
+      products.filter(category=price_manager.discount)
+    for product in products:
+      product.price_manager = price_manager
+      if price_manager.source in ['rmp_kzt', 'supplier_price_kzt']:
+        price_source = getattr(
+          SupplierProduct.objects.filter(main_product=product).first(),
+          price_manager.source)
+      else:
+        price_source = getattr(product,
+          price_manager.source)
+      setattr(product, price_manager.dest, math.ceil(price_source*(1+price_manager.markup/100)+price_manager.increase))
+    MainProduct.objects.bulk_update(products, fields=[price_manager.dest, 'price_manager', 'updated_at'])
+  messages.success(request, 'Наценки применены')
+  return redirect('main')
 
 

@@ -39,17 +39,13 @@ urlpatterns = [
     path('currency/create/', views.CurrencyCreate.as_view(), name='currency-create'),
     path('currency/<int:id>/update', views.CurrencyUpdate.as_view(), name='currency-update'),
 
-    path('price-manager/', views.PriceManagerList.as_view(), name='price-manager'),
-    path('price-manager/create/', views.PriceManagerCreate.as_view(), name='price-manager-create'),
     path('price-manager/<int:id>/', views.PriceManagerDetail.as_view(), name='price-manager-detail'),
     path('price-manager/<int:id>/delete', views.PriceManagerDelete.as_view(), name='price-manager-delete'),
-    path('price-manager/<int:id>/apply', views.price_manager_apply, name='price-manager-apply'),
-    path('price-manager/apply-all', views.price_manager_apply_all, name='price-manager-apply-all'),
 
     path('supplier-product/<int:id>/delete/', views.delete_supplier_product, name='supplier-product-delete'),
 
     path('main-product/<int:id>/update', views.MainProductUpdate.as_view(), name='main-product-update'),
-    path("main-product/sync/", views.sync_main_products, name="main-product-sync"),
+    path('main-product/sync/', views.sync_main_products, name='main-product-sync'),
     path('toggle-basket/<int:pk>/', views.toggle_basket, name='toggle-basket'),
 
     path('upload/<str:name>/<int:id>/', views.FileUpload.as_view(), name='upload'),

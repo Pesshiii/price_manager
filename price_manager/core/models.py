@@ -152,35 +152,7 @@ class PriceManager(models.Model):
       default=0)
   def __str__(self):
     return self.name
-    
-def icontains(name, value):
-  '''Иммитирует _icontains для sqlite3(потом будет убрано) '''
-  return  Q(
-    Q(**{f"{name}__icontains": value}) |
-    Q(**{f"{name}__icontains": value.lower()}) |
-    Q(**{f"{name}__icontains": value.upper()}) |
-    Q(**{f"{name}__icontains": value.capitalize()}))
-
-class ProductQuerySet(models.QuerySet):
-  def search_fields(self, request: typing.Dict[str, str]):
-    query = Q()
-    s_query = Q()
-    search = [chunk for chunk in request.get('search', '').split() if not chunk == '']
-    for field in self.model._meta.fields:
-        value = request.get(field.name, None)
-        if not value:
-          continue
-        if field.get_internal_type() in {"CharField", "TextField"}:
-          query &= icontains(f"{field.name}", value)
-        else:
-          query &= Q(**{field.name: value})
-    for field in self.model._meta.fields:
-      if not field.get_internal_type() in {"CharField", "TextField"} and not field.is_relation:
-        continue
-      for chunk in search:
-        s_query |= icontains(f"{field.name}{'__name'*(field.is_relation)}", chunk)
-    return self.filter(s_query).filter(query)
-
+   
 MP_TABLE_FIELDS = ['category', 'supplier', 'name', 'manufacturer', 'available', 'updated_at']
 MP_CHARS = ['sku', 'article', 'name']
 MP_FKS = ['supplier', 'category', 'discount', 'manufacturer', 'price_manager']
@@ -296,7 +268,7 @@ class MainProduct(models.Model):
       GinIndex(fields=['search_vector']),
     ]
   
-SP_TABLE_FIELDS = ['main_product', 'category', 'supplier','article', 'name', 'manufacturer', 'supplier_price_kzt', 'rmp_kzt']
+SP_TABLE_FIELDS = ['main_product', 'category','article', 'name', 'supplier_price_kzt', 'rmp_kzt']
 SP_CHARS = ['article', 'name']
 SP_FKS = ['main_product', 'category', 'supplier', 'manufacturer', 'discount']
 SP_PRICES = ['supplier_price', 'supplier_price_kzt', 'rmp_raw', 'rmp_kzt']

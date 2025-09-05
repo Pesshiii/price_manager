@@ -247,14 +247,6 @@ class CategoryListTable(tables.Table):
 
 class PriceManagerListTable(tables.Table):
   '''Таблица Наценок отображаемая на странице Наценки'''
-  actions = tables.TemplateColumn(
-    template_name='price_manager/actions.html',
-    orderable=False,
-    verbose_name=format_html(
-            '''<button class="btn btn-sm btn-primary" onclick="window.location.href='/price-manager/apply-all'">Применить все</button>'''
-        ),
-    attrs = {'td': {'class': 'text-right'}}
-  )
   name = tables.LinkColumn('price-manager-detail', args=[tables.A('pk')])
   class Meta:
     model = PriceManager
