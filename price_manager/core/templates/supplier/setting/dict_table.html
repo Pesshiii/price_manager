@@ -1,0 +1,19 @@
+<div class="accordion-item">
+  <h2 class="accordion-header">
+    <button class="accordion-button collapsed" type="button" data-bs-toggle="collapse" data-bs-target="#{{key}}" aria-expanded="true" aria-controls="{{key}}">
+      {{value}}
+    </button>
+  </h2>
+  <div id="{{key}}"  class="accordion-collapse collapse" data-bs-parent="#accordionDict">
+    <div class="accordion-body">
+      {{initial}}
+      {{manager}}
+      {% if table %}
+      {{table}}
+      {% endif %}
+      <div>
+        <button type="submit" name="submit-btn" class="btn btn-secondary" value="{{key}}"><i class="bi bi-plus"></i></button>
+      </div>
+    </div>
+  </div>
+</div>

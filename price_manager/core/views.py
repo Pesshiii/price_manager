@@ -30,7 +30,7 @@ from .filters import *
 
 # Импорты сторонних библиотек
 import pandas as pd
-import json
+import re
 import math
 
 
@@ -96,7 +96,7 @@ class SupplierSettingList(SingleTableView):
     context['supplier'] = Supplier.objects.get(id=context['supplier_id'])
     return context
   
-class SupplierDetail(SingleTableView):
+class SupplierDetail(SingleTableMixin, FilterView):
   '''
   Таблица отображения товаров на странице поставщиков
   <<supplier/<int:id>/>>
@@ -104,22 +104,17 @@ class SupplierDetail(SingleTableView):
 
   model = SupplierProduct
   table_class = SupplierProductListTable
+  filterset_class = SupplierProductFilter
   template_name = 'supplier/detail.html'
-  def get_queryset(self):
-    queryset = super().get_queryset().search_fields(self.request.GET).filter(
-      supplier_id=self.kwargs['id'])
-    return queryset
-  def get_context_data(self, **kwargs):
-    context = super().get_context_data(**kwargs)
-    context['supplier_id'] = self.kwargs['id']
-    context['supplier'] = Supplier.objects.get(id=context['supplier_id'])
-    context['filter_form'] = SupplierFilterForm(self.request.GET or None)
-    return context
+
+  def get_table_data(self):
+    return super().get_table_data().filter(supplier=self.kwargs.get('id', None))
+
 
 class SupplierCreate(CreateView):
   '''Таблица создания Поставщиков <<supplier/create/>>'''
   model = Supplier
-  fields = '__all__'
+  fields = ['name', 'delivery_days']
   success_url = '/supplier'
   template_name = 'supplier/create.html'
 
@@ -140,342 +135,243 @@ class SupplierUpdate(UpdateView):
 
 # Обработка настройки
 
-class SettingCreate(CreateView):
+def get_dict_table(request, key, value, link=None):
+  dict_initial = extract_initial_from_post(post=request.POST, prefix=f'dict-form-{key}', data={'key':'', 'value':''})
+  extra = int('submit-btn' in request.POST and request.POST['submit-btn'] == key)
+  if link:
+    dict_initial = []
+    for item in Dict.objects.filter(link=link):
+      dict_initial.append({'key': item.key, 'value': item.value})
+
+  if 'delete' in request.POST:
+    raw_to_del = request.POST.get('delete', None)
+    idx_del = re.findall(f'{key}-(\\d+)', raw_to_del)
+    if not idx_del == []:
+      dict_initial.pop(int(idx_del[0]))
+  dict_form_set = forms.formset_factory(
+    DictForm, 
+    extra=extra)(
+      initial=dict_initial, 
+      prefix=f'dict-form-{key}')
+  data = [{'key':dict_form_set.forms[i]['key'], 'value':dict_form_set.forms[i]['value'], 'btn': f'{key}-{i}'} for i in range(len(dict_form_set.forms))]
+  if not dict_initial == [] or extra == 1:
+    table = DictFormTable(data=data)
+    RequestConfig(request).configure(table)
+    table = table.as_html(request)
+  else:
+    table = None
+  return render_to_string(
+    'supplier/setting/dict_table.html',
+    context={
+      'key':key,
+      'value':value,
+      'manager': dict_form_set.management_form.as_div(),
+      'initial':InitialForm(initial={'initial' : request.POST.get(f'initial-form-{key}-initial', link.initial if link else '')}, prefix=f'initial-form-{key}').as_p(),
+      'table':table
+    }
+  )
+
+def get_df(df: pd.DataFrame, links, initials, dicts, setting:Setting):
+  for column, field in links.items():
+    if field == 'article':
+      df=df[df[column].notnull()]
+    if field == 'name' and setting.differ_by_name:
+      df=df[df[column].notnull()]
+    if field in SP_PRICES and setting.priced_only:
+      df = df[df[column].notnull()]
+    if field in SP_CHARS:
+      df.replace({column:dicts[field]}, regex=True, inplace=True)
+    else:
+      df.replace({column:dicts[field]}, inplace=True)
+    df.fillna({column:initials[field]}, inplace=True)
+  return df
+
+def get_safe(value, type=None):
+  if not type: return value
+  if value == '': return value
+  if type == int:
+    return int(value)
+  if type == float:
+    return float(value)
+  return value
+
+def convert_sp(value, field):
+  if field in SP_PRICES:
+    num = float(value)
+    return 0 if num < 0 else num
+  if field in SP_INTEGERS:
+    num = int(value)
+    return 0 if num < 0 else num
+  return value
+
+def get_data(df: pd.DataFrame, request, setting: Setting):
+  post = request.POST
+  links = {
+    link['value']: link['key'] for link in extract_initial_from_post(
+    post, 
+    prefix='link-form',
+    data={'key':'', 'value':''},
+    length=len(df.columns))
+    if not link['key'] == ''
+    }
+  initials = {
+    key: post.get(f'initial-form-{key}-initial', '')
+    for key, value in LINKS.items() if not key == ''
+  }
+
+  for key, value in LINKS.items():
+    if key == '': continue
+    buf = value
+    if key not in links.values():
+      if initials[key] == '': continue
+      while buf in df.columns:
+        buf += ' Копия'
+      links[buf] = key
+
+      
+  dicts = {}
+  for column_name, field_name in links.items():
+    if not column_name in df.columns:
+      df[column_name] = None
+    initials[field_name] = get_safe(initials[field_name], df[column_name].dtype)
+    dicts[field_name] = {}
+    for item in extract_initial_from_post(
+                post, 
+                prefix=f'dict-form-{field_name}', 
+                data={'key':'', 'value':''}
+                ):
+      if not item['key'] in dicts[field_name]:
+        dicts[field_name][get_safe(item['key'], df[column_name].dtype)] = get_safe(item['value'], df[column_name].dtype)
+  return (get_df(df, links, initials, dicts, setting), links, initials, dicts)
+
+
+class SettingCreate(SingleTableMixin, CreateView):
   '''Создание настроек <<supplier/<int:id>/setting/create/<int:f_id>/>>'''
   model = Setting
   form_class = SettingForm
   template_name = 'supplier/setting/create.html'
-  def get_form(self, **kwargs):
-    form = super().get_form(**kwargs)
-    # Сетап листов и датафрейма
-    self.file_model = FileModel.objects.get(id=self.kwargs['f_id'])
-    excel_file = pd.ExcelFile(self.file_model.file)
+  prefix = 'setting-form'
+  def get_success_url(self):
+    return reverse('setting-upload', kwargs={'id':self.setting.pk, 'f_id': self.kwargs.get('f_id')})
+  def get_table_class(self):
+    return get_link_create_table()
+  def get_table(self, **kwargs):
+    return super().get_table(**kwargs, columns=list(self.df.columns), links=self.links)
+  def get_table_data(self):
+    return self.df.to_dict('records')
+  def get_form(self):
+    form = super().get_form(form_class = self.form_class)
+    file_model = FileModel.objects.get(id=self.kwargs['f_id'])
+    excel_file = pd.ExcelFile(file_model.file)
     choices = [(name, name) for name in excel_file.sheet_names]
-    # Установка начальных значений
     form.fields['sheet_name'].choices = choices
     form.fields['supplier'].initial=Supplier.objects.get(id=self.kwargs['id'])
     try:
-      sheet_name = form.data['sheet_name']
+      form.is_valid()
+      sheet_name = form.cleaned_data['sheet_name']
     except:
       sheet_name = choices[0][0]
     self.df = excel_file.parse(sheet_name).dropna(how='all').dropna(axis=1, how='all')
+    file_model.file.close()
 
-    # Закрыть файл
-    self.file_model.file.close()
-
-    # Подготовка табличек для замены значений(с вводом для филлера пустых полей)
-    initial = extract_initial_from_post(self.request.POST, 'widget_form',{'key':''}, len(self.df.columns))
-    self.ins_initial = extract_initial_from_post(self.request.POST, 'initial_form', {'initial':''}, len(LINKS)-1)
-    self.dict_formset = {}
-    self.initial_formset = InitialsFormSet(initial=self.ins_initial, prefix='initial_form')
-    InDictFormSet = forms.formset_factory(DictForm, extra=0)
-    for key in LINKS.keys():
-      if key == '': continue
-      dict_initial = extract_initial_from_post(self.request.POST, f'dict_{key}_form', {'key':'', 'value':'', 'enable': True})
-      if dict_initial == []:
-        dict_initial = [{'key': '', 'value': None}]
-      self.dict_formset[key] = InDictFormSet(initial=dict_initial, prefix=f'dict_{key}_form')
-
-    self.mapping = {initial[i]['key'] : self.df.columns[i] 
-                for i in range(len(self.df.columns))
-                if not initial[i]['key'] == ''}
-    
-    for key, value in LINKS.items():
-      if key == '': continue
-      initial_value = self.ins_initial[list(LINKS.keys()).index(key)-1]['initial']
-      if not key in self.mapping and not initial_value == '':
-        buf = 0
-        while f"{value}{' копия'*buf}" in self.df.columns: buf += 1
-        self.df[f"{value}{' копия'*buf}"] = initial_value
-        self.mapping[key] = f"{value}{' копия'*buf}"
-        initial.append({'key':key})
-
-    #  подготовка шторок на столбцы
-    LinkFactory = forms.formset_factory(
-                        form=LinksForm,
-                        extra=len(self.df.columns))
-    self.link_factory = LinkFactory(initial=initial, prefix='widget_form')
-
+    self.df, self.links, self.initials, self.dicts = get_data(self.df, self.request, form.instance)
 
     return form
-
-    
   def form_valid(self, form):
-    unique = []
-    for i in range(len(self.df.columns)):
-      if f'form-{i}-key' in self.link_factory.data:
-        buff = self.link_factory.data[f'form-{i}-key']
-        if buff in unique and buff:
-          form.add_error(None, 'Не уникальные поля')
-          return self.form_invalid(form)
-        unique.append(buff)
-    if 'article' not in self.mapping:
-      form.add_error(None, 'Не выбрано поле Артикул')
+    if not 'submit-btn' in self.request.POST or not self.request.POST['submit-btn'] == 'save':
       return self.form_invalid(form)
-    if 'name' not in self.mapping:
-      form.add_error(None, 'Не выбрано поле Наименование')
-      return self.form_invalid(form)
-    # Очистка данных
-    if 'priced_only' in form.data and form.data['priced_only']:
-      failed_prices = []
-      for price in PRICE_FIELDS:
-        if not price in self.mapping:
-          failed_prices.append(price)
-          continue
-        self.df = self.df[self.df[self.mapping[price]].notnull()]
-      if len(failed_prices) == len(PRICE_FIELDS):
-        form.add_error(None, 'Не выбрано поле цены')
-        return self.form_invalid(form)
-    self.df = self.df[self.df[self.mapping['article']].notnull()]
-    self.df = self.df[self.df[self.mapping['name']].notnull()]
-
-    # Логика замены значений
-    for key in LINKS.keys():
-      if key == '' or not key in self.mapping:
-        continue
-      value = self.mapping[key]
-
-      # Изначальные значения
-      indx = list(LINKS.keys()).index(key)-1
-      if not self.ins_initial[indx]['initial'] == '':
-        try:
-          self.df.fillna({value: self.ins_initial[indx]['initial']}, inplace=True)
-        except BaseException as ex:
-          form.add_error(None, f'Что-то не так с начальными данными: {ex}')
-
-      # Заменки
-      action = self.request.POST.get(f'{key}_action')
-      dict_initial = extract_initial_from_post(self.request.POST, f'dict_{key}_form', {'key':'', 'value':'', 'enable': True})
-      if action == 'add':
-        ExtraFormSet = forms.formset_factory(DictForm, extra=1, can_delete=True)
-        self.dict_formset[key] = ExtraFormSet(initial=dict_initial, prefix=f'dict_{key}_form')
-      try:
-        col_dict = {item['key']:item['value'] for item in dict_initial if item['enable']}
-        dtype = self.df[value].dtype
-        self.df[value] = self.df[value].astype(str)
-        self.df[value] = self.df[value].replace(col_dict, regex=True)
-        self.df[value] = self.df[value].astype(dtype)
-      except BaseException as ex:
-        form.add_error(None, f'Что-то не так с заменами: {ex}')
-    if not self.request.POST.get('submit-btn') == 'save':
-      return super().form_invalid(form)
-    setting = form.save()
-    self.success_url = reverse('setting-upload', kwargs={'id':setting.id, 'f_id':self.file_model.id})
-    for key, value in self.mapping.items():
-      initial = self.ins_initial[list(LINKS.keys()).index(key)-1]['initial']
-      link = Link.objects.create(
-        setting = setting,
-        initial = initial,
-        key = key,
-        value = value
-      )
-      dict_formset = DictFormSet(self.request.POST, prefix=f'dict_{key}_form')
-      if dict_formset.is_valid():
-        for i, cleaned in enumerate(dict_formset.cleaned_data):
-          if not cleaned or not cleaned.get('enable'):
-            continue
-          Dict.objects.create(
-              link=link,
-              key=cleaned.get('key',''),
-              value=cleaned.get('value','')
-            )
+    self.setting = form.instance
+    self.setting.save()
+    for column_name, field_name in self.links.items():
+      link = Link(setting=self.setting, key=field_name, value=column_name, initial=str(self.initials[field_name]) if not self.initials[field_name] == '' else None)
+      link.save()
+      for key, value in self.dicts[field_name].items():
+        dict = Dict(link = link, key = str(key), value = str(value))
+        dict.save()
     return super().form_valid(form)
-  
   def get_context_data(self, **kwargs):
     context = super().get_context_data(**kwargs)
-    context['link_factory'] = self.link_factory
-    context['LINKS'] = LINKS
-    # Таблички замен и формы для них
-    context['dict_forms'] = self.dict_formset.items()
-    context['initial_formset'] = self.initial_formset
-    context['initial_forms'] = {
-      list(LINKS.keys())[i]:self.initial_formset[i-1] for i in range(1, len(LINKS))
-      }
-    tables = {key:DictFormTable(value.forms) for key, value in self.dict_formset.items()}
-    context['tables'] = tables
-    widgets = [self.link_factory.forms[i]
-                for i in range(len(self.df.columns))]
-    context['table'] = get_link_create_table()(df=self.df, widgets=widgets, data=self.df.to_dict('records'))
-    RequestConfig(self.request).configure(context['table'])
+    self.dict_tables = []
+    for key, value in LINKS.items():
+      if key == '': continue
+      self.dict_tables.append(get_dict_table(self.request, key, value))
+    context['dict_tables'] = self.dict_tables
     return context
+
   
-class SettingUpdate(UpdateView):
+class SettingUpdate(SingleTableMixin, UpdateView):
   '''Обновление настройки <</setting/<int:id>/update/<int:f_id>/>>'''
   model = Setting
   form_class = SettingForm
   template_name = 'supplier/setting/create.html'
-  pk_url_kwarg='id'
-  def get_form(self, **kwargs):
-    form = super().get_form(**kwargs)
-    # Сетап листов и датафрейма
-    self.file_model = FileModel.objects.get(id=self.kwargs['f_id'])
-    excel_file = pd.ExcelFile(self.file_model.file)
+  prefix = 'setting-form'
+  pk_url_kwarg = 'id'
+  def get_success_url(self):
+    return reverse('setting-upload', kwargs={'id':self.setting.pk, 'f_id': self.kwargs.get('f_id')})
+  def get_table_class(self):
+    return get_link_create_table()
+  def get_table(self, **kwargs):
+    return super().get_table(**kwargs, columns=list(self.df.columns), links=self.links)
+  def get_table_data(self):
+    return self.df.to_dict('records')
+  def get_form(self):
+    form = super().get_form(form_class = self.form_class)
+    self.setting = form.instance
+    file_model = FileModel.objects.get(id=self.kwargs['f_id'])
+    excel_file = pd.ExcelFile(file_model.file)
     choices = [(name, name) for name in excel_file.sheet_names]
-    # Установка начальных значений
     form.fields['sheet_name'].choices = choices
     try:
       sheet_name = form.data['sheet_name']
     except:
       sheet_name = choices[0][0]
     self.df = excel_file.parse(sheet_name).dropna(how='all').dropna(axis=1, how='all')
+    file_model.file.close()
 
-    # Закрыть файл
-    self.file_model.file.close()
-    
-    # Подготовка табличек для замены значений(с вводом для филлера пустых полей)
-    initial = extract_initial_from_post(self.request.POST, 'widget_form',{'key':''}, len(self.df.columns))
-    if not False in [item['key']=='' for item in initial]:
-      links = Link.objects.filter(setting__id=self.kwargs.get('id', None)).values_list('key', 'value')
-      for i in range(len(self.df.columns)):
-        for link in links:
-          if self.df.columns[i] == link[1]:
-            initial[i]['key'] = link[0]
-    self.ins_initial = extract_initial_from_post(self.request.POST, 'initial_form', {'initial':''}, len(LINKS)-1)
-    if not False in [item['initial']=='' for item in self.ins_initial]:
-      links = Link.objects.filter(setting__id=self.kwargs.get('id', None)).values_list('key', 'initial')
-      for i in range(1, len(LINKS)):
-        for link in links:
-          if list(LINKS.keys())[i] == link[0]:
-            if link[1]:
-              self.ins_initial[i-1]['initial'] = link[1]
-    self.dict_formset = {}
-    self.initial_formset = InitialsFormSet(initial=self.ins_initial, prefix='initial_form')
-    InDictFormSet = forms.formset_factory(DictForm, extra=0)
-    for key in LINKS.keys():
-      if key == '': continue
-      link = Link.objects.filter(setting__id=self.kwargs.get('id', None), key=key).first()
-      dict_initial = extract_initial_from_post(self.request.POST, f'dict_{key}_form', {'key':'', 'value':'', 'enable': True})
-      if dict_initial == []:
-        dicts = Dict.objects.filter(link=link).values_list('key', 'value')
-        dict_initial=[{'key':item[0], 'value':item[1]} for item in dicts]
-      elif dict_initial == []:
-        dict_initial = [{'key': '', 'value': ''}]
-      self.dict_formset[key] = InDictFormSet(initial=dict_initial, prefix=f'dict_{key}_form')
-
-    self.mapping = {initial[i]['key'] : self.df.columns[i] 
-                for i in range(len(self.df.columns))
-                if not initial[i]['key'] == ''}
-    
-    for key, value in LINKS.items():
-      if key == '': continue
-      initial_value = self.ins_initial[list(LINKS.keys()).index(key)-1]['initial']
-      if not key in self.mapping and not initial_value == '':
-        buf = 0
-        while f"{value}{' копия'*buf}" in self.df.columns: buf += 1
-        self.df[f"{value}{' копия'*buf}"] = initial_value
-        self.mapping[key] = f"{value}{' копия'*buf}"
-        initial.append({'key':key})
-
-    #  подготовка шторок на столбцы
-    LinkFactory = forms.formset_factory(
-                        form=LinksForm,
-                        extra=len(self.df.columns))
-    self.link_factory = LinkFactory(initial=initial, prefix='widget_form')
+    self.df, self.links, self.initials, self.dicts = get_data(self.df, self.request, self.setting)
 
 
-    
+    if self.links == {}:
+      messages.info(self.request, 'Нажмите применить чтобы заработали замены')
+      for link in Link.objects.filter(setting__pk=self.setting.pk):
+        self.links[link.value] = link.key
+        self.initials[link.key] = link.initial
+
+
     return form
-
-    
   def form_valid(self, form):
-    unique = []
-    for i in range(len(self.df.columns)):
-      if f'form-{i}-key' in self.link_factory.data:
-        buff = self.link_factory.data[f'form-{i}-key']
-        if buff in unique and buff:
-          form.add_error(None, 'Не уникальные поля')
-          return self.form_invalid(form)
-        unique.append(buff)
-    if 'article' not in self.mapping:
-      form.add_error(None, 'Не выбрано поле Артикул')
+    if not 'submit-btn' in self.request.POST or not self.request.POST['submit-btn'] == 'save':
       return self.form_invalid(form)
-    if 'name' not in self.mapping:
-      form.add_error(None, 'Не выбрано поле Наименование')
-      return self.form_invalid(form)
-    # Очистка данных
-    if 'priced_only' in form.data and form.data['priced_only']:
-      failed_prices = []
-      for price in PRICE_FIELDS:
-        if not price in self.mapping:
-          failed_prices.append(price)
-          continue
-        self.df = self.df[self.df[self.mapping[price]].notnull()]
-      if len(failed_prices) == len(PRICE_FIELDS):
-        form.add_error(None, 'Не выбрано поле цены')
-        return self.form_invalid(form)
-    self.df = self.df[self.df[self.mapping['article']].notnull()]
-    self.df = self.df[self.df[self.mapping['name']].notnull()]
-
-    # Логика замены значений
-    for key in LINKS.keys():
-      if key == '' or not key in self.mapping:
-        continue
-      value = self.mapping[key]
-
-      # Изначальные значения
-      indx = list(LINKS.keys()).index(key)-1
-      if not self.ins_initial[indx]['initial'] == '':
-        try:
-          self.df.fillna({value: self.ins_initial[indx]['initial']}, inplace=True)
-        except BaseException as ex:
-          form.add_error(None, f'Что-то не так с начальными данными: {ex}')
-
-      # Заменки
-      action = self.request.POST.get(f'{key}_action')
-      dict_initial = extract_initial_from_post(self.request.POST, f'dict_{key}_form', {'key':'', 'value':'', 'enable': True})
-      if action == 'add':
-        ExtraFormSet = forms.formset_factory(DictForm, extra=1, can_delete=True)
-        self.dict_formset[key] = ExtraFormSet(initial=dict_initial, prefix=f'dict_{key}_form')
-      try:
-        col_dict = {item['key']:item['value'] for item in dict_initial if item['enable']}
-        dtype = self.df[value].dtype
-        self.df[value] = self.df[value].astype(str)
-        self.df[value] = self.df[value].replace(col_dict, regex=True)
-        self.df[value] = self.df[value].astype(dtype)
-      except BaseException as ex:
-        form.add_error(None, f'Что-то не так с заменами: {ex}')
-    if not self.request.POST.get('submit-btn') == 'save':
-      return super().form_invalid(form)
-    setting = form.save()
-    self.success_url = reverse('setting-upload', kwargs={'id':setting.id, 'f_id':self.file_model.id})
-    Link.objects.filter(setting=setting).delete()
-    for key, value in self.mapping.items():
-      initial = self.ins_initial[list(LINKS.keys()).index(key)-1]['initial']
-      link = Link.objects.create(
-        setting = setting,
-        initial = initial,
-        key = key,
-        value = value
-      )
-      dict_formset = DictFormSet(self.request.POST, prefix=f'dict_{key}_form')
-      if dict_formset.is_valid():
-        for i, cleaned in enumerate(dict_formset.cleaned_data):
-          if not cleaned or not cleaned.get('enable'):
-            continue
-          Dict.objects.create(
-              link=link,
-              key=cleaned.get('key',''),
-              value=cleaned.get('value','')
-            )
+    self.setting = form.instance
+    for link in Link.objects.filter(setting=self.setting):
+      link.delete()
+    for column_name, field_name in self.links.items():
+      link = Link(setting=self.setting, key=field_name, value=column_name, initial=str(self.initials[field_name]) if not self.initials[field_name] == '' else None)
+      link.save()
+      for key, value in self.dicts[field_name].items():
+        dict = Dict(link = link, key = str(key), value = str(value))
+        dict.save()
+    print(self.setting.supplier)
     return super().form_valid(form)
-  
   def get_context_data(self, **kwargs):
     context = super().get_context_data(**kwargs)
-    context['link_factory'] = self.link_factory
-    context['LINKS'] = LINKS
-    # Таблички замен и формы для них
-    context['dict_forms'] = self.dict_formset.items()
-    context['initial_formset'] = self.initial_formset
-    context['initial_forms'] = {
-      list(LINKS.keys())[i]:self.initial_formset[i-1] for i in range(1, len(LINKS))
-      }
-    tables = {key:DictFormTable(value.forms) for key, value in self.dict_formset.items()}
-    context['tables'] = tables
-    widgets = [self.link_factory.forms[i]
-                for i in range(len(self.df.columns))]
-    context['table'] = get_link_create_table()(df=self.df, widgets=widgets, data=self.df.to_dict('records'))
-    RequestConfig(self.request).configure(context['table'])
+    self.dict_tables = []
+    for key, value in LINKS.items():
+      if key == '': continue
+      self.dict_tables.append(
+        get_dict_table(
+          self.request, 
+          key, 
+          value, 
+          Link.objects.filter(
+            setting=self.setting, 
+            key=key
+          ).first() if self.dicts=={} else None
+        )
+      )
+    context['dict_tables'] = self.dict_tables
     return context
+
 
 class SettingDelete(DeleteView):
   model = Setting
@@ -503,6 +399,18 @@ class SettingUpload(View):
   def post(self, request, *args, **kwargs):
     return upload_supplier_products(request, *args, **kwargs)
 
+def get_upload_data(setting: Setting, df: pd.DataFrame):
+  links = {link.value: link.key for link in Link.objects.filter(setting=setting)}
+  rev_links = {value: key for key, value in links.items()}
+  initials = {link.key: link.initial if link.initial else '' for link in Link.objects.filter(setting=setting)}
+  dicts = {link.key: {item.key: item.value for item in Dict.objects.filter(link=link)} for link in Link.objects.filter(setting=setting)}
+  df = get_df(df, links, initials, dicts, setting)
+  if setting.differ_by_name:
+    df.drop_duplicates(subset=[rev_links['name'], rev_links['article']], inplace=True)
+  else:
+    df.drop_duplicates(subset=[rev_links['article']], inplace=True)
+  return df, links, initials, dicts
+
 class SettingDisplay(DetailView):
   '''Проверка данных перед загрузкой <<setting/<int:id>/upload/<int:f_id>/>>'''
   model = Setting
@@ -516,36 +424,10 @@ class SettingDisplay(DetailView):
     file_model = FileModel.objects.get(id=self.kwargs['f_id'])
     try:
       excel_file = pd.ExcelFile(file_model.file)
-      mapping = {get_field_details(SupplierProduct)[link.key]['verbose_name']:link.value for link in Link.objects.filter(setting=setting)}
-      links = {link.key: link.value for link in Link.objects.all().filter(setting=setting)}
       self.df = excel_file.parse(setting.sheet_name).dropna(axis=0, how='all').dropna(axis=1, how='all')
       file_model.file.close()
-      for link in Link.objects.all().filter(setting=setting):
-        if link.value not in self.df.columns:
-          self.df[link.value] = link.initial
-      self.df = self.df[mapping.values()]
-      if setting.priced_only:
-        for price in PRICE_FIELDS:
-          if not price in mapping:
-            continue
-          self.df = self.df[self.df[mapping[price]].notnull()]
-      self.df = self.df[self.df[links['article']].notnull()]
-      self.df = self.df[self.df[links['name']].notnull()]
-      # Применение заменок
-      for link in Link.objects.filter(setting_id=setting.id):
-        col_dict = {entry.key: entry.value for entry in Dict.objects.filter(link=link)}
-        try:
-          self.df[link.value] = self.df[link.value].fillna(link.initial)
-        except BaseException as ex:
-          messages.error(None, f'Что-то не так с начальными данными: {ex}')
-        try:
-          dtype = self.df[link.value].dtype
-          self.df[link.value] = self.df[link.value].astype(str)
-          self.df[link.value] = self.df[link.value].replace(col_dict, regex=True)
-          self.df[link.value] = self.df[link.value].astype(dtype)
-        except BaseException as ex:
-          messages.error(None, f'Что-то не так с заменами: {ex}')
-      table = get_upload_list_table()(mapping=mapping, data=self.df.to_dict('records'))
+      self.df, self.links, self.initials, self.dicts = get_upload_data(setting, self.df)
+      table = get_upload_list_table()(links=self.links, data=self.df.to_dict('records'))
       RequestConfig(self.request, paginate=True).configure(table)
       context['table'] = table
     except BaseException as ex:
@@ -554,11 +436,6 @@ class SettingDisplay(DetailView):
       file_model.delete()
     return context
   def render_to_response(self, context, **response_kwargs):
-    try:
-      if self.df.empty:
-        return redirect('supplier')
-    except:
-      return redirect('supplier')
     if not 'table' in context:
       return redirect('supplier')
     return super().render_to_response(context, **response_kwargs)
@@ -604,136 +481,69 @@ def upload_supplier_products(request, **kwargs):
   supplier = setting.supplier
   file_model = FileModel.objects.get(id=kwargs['f_id'])
   excel_file = pd.ExcelFile(file_model.file)
-  links = {link.key: link.value for link in Link.objects.all().filter(setting_id=setting.id)}
-
   df = excel_file.parse(setting.sheet_name).dropna(axis=0, how='all').dropna(axis=1, how='all')
-  df = df.drop_duplicates(subset=[links['name'], links['article']])
   file_model.file.close()
-
-  # Фильтры
-  if setting.priced_only:
-    for price in PRICE_FIELDS:
-      if price in links:
-        df = df[df[links[price]].notnull()]
-  df = df[df[links['article']].notnull()]
-  df = df[df[links['name']].notnull()]
-
-  # Замены по словарям
-  for link in Link.objects.filter(setting_id=setting.id):
-    col_dict = {entry.key: entry.value for entry in Dict.objects.filter(link=link)}
-    df[link.value] = df[link.value].fillna(link.initial)
-    col_type = df[link.value].dtype
-    df[link.value] = df[link.value].astype(str)
-    df[link.value] = df[link.value].replace(col_dict, regex=True)
-    df[link.value] = df[link.value].astype(col_type)
-
-  manufacturers = {}
-  categories = {}
-  discounts = {}
-  products = []
-  m_products = []
-  sp_fields = ['supplier']
-  sp_fields.extend(list(LINKS.keys())[1:])
-  if setting.id_as_sku:
-    sp_fields.append('main_product')
-  mp_fields = ['sku', 'supplier', 'article', 'name', 'category', 'stock',
-               'manufacturer', 'updated_at']
-
-  # Справочники
-  if 'manufacturer' in links:
-    for manu_name in df[links['manufacturer']].unique():
-      manufacturer, _ = Manufacturer.objects.get_or_create(name=manu_name)
-      manufacturers[manu_name] = manufacturer
-  if 'category' in links:
-    for cate_name in df[links['category']].unique():
-      category, _ = Category.objects.get_or_create(name=cate_name)
-      categories[cate_name] = category
-  if 'discount' in links:
-    for discount_name in df[links['discount']].unique():
-      discount, _ = Discount.objects.get_or_create(name=discount_name)
-      discounts[discount_name] = discount
-
-  # Основной цикл
+  df, links, initials, dicts = get_upload_data(setting, df)
+  rev_links = {value: key for key, value in links.items()}
+  sp = []
+  mp = []
+  new = 0
+  overall = 0
+  exs = []
   for _, row in df.iterrows():
-    data = {}
-    m_data = {}
-    data['supplier'] = supplier
-    data['currency'] = setting.currency
-    if 'category' in links:
-      data['category'] = categories.get(row[links['category']])
-    if 'manufacturer' in links:
-      data['manufacturer'] = manufacturers.get(row[links['manufacturer']])
-    if 'discount' in links:
-      data['discount'] = discounts.get(row[links['discount']])
-
-    def get_decimal(val):
-      try:
-        return Decimal(val)
-      except:
-        return Decimal()
-    def get_int(val):
-      try:
-        return int(val)
-      except:
-        return 0
-
-    for key in sp_fields:
-      if key in data:
-        continue
-      if key == 'rmp_kzt' and 'rmp_raw' in data and not 'rmp_kzt' in links:
-        raw_rmp = get_decimal(data['rmp_raw'])
-        data['rmp_kzt'] = raw_rmp * setting.currency.value
-        continue
-      if key == 'supplier_price_kzt' and 'supplier_price' in data and not 'supplier_price_kzt' in links:
-        sup_price = get_decimal(data['supplier_price'])
-        data['supplier_price_kzt'] = sup_price * setting.currency.value
-        continue
-      if key in links:
-        val = row[links[key]]
-        if key in ['supplier_price', 'rmp_raw', 'rmp_kzt', 'supplier_price_kzt']:
-          data[key] = get_decimal(val)
-        elif key in ['stock']:
-          stock = get_int(val)
-          if stock < 0: continue
-          data[key] = stock
-        else:
-          data[key] = val
-
-    for key in mp_fields:
-      if key in data:
-        m_data[key] = data[key]
-    m_data['sku'] = f'''{data['supplier'].pk}-{data['article']}'''
-
-    if setting.id_as_sku:
-      m_products.append(MainProduct(**m_data))
-      products.append(SupplierProduct(main_product=m_products[-1], **data))
+    if setting.differ_by_name:
+      products = [product for product in SupplierProduct.objects.filter(supplier=supplier, article=row[rev_links['article']], name=row[rev_links['name']])]
     else:
-      products.append(SupplierProduct(**data))
+      products = [product for product in SupplierProduct.objects.filter(supplier=supplier, article=row[rev_links['article']])]
+    
+    if products == []:
+      if setting.differ_by_name:
+        product, created = SupplierProduct.objects.get_or_create(supplier=supplier, article=row[rev_links['article']], name=row[rev_links['name']])
+      else:
+        product, created = SupplierProduct.objects.get_or_create(supplier=supplier, article=row[rev_links['article']])
+      new += created
+      products.append(product)
+    for product in products:
+      try:
+        product.currency = setting.currency
+        for column, field in links.items():
+          if field in SP_FKS:
+            if field == 'category':
+              cat, _ = Category.objects.get_or_create(name=row[column])
+              setattr(product, field, cat)
+              continue
+            if field == 'discount':
+              disc, _ = Discount.objects.get_or_create(name=row[column])
+              disc.suppliers.add(supplier)
+              setattr(product, field, disc)
+              continue
+            if field == 'manufacturer':
+              manu, _ = Category.objects.get_or_create(name=row[column])
+              setattr(product, field, manu)
+              continue
+          setattr(product, field, convert_sp(row[column], field))
+        if setting.update_main:
+          main_product, mp_created = MainProduct.objects.get_or_create(supplier=supplier, article=product.article, name=product.name)
+          main_product.available = (product.stock > 0)
+          main_product.search_vector = SearchVector('name', config='russian')
+          product.main_product = main_product
+          mp.append(main_product)
+        sp.append(product)
+        overall += 1
+      except BaseException as ex:
+        exs.append(ex)
+  MainProduct.objects.bulk_update(mp, fields=['article', 'name', 'search_vector', 'available'])
+  SupplierProduct.objects.bulk_update(sp, fields=links.values())
+  SupplierProduct.objects.bulk_update(sp, fields=['main_product'])
+  messages.success(request, f'Товаров: {overall}, Новых: {new}')
+  if not exs == []:
+    ex_str = '''\n'''.join([f'{ex}' for ex in exs[:min(len(exs), 5)]])
+    messages.error(
+      request, 
+      f'''Ошибок: {len(exs)}.'''+'\n'+ex_str)
+  return redirect('supplier-detail', id=supplier.pk)
 
-  mp = MainProduct.objects.bulk_create(
-    m_products,
-    update_conflicts=True,
-    unique_fields=NECESSARY,
-    update_fields=[field for field in mp_fields if not field in NECESSARY]
-  )
-  sp = SupplierProduct.objects.bulk_create(
-    products,
-    update_conflicts=True,
-    unique_fields=NECESSARY,
-    update_fields=[field for field in sp_fields if not field in NECESSARY]
-  )
 
-  MainProduct.objects.update(search_vector=SearchVector('name', config='russian'))
-  messages.success(
-    request,
-    f'Обработано {len(sp)}. Добавлено в главный прайс {len(mp)}'
-  )
-  file_model.file.delete()
-  file_model.delete()
-  setting.id_as_sku = False
-  setting.save()
-  return redirect('supplier-detail', id=supplier.id)
-# Обработка производителей
 
 class ManufacturerList(SingleTableView):
   '''Отображение производителей <<manufacturer/>>'''
@@ -987,4 +797,5 @@ def sync_main_products(request, **kwargs):
 
   messages.success(request, f"Остатки обновлены у {updated} товаров, ошибок: {errors}")
   return price_manager_apply_all(request, **kwargs)
+
 

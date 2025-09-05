@@ -40,7 +40,7 @@
             crossorigin="anonymous"></script>
     <script>
         document.addEventListener('DOMContentLoaded', () => {
-        const delay = 4000;
+        const delay = 10000;
         document.querySelectorAll('.alert-dismissible').forEach(el => {
           setTimeout(() => bootstrap.Alert.getOrCreateInstance(el).close(), delay);
         });
