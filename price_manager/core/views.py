@@ -524,6 +524,7 @@ def upload_supplier_products(request, **kwargs):
           setattr(product, field, convert_sp(row[column], field))
         if setting.update_main:
           main_product, mp_created = MainProduct.objects.get_or_create(supplier=supplier, article=product.article, name=product.name)
+          main_product.available = (product.stock > 0)
           main_product.search_vector = SearchVector('name', config='russian')
           product.main_product = main_product
           mp.append(main_product)
@@ -531,7 +532,7 @@ def upload_supplier_products(request, **kwargs):
         overall += 1
       except BaseException as ex:
         exs.append(ex)
-  MainProduct.objects.bulk_update(mp, fields=['article', 'name', 'search_vector'])
+  MainProduct.objects.bulk_update(mp, fields=['article', 'name', 'search_vector', 'available'])
   SupplierProduct.objects.bulk_update(sp, fields=links.values())
   SupplierProduct.objects.bulk_update(sp, fields=['main_product'])
   messages.success(request, f'Товаров: {overall}, Новых: {new}')

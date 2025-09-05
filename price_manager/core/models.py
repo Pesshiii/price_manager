@@ -181,7 +181,7 @@ class ProductQuerySet(models.QuerySet):
         s_query |= icontains(f"{field.name}{'__name'*(field.is_relation)}", chunk)
     return self.filter(s_query).filter(query)
 
-MP_TABLE_FIELDS = ['category', 'supplier', 'name', 'manufacturer', 'stock', 'updated_at']
+MP_TABLE_FIELDS = ['category', 'supplier', 'name', 'manufacturer', 'available', 'updated_at']
 MP_CHARS = ['sku', 'article', 'name']
 MP_FKS = ['supplier', 'category', 'discount', 'manufacturer', 'price_manager']
 MP_DECIMALS = ['weight', 'length', 'width', 'depth']
@@ -222,8 +222,8 @@ class MainProduct(models.Model):
                                    on_delete=models.SET_NULL,
                                    null=True,
                                    blank=True)
-  stock = models.PositiveIntegerField(verbose_name='Остаток',
-                              default=0)
+  available = models.BooleanField(verbose_name='Наличие',
+                              default=False)
   weight = models.DecimalField(
       verbose_name='Вес',
       decimal_places=1,
