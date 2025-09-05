@@ -16,6 +16,8 @@ urlpatterns = [
     path('supplier/<int:id>/settings/', views.SupplierSettingList.as_view(), name='supplier-settings'),
     path('supplier/create/', views.SupplierCreate.as_view(), name='supplier-create'),
     path('supplier/<int:id>/setting/create/<int:f_id>/', views.SettingCreate.as_view(), name='setting-create'),
+    path('supplier/<int:id>/price-manager/create/', views.PriceManagerCreate.as_view(), name='price-manager-create'),
+    path('supplier/<int:id>/price-manager/', views.PriceManagerList.as_view(), name='price-manager'),
 
     path('setting/<int:id>/', views.SettingDetail.as_view(), name='setting-detail'),
     path('setting/<int:id>/delete', views.SettingDelete.as_view(), name='setting-delete'),

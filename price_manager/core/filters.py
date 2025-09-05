@@ -23,4 +23,4 @@ class MainProductFilter(filters.FilterSet):
 class SupplierProductFilter(filters.FilterSet):
   class Meta:
     model = SupplierProduct
-    fields = ['supplier', 'category', 'stock', 'supplier_price', 'rmp_raw']
+    fields = ['name']

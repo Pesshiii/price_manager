@@ -660,27 +660,45 @@ class PriceManagerList(SingleTableView):
   template_name = 'price_manager/list.html'
 
 class PriceManagerCreate(CreateView):
-  '''Создание Наценки <<price-manager/create/>>'''
+  '''Создание Наценки <<supplier/<int:id>/price-manager/create/>>'''
   model = PriceManager
-  fields = '__all__'
+  form_class = PriceManagerForm
   success_url = '/price-manager/'
   template_name = 'price_manager/create.html'
+  def get_success_url(self):
+    return f'/supplier/{self.supplier.pk}/price-manager'
+  def get_form(self):
+    form = super().get_form(self.form_class)
+    self.supplier = Supplier.objects.get(pk=self.kwargs.get('id'))
+    form.fields['discount'].choices = self.supplier.discounts.all()
+    return form
   def form_valid(self, form):
-    if form.is_valid():
-      cleaned_data = form.cleaned_data
-      if cleaned_data['dest'] == cleaned_data['source']:
-        messages.error(self.request, f'Поле не может считатсься от себя же')
-        return self.form_invalid(form)
-      price_manager = PriceManager.objects.filter(
-        supplier=cleaned_data['supplier'],
-        discount=cleaned_data['discount'],
-        dest=cleaned_data['dest'],
-        price_from__range=(cleaned_data['price_from'], cleaned_data['price_to']),
-        price_to__range=(cleaned_data['price_from'], cleaned_data['price_to']),
-      ).last()
-      if price_manager:
-        messages.error(self.request, f'Пересечение с другой наценкой: {price_manager.name}')
-        return self.form_invalid(form)
+    if not form.is_valid():
+      return self.form_invalid(form)
+    price_manager = form.instance
+    if price_manager.dest == price_manager.source:
+      messages.error(self.request, f'Поле не может считатсься от себя же')
+      return self.form_invalid(form)
+    # print(
+    #   self.supplier,
+    #   price_manager.discount,
+    #   price_manager.dest,
+    #   price_manager.price_from, price_manager.price_to)
+    price_manager = PriceManager.objects.filter(
+      supplier=self.supplier,
+      discount=price_manager.discount,
+      dest=price_manager.dest,
+      price_from__range=(price_manager.price_from, price_manager.price_to),
+      # price_to__range=(price_manager.price_from, price_manager.price_to),
+    ).first()
+    print(price_manager)
+    return self.form_invalid(form)
+    if price_manager:
+      messages.error(self.request, f'Пересечение с другой наценкой: {price_manager.name}')
+      return self.form_invalid(form)
+    price_manager = form.instance
+    price_manager.supplier = self.supplier
+    price_manager.save()
     return super().form_valid(form)
 
 class PriceManagerDetail(DetailView):
