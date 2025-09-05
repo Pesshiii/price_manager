@@ -28,6 +28,8 @@ class Supplier(models.Model):
     related_name='suppliers',
     blank=True
   )
+  delivery_days = models.PositiveIntegerField(verbose_name='Срок доставки',
+                                              default=0)
   class Meta:
     verbose_name = 'Поставщик'
   def __str__(self):

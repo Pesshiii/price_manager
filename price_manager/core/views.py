@@ -114,7 +114,7 @@ class SupplierDetail(SingleTableMixin, FilterView):
 class SupplierCreate(CreateView):
   '''Таблица создания Поставщиков <<supplier/create/>>'''
   model = Supplier
-  fields = ['name']
+  fields = ['name', 'delivery_days']
   success_url = '/supplier'
   template_name = 'supplier/create.html'
 
@@ -197,9 +197,11 @@ def get_safe(value, type=None):
 
 def convert_sp(value, field):
   if field in SP_PRICES:
-    return float(value)
+    num = float(value)
+    return 0 if num < 0 else num
   if field in SP_INTEGERS:
-    return int(value)
+    num = int(value)
+    return 0 if num < 0 else num
   return value
 
 def get_data(df: pd.DataFrame, request, setting: Setting):
@@ -537,7 +539,7 @@ def upload_supplier_products(request, **kwargs):
     ex_str = '''\n'''.join([f'{ex}' for ex in exs[:min(len(exs), 5)]])
     messages.error(
       request, 
-      f'''Ошибок: {len(exs)}\n{ex_str}''')
+      f'''Ошибок: {len(exs)}.'''+'\n'+ex_str)
   return redirect('supplier-detail', id=supplier.pk)
 
 
