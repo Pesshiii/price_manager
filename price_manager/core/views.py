@@ -22,8 +22,7 @@ from django_filters.views import FilterView
 from decimal import Decimal, InvalidOperation
 
 # Импорты моделей, функций, форм, таблиц
-from .models import *
-from .functions import *
+from decimal import Decimal, InvalidOperation, ROUND_CEILING
 from .forms import *
 from .tables import *
 from .filters import *
@@ -33,6 +32,15 @@ import pandas as pd
 import json
 import math
 
+def to_dec(v):
+    """Безопасно преобразует значение к Decimal(0) при None/''/ошибках."""
+    try:
+        if v is None or v == '':
+            return Decimal(0)
+        # str(...) чтобы избежать артефактов float
+        return Decimal(str(v))
+    except (InvalidOperation, TypeError, ValueError):
+        return Decimal(0)
 
 @require_POST
 def toggle_basket(request, pk):
@@ -1009,12 +1017,12 @@ class PriceManagerDelete(DeleteView):
 def price_manager_apply_all(request, **kwargs):
     from django.db.models import Q, Min
     from django.utils import timezone
-    import math
 
     for pm in PriceManager.objects.all():
         cond = (Q(**{f'{pm.source}__gte': pm.price_from}) &
                 Q(**{f'{pm.source}__lte': pm.price_to}))
 
+        # Определяем список продуктов, к которым применяем правило
         if pm.source in ['rmp_kzt', 'supplier_price_kzt']:
             sp_qs = SupplierProduct.objects.filter(cond)
             if pm.supplier:
@@ -1024,29 +1032,43 @@ def price_manager_apply_all(request, **kwargs):
         else:
             products = list(MainProduct.objects.filter(cond))
             if pm.supplier:
-                products = [p for p in products if p.supplier_id == pm.supplier_id]
+                # если в MainProduct есть ссылка на поставщика — фильтруем
+                products = [p for p in products if getattr(p, 'supplier_id', None) == pm.supplier_id]
 
+        # Если правило ограничено категорией (discount здесь, судя по коду, — это категория)
         if pm.discount:
-            products = [p for p in products if p.category_id == pm.discount_id]
+            products = [p for p in products if getattr(p, 'category_id', None) == pm.discount_id]
 
-        now = timezone.now()
+        # Подготавливаем коэффициенты наценки
+        markup = to_dec(pm.markup) / Decimal(100)   # 15 -> 0.15
+        increase = to_dec(pm.increase)              # фикс. надбавка
+
         for p in products:
+            # Источник цены: минимальная цена среди SupplierProduct либо поле в MainProduct
             if pm.source in ['rmp_kzt', 'supplier_price_kzt']:
                 agg_field = pm.source
                 sp_min = (SupplierProduct.objects
-                .filter(main_product=p.pk)
-                .aggregate(v=Min(agg_field))['v'])
-                price_source = sp_min or 0
+                          .filter(main_product=p.pk)
+                          .aggregate(v=Min(agg_field))['v'])
+                price_source = sp_min
             else:
-                price_source = getattr(p, pm.source, 0) or 0
+                price_source = getattr(p, pm.source, None)
 
-            new_val = math.ceil(price_source * (1 + (pm.markup or 0) / 100) + (pm.increase or 0))
-            setattr(p, pm.dest, new_val)
+            price_dec = to_dec(price_source)
+
+            # new = ceil( price * (1 + markup) + increase )
+            new_val = (price_dec * (Decimal(1) + markup) + increase).to_integral_value(rounding=ROUND_CEILING)
+
+            # Записываем результат
+            setattr(p, pm.dest, int(new_val))
             p.price_manager = pm
-            if hasattr(p, 'updated_at'):
-                price_dt = getattr(p.supplier, 'last_price_upload_at', None) or timezone.now()
-                p.updated_at = max(p.updated_at or price_dt, price_dt)
 
+            # Обновим updated_at, если поле есть в модели
+            if hasattr(p, 'updated_at'):
+                price_dt = getattr(getattr(p, 'supplier', None), 'last_price_upload_at', None) or timezone.now()
+                p.updated_at = max(getattr(p, 'updated_at', None) or price_dt, price_dt)
+
+        # Готовим список полей для bulk_update
         fields = [pm.dest, 'price_manager']
         if hasattr(MainProduct, '_meta') and any(f.name == 'updated_at' for f in MainProduct._meta.fields):
             fields.append('updated_at')
@@ -1058,11 +1080,15 @@ def price_manager_apply_all(request, **kwargs):
 
 
 def price_manager_apply(request, **kwargs):
+    from django.db.models import Q
     id = kwargs.pop('id')
     if not id:
         messages.error(request, 'Нет такой наценки')
         return redirect('price-manager')
+
     price_manager = PriceManager.objects.get(id=id)
+
+    # Выбираем продукты, на которые действует правило
     if price_manager.source in ['rmp_kzt', 'supplier_price_kzt']:
         supplier_products = SupplierProduct.objects.all()
         if price_manager.price_from:
@@ -1075,28 +1101,48 @@ def price_manager_apply(request, **kwargs):
     else:
         products = MainProduct.objects.all()
         if price_manager.price_from:
-            products = products.filter(
-                Q(**{f'{price_manager.source}__gte': price_manager.price_from}))
+            products = products.filter(Q(**{f'{price_manager.source}__gte': price_manager.price_from}))
         if price_manager.price_to:
-            products = products.filter(
-                Q(**{f'{price_manager.source}__lte': price_manager.price_to}))
+            products = products.filter(Q(**{f'{price_manager.source}__lte': price_manager.price_to}))
+
     if price_manager.supplier:
-        products = products.filter(supplier=price_manager.supplier)
+        # если в MainProduct хранится supplier_id — отфильтруем
+        products = products.filter(supplier_id=price_manager.supplier_id)
+
     if price_manager.discount:
         products = products.filter(discount=price_manager.discount)
+
+    # Коэффициенты наценки
+    markup = to_dec(price_manager.markup) / Decimal(100)
+    increase = to_dec(price_manager.increase)
+
+    # Обновляем цены
+    upd_products = []
     for product in products:
         product.price_manager = price_manager
+
         if price_manager.source in ['rmp_kzt', 'supplier_price_kzt']:
-            price_source = getattr(
-                SupplierProduct.objects.filter(main_product=product).first(),
-                price_manager.source)
+            sp = SupplierProduct.objects.filter(main_product=product)
+            # берём минимальную цену среди связей (чтобы не падать, если first() = None)
+            sp_val = sp.order_by(price_manager.source).values_list(price_manager.source, flat=True).first()
+            price_source = sp_val
         else:
-            price_source = getattr(product,
-                                   price_manager.source)
-        setattr(product, price_manager.dest,
-                math.ceil(price_source * (1 + price_manager.markup / 100) + price_manager.increase))
-    MainProduct.objects.bulk_update(products, fields=[price_manager.dest, 'price_manager', 'updated_at'])
+            price_source = getattr(product, price_manager.source, None)
+
+        price_dec = to_dec(price_source)
+        new_val = (price_dec * (Decimal(1) + markup) + increase).to_integral_value(rounding=ROUND_CEILING)
+        setattr(product, price_manager.dest, int(new_val))
+
+        # если есть updated_at — обновим
+        if hasattr(product, 'updated_at'):
+            from django.utils import timezone
+            product.updated_at = timezone.now()
+
+        upd_products.append(product)
+
+    MainProduct.objects.bulk_update(upd_products, fields=[price_manager.dest, 'price_manager', 'updated_at'] if hasattr(MainProduct, '_meta') and any(f.name == 'updated_at' for f in MainProduct._meta.fields) else [price_manager.dest, 'price_manager'])
     return redirect('price-manager')
+
 
 
 # Обработка продуктов главного прайса
