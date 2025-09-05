@@ -61,7 +61,7 @@ class SettingForm(forms.ModelForm):
   )
   class Meta:
     model = Setting
-    fields = ['name', 'sheet_name', 'priced_only', 'update_main', 'differ_by_name', 'currency', 'supplier']
+    fields = '__all__'
 
 class LinkForm(forms.Form):
   """Форма для связки в Link"""

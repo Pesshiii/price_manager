@@ -13,13 +13,12 @@ class SupplierListTable(tables.Table):
   actions = tables.TemplateColumn(
     template_name='supplier/actions.html',
     orderable=False,
-    verbose_name='Действия',
-    attrs = {'td': {'class': 'text-left'}}
+    verbose_name='Действия'
   )
   name = tables.LinkColumn('supplier-detail', args=[tables.A('pk')])
   class Meta:
     model = Supplier
-    fields = [field for field, value in get_field_details(model).items() if not value['type'] == 'ForeignKey']
+    fields = ['name']
     template_name = 'django_tables2/bootstrap5.html'
     attrs = {
       'class': 'table table-auto table-stripped table-hover clickable-rows'
@@ -122,11 +121,11 @@ def get_upload_list_table():
       attrs = {'class': 'table table-auto table-striped table-bordered'}
     def __init__(self, *args, **kwargs):
       # Remove dataframe from kwargs to avoid passing it to parent
-      mapping = dict(kwargs.pop('mapping', None))
+      links = dict(kwargs.pop('links', None))
       # Initialize columns based on DataFrame columns
-      if mapping is not None:
-        for key, value in mapping.items():
-          self.base_columns[value] = tables.Column(verbose_name=f'{key}/{value}')
+      if links is not None:
+        for column, field in links.items():
+          self.base_columns[column] = tables.Column(verbose_name=f'{column}/{field}')
       super().__init__(*args, **kwargs)
   return UploadListTable
 

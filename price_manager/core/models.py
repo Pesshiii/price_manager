@@ -12,9 +12,22 @@ import typing
 
 # Основные классы для продуктов(главных/поставщика)
 
+
+class Discount(models.Model):
+  name = models.CharField(verbose_name='Название',
+                          null=False,
+                          unique=True)
+  def __str__(self):
+    return self.name
+
 class Supplier(models.Model):
   name = models.CharField(verbose_name='Поставщик',
                         unique=True)
+  discounts = models.ManyToManyField(
+    Discount,
+    related_name='suppliers',
+    blank=True
+  )
   class Meta:
     verbose_name = 'Поставщик'
   def __str__(self):
@@ -71,13 +84,6 @@ class Category(models.Model):
     else:
       return self.name
     
-
-class Discount(models.Model):
-  name = models.CharField(verbose_name='Название',
-                          null=False,
-                          unique=True)
-  def __str__(self):
-    return self.name
     
 # Модели для применения наценок
 
@@ -268,9 +274,14 @@ class MainProduct(models.Model):
                                default=0)
   updated_at = models.DateTimeField(verbose_name='Последнее обновление',
                                     auto_now=True)
-  search_vector = SearchVectorField(null=True, editable=False, unique=False, verbose_name="Вектор поиска")
+  search_vector = SearchVectorField(null=True, editable=False, unique=False, verbose_name="Вектор поиска", auto_created=True)
+  def save(self, *args, **kwargs):
+    super().save(*args, **kwargs)
+    MainProduct.objects.filter(pk=self.pk).update(
+        search_vector=SearchVector('name', config='russian')
+    )
   def __str__(self):
-    return self.sku
+    return self.sku if self.sku else 'Не указан'
   class Meta:
     verbose_name = 'Главный продукт'
     constraints = [
@@ -285,7 +296,7 @@ class MainProduct(models.Model):
   
 SP_TABLE_FIELDS = ['main_product', 'category', 'supplier','article', 'name', 'manufacturer', 'supplier_price_kzt', 'rmp_kzt']
 SP_CHARS = ['article', 'name']
-SP_FKS = ['main_product', 'category', 'supplier', 'manufacturer']
+SP_FKS = ['main_product', 'category', 'supplier', 'manufacturer', 'discount']
 SP_PRICES = ['supplier_price', 'supplier_price_kzt', 'rmp_raw', 'rmp_kzt']
 SP_INTEGERS = ['stock']
 SP_MANAGMENT = ['updated_at']
