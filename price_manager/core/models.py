@@ -13,12 +13,12 @@ import typing
 # Основные классы для продуктов(главных/поставщика)
 
 class Supplier(models.Model):
-  name = models.CharField(verbose_name='Поставщик',
-                        unique=True)
-  class Meta:
-    verbose_name = 'Поставщик'
-  def __str__(self):
-    return self.name
+    name = models.CharField(verbose_name='Поставщик', unique=True)
+    last_price_upload_at = models.DateTimeField(verbose_name='Дата загрузки цен', null=True, blank=True)   # NEW
+    last_stock_upload_at = models.DateTimeField(verbose_name='Дата загрузки остатков', null=True, blank=True)  # NEW
+    class Meta:
+        verbose_name = 'Поставщик'
+    def __str__(self): return self.name
 
 class Manufacturer(models.Model):
   name = models.CharField(verbose_name='Производитель',
@@ -181,7 +181,7 @@ class ProductManager(models.Manager):
   def search_fields(self, request: typing.Dict[str, str]):
     return self.get_queryset().search_fields(request)
 
-MP_FIELDS = ['category', 'supplier', 'name', 'manufacturer', 'stock', 'updated_at']
+MP_FIELDS = ['article', 'category', 'supplier', 'name', 'manufacturer', 'stock', 'updated_at']
 
 
 class MainProduct(models.Model):
@@ -424,6 +424,9 @@ class Dict(models.Model):
 # Обработка файлов
 
 class FileModel(models.Model):
-  file = models.FileField(verbose_name='Файл',
-                         validators=[FileExtensionValidator(allowed_extensions=['xls', 'xlsx', 'xlsm'])],
-                         null=False)
+    file = models.FileField(
+        verbose_name='Файл',
+        validators=[FileExtensionValidator(allowed_extensions=['xls', 'xlsx', 'xlsm'])],
+        null=False
+    )
+    created_at = models.DateTimeField(auto_now_add=True)  # NEW
