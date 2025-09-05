@@ -274,7 +274,7 @@ class MainProduct(models.Model):
                                default=0)
   updated_at = models.DateTimeField(verbose_name='Последнее обновление',
                                     auto_now=True)
-  search_vector = SearchVectorField(null=True, editable=False, unique=False, verbose_name="Вектор поиска", auto_created=True)
+  search_vector = SearchVectorField(null=True, editable=False, unique=False, verbose_name="Вектор поиска")
   def save(self, *args, **kwargs):
     super().save(*args, **kwargs)
     MainProduct.objects.filter(pk=self.pk).update(
