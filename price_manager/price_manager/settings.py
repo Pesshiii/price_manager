@@ -94,7 +94,7 @@ DATABASES = {
         'ENGINE': 'django.db.backends.postgresql',
         'NAME': 'price_manager',
         'USER': 'priceuser',
-        'PASSWORD': 'postgres',   # см. ниже, как задать/сменить
+        'PASSWORD': 'postgres',
         'HOST': 'localhost',
         'PORT': '5432',
     }
