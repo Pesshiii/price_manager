@@ -92,9 +92,9 @@ DATABASES = {
     # }
     'default': {
         'ENGINE': 'django.db.backends.postgresql',
-        'NAME': 'postgres',
-        'USER': 'postgres',
-        'PASSWORD': 'postgres',
+        'NAME': 'price_manager',
+        'USER': 'priceuser',
+        'PASSWORD': 'postgres',   # см. ниже, как задать/сменить
         'HOST': 'localhost',
         'PORT': '5432',
     }
