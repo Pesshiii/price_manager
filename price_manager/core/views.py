@@ -636,7 +636,7 @@ def upload_supplier_products(request, **kwargs):
     from django.shortcuts import redirect, get_object_or_404
     from django.db.models import Sum
     import pandas as pd
-    from decimal import Decimal
+    from decimal import Decimal, ROUND_HALF_UP
 
     def _to_int(v, default=0):
         try:
@@ -658,69 +658,93 @@ def upload_supplier_products(request, **kwargs):
             except Exception:
                 return default
 
+    def _to_dec(v):
+        if v is None:
+            return None
+        try:
+            return Decimal(str(v))
+        except Exception:
+            try:
+                return Decimal(str(_to_float(v, 0.0)))
+            except Exception:
+                return None
+
+    def _q2(val: Decimal | None) -> Decimal | None:
+        if val is None:
+            return None
+        return val.quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
+
     setting = get_object_or_404(Setting, id=kwargs['id'])
     supplier = setting.supplier
     file_model = get_object_or_404(FileModel, id=kwargs['f_id'])
 
+    # режим сопоставления с MainProduct
     match_mode = (request.GET.get('match') or 'article').strip().lower()
     if match_mode not in ('article', 'article_manufacturer', 'article_name'):
         match_mode = 'article'
 
+    # курс (тенге за единицу валюты)
     try:
-        excel_file = pd.ExcelFile(file_model.file)
+        rate = _to_dec(setting.currency.value)
+        if rate is None or rate <= 0:
+            raise ValueError("Курс валюты должен быть > 0")
     except Exception as ex:
-        messages.error(request, f"Не удалось открыть файл: {ex}")
+        from django.contrib import messages
+        messages.error(request, f"Некорректный курс валюты в настройке: {ex}")
         return redirect('supplier-detail', id=supplier.id)
 
+    # соберём маппинг "ключ_поля модели" -> "имя колонки в файле"
     links = {link.key: link.value for link in Link.objects.filter(setting_id=setting.id)}
 
     upload_dt = getattr(file_model, 'created_at', None) or timezone.now()
     has_stock = 'stock' in links
-    has_price = any(k in links for k in ('supplier_price', 'supplier_price_kzt'))
-    fields_to_update = []
+    has_price_any = any(k in links for k in ('supplier_price', 'supplier_price_kzt'))  # старые настройки терпим
+    to_update_supplier_fields = []
     if has_stock:
         supplier.last_stock_upload_at = upload_dt
-        fields_to_update.append('last_stock_upload_at')
-    if has_price:
+        to_update_supplier_fields.append('last_stock_upload_at')
+    if has_price_any:
         supplier.last_price_upload_at = upload_dt
-        fields_to_update.append('last_price_upload_at')
-    if fields_to_update:
+        to_update_supplier_fields.append('last_price_upload_at')
+    if to_update_supplier_fields:
         try:
-            supplier.save(update_fields=fields_to_update)
-        except Exception as ex:
-            messages.warning(request, f"Не удалось сохранить даты загрузки у поставщика: {ex}")
+            supplier.save(update_fields=to_update_supplier_fields)
+        except Exception:
+            pass
 
+    # читаем Excel-лист
     try:
+        excel_file = pd.ExcelFile(file_model.file)
         df = (excel_file.parse(setting.sheet_name)
               .dropna(axis=0, how='all')
               .dropna(axis=1, how='all'))
     except Exception as ex:
+        from django.contrib import messages
         messages.error(request, f"Не удалось прочитать лист '{setting.sheet_name}': {ex}")
         return redirect('supplier-detail', id=supplier.id)
     finally:
         try:
             file_model.file.close()
-        except:
+        except Exception:
             pass
 
+    # обязательные столбцы (из файла)
+    from django.contrib import messages
     req_keys = ['article', 'name']
     missing_cols = [links[k] for k in req_keys if k in links and links[k] not in df.columns]
     if missing_cols:
         messages.error(request, f"В файле отсутствуют столбцы: {', '.join(map(str, missing_cols))}")
         return redirect('supplier-detail', id=supplier.id)
 
+    # удалим дубляжи по name+article
     if all(k in links for k in ('name', 'article')):
         df = df.drop_duplicates(subset=[links['name'], links['article']])
 
-    if setting.priced_only:
-        price_cols = [links[k] for k in ('supplier_price_kzt', 'supplier_price') if
-                      k in links and links[k] in df.columns]
-        if price_cols:
-            mask = None
-            for col in price_cols:
-                part = (pd.to_numeric(df[col], errors='coerce') > 0)
-                mask = part if mask is None else (mask | part)
-            df = df[mask.fillna(False)]
+    # если отмечено "только строки с ценой" — оставим там, где есть supplier_price > 0
+    if setting.priced_only and 'supplier_price' in links and links['supplier_price'] in df.columns:
+        sp_col = links['supplier_price']
+        mask = pd.to_numeric(df[sp_col], errors='coerce') > 0
+        df = df[mask.fillna(False)]
 
     touched_mp_ids = set()
     created_mp = 0
@@ -737,8 +761,17 @@ def upload_supplier_products(request, **kwargs):
         obj, _ = Manufacturer.objects.get_or_create(name=name)
         return obj
 
+    def resolve_category(name: str):
+        if not name:
+            return None
+        name = str(name).strip()
+        if not name:
+            return None
+        obj, _ = Category.objects.get_or_create(name=name)
+        return obj
+
     with transaction.atomic():
-        for idx, row in df.iterrows():
+        for _, row in df.iterrows():
             try:
                 art = str(row.get(links.get('article'), '')).strip() if 'article' in links else ''
                 nm = str(row.get(links.get('name'), '')).strip() if 'name' in links else ''
@@ -755,6 +788,7 @@ def upload_supplier_products(request, **kwargs):
                     defaults={'name': nm}
                 )
 
+                # подобрать MainProduct по выбранному режиму
                 if match_mode == 'article':
                     mp_qs = MainProduct.objects.filter(supplier=supplier, article=art)
                 elif match_mode == 'article_manufacturer':
@@ -762,19 +796,15 @@ def upload_supplier_products(request, **kwargs):
                         mp_qs = MainProduct.objects.filter(supplier=supplier, article=art, manufacturer=manufacturer)
                     else:
                         mp_qs = MainProduct.objects.filter(supplier=supplier, article=art, manufacturer__isnull=True)
-                else:  # article_name
+                else:  # 'article_name'
                     mp_qs = MainProduct.objects.filter(supplier=supplier, article=art, name=nm)
 
                 mp = mp_qs.first()
                 if not mp:
-                    mp = MainProduct(
-                        supplier=supplier,
-                        article=art,
-                        name=nm or art,
-                        manufacturer=manufacturer if manufacturer else None,
-                    )
+                    mp = MainProduct(supplier=supplier, article=art, name=nm or art)
                     if getattr(setting, 'id_as_sku', False):
                         mp.sku = art
+                    # остаток
                     if has_stock and links.get('stock') in row:
                         mp.stock = _to_int(row[links['stock']], 0)
                     mp.save()
@@ -783,44 +813,75 @@ def upload_supplier_products(request, **kwargs):
                 if sp.main_product_id != mp.id:
                     sp.main_product = mp
 
+                # Остаток (если есть колонка)
                 if has_stock and links.get('stock') in df.columns:
                     sp.stock = _to_int(row.get(links['stock']), sp.stock or 0)
 
+                # === ЦЕНЫ ===
+                # Цена поставщика (в валюте файла)
+                supplier_price = None
                 if 'supplier_price' in links and links['supplier_price'] in df.columns:
-                    sp.supplier_price = _to_float(row.get(links['supplier_price']), sp.supplier_price or 0.0)
+                    supplier_price = _to_dec(row.get(links['supplier_price']))
+                sp.supplier_price = float(supplier_price or 0)
 
-                if 'supplier_price_kzt' in links and links['supplier_price_kzt'] in df.columns:
-                    sp.supplier_price_kzt = _to_float(row.get(links['supplier_price_kzt']),
-                                                      sp.supplier_price_kzt or 0.0)
+                # Цена поставщика в тенге = всегда считаем от supplier_price * rate
+                sp.supplier_price_kzt = float(_q2((supplier_price or Decimal('0')) * rate) or 0)
 
-                if 'rmp_raw' in links and links['rmp_raw'] in df.columns:
-                    sp.rmp_raw = _to_float(row.get(links['rmp_raw']), sp.rmp_raw or 0.0)
-
+                # === РРЦ ===
+                rmp_kzt_val = None
+                # 1) если в файле есть и >0 — берём как есть
                 if 'rmp_kzt' in links and links['rmp_kzt'] in df.columns:
-                    sp.rmp_kzt = _to_float(row.get(links['rmp_kzt']), sp.rmp_kzt or 0.0)
+                    rmp_kzt_val = _to_dec(row.get(links['rmp_kzt']))
+                    if rmp_kzt_val is not None and rmp_kzt_val <= 0:
+                        rmp_kzt_val = None
+                # 2) иначе, если есть rmp_raw — конвертируем
+                if rmp_kzt_val is None and 'rmp_raw' in links and links['rmp_raw'] in df.columns:
+                    rmp_raw_val = _to_dec(row.get(links['rmp_raw']))
+                    sp.rmp_raw = float(_q2(rmp_raw_val) or 0)
+                    if rmp_raw_val is not None and rmp_raw_val > 0:
+                        rmp_kzt_val = _q2(rmp_raw_val * rate)
 
+                # если в шаге (1) мы уже получили rmp_kzt — сохраняем; если нет и в (2) посчитали — тоже сохранится
+                sp.rmp_kzt = float(_q2(rmp_kzt_val) or 0)
+
+                # Прочее
                 if nm:
                     sp.name = nm
                 if manufacturer:
                     sp.manufacturer = manufacturer
+                if 'category' in links and links['category'] in df.columns:
+                    cat = resolve_category(row.get(links['category']))
+                    if cat:
+                        sp.category = cat
+                if 'discount' in links and links['discount'] in df.columns:
+                    # Если у тебя FK на Discount — подбери по имени
+                    disc_name = str(row.get(links['discount']) or '').strip()
+                    if disc_name:
+                        disc, _ = Discount.objects.get_or_create(name=disc_name)
+                        sp.discount = disc
 
                 sp.save()
-                created_sp += 1 if sp_created else 0
-                updated_sp += 0 if sp_created else 1
+                if sp_created:
+                    created_sp += 1
+                else:
+                    updated_sp += 1
+
+                # чтобы потом суммарно обновить стоки у MainProduct
                 touched_mp_ids.add(mp.id)
 
             except Exception:
                 skipped += 1
+                continue
 
+        # агрегированный обновлятор остатков у MainProduct (если был столбец stock)
         if has_stock and touched_mp_ids:
-            agg = (SupplierProduct.objects
-                   .filter(main_product_id__in=touched_mp_ids)
-                   .values('main_product')
-                   .annotate(total_stock=Sum('stock')))
-            totals = {row['main_product']: (row['total_stock'] or 0) for row in agg}
+            totals = (SupplierProduct.objects
+                      .filter(main_product_id__in=touched_mp_ids)
+                      .values('main_product_id')
+                      .annotate(total=Sum('stock')))
+            totals = {row['main_product_id']: row['total'] for row in totals}
             to_update = list(MainProduct.objects.filter(pk__in=totals.keys()))
-            from django.utils import timezone as _tz
-            now = _tz.now()
+            now = timezone.now()
             for p in to_update:
                 p.stock = totals.get(p.pk, 0)
                 dt = getattr(p.supplier, 'last_stock_upload_at', None) or now
@@ -831,9 +892,13 @@ def upload_supplier_products(request, **kwargs):
                 fields.append('updated_at')
             MainProduct.objects.bulk_update(to_update, fields=fields)
 
-    messages.success(request,
-                     f"Готово. MainProduct: создано {created_mp}. SupplierProduct: создано {created_sp}, обновлено {updated_sp}, пропущено {skipped}.")
+    from django.contrib import messages
+    messages.success(
+        request,
+        f"Готово. MainProduct: создано {created_mp}. SupplierProduct: создано {created_sp}, обновлено {updated_sp}, пропущено {skipped}."
+    )
     return redirect('supplier-detail', id=supplier.id)
+
 
 
 # Обработка производителей
