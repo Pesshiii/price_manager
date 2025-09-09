@@ -112,8 +112,8 @@ class PriceManager(models.Model):
                                blank=True)
   source = models.CharField(verbose_name='От какой цены считать',
                                  choices=[
-                                  ('rmp_kzt', 'РРЦ в тенге'),
-                                  ('supplier_price_kzt', 'Цена поставщика в тенге'),
+                                  ('rmp', 'РРЦ в тенге'),
+                                  ('supplier_price', 'Цена поставщика в тенге'),
                                   ('basic_price', 'Базовая цена'),
                                   ('prime_cost', 'Себестоимость'),
                                   ('m_price', 'Цена ИМ'),
@@ -270,7 +270,7 @@ class MainProduct(models.Model):
 SP_TABLE_FIELDS = ['discount', 'category','article', 'name', 'supplier_price_kzt', 'rmp_kzt']
 SP_CHARS = ['article', 'name']
 SP_FKS = ['main_product', 'category', 'supplier', 'manufacturer', 'discount']
-SP_PRICES = ['supplier_price', 'supplier_price_kzt', 'rmp_raw', 'rmp_kzt']
+SP_PRICES = ['supplier_price', 'rmp']
 SP_INTEGERS = ['stock']
 SP_MANAGMENT = ['updated_at']
 
@@ -312,31 +312,15 @@ class SupplierProduct(models.Model):
   stock = models.PositiveIntegerField(verbose_name='Остаток',
                               default=0)
   supplier_price = models.DecimalField(
-      verbose_name='Цена поставщика',
-      decimal_places=2,
-      max_digits=20,
-      default=0)
-  supplier_price_kzt = models.DecimalField(
       verbose_name='Цена поставщика в тенге',
       decimal_places=2,
       max_digits=20,
       default=0)
-  rmp_raw = models.DecimalField(
-      verbose_name='РРЦ в валюте закупа',
-      decimal_places=2,
-      max_digits=20,
-      default=0)
-  rmp_kzt = models.DecimalField(
+  rmp = models.DecimalField(
       verbose_name='РРЦ в тенге',
       decimal_places=2,
       max_digits=20,
       default=0)
-  currency = models.ForeignKey(Currency,
-                               verbose_name='Валюта',
-                               related_name='supplier_product',
-                               on_delete=models.PROTECT,
-                               blank=False,
-                               null=True)
   updated_at = models.DateTimeField(verbose_name='Последнее обновление',
                                     auto_now=True)
   
@@ -358,10 +342,8 @@ LINKS = {'': 'Не включать',
          'discount': 'Группа скидок',
          'manufacturer': 'Производитель',
          'stock': 'Остаток',
-         'supplier_price': 'Цена поставщика',
-         'supplier_price_kzt': 'Цена поставщика в тенге',
-         'rmp_raw': 'РРЦ в валюте закупа',
-         'rmp_kzt': 'РРЦ в тенге',
+         'supplier_price': 'Цена поставщика в указанной валюте',
+         'rmp': 'РРЦ в указанной валюте',
          }
 
 class Setting(models.Model):

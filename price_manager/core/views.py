@@ -508,7 +508,6 @@ def upload_supplier_products(request, **kwargs):
       products.append(product)
     for product in products:
       try:
-        product.currency = setting.currency
         for column, field in links.items():
           if field in SP_FKS:
             if field == 'category':
@@ -524,10 +523,8 @@ def upload_supplier_products(request, **kwargs):
               setattr(product, field, manu)
               continue
           setattr(product, field, convert_sp(row[column], field))
-        if 'supplier_price' in links.values() and not 'supplier_price_kzt' in links.values():
-          product.supplier_price_kzt = product.supplier_price * float(product.currency.value)
-        if 'rmp_raw' in links.values() and not 'rmp_kzt' in links.values():
-          product.rmp_kzt = product.rmp_raw * float(product.currency.value)
+        if field in SP_PRICES:
+          setattr(product, field, get_safe(row[column], float)*get_safe(setting.currency.value, float))
         if not product.discount:
           disc = Discount()
           if not product.rmp_kzt == 0:
