@@ -267,7 +267,7 @@ class MainProduct(models.Model):
       GinIndex(fields=['search_vector']),
     ]
   
-SP_TABLE_FIELDS = ['discount', 'category','article', 'name', 'supplier_price_kzt', 'rmp_kzt']
+SP_TABLE_FIELDS = ['discount', 'category','article', 'name', 'supplier_price', 'rmp']
 SP_CHARS = ['article', 'name']
 SP_FKS = ['main_product', 'category', 'supplier', 'manufacturer', 'discount']
 SP_PRICES = ['supplier_price', 'rmp']
