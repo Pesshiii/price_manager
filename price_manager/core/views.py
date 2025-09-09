@@ -592,6 +592,7 @@ def upload_supplier_products(request, **kwargs):
                                                               name=product.name)
           main_product.available = (product.stock > 0)
           main_product.search_vector = SearchVector('name', config='russian')
+          main_product.manufacturer = product.manufacturer
           product.main_product = main_product
           mp.append(main_product)
         sp.append(product)
@@ -599,7 +600,7 @@ def upload_supplier_products(request, **kwargs):
       except BaseException as ex:
         exs.append(ex)
 
-  MainProduct.objects.bulk_update(mp, fields=['supplier', 'article', 'name', 'search_vector', 'available'])
+  MainProduct.objects.bulk_update(mp, fields=['supplier', 'article', 'name', 'search_vector', 'available', 'manufacturer'])
   SupplierProduct.objects.bulk_update(sp, fields=links.values())
   SupplierProduct.objects.bulk_update(sp, fields=['supplier_price', 'rmp', 'discount'])
   SupplierProduct.objects.bulk_update(sp, fields=['main_product'])
