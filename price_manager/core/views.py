@@ -588,16 +588,16 @@ def upload_supplier_products(request, **kwargs):
       except BaseException as ex:
         exs.append(ex)
 
-  MainProduct.objects.bulk_update(mp, fields=['article', 'name', 'search_vector', 'available'])
+  MainProduct.objects.bulk_update(mp, fields=['supplier', 'article', 'name', 'search_vector', 'available'])
   SupplierProduct.objects.bulk_update(sp, fields=links.values())
   SupplierProduct.objects.bulk_update(sp, fields=['supplier_price', 'rmp', 'discount'])
   SupplierProduct.objects.bulk_update(sp, fields=['main_product'])
   messages.success(request, f'Добавлено товаров: {overall}, Новых: {new}')
   if not exs == []:
-    ex_str = '''<br>'''.join([f'{ex}' for ex in exs[:min(len(exs), 5)]])
+    ex_str = '''    '''.join([f'{ex}' for ex in exs[:min(len(exs), 5)]])
     messages.error(
       request,
-      f'''Ошибок: {len(exs)}.''' + '<br></br>' + ex_str)
+      f'''Ошибок: {len(exs)}.     ''' + ex_str)
   return redirect('supplier-detail', id=supplier.pk)
 
 
