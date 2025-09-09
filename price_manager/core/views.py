@@ -525,9 +525,10 @@ def upload_supplier_products(request, **kwargs):
           setattr(product, field, convert_sp(row[column], field))
         if field in SP_PRICES:
           setattr(product, field, get_safe(row[column], float)*get_safe(setting.currency.value, float))
+        print(product.discount)
         if not product.discount:
           disc = Discount()
-          if not product.rmp_kzt == 0:
+          if not product.rmp == 0:
             disc, _ = Discount.objects.get_or_create(supplier=supplier, name='Есть РРЦ')
           else:
             disc, _ = Discount.objects.get_or_create(supplier=supplier, name='Нет РРЦ')
@@ -544,7 +545,7 @@ def upload_supplier_products(request, **kwargs):
         exs.append(ex)
   MainProduct.objects.bulk_update(mp, fields=['article', 'name', 'search_vector', 'available'])
   SupplierProduct.objects.bulk_update(sp, fields=links.values())
-  SupplierProduct.objects.bulk_update(sp, fields=['supplier_price_kzt', 'rmp_kzt', 'discount'])
+  SupplierProduct.objects.bulk_update(sp, fields=['supplier_price', 'rmp', 'discount'])
   SupplierProduct.objects.bulk_update(sp, fields=['main_product'])
   messages.success(request, f'Добавлено товаров: {overall}, Новых: {new}')
   if not exs == []:
