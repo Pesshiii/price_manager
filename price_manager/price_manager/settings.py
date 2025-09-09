@@ -92,12 +92,20 @@ DATABASES = {
     # }
     'default': {
         'ENGINE': 'django.db.backends.postgresql',
-        'NAME': 'price_manager',
-        'USER': 'priceuser',
+        'NAME': 'postgres',
+        'USER': 'postgres',
         'PASSWORD': 'postgres',
         'HOST': 'localhost',
         'PORT': '5432',
     }
+    # 'default': {
+    #     'ENGINE': 'django.db.backends.postgresql',
+    #     'NAME': 'price_manager',
+    #     'USER': 'priceuser',
+    #     'PASSWORD': 'postgres',
+    #     'HOST': 'localhost',
+    #     'PORT': '5432',
+    # }
 }
 
 DATA_UPLOAD_MAX_NUMBER_FIELDS = 20000

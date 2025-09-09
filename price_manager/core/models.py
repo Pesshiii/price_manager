@@ -8,7 +8,6 @@ from django.contrib.postgres.indexes import GinIndex
 from django.contrib.postgres.search import (SearchVectorField, SearchVector, SearchQuery, SearchRank)
 
 
-import typing
 
 # Основные классы для продуктов(главных/поставщика)
 

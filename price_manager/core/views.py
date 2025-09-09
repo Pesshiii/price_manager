@@ -141,6 +141,12 @@ class SupplierUpdate(UpdateView):
 
 # Обработка настройки
 
+def clean_headers(df):
+  """Clean headers from unwanted characters"""
+  df.columns = [re.sub(r'[\r\n\t]', '', col) for col in df.columns]
+  return df
+
+
 def get_dict_table(request, key, value, link=None):
   dict_initial = extract_initial_from_post(post=request.POST, prefix=f'dict-form-{key}', data={'key':'', 'value':''})
   extra = int('submit-btn' in request.POST and request.POST['submit-btn'] == key)
@@ -278,6 +284,7 @@ class SettingCreate(SingleTableMixin, CreateView):
     except:
       sheet_name = choices[0][0]
     self.df = excel_file.parse(sheet_name).dropna(how='all').dropna(axis=1, how='all')
+    self.df = clean_headers(self.df)
     file_model.file.close()
 
     self.df, self.links, self.initials, self.dicts = get_data(self.df, self.request, form.instance)
@@ -332,6 +339,7 @@ class SettingUpdate(SingleTableMixin, UpdateView):
     except:
       sheet_name = choices[0][0]
     self.df = excel_file.parse(sheet_name).dropna(how='all').dropna(axis=1, how='all')
+    self.df = clean_headers(self.df)
     file_model.file.close()
 
     self.df, self.links, self.initials, self.dicts = get_data(self.df, self.request, self.setting)
