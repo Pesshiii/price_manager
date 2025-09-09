@@ -520,7 +520,7 @@ def upload_supplier_products(request, **kwargs):
               setattr(product, field, disc)
               continue
             if field == 'manufacturer':
-              manu, _ = Category.objects.get_or_create(name=row[column])
+              manu, _ = Manufacturer.objects.get_or_create(name=row[column])
               setattr(product, field, manu)
               continue
           setattr(product, field, convert_sp(row[column], field))
