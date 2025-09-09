@@ -1,5 +1,7 @@
 from django.contrib import admin
 from import_export.admin import ImportExportModelAdmin
+from django.contrib import admin
+from .forms import PriceManagerAdminForm
 from core.models import *
 from core.resources import *
 
@@ -30,8 +32,24 @@ class FileModelAdmin(admin.ModelAdmin):
 
 @admin.register(PriceManager)
 class PriceManagerAdmin(admin.ModelAdmin):
-    list_display = ['id', 'name']
+    form = PriceManagerAdminForm
+    list_display = ['id', 'name', 'supplier', 'discount']
+    autocomplete_fields = []  # можешь оставить пустым; если захочешь, подключим позже
+
+    def get_form(self, request, obj=None, **kwargs):
+        """
+        Передаём объект request в форму, чтобы она могла читать supplier из GET/POST.
+        """
+        Form = super().get_form(request, obj, **kwargs)
+        class RequestAwareForm(Form):
+            def __init__(self2, *args, **kw):
+                kw['request'] = request
+                super().__init__(*args, **kw)
+        return RequestAwareForm
+    
 
 @admin.register(Discount)
 class DiscountAdmin(admin.ModelAdmin):
-    list_display = ['id', 'name']
+    list_display = ['id', 'name', 'supplier']
+    list_filter = ['supplier']
+    search_fields = ['name']
