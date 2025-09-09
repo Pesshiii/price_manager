@@ -555,10 +555,11 @@ def upload_supplier_products(request, **kwargs):
               manu, _ = Manufacturer.objects.get_or_create(name=row[column])
               setattr(product, field, manu)
               continue
+          if field in SP_PRICES:
+            setattr(product, field, get_safe(row[column], float) * get_safe(setting.currency.value, float))
+            continue
           setattr(product, field, convert_sp(row[column], field))
 
-        if field in SP_PRICES:
-          setattr(product, field, get_safe(row[column], float) * get_safe(setting.currency.value, float))
 
         # [ИЗМЕНЕНО] Если «Группа скидок» НЕ маппилась, но РРЦ маппилась — выставляем «Есть/Нет РРЦ».
         if (not getattr(product, 'discount', None)) and rrp_is_mapped:
