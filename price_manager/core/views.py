@@ -438,6 +438,7 @@ class SettingDisplay(DetailView):
     try:
       excel_file = pd.ExcelFile(file_model.file)
       self.df = excel_file.parse(setting.sheet_name).dropna(axis=0, how='all').dropna(axis=1, how='all')
+      self.df = clean_headers(self.df)
       file_model.file.close()
       self.df, self.links, self.initials, self.dicts = get_upload_data(setting, self.df)
       table = get_upload_list_table()(links=self.links, data=self.df.to_dict('records'))
@@ -495,6 +496,7 @@ def upload_supplier_products(request, **kwargs):
   file_model = FileModel.objects.get(id=kwargs['f_id'])
   excel_file = pd.ExcelFile(file_model.file)
   df = excel_file.parse(setting.sheet_name).dropna(axis=0, how='all').dropna(axis=1, how='all')
+  df = clean_headers(df)
   file_model.file.close()
   df, links, initials, dicts = get_upload_data(setting, df)
   rev_links = {value: key for key, value in links.items()}
