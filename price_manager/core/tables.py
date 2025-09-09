@@ -204,29 +204,15 @@ class MainProductListTable(tables.Table):
     )
 
 
-class SortSupplierProductTable(tables.Table):
+class SupplierProductPriceManagerTable(tables.Table):
   '''Таблица для сортировки Товаров Поставщиков'''
-  selection = tables.CheckBoxColumn(
-                accessor='pk',
-                attrs={
-                  'th__input': {'id': 'selection'},
-                  'td__input': {'class': 'select-row'},
-                },
-                orderable=False
-              )
   class Meta:
     model = SupplierProduct
-    fields = ['main_product']
-    fields.extend([key for key, value in get_field_details(SupplierProduct).items() 
-              if not value['primary_key']
-              and not key == 'main_product'])
+    fields = SP_TABLE_FIELDS
     template_name = 'django_tables2/bootstrap5.html'
     attrs = {
       'class': 'table table-auto table-stripped table-hover clickable-rows'
       }
-  def render_selection(self, value):
-      return format_html('<input type="checkbox" name="selected_items" value="{}" />', value)
-
 
 class CategoryListTable(tables.Table):
   '''Таблица Категорий отображаемая на странице Производители'''

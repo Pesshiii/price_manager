@@ -13,27 +13,29 @@ import typing
 # Основные классы для продуктов(главных/поставщика)
 
 
-class Discount(models.Model):
-  name = models.CharField(verbose_name='Название',
-                          null=False,
-                          unique=True)
-  def __str__(self):
-    return self.name
-
 class Supplier(models.Model):
   name = models.CharField(verbose_name='Поставщик',
                         unique=True)
-  discounts = models.ManyToManyField(
-    Discount,
-    related_name='suppliers',
-    blank=True
-  )
   delivery_days = models.PositiveIntegerField(verbose_name='Срок доставки',
                                               default=0)
   class Meta:
     verbose_name = 'Поставщик'
   def __str__(self):
     return self.name
+  
+
+class Discount(models.Model):
+  name = models.CharField(verbose_name='Название',
+                          null=False)
+  supplier = models.ForeignKey(Supplier,
+                              verbose_name='Поставщик',
+                              null=False,
+                              on_delete=models.CASCADE,
+                              related_name='discounts')
+  def __str__(self):
+    return self.name
+  class Meta:
+    constraints = [models.UniqueConstraint(fields=['name', 'supplier'], name='discount_name_supplier_constraint')]
 
 class Manufacturer(models.Model):
   name = models.CharField(verbose_name='Производитель',
@@ -79,12 +81,13 @@ class Category(models.Model):
                              blank=True)
   name = models.CharField(verbose_name='Название',
                           null=False)
-  constraint = models.UniqueConstraint(fields=['parent', 'name'], name='parent_child_constraint')
   def __str__(self):
     if self.parent:
       return f'{self.parent}>{self.name}'
     else:
       return self.name
+  class Meta:
+    constraints = [models.UniqueConstraint(fields=['parent', 'name'], name='parent_child_constraint')]
     
     
 # Модели для применения наценок
@@ -98,14 +101,13 @@ class PriceManager(models.Model):
   supplier = models.ForeignKey(Supplier,
                                on_delete=models.CASCADE,
                                verbose_name='Поставщик',
-                               related_name='pm_supplier_ptr',
-                               unique=False,
-                               null=True)
+                               related_name='price_managers',
+                               null=True,
+                               blank=False)
   discount = models.ForeignKey(Discount,
                                on_delete=models.CASCADE,
                                verbose_name='Группа скидок',
-                               related_name='pm_discount_ptr',
-                               unique=False,
+                               related_name='price_managers',
                                null=True,
                                blank=True)
   source = models.CharField(verbose_name='От какой цены считать',
@@ -153,13 +155,13 @@ class PriceManager(models.Model):
   def __str__(self):
     return self.name
    
-MP_TABLE_FIELDS = ['category', 'supplier', 'name', 'manufacturer', 'available', 'updated_at']
+MP_TABLE_FIELDS = ['category', 'supplier', 'name', 'manufacturer', 'available']
 MP_CHARS = ['sku', 'article', 'name']
 MP_FKS = ['supplier', 'category', 'discount', 'manufacturer', 'price_manager']
 MP_DECIMALS = ['weight', 'length', 'width', 'depth']
 MP_INTEGERS = ['stock']
 MP_PRICES = ['prime_cost', 'wholesale_price', 'basic_price', 'm_price', 'wholesale_price_extra']
-MP_MANAGMENT = ['updated_at', 'search_vector']
+MP_MANAGMENT = ['price_updated_at', 'stock_updated_at', 'search_vector']
 
 class MainProduct(models.Model):
   sku = models.CharField(verbose_name='Артикул товара',
@@ -182,11 +184,6 @@ class MainProduct(models.Model):
                                on_delete=models.SET_NULL,
                                verbose_name='Категория',
                                null=True,
-                               blank=True,)
-  discount = models.ForeignKey(Discount,
-                               on_delete=models.SET_NULL,
-                               verbose_name='Группа скидок',
-                               null=True,
                                blank=True)
   manufacturer = models.ForeignKey(Manufacturer,
                                    verbose_name='Производитель',
@@ -194,6 +191,8 @@ class MainProduct(models.Model):
                                    on_delete=models.SET_NULL,
                                    null=True,
                                    blank=True)
+  stock = models.PositiveIntegerField(verbose_name='Остаток',
+                                      null=True)
   available = models.BooleanField(verbose_name='Наличие',
                               default=False)
   weight = models.DecimalField(
@@ -226,12 +225,10 @@ class MainProduct(models.Model):
       decimal_places=2,
       max_digits=20,
       default=0)
-  price_manager = models.ForeignKey(
+  price_managers = models.ManyToManyField(
     PriceManager,
     verbose_name='Наценка',
-    related_name='mp_price_manager_ptr',
-    on_delete=models.SET_NULL,
-    null=True,
+    related_name='main_products',
     blank=True
   )
   length = models.DecimalField(verbose_name='Длина',
@@ -246,7 +243,9 @@ class MainProduct(models.Model):
                                max_digits=10,
                                decimal_places=2,
                                default=0)
-  updated_at = models.DateTimeField(verbose_name='Последнее обновление',
+  price_updated_at = models.DateTimeField(verbose_name='Последнее обновление цены',
+                                    auto_now=True)
+  stock_updated_at = models.DateTimeField(verbose_name='Последнее обновление остатка',
                                     auto_now=True)
   search_vector = SearchVectorField(null=True, editable=False, unique=False, verbose_name="Вектор поиска")
   def save(self, *args, **kwargs):
@@ -268,7 +267,7 @@ class MainProduct(models.Model):
       GinIndex(fields=['search_vector']),
     ]
   
-SP_TABLE_FIELDS = ['main_product', 'category','article', 'name', 'supplier_price_kzt', 'rmp_kzt']
+SP_TABLE_FIELDS = ['discount', 'category','article', 'name', 'supplier_price_kzt', 'rmp_kzt']
 SP_CHARS = ['article', 'name']
 SP_FKS = ['main_product', 'category', 'supplier', 'manufacturer', 'discount']
 SP_PRICES = ['supplier_price', 'supplier_price_kzt', 'rmp_raw', 'rmp_kzt']
@@ -278,13 +277,13 @@ SP_MANAGMENT = ['updated_at']
 class SupplierProduct(models.Model):
   main_product=models.ForeignKey(MainProduct,
                         verbose_name='sku',
-                        related_name='sp_main_product_ptr',
+                        related_name='supplier_product',
                         on_delete=models.SET_NULL,
                         null=True,
                         blank=True)
   supplier=models.ForeignKey(Supplier,
                              verbose_name='Поставщик',
-                             related_name='sp_supplier_ptr',
+                             related_name='supplier_product',
                              on_delete=models.CASCADE,
                              null=False,
                              blank=False)
@@ -306,7 +305,7 @@ class SupplierProduct(models.Model):
                                blank=True)
   manufacturer = models.ForeignKey(Manufacturer,
                                    verbose_name='Производитель',
-                                   related_name='sp_manufacturer_ptr',
+                                   related_name='supplier_product',
                                    on_delete=models.SET_NULL,
                                    null=True,
                                    blank=True)
@@ -334,7 +333,7 @@ class SupplierProduct(models.Model):
       default=0)
   currency = models.ForeignKey(Currency,
                                verbose_name='Валюта',
-                               related_name='sp_currency_ptr',
+                               related_name='supplier_product',
                                on_delete=models.PROTECT,
                                blank=False,
                                null=True)
@@ -382,7 +381,8 @@ class Setting(models.Model):
                                verbose_name='Валюта',
                                on_delete=models.PROTECT,
                                blank=False)
-  constraint = models.UniqueConstraint(fields=['name', 'supplier'], name='name_supplier_constraint')
+  class Meta:
+    constraints = [models.UniqueConstraint(fields=['name', 'supplier'], name='name_supplier_constraint')]
 
 class Link(models.Model):
   setting = models.ForeignKey(Setting,
@@ -390,7 +390,8 @@ class Link(models.Model):
   initial = models.CharField(null=True)
   key = models.CharField(choices=LINKS)
   value = models.CharField()
-  constraint = models.UniqueConstraint(fields=['setting', 'link'], name='product-field-constraint')
+  class Meta:
+    constraints = [models.UniqueConstraint(fields=['setting', 'key'], name='product-field-constraint')]
 
 class Dict(models.Model):
   link = models.ForeignKey(Link,

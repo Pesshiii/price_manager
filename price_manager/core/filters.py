@@ -10,14 +10,16 @@ class MainProductFilter(filters.FilterSet):
     model = MainProduct
     fields = ['search', 'supplier', 'category', 'available', 'basic_price', 'm_price']
   def search_method(self, queryset, name, value):
-    query = SearchQuery(value, search_type="websearch")  # or "plain"
+    query = SearchQuery(value, search_type="plain")  # or "websearch"
     rank  = SearchRank("search_vector", query)
 
-    return (
-      queryset.annotate(rank=rank)
-      .filter(search_vector=query)      # uses GIN index
-      .order_by("-rank")
-    )
+    queryset = queryset.annotate(rank=rank)
+
+    for bit in value.split(' '):
+      query = SearchQuery(bit, search_type="websearch")
+      queryset = queryset.filter(search_vector=query)      # uses GIN index
+    
+    return queryset.order_by("-rank")
   
 class SupplierProductFilter(filters.FilterSet):
   class Meta:

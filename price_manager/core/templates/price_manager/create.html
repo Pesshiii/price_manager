@@ -1,17 +1,50 @@
 {% extends 'base.html' %}
 
 {% block title %}
-Новая категория
+Создание наценок
 {% endblock %}
 
 {% block body %}
+<div class="container-fluid mt-4 mb-5">
+  <h1 class="mb-4">Новая наценка</h1>
   <div class="container">
-    <form method="post">
-      {% csrf_token %}
-      {{form.as_p}}
-      <button type="submit" value="add">Добавить</button>
-    </form>
+    <a href="{% url 'price-manager'%}" class="btn btn-secondary">
+      <i class="bi bi-arrow-left"></i> Все наценки
+    </a>
   </div>
+  <div class="row">
+    <!-- Блок фильтров -->
+    <div class="col-md-3">
+      <form method="post" class="card p-3 shadow-sm">
+        {% csrf_token %}
+        <h5 class="mb-3">Фильтры</h5>
+
+        <!-- Поиск по всем полям -->
+        {{form}}
+
+        <!-- Кнопки -->
+        <div class=" d-flex gap-2 mt-5">
+          <button name="btn" type="submit" class="btn btn-secondary" value="apply">
+            Применить
+          </button>
+          <button name="btn" type="submit" class="btn btn-primary" value="save">
+            Сохранить
+          </button>
+        </div>
+      </form>
+    </div>
+
+    <!-- Таблица -->
+    <div class="col-md-9 mb-5">
+      {% load export_url from django_tables2 %}
+
+      <div class="table-responsive card p-3 shadow-sm overflow-visible">
+        {% load django_tables2 %}
+        {% render_table table %}
+      </div>
+    </div>
+  </div>
+</div>
 {% endblock %}
 
 {% block script %}

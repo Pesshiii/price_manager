@@ -23,3 +23,15 @@ class SupplierProductAdmin(admin.ModelAdmin):
     list_display_links = ['id', 'name']
     search_fields = ['article', 'name', 'sku', 'stock']
     list_filter = ['supplier', 'manufacturer']
+
+@admin.register(FileModel)
+class FileModelAdmin(admin.ModelAdmin):
+    list_display = ['id', 'file']
+
+@admin.register(PriceManager)
+class PriceManagerAdmin(admin.ModelAdmin):
+    list_display = ['id', 'name']
+
+@admin.register(Discount)
+class DiscountAdmin(admin.ModelAdmin):
+    list_display = ['id', 'name']

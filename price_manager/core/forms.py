@@ -83,8 +83,8 @@ class InitialForm(forms.Form):
                             required=False,
                             empty_value='')
   
+
 class PriceManagerForm(forms.ModelForm):
-  """"""
   class Meta:
     model = PriceManager
-    fields = ['name', 'discount', 'source', 'dest', 'price_from', 'price_to', 'markup', 'increase']
+    fields = ['name', 'supplier', 'discount', 'source', 'dest', 'price_from', 'price_to', 'markup', 'increase']

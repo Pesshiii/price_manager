@@ -16,8 +16,6 @@ urlpatterns = [
     path('supplier/<int:id>/settings/', views.SupplierSettingList.as_view(), name='supplier-settings'),
     path('supplier/create/', views.SupplierCreate.as_view(), name='supplier-create'),
     path('supplier/<int:id>/setting/create/<int:f_id>/', views.SettingCreate.as_view(), name='setting-create'),
-    path('supplier/<int:id>/price-manager/create/', views.PriceManagerCreate.as_view(), name='price-manager-create'),
-    path('supplier/<int:id>/price-manager/', views.PriceManagerList.as_view(), name='price-manager'),
 
     path('setting/<int:id>/', views.SettingDetail.as_view(), name='setting-detail'),
     path('setting/<int:id>/delete', views.SettingDelete.as_view(), name='setting-delete'),
@@ -39,7 +37,9 @@ urlpatterns = [
     path('currency/create/', views.CurrencyCreate.as_view(), name='currency-create'),
     path('currency/<int:id>/update', views.CurrencyUpdate.as_view(), name='currency-update'),
 
+    path('price-manager/', views.PriceManagerList.as_view(), name='price-manager'),
     path('price-manager/<int:id>/', views.PriceManagerDetail.as_view(), name='price-manager-detail'),
+    path('price-manager/create/', views.PriceManagerCreate.as_view(), name='price-manager-create'),
     path('price-manager/<int:id>/delete', views.PriceManagerDelete.as_view(), name='price-manager-delete'),
 
     path('supplier-product/<int:id>/delete/', views.delete_supplier_product, name='supplier-product-delete'),
