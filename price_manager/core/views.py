@@ -17,6 +17,8 @@ from django.views.generic import (View,
                                   TemplateView)
 from django.views.decorators.http import require_POST
 from django.urls import reverse
+from typing import Optional, Any, Dict, Iterable
+from django.shortcuts import redirect, render
 from django_tables2 import SingleTableView, RequestConfig, SingleTableMixin
 from django_filters.views import FilterView, FilterMixin
 from decimal import Decimal, InvalidOperation
@@ -493,21 +495,43 @@ def upload_supplier_products(request, **kwargs):
   new = 0
   overall = 0
   exs = []
+
+  # [ИЗМЕНЕНО] Хелпер для проверки «есть РРЦ»: положительное число (>0)
+  def _has_positive(v):
+    try:
+      f = float(v)
+      # защита от NaN и нулей/отрицательных
+      return (f == f) and (f > 0)
+    except (TypeError, ValueError):
+      return False
+
   for _, row in df.iterrows():
     if setting.differ_by_name:
-      products = [product for product in SupplierProduct.objects.filter(supplier=supplier, article=row[rev_links['article']], name=row[rev_links['name']])]
+      products = [product for product in
+                  SupplierProduct.objects.filter(supplier=supplier, article=row[rev_links['article']],
+                                                 name=row[rev_links['name']])]
     else:
-      products = [product for product in SupplierProduct.objects.filter(supplier=supplier, article=row[rev_links['article']])]
-    
+      products = [product for product in
+                  SupplierProduct.objects.filter(supplier=supplier, article=row[rev_links['article']])]
+
     if products == []:
       if setting.differ_by_name:
-        product, created = SupplierProduct.objects.get_or_create(supplier=supplier, article=row[rev_links['article']], name=row[rev_links['name']])
+        product, created = SupplierProduct.objects.get_or_create(supplier=supplier, article=row[rev_links['article']],
+                                                                 name=row[rev_links['name']])
       else:
         product, created = SupplierProduct.objects.get_or_create(supplier=supplier, article=row[rev_links['article']])
       new += created
       products.append(product)
+
     for product in products:
       try:
+        # [ИЗМЕНЕНО] Подготовим значения для логики скидок/РРЦ до цикла присвоений
+        discount_is_mapped = 'discount' in rev_links
+        rrp_is_mapped = 'rmp' in rev_links  # у тебя модельное поле РРЦ называется rmp
+        # сырое значение РРЦ из файла (может быть в валюте или уже в тенге — логика цены ниже как была)
+        rrp_raw = row[rev_links['rmp']] if rrp_is_mapped else None
+        rrp_exists = _has_positive(rrp_raw)
+
         for column, field in links.items():
           if field in SP_FKS:
             if field == 'category':
@@ -515,16 +539,35 @@ def upload_supplier_products(request, **kwargs):
               setattr(product, field, cat)
               continue
             if field == 'discount':
-              disc, _ = Discount.objects.get_or_create(supplier=supplier, name=row[column])
-              setattr(product, field, disc)
+              # [ИЗМЕНЕНО] Если маппим «Группа скидок» и одновременно маппим РРЦ,
+              # то сохраняем "Группа скидок (Есть РРЦ|Нет РРЦ)".
+              # Если РРЦ не маппили — ведём себя по-старому (прямое имя из файла).
+              base_name = str(row[column]).strip() if pd.notna(row[column]) else ''
+              if base_name:
+                if rrp_is_mapped:
+                  final_name = f"{base_name} ({'Есть РРЦ' if rrp_exists else 'Нет РРЦ'})"
+                  disc, _ = Discount.objects.get_or_create(supplier=supplier, name=final_name)
+                else:
+                  disc, _ = Discount.objects.get_or_create(supplier=supplier, name=base_name)
+                setattr(product, field, disc)
               continue
             if field == 'manufacturer':
               manu, _ = Manufacturer.objects.get_or_create(name=row[column])
               setattr(product, field, manu)
               continue
           setattr(product, field, convert_sp(row[column], field))
+
         if field in SP_PRICES:
-          setattr(product, field, get_safe(row[column], float)*get_safe(setting.currency.value, float))
+          setattr(product, field, get_safe(row[column], float) * get_safe(setting.currency.value, float))
+
+        # [ИЗМЕНЕНО] Если «Группа скидок» НЕ маппилась, но РРЦ маппилась — выставляем «Есть/Нет РРЦ».
+        if (not getattr(product, 'discount', None)) and rrp_is_mapped:
+          disc_name = 'Есть РРЦ' if rrp_exists else 'Нет РРЦ'
+          disc, _ = Discount.objects.get_or_create(supplier=supplier, name=disc_name)
+          product.discount = disc
+
+        # [НЕ ТРОГАЛ] Старый «запасной» сценарий:
+        # если скидка всё ещё не выставлена (и РРЦ могли не маппить), то решаем по значению product.rmp.
         if not product.discount:
           disc = None
           if not product.rmp == 0:
@@ -532,8 +575,10 @@ def upload_supplier_products(request, **kwargs):
           else:
             disc, _ = Discount.objects.get_or_create(supplier=supplier, name='Нет РРЦ')
           product.discount = disc
+
         if setting.update_main:
-          main_product, _ = MainProduct.objects.get_or_create(supplier=supplier, article=product.article, name=product.name)
+          main_product, _ = MainProduct.objects.get_or_create(supplier=supplier, article=product.article,
+                                                              name=product.name)
           main_product.available = (product.stock > 0)
           main_product.search_vector = SearchVector('name', config='russian')
           product.main_product = main_product
@@ -542,6 +587,7 @@ def upload_supplier_products(request, **kwargs):
         overall += 1
       except BaseException as ex:
         exs.append(ex)
+
   MainProduct.objects.bulk_update(mp, fields=['article', 'name', 'search_vector', 'available'])
   SupplierProduct.objects.bulk_update(sp, fields=links.values())
   SupplierProduct.objects.bulk_update(sp, fields=['supplier_price', 'rmp', 'discount'])
@@ -550,10 +596,9 @@ def upload_supplier_products(request, **kwargs):
   if not exs == []:
     ex_str = '''<br>'''.join([f'{ex}' for ex in exs[:min(len(exs), 5)]])
     messages.error(
-      request, 
-      f'''Ошибок: {len(exs)}.'''+'<br></br>'+ex_str)
+      request,
+      f'''Ошибок: {len(exs)}.''' + '<br></br>' + ex_str)
   return redirect('supplier-detail', id=supplier.pk)
-
 
 
 class ManufacturerList(SingleTableView):

@@ -46,7 +46,7 @@ class PriceManagerAdmin(admin.ModelAdmin):
                 kw['request'] = request
                 super().__init__(*args, **kw)
         return RequestAwareForm
-    
+
 
 @admin.register(Discount)
 class DiscountAdmin(admin.ModelAdmin):
