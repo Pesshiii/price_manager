@@ -10,7 +10,7 @@ class MainProductFilter(filters.FilterSet):
     model = MainProduct
     fields = ['search', 'supplier', 'category', 'available', 'basic_price', 'm_price']
   def search_method(self, queryset, name, value):
-    query = SearchQuery(value, search_type="plain")  # or "websearch"
+    query = SearchQuery(value, search_type="websearch")  # or "websearch" or "plain"
     rank  = SearchRank("search_vector", query)
 
     queryset = queryset.annotate(rank=rank)
