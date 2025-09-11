@@ -103,11 +103,9 @@ class PriceManager(models.Model):
                                related_name='price_managers',
                                null=True,
                                blank=False)
-  discount = models.ForeignKey(Discount,
-                               on_delete=models.CASCADE,
+  discounts = models.ManyToManyField(Discount,
                                verbose_name='Группа скидок',
                                related_name='price_managers',
-                               null=True,
                                blank=True)
   source = models.CharField(verbose_name='От какой цены считать',
                                  choices=[
@@ -266,9 +264,9 @@ class MainProduct(models.Model):
       GinIndex(fields=['search_vector']),
     ]
   
-SP_TABLE_FIELDS = ['discount', 'category','article', 'name', 'supplier_price', 'rmp']
+SP_TABLE_FIELDS = ['discounts', 'category','article', 'name', 'supplier_price', 'rmp']
 SP_CHARS = ['article', 'name']
-SP_FKS = ['main_product', 'category', 'supplier', 'manufacturer', 'discount']
+SP_FKS = ['main_product', 'category', 'supplier', 'manufacturer', 'discounts']
 SP_PRICES = ['supplier_price', 'rmp']
 SP_INTEGERS = ['stock']
 SP_MANAGMENT = ['updated_at']
@@ -297,11 +295,9 @@ class SupplierProduct(models.Model):
                                verbose_name='Категория',
                                null=True,
                                blank=True,)
-  discount = models.ForeignKey(Discount,
-                               on_delete=models.SET_NULL,
+  discounts = models.ManyToManyField(Discount,
                                verbose_name='Группа скидок',
-                               null=True,
-                               blank=True)
+                               related_name='products')
   manufacturer = models.ForeignKey(Manufacturer,
                                    verbose_name='Производитель',
                                    related_name='supplier_product',
@@ -338,7 +334,7 @@ LINKS = {'': 'Не включать',
          'article': 'Артикул поставщика',
          'name': 'Название',
          'category': 'Категория',
-         'discount': 'Группа скидок',
+         'discounts': 'Группа скидок',
          'manufacturer': 'Производитель',
          'stock': 'Остаток',
          'supplier_price': 'Цена поставщика в указанной валюте',

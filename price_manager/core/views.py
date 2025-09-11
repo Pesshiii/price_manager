@@ -500,20 +500,26 @@ def upload_supplier_products(request, **kwargs):
   file_model.file.close()
   df, links, initials, dicts = get_upload_data(setting, df)
   rev_links = {value: key for key, value in links.items()}
+
+  discs = {}
+  if 'discounts' in rev_links:
+    discs = {disc: Discount.objects.get_or_create(supplier=supplier, name=disc)[0] for disc in df[rev_links['discounts']].unique()}
+  discs['Есть РРЦ']= Discount.objects.get_or_create(supplier=supplier, name='Есть РРЦ')[0]
+  discs['Нет РРЦ']= Discount.objects.get_or_create(supplier=supplier, name='Нет РРЦ')[0]
+  cats = {}
+  if 'category' in rev_links:
+    cats = {cat: Category.objects.get_or_create(name=cat)[0] for cat in df[rev_links['category']].unique()}
+  
+  mans = {}
+  if 'manufacturer' in rev_links:
+    mans = {man: Manufacturer.objects.get_or_create(name=man)[0] for man in df[rev_links['category']].unique()}
+  
   sp = []
   mp = []
   new = 0
   overall = 0
   exs = []
 
-  # [ИЗМЕНЕНО] Хелпер для проверки «есть РРЦ»: положительное число (>0)
-  def _has_positive(v):
-    try:
-      f = float(v)
-      # защита от NaN и нулей/отрицательных
-      return (f == f) and (f > 0)
-    except (TypeError, ValueError):
-      return False
 
   for _, row in df.iterrows():
     if setting.differ_by_name:
@@ -534,59 +540,31 @@ def upload_supplier_products(request, **kwargs):
       products.append(product)
 
     for product in products:
-      try:
-        # [ИЗМЕНЕНО] Подготовим значения для логики скидок/РРЦ до цикла присвоений
-        discount_is_mapped = 'discount' in rev_links
-        rrp_is_mapped = 'rmp' in rev_links  # у тебя модельное поле РРЦ называется rmp
-        # сырое значение РРЦ из файла (может быть в валюте или уже в тенге — логика цены ниже как была)
-        rrp_raw = row[rev_links['rmp']] if rrp_is_mapped else None
-        rrp_exists = _has_positive(rrp_raw)
-
+      try:  
         for column, field in links.items():
           if field in SP_FKS:
             if field == 'category':
-              cat, _ = Category.objects.get_or_create(name=row[column])
-              setattr(product, field, cat)
+              setattr(product, field, cats[row[column]])
               continue
-            if field == 'discount':
-              # [ИЗМЕНЕНО] Если маппим «Группа скидок» и одновременно маппим РРЦ,
-              # то сохраняем "Группа скидок (Есть РРЦ|Нет РРЦ)".
-              # Если РРЦ не маппили — ведём себя по-старому (прямое имя из файла).
-              base_name = str(row[column]).strip() if pd.notna(row[column]) else ''
-              if base_name:
-                if rrp_is_mapped:
-                  final_name = f"{base_name} ({'Есть РРЦ' if rrp_exists else 'Нет РРЦ'})"
-                  disc, _ = Discount.objects.get_or_create(supplier=supplier, name=final_name)
-                else:
-                  disc, _ = Discount.objects.get_or_create(supplier=supplier, name=base_name)
-                setattr(product, field, disc)
+            if field == 'discounts':
+              product.discounts.add(discs[row[column]])
               continue
             if field == 'manufacturer':
-              manu, _ = Manufacturer.objects.get_or_create(name=row[column])
-              setattr(product, field, manu)
+              setattr(product, field, mans[row[column]])
               continue
+            continue
           if field in SP_PRICES:
             setattr(product, field, get_safe(row[column], float) * get_safe(setting.currency.value, float))
             continue
           setattr(product, field, convert_sp(row[column], field))
-
-
-        # [ИЗМЕНЕНО] Если «Группа скидок» НЕ маппилась, но РРЦ маппилась — выставляем «Есть/Нет РРЦ».
-        if (not getattr(product, 'discount', None)) and rrp_is_mapped:
-          disc_name = 'Есть РРЦ' if rrp_exists else 'Нет РРЦ'
-          disc, _ = Discount.objects.get_or_create(supplier=supplier, name=disc_name)
-          product.discount = disc
-
-        # [НЕ ТРОГАЛ] Старый «запасной» сценарий:
-        # если скидка всё ещё не выставлена (и РРЦ могли не маппить), то решаем по значению product.rmp.
-        if not product.discount:
-          disc = None
-          if not product.rmp == 0:
-            disc, _ = Discount.objects.get_or_create(supplier=supplier, name='Есть РРЦ')
-          else:
-            disc, _ = Discount.objects.get_or_create(supplier=supplier, name='Нет РРЦ')
-          product.discount = disc
-
+        if not product.rmp == 0 and not product.discounts.contains(discs['Есть РРЦ']):
+          product.discounts.add(discs['Есть РРЦ'])
+          if product.discounts.contains(discs['Нет РРЦ']):
+            product.discounts.remove(discs['Нет РРЦ'])
+        elif product.rmp == 0 and not product.discounts.contains(discs['Нет РРЦ']):
+          product.discounts.add(discs['Нет РРЦ'])
+          if product.discounts.contains(discs['Есть РРЦ']):
+            product.discounts.remove(discs['Есть РРЦ'])
         if setting.update_main:
           main_product, _ = MainProduct.objects.get_or_create(supplier=supplier, article=product.article,
                                                               name=product.name)
@@ -601,9 +579,8 @@ def upload_supplier_products(request, **kwargs):
         exs.append(ex)
 
   MainProduct.objects.bulk_update(mp, fields=['supplier', 'article', 'name', 'search_vector', 'available', 'manufacturer'])
-  SupplierProduct.objects.bulk_update(sp, fields=links.values())
-  SupplierProduct.objects.bulk_update(sp, fields=['supplier_price', 'rmp', 'discount'])
-  SupplierProduct.objects.bulk_update(sp, fields=['main_product'])
+  SupplierProduct.objects.bulk_update(sp, fields=[field for field in links.values() if not field=='discounts'])
+  SupplierProduct.objects.bulk_update(sp, fields=['supplier_price', 'rmp', 'main_product'])
   messages.success(request, f'Добавлено товаров: {overall}, Новых: {new}')
   if not exs == []:
     ex_str = '''    '''.join([f'{ex}' for ex in exs[:min(len(exs), 5)]])
@@ -754,9 +731,9 @@ class PriceManagerCreate(SingleTableMixin, CreateView):
     cleaned_data = self.cleaned_data
     products = products.filter(
       supplier=cleaned_data['supplier'])
-    if cleaned_data['discount']:
+    if cleaned_data['discounts']:
       products = products.filter(
-        discount=cleaned_data['discount'])
+        discounts__in=cleaned_data['discounts'])
     if cleaned_data['source'] in SP_PRICES:
       products = products.filter(get_price_querry(
         cleaned_data['price_from'],
@@ -770,11 +747,11 @@ class PriceManagerCreate(SingleTableMixin, CreateView):
     return products
   def get_form(self):
     form = super().get_form(self.form_class)
-    discount_choices = [(None, '---')]
     discounts = Discount.objects.all()
     discounts = discounts.filter(supplier=form['supplier'].value())
-    discount_choices.extend([(discount.pk, discount.name) for discount in discounts])
-    form.fields['discount'].choices = discount_choices
+    choices = [(None, 'Все группы скидок')]
+    choices.extend([(disc.id, disc.name) for disc in discounts])
+    form.fields['discounts'].choices = choices
     return form
   def form_valid(self, form):
     if not form.is_valid(): return self.form_invalid(form)
@@ -809,9 +786,10 @@ class PriceManagerCreate(SingleTableMixin, CreateView):
       query |= Q(price_to__gte=price_from)
       query |= Q(price_to__isnull=True)
     conf_price_manager = PriceManager.objects.filter(query)
-    if cleaned_data['discount']:
+    if cleaned_data['discounts']:
       conf_price_manager = conf_price_manager.filter(
-      discount=cleaned_data['discount'])
+      Q(discounts__in=cleaned_data['discounts'])|
+      Q(discounts__isnull=True))
     conf_price_manager = conf_price_manager.filter(
       dest=cleaned_data['dest'])
     conf_price_manager = conf_price_manager.filter(supplier=cleaned_data['supplier'])
@@ -840,9 +818,9 @@ def apply_price_manager(price_manager: PriceManager):
   products = SupplierProduct.objects.all()
   products = products.filter(
     supplier=price_manager.supplier)
-  if price_manager.discount:
+  if price_manager.discounts:
     products = products.filter(
-      discount=price_manager.discount)
+      discounts__in=price_manager.discounts.all())
   if price_manager.source in SP_PRICES:
     products = products.filter(get_price_querry(
       price_manager.price_from,
@@ -858,7 +836,11 @@ def apply_price_manager(price_manager: PriceManager):
   for product in products:
     main_product = product.main_product
     main_product.price_managers.add(price_manager)
-    setattr(main_product, price_manager.dest, getattr(product if price_manager.source in SP_PRICES else main_product, price_manager.source, None)*(1+price_manager.markup/100)+price_manager.increase)
+    setattr(main_product, 
+            price_manager.dest, 
+            math.ceil(getattr(
+              product if price_manager.source in SP_PRICES else main_product, price_manager.source, None
+              )*(1+price_manager.markup/100)+price_manager.increase))
     mps.append(main_product)
   MainProduct.objects.bulk_update(mps, fields=[price_manager.dest, 'price_updated_at'])
   
@@ -882,18 +864,18 @@ def sync_main_products(request, **kwargs):
   mps = []
 
   for sp in supplier_products:
-      try:
-          if not sp.main_product:
-              continue  # пропускаем без связи
+    try:
+      if not sp.main_product or sp.main_product.stock == sp.stock:
+        continue  # пропускаем без связи
 
-          mp = sp.main_product
-          mp.stock = sp.stock
-          mp.available = mp.stock > 0
-          mps.append(mp)
+      mp = sp.main_product
+      mp.stock = sp.stock
+      mp.available = mp.stock > 0
+      mps.append(mp)
 
-      except Exception as ex:
-          errors += 1
-          messages.error(request, f"Ошибка при обновлении {sp}: {ex}")
+    except Exception as ex:
+      errors += 1
+      messages.error(request, f"Ошибка при обновлении {sp}: {ex}")
   updated = MainProduct.objects.bulk_update(mps, ['stock', 'stock_updated_at', 'available'])
   messages.success(request, f"Остатки обновлены у {updated} товаров, ошибок: {errors}")
   for price_manager in PriceManager.objects.all():

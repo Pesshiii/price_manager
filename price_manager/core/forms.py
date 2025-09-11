@@ -88,34 +88,33 @@ class InitialForm(forms.Form):
 class PriceManagerForm(forms.ModelForm):
   class Meta:
     model = PriceManager
-    fields = ['name', 'supplier', 'discount', 'source', 'dest', 'price_from', 'price_to', 'markup', 'increase']
+    fields = ['name', 'supplier', 'discounts', 'source', 'dest', 'price_from', 'price_to', 'markup', 'increase']
 
+# class PriceManagerAdminForm(forms.ModelForm):
+#     class Meta:
+#         model = PriceManager
+#         fields = ['name', 'supplier', 'discount', 'source', 'dest', 'price_from', 'price_to', 'markup', 'increase']
 
-class PriceManagerAdminForm(forms.ModelForm):
-    class Meta:
-        model = PriceManager
-        fields = ['name', 'supplier', 'discount', 'source', 'dest', 'price_from', 'price_to', 'markup', 'increase']
+#     def __init__(self, *args, **kwargs):
+#         # request передадим из админ-класса
+#         request = kwargs.pop('request', None)
+#         super().__init__(*args, **kwargs)
 
-    def __init__(self, *args, **kwargs):
-        # request передадим из админ-класса
-        request = kwargs.pop('request', None)
-        super().__init__(*args, **kwargs)
+#         # По умолчанию список скидок пуст, пока не выбран поставщик
+#         self.fields['discount'].queryset = Discount.objects.none()
+#         self.fields['discount'].widget.attrs['data-placeholder'] = 'Сначала выберите поставщика'
 
-        # По умолчанию список скидок пуст, пока не выбран поставщик
-        self.fields['discount'].queryset = Discount.objects.none()
-        self.fields['discount'].widget.attrs['data-placeholder'] = 'Сначала выберите поставщика'
+#         supplier_id = None
 
-        supplier_id = None
+#         # 1) При первом заходе/редактировании — из инстанса
+#         if getattr(self.instance, 'supplier_id', None):
+#             supplier_id = self.instance.supplier_id
 
-        # 1) При первом заходе/редактировании — из инстанса
-        if getattr(self.instance, 'supplier_id', None):
-            supplier_id = self.instance.supplier_id
+#         # 2) При отправке формы/перерисовке — из данных запроса
+#         # (работает и на POST, и на GET при автосабмите)
+#         # Django передает значения в self.data как строки
+#         if request is not None:
+#             supplier_id = request.POST.get('supplier') or request.GET.get('supplier') or supplier_id
 
-        # 2) При отправке формы/перерисовке — из данных запроса
-        # (работает и на POST, и на GET при автосабмите)
-        # Django передает значения в self.data как строки
-        if request is not None:
-            supplier_id = request.POST.get('supplier') or request.GET.get('supplier') or supplier_id
-
-        if supplier_id:
-            self.fields['discount'].queryset = Discount.objects.filter(supplier_id=supplier_id).order_by('name')
+#         if supplier_id:
+#             self.fields['discount'].queryset = Discount.objects.filter(supplier_id=supplier_id).order_by('name')
