@@ -515,7 +515,7 @@ def upload_supplier_products(request, **kwargs):
   
   mans = {}
   if 'manufacturer' in rev_links:
-    mans = {man: Manufacturer.objects.get_or_create(name=man)[0] for man in df[rev_links['category']].unique()}
+    mans = {man: Manufacturer.objects.get_or_create(name=man)[0] for man in df[rev_links['manufacturer']].unique()}
   
   sp = []
   mp = []
