@@ -195,9 +195,10 @@ def get_df(df: pd.DataFrame, links, initials, dicts, setting:Setting):
       df=df[df[column].notnull()]
     if field in SP_PRICES and setting.priced_only:
       df = df[df[column].notnull()]
-    buf = df[column].astype(str)
+    buf: pd.Series = df[column]
+    buf = buf.fillna(initials[field])
+    buf = buf.astype(str)
     buf = buf.replace(dicts[field], regex=True)
-    buf.fillna(initials[field])
     df[column] = buf
   return df
 
@@ -238,7 +239,7 @@ def get_data(df: pd.DataFrame, request, setting: Setting):
     if key == '': continue
     buf = value
     if key not in links.values():
-      if initials[key] == '': continue
+      if not key in initials or initials[key] == '': continue
       while buf in df.columns:
         buf += ' Копия'
       links[buf] = key
@@ -248,7 +249,7 @@ def get_data(df: pd.DataFrame, request, setting: Setting):
   for column_name, field_name in links.items():
     if not column_name in df.columns:
       df[column_name] = None
-    initials[field_name] = get_safe(initials[field_name], df[column_name].dtype)
+    initials[field_name] = initials[field_name]
     dicts[field_name] = {}
     for item in extract_initial_from_post(
                 post, 
@@ -256,7 +257,7 @@ def get_data(df: pd.DataFrame, request, setting: Setting):
                 data={'key':'', 'value':''}
                 ):
       if not item['key'] in dicts[field_name]:
-        dicts[field_name][get_safe(item['key'], df[column_name].dtype)] = get_safe(item['value'], df[column_name].dtype)
+        dicts[field_name][item['key']] = item['value']
   return (get_df(df, links, initials, dicts, setting), links, initials, dicts)
 
 
@@ -286,7 +287,10 @@ class SettingCreate(SingleTableMixin, CreateView):
       sheet_name = form.cleaned_data['sheet_name']
     except:
       sheet_name = choices[0][0]
-    self.df = excel_file.parse(sheet_name).dropna(how='all').dropna(axis=1, how='all')
+    try:
+      self.df = excel_file.parse(sheet_name, nrows=500).dropna(how='all').dropna(axis=1, how='all')
+    except:
+      self.df = excel_file.parse(sheet_name).dropna(how='all').dropna(axis=1, how='all')
     self.df = clean_headers(self.df)
     file_model.file.close()
 
@@ -341,7 +345,10 @@ class SettingUpdate(SingleTableMixin, UpdateView):
       sheet_name = form.data['sheet_name']
     except:
       sheet_name = choices[0][0]
-    self.df = excel_file.parse(sheet_name).dropna(how='all').dropna(axis=1, how='all')
+    try:
+      self.df = excel_file.parse(sheet_name, nrows=500).dropna(how='all').dropna(axis=1, how='all')
+    except:
+      self.df = excel_file.parse(sheet_name).dropna(how='all').dropna(axis=1, how='all')
     self.df = clean_headers(self.df)
     file_model.file.close()
 
@@ -442,13 +449,16 @@ class SettingDisplay(DetailView):
   pk_url_kwarg = 'id'
   def get_context_data(self, **kwargs):
     context = super().get_context_data(**kwargs)
-    setting = self.get_object()
+    setting: Setting = self.get_object()
     context['setting'] = setting
     context['supplier'] = setting.supplier
     file_model = FileModel.objects.get(id=self.kwargs['f_id'])
     try:
       excel_file = pd.ExcelFile(file_model.file)
-      self.df = excel_file.parse(setting.sheet_name).dropna(axis=0, how='all').dropna(axis=1, how='all')
+      try:
+        self.df = excel_file.parse(setting.sheet_name, nrows=500).dropna(how='all').dropna(axis=1, how='all')
+      except:
+        self.df = excel_file.parse(setting.sheet_name).dropna(how='all').dropna(axis=1, how='all')
       self.df = clean_headers(self.df)
       file_model.file.close()
       self.df, self.links, self.initials, self.dicts = get_upload_data(setting, self.df)
