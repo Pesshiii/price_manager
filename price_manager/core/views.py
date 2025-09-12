@@ -417,14 +417,22 @@ class SettingUpload(View):
 
 def get_upload_data(setting: Setting, df: pd.DataFrame):
   links = {link.value: link.key for link in Link.objects.filter(setting=setting)}
-  rev_links = {value: key for key, value in links.items()}
   initials = {link.key: link.initial if link.initial else '' for link in Link.objects.filter(setting=setting)}
   dicts = {link.key: {item.key: item.value for item in Dict.objects.filter(link=link)} for link in Link.objects.filter(setting=setting)}
+  for key, value in LINKS.items():
+    if key == '': continue
+    buf = value
+    if key not in links.values():
+      if initials[key] == '': continue
+      while buf in df.columns:
+        buf += ' Копия'
+      links[buf] = key
+  rev_links = {value: key for key, value in links.items()}
   df = get_df(df, links, initials, dicts, setting)
   if setting.differ_by_name:
-    df.drop_duplicates(subset=[rev_links['name'], rev_links['article']], inplace=True)
+    df = df.drop_duplicates(subset=[rev_links['name'], rev_links['article']])
   else:
-    df.drop_duplicates(subset=[rev_links['article']], inplace=True)
+    df = df.drop_duplicates(subset=[rev_links['article']])
   return df, links, initials, dicts
 
 class SettingDisplay(DetailView):
@@ -536,13 +544,11 @@ def upload_supplier_products(request, **kwargs):
                   SupplierProduct.objects.filter(supplier=supplier, article=row[rev_links['article']])]
 
     if products == []:
-      if setting.differ_by_name:
+      if  setting.differ_by_name and  'name' in rev_links:
         product, created = SupplierProduct.objects.get_or_create(supplier=supplier, article=row[rev_links['article']],
-                                                                 name=row[rev_links['name']])
-      else:
-        product, created = SupplierProduct.objects.get_or_create(supplier=supplier, article=row[rev_links['article']])
-      new += created
-      products.append(product)
+                                                                  name=row[rev_links['name']])
+        new += created
+        products.append(product)
 
     for product in products:
       try:  
