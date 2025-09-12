@@ -4,6 +4,7 @@ from django.shortcuts import (render,
                               get_object_or_404,
                               HttpResponse,
 )
+from django.utils import timezone
 from django.http import HttpResponseRedirect, HttpResponse
 from django.template.loader import render_to_string
 from django.contrib import messages
@@ -34,6 +35,9 @@ from .filters import *
 import pandas as pd
 import re
 import math
+import datetime
+import time
+import time
 
 
 @require_POST
@@ -191,11 +195,10 @@ def get_df(df: pd.DataFrame, links, initials, dicts, setting:Setting):
       df=df[df[column].notnull()]
     if field in SP_PRICES and setting.priced_only:
       df = df[df[column].notnull()]
-    if field in SP_CHARS:
-      df.replace({column:dicts[field]}, regex=True, inplace=True)
-    else:
-      df.replace({column:dicts[field]}, inplace=True)
-    df.fillna({column:initials[field]}, inplace=True)
+    buf = df[column].astype(str)
+    buf = buf.replace(dicts[field], regex=True)
+    buf.fillna(initials[field])
+    df[column] = buf
   return df
 
 def get_safe(value, type=None):
@@ -516,6 +519,8 @@ def upload_supplier_products(request, **kwargs):
   
   sp = []
   mp = []
+  discs_add = []
+  discs_remove = []
   new = 0
   overall = 0
   exs = []
@@ -558,13 +563,19 @@ def upload_supplier_products(request, **kwargs):
             continue
           setattr(product, field, convert_sp(row[column], field))
         if not product.rmp == 0 and not product.discounts.contains(discs['Есть РРЦ']):
-          product.discounts.add(discs['Есть РРЦ'])
+          discs_add.append(
+            product.discounts.through(supplierproduct=product,
+                                      discount=discs['Есть РРЦ']))
           if product.discounts.contains(discs['Нет РРЦ']):
-            product.discounts.remove(discs['Нет РРЦ'])
+            discs_remove.append(product.discounts.through.objects.get(supplierproduct=product,
+                                      discount=discs['Нет РРЦ']).id)
         elif product.rmp == 0 and not product.discounts.contains(discs['Нет РРЦ']):
-          product.discounts.add(discs['Нет РРЦ'])
+          discs_add.append(
+            product.discounts.through(supplierproduct=product,
+                                      discount=discs['Нет РРЦ']))
           if product.discounts.contains(discs['Есть РРЦ']):
-            product.discounts.remove(discs['Есть РРЦ'])
+            discs_remove.append(product.discounts.through.objects.get(supplierproduct=product,
+                                      discount=discs['Есть РРЦ']).id)
         if setting.update_main:
           main_product, _ = MainProduct.objects.get_or_create(supplier=supplier, article=product.article,
                                                               name=product.name)
@@ -581,6 +592,14 @@ def upload_supplier_products(request, **kwargs):
   MainProduct.objects.bulk_update(mp, fields=['supplier', 'article', 'name', 'search_vector', 'available', 'manufacturer'])
   SupplierProduct.objects.bulk_update(sp, fields=[field for field in links.values() if not field=='discounts'])
   SupplierProduct.objects.bulk_update(sp, fields=['supplier_price', 'rmp', 'main_product'])
+  SupplierProduct.discounts.through.objects.bulk_create(discs_add)
+  SupplierProduct.discounts.through.objects.filter(id__in=discs_remove).delete()
+  for price in SP_PRICES:
+    if price in rev_links:
+      supplier.price_updated_at = timezone.now()
+  if 'stock' in rev_links:
+    supplier.stock_updated_at = timezone.now()
+  supplier.save()
   messages.success(request, f'Добавлено товаров: {overall}, Новых: {new}')
   if not exs == []:
     ex_str = '''    '''.join([f'{ex}' for ex in exs[:min(len(exs), 5)]])
@@ -841,6 +860,7 @@ def apply_price_manager(price_manager: PriceManager):
             math.ceil(getattr(
               product if price_manager.source in SP_PRICES else main_product, price_manager.source, None
               )*(1+price_manager.markup/100)+price_manager.increase))
+    main_product.price_updated_at = timezone.now()
     mps.append(main_product)
   MainProduct.objects.bulk_update(mps, fields=[price_manager.dest, 'price_updated_at'])
   
@@ -871,6 +891,7 @@ def sync_main_products(request, **kwargs):
       mp = sp.main_product
       mp.stock = sp.stock
       mp.available = mp.stock > 0
+      mp.stock_updated_at = timezone.now()
       mps.append(mp)
 
     except Exception as ex:

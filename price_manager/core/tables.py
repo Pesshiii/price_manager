@@ -18,7 +18,7 @@ class SupplierListTable(tables.Table):
   name = tables.LinkColumn('supplier-detail', args=[tables.A('pk')])
   class Meta:
     model = Supplier
-    fields = ['name']
+    fields = ['name', 'price_updated_at', 'stock_updated_at']
     template_name = 'django_tables2/bootstrap5.html'
     attrs = {
       'class': 'table table-auto table-stripped table-hover clickable-rows'

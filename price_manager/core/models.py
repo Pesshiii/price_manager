@@ -15,6 +15,12 @@ from django.contrib.postgres.search import (SearchVectorField, SearchVector, Sea
 class Supplier(models.Model):
   name = models.CharField(verbose_name='Поставщик',
                         unique=True)
+  price_updated_at = models.DateTimeField(verbose_name='Последнее обновление цены', 
+                                          null=True,
+                                          blank=True)
+  stock_updated_at = models.DateTimeField(verbose_name='Последнее обновление остатка', 
+                                          null=True,
+                                          blank=True)
   delivery_days = models.PositiveIntegerField(verbose_name='Срок доставки',
                                               default=0)
   class Meta:
@@ -241,9 +247,9 @@ class MainProduct(models.Model):
                                decimal_places=2,
                                default=0)
   price_updated_at = models.DateTimeField(verbose_name='Последнее обновление цены',
-                                    auto_now=True)
+                                    auto_now_add=True)
   stock_updated_at = models.DateTimeField(verbose_name='Последнее обновление остатка',
-                                    auto_now=True)
+                                    auto_now_add=True)
   search_vector = SearchVectorField(null=True, editable=False, unique=False, verbose_name="Вектор поиска")
   def save(self, *args, **kwargs):
     super().save(*args, **kwargs)
