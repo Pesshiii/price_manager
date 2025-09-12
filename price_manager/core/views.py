@@ -423,7 +423,7 @@ def get_upload_data(setting: Setting, df: pd.DataFrame):
     if key == '': continue
     buf = value
     if key not in links.values():
-      if initials[key] == '': continue
+      if not key in initials or initials[key] == '': continue
       while buf in df.columns:
         buf += ' Копия'
       links[buf] = key
@@ -457,8 +457,6 @@ class SettingDisplay(DetailView):
       context['table'] = table
     except BaseException as ex:
       messages.error(self.request, ex)
-      file_model.file.delete()
-      file_model.delete()
     return context
   def render_to_response(self, context, **response_kwargs):
     if not 'table' in context:
