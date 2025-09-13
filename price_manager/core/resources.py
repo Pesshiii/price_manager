@@ -1,16 +1,57 @@
 from import_export import resources, fields
 from import_export.widgets import ForeignKeyWidget
-from .models import *
+from .models import MainProduct, Supplier, Manufacturer, Category
+
+class CategoryWidget(ForeignKeyWidget):
+    """Категория строкой: 'Инструмент > Ручной инструмент > Отвертки'."""
+
+    def clean(self, value, row=None, *args, **kwargs):
+        if not value:
+            return None
+        parts = [p.strip() for p in str(value).split(">") if p and str(p).strip()]
+        parent = None
+        node = None
+        for name in parts[:10]:
+            node, _ = Category.objects.get_or_create(name=name, parent=parent)
+            parent = node
+        return node
+
+    # было: def render(self, value, obj=None):
+    def render(self, value, obj=None, **kwargs):  # ← добавить **kwargs
+        if not value:
+            return ""
+        path = []
+        cur = value
+        while cur:
+            path.append(cur.name)
+            cur = cur.parent
+        return " > ".join(reversed(path))
 
 
 class MainProductResource(resources.ModelResource):
-    supplier_name = fields.Field(
-        column_name='supplier',
-        attribute='supplier',
-        widget=ForeignKeyWidget(Supplier, field='name')
+    # читаемые колонки для FKs
+    supplier = fields.Field(
+        column_name="supplier",
+        attribute="supplier",
+        widget=ForeignKeyWidget(Supplier, "name"),
     )
+    manufacturer = fields.Field(
+        column_name="manufacturer",
+        attribute="manufacturer",
+        widget=ForeignKeyWidget(Manufacturer, "name"),
+    )
+    category = fields.Field(
+        column_name="category",
+        attribute="category",
+        widget=CategoryWidget(Category, "name"),
+    )
+
     class Meta:
         model = MainProduct
-        fields = [field for field in MP_TABLE_FIELDS if field not in ['updated_at']]
+        # Экспортируем ВСЕ поля модели
+        fields = tuple(f.name for f in MainProduct._meta.fields)
         export_order = fields
-        import_id_fields = ['sku']
+        # Импортируем c сопоставлением по ID
+        import_id_fields = ("id",)
+        skip_unchanged = True
+        report_skipped = True

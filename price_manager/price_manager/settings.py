@@ -25,7 +25,7 @@ SECRET_KEY = 'django-insecure-q_sht-smtwbq$s_j8*f!u#z-)fmfne5^uk8x9edm_z6j=z^5qo
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = True
 
-ALLOWED_HOSTS = ["127.0.0.1", "localhost", "192.168.0.119"]
+ALLOWED_HOSTS = ["127.0.0.1", "localhost", "192.168.0.118"]
 
 
 # Application definition
@@ -92,10 +92,10 @@ DATABASES = {
     # }
     'default': {
         'ENGINE': 'django.db.backends.postgresql',
-        'NAME': 'postgres',
-        'USER': 'postgres',
-        # 'NAME': 'price_manager',
-        # 'USER': 'priceuser',
+        # 'NAME': 'postgres',
+        # 'USER': 'postgres',
+        'NAME': 'price_manager',
+        'USER': 'priceuser',
         'PASSWORD': 'postgres',
         'HOST': 'localhost',
         'PORT': '5432',
