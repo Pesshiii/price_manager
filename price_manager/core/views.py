@@ -442,7 +442,6 @@ def get_upload_data(setting: Setting, df: pd.DataFrame):
     df = df.drop_duplicates(subset=[rev_links['name'], rev_links['article']])
   else:
     df = df.drop_duplicates(subset=[rev_links['article']])
-  print(df, links, initials)
   return df, links, initials, dicts
 
 class SettingDisplay(DetailView):
@@ -902,19 +901,29 @@ def sync_main_products(request, **kwargs):
 
   for sp in supplier_products:
     try:
-      if not sp.main_product or sp.main_product.stock == sp.stock:
+      if not sp.main_product:
         continue  # пропускаем без связи
-
+      change = False
       mp = sp.main_product
-      mp.stock = sp.stock
-      mp.available = mp.stock > 0
-      mp.stock_updated_at = timezone.now()
-      mps.append(mp)
+      if not mp.stock == sp.stock:
+        mp.stock = sp.stock
+        mp.available = mp.stock > 0
+        mp.stock_updated_at = timezone.now()
+        change = True
+      if not mp.category == sp.category:
+        mp.category = sp.category
+        change = True
+      if not mp.manufacturer == sp.manufacturer:
+        mp.manufacturer = sp.manufacturer
+        change = True
+      if change:
+        mps.append(mp)
+
 
     except Exception as ex:
       errors += 1
       messages.error(request, f"Ошибка при обновлении {sp}: {ex}")
-  updated = MainProduct.objects.bulk_update(mps, ['stock', 'stock_updated_at', 'available'])
+  updated = MainProduct.objects.bulk_update(mps, ['stock', 'stock_updated_at', 'available', 'manufacturer', 'category'])
   messages.success(request, f"Остатки обновлены у {updated} товаров, ошибок: {errors}")
   for price_manager in PriceManager.objects.all():
     apply_price_manager(price_manager)

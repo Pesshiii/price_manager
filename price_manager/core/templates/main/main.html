@@ -35,9 +35,9 @@
 
         <!-- Поиск по всем полям -->
         {% for item in filter.form %}
-        <div class="container overflow-hidden">
-          <label>{{item.label}}</label>
-          <div class="mb-r">
+        <div class="container">
+          <h5>{{item.label}}</h5>
+          <div class="mb-r  overflow-auto" style="max-height: 5cm;">
             {{ item}}
           </div>
         </div>
