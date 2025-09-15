@@ -189,6 +189,8 @@ def get_dict_table(request, key, value, link=None):
 
 def get_df(df: pd.DataFrame, links, initials, dicts, setting:Setting):
   for column, field in links.items():
+    if not column in df.columns:
+      df[column] = None
     if field == 'article':
       df=df[df[column].notnull()]
     if field == 'name' and setting.differ_by_name:
@@ -440,6 +442,7 @@ def get_upload_data(setting: Setting, df: pd.DataFrame):
     df = df.drop_duplicates(subset=[rev_links['name'], rev_links['article']])
   else:
     df = df.drop_duplicates(subset=[rev_links['article']])
+  print(df, links, initials)
   return df, links, initials, dicts
 
 class SettingDisplay(DetailView):
