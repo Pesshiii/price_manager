@@ -598,6 +598,10 @@ def upload_supplier_products(request, **kwargs):
           main_product.available = (product.stock > 0)
           main_product.search_vector = SearchVector('name', config='russian')
           main_product.manufacturer = product.manufacturer
+          if 'category' in rev_links:
+            main_product.category = product.category
+          if 'manufacturer' in rev_links:
+            main_product.manufacturer = product.manufacturer
           product.main_product = main_product
           mp.append(main_product)
         sp.append(product)
@@ -909,12 +913,6 @@ def sync_main_products(request, **kwargs):
         mp.stock = sp.stock
         mp.available = mp.stock > 0
         mp.stock_updated_at = timezone.now()
-        change = True
-      if not mp.category == sp.category:
-        mp.category = sp.category
-        change = True
-      if not mp.manufacturer == sp.manufacturer:
-        mp.manufacturer = sp.manufacturer
         change = True
       if change:
         mps.append(mp)
