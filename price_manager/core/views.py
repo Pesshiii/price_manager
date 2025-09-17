@@ -35,8 +35,6 @@ from .filters import *
 import pandas as pd
 import re
 import math
-import datetime
-import time
 import time
 
 
@@ -70,16 +68,6 @@ class MainPage(SingleTableMixin, FilterView):
   template_name = 'main/main.html'
   def get_table(self, **kwargs):
     return super().get_table(**kwargs, request=self.request)
-  def get_context_data(self, **kwargs):
-    # Чистка базы файлов
-    context = super().get_context_data(**kwargs)
-    try:
-      for file in FileModel.objects.all():
-        file.file.delete()
-        file.delete()
-    except BaseException as ex:
-      messages.error(self.request, f'{ex}')
-    return context
 
 # Обработка поставщика
 
@@ -593,14 +581,13 @@ def upload_supplier_products(request, **kwargs):
             discs_remove.append(product.discounts.through.objects.get(supplierproduct=product,
                                       discount=discs['Есть РРЦ']).id)
         if setting.update_main:
-          main_product, _ = MainProduct.objects.get_or_create(supplier=supplier, article=product.article,
+          main_product, main_created = MainProduct.objects.get_or_create(supplier=supplier, article=product.article,
                                                               name=product.name)
           main_product.available = (product.stock > 0)
           main_product.search_vector = SearchVector('name', config='russian')
-          main_product.manufacturer = product.manufacturer
-          if 'category' in rev_links:
+          if main_created and 'category' in rev_links:
             main_product.category = product.category
-          if 'manufacturer' in rev_links:
+          if main_created and 'manufacturer' in rev_links:
             main_product.manufacturer = product.manufacturer
           product.main_product = main_product
           mp.append(main_product)

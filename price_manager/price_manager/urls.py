@@ -22,15 +22,15 @@ urlpatterns = [
     path('setting/<int:id>/upload/<int:f_id>/', views.SettingUpdate.as_view(), name='setting-update'),
     path('setting/<int:id>/upload/<int:f_id>/upload', views.SettingUpload.as_view(), name='setting-upload'),
 
-    path('manufacturer/', views.ManufacturerList.as_view(), name='manufacturer'),
-    path('manufacturer/<int:id>/', views.ManufacturerDetail.as_view(), name='manufacturer-detail'),
-    path('manufacturer/<int:id>/add-alt/', views.ManufacturerDictCreate.as_view(), name='manufacturer-dict-create'),
-    path('manufacturer/create/', views.ManufacturerCreate.as_view(), name='manufacturer-create'),
+    # path('manufacturer/', views.ManufacturerList.as_view(), name='manufacturer'),
+    # path('manufacturer/<int:id>/', views.ManufacturerDetail.as_view(), name='manufacturer-detail'),
+    # path('manufacturer/<int:id>/add-alt/', views.ManufacturerDictCreate.as_view(), name='manufacturer-dict-create'),
+    # path('manufacturer/create/', views.ManufacturerCreate.as_view(), name='manufacturer-create'),
     
-    path('category/', views.CategoryList.as_view(), name='category'),
-    path('category/<int:id>/delete/', views.CategoryDelete.as_view(), name='category-delete'),
-    path('category/sort/', views.CategorySortSupplierProduct.as_view(), name='category-sort'),
-    path('category/create/', views.CategoryCreate.as_view(), name='category-create'),
+    # path('category/', views.CategoryList.as_view(), name='category'),
+    # path('category/<int:id>/delete/', views.CategoryDelete.as_view(), name='category-delete'),
+    # path('category/sort/', views.CategorySortSupplierProduct.as_view(), name='category-sort'),
+    # path('category/create/', views.CategoryCreate.as_view(), name='category-create'),
 
 
     path('currency/', views.CurrencyList.as_view(), name='currency'),
