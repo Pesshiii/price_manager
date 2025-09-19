@@ -22,7 +22,7 @@ from typing import Optional, Any, Dict, Iterable
 from django.shortcuts import redirect, render
 from django_tables2 import SingleTableView, RequestConfig, SingleTableMixin
 from django_filters.views import FilterView, FilterMixin
-from decimal import Decimal, InvalidOperation
+from dal import autocomplete
 
 # Импорты моделей, функций, форм, таблиц
 from .models import *
@@ -32,12 +32,20 @@ from .tables import *
 from .filters import *
 
 # Импорты сторонних библиотек
+from decimal import Decimal, InvalidOperation
 import pandas as pd
 import re
 import math
-import datetime
-import time
-import time
+
+class CategoryAutocomplete(autocomplete.Select2QuerySetView):
+    def get_queryset(self):
+        
+        qs = Category.objects.all()
+
+        if self.q:
+            qs = qs.filter(name__icontains=self.q)
+
+        return qs
 
 
 @require_POST
@@ -70,16 +78,6 @@ class MainPage(SingleTableMixin, FilterView):
   template_name = 'main/main.html'
   def get_table(self, **kwargs):
     return super().get_table(**kwargs, request=self.request)
-  def get_context_data(self, **kwargs):
-    # Чистка базы файлов
-    context = super().get_context_data(**kwargs)
-    try:
-      for file in FileModel.objects.all():
-        file.file.delete()
-        file.delete()
-    except BaseException as ex:
-      messages.error(self.request, f'{ex}')
-    return context
 
 # Обработка поставщика
 
@@ -593,14 +591,13 @@ def upload_supplier_products(request, **kwargs):
             discs_remove.append(product.discounts.through.objects.get(supplierproduct=product,
                                       discount=discs['Есть РРЦ']).id)
         if setting.update_main:
-          main_product, _ = MainProduct.objects.get_or_create(supplier=supplier, article=product.article,
+          main_product, main_created = MainProduct.objects.get_or_create(supplier=supplier, article=product.article,
                                                               name=product.name)
           main_product.available = (product.stock > 0)
           main_product.search_vector = SearchVector('name', config='russian')
-          main_product.manufacturer = product.manufacturer
-          if 'category' in rev_links:
+          if main_created and 'category' in rev_links:
             main_product.category = product.category
-          if 'manufacturer' in rev_links:
+          if main_created and 'manufacturer' in rev_links:
             main_product.manufacturer = product.manufacturer
           product.main_product = main_product
           mp.append(main_product)
@@ -839,6 +836,98 @@ class PriceManagerCreate(SingleTableMixin, CreateView):
     form.save()
     messages.success(self.request, 'Наценка успешно добавлена')
     return super().form_invalid(form)
+  
+
+class PriceManagerUpdate(SingleTableMixin, UpdateView):
+  '''Обновление Наценки <<price-manager/<int:id>/>>'''
+  model = PriceManager
+  form_class = PriceManagerForm
+  table_class = SupplierProductPriceManagerTable
+  success_url = '/price-manager/'
+  template_name = 'price_manager/create.html'
+  pk_url_kwarg = 'id'
+  def get_success_url(self):
+    return f'/price-manager'
+  def get_table_data(self):
+    products = SupplierProduct.objects.all()
+    if not hasattr(self, 'cleaned_data'):
+      return products
+    cleaned_data = self.cleaned_data
+    products = products.filter(
+      supplier=cleaned_data['supplier'])
+    if cleaned_data['discounts']:
+      products = products.filter(
+        discounts__in=cleaned_data['discounts'])
+    if cleaned_data['source'] in SP_PRICES:
+      products = products.filter(get_price_querry(
+        cleaned_data['price_from'],
+        cleaned_data['price_to'],
+        cleaned_data['source']))
+    elif cleaned_data['source'] in MP_PRICES:
+      products = products.filter(get_price_querry(
+        cleaned_data['price_from'],
+        cleaned_data['price_to'],
+        f'''main_product__{cleaned_data['source']}'''))
+    return products
+  def get_form(self):
+    form = super().get_form(self.form_class)
+    discounts = Discount.objects.all()
+    discounts = discounts.filter(supplier=form['supplier'].value())
+
+    choices = [(None, 'Все группы скидок')]
+    choices.extend([(disc.id, disc.name) for disc in discounts])
+    if not form.fields['discounts'].choices == choices:
+      form.fields['discounts'].choices = choices
+    return form
+  def form_valid(self, form):
+    if not form.is_valid(): return self.form_invalid(form)
+    cleaned_data = form.cleaned_data
+    self.cleaned_data = cleaned_data
+    if cleaned_data['dest'] == cleaned_data['source']:
+      messages.error(self.request, f'Поле не может считатсься от себя же')
+      return self.form_invalid(form)
+    price_from = cleaned_data['price_from']
+    price_to = cleaned_data['price_to']
+    if price_from and price_to:
+      if price_from>=price_to:
+        messages.error(self.request, f'''Неверная ценовая зона: "От" больше или равен "До"''')
+        return self.form_invalid(form)
+    if price_to==0:
+      messages.error(self.request, f'''Неверная ценовая зона: "До" равен 0''')
+      return self.form_invalid(form)
+    query = Q()
+    if price_from and price_to:
+      if price_from == 0:
+        query |= Q(price_from__isnull=True)
+      else:
+        query |= (Q(price_from__gte=price_from)
+                  &Q(price_from__lte=price_to))
+      query |= (Q(price_to__gte=price_from)
+                &Q(price_to__lte=price_to))
+      query |= (Q(price_to__isnull=True)&Q(price_from__lte=price_to))
+    elif price_to:
+      query |= Q(price_from__lte=price_to)
+      query |= Q(price_from__isnull=True)
+    elif price_from:
+      query |= Q(price_to__gte=price_from)
+      query |= Q(price_to__isnull=True)
+    conf_price_manager = PriceManager.objects.filter(query)
+    conf_price_manager = conf_price_manager.filter(~Q(id=self.kwargs.get('id')))
+    if cleaned_data['discounts']:
+      conf_price_manager = conf_price_manager.filter(
+      Q(discounts__in=cleaned_data['discounts'])|
+      Q(discounts__isnull=True))
+    conf_price_manager = conf_price_manager.filter(
+      dest=cleaned_data['dest'])
+    conf_price_manager = conf_price_manager.filter(supplier=cleaned_data['supplier'])
+    if conf_price_manager.exists():
+      messages.error(self.request, f'Пересечение с другой наценкой: {conf_price_manager.first().name}')
+      return self.form_invalid(form)
+    if not self.request.POST.get('btn') == 'save': return self.form_invalid(form)
+    form.save()
+    messages.success(self.request, 'Наценка успешно обновлена')
+    return super().form_invalid(form)
+
 
 class PriceManagerDetail(DetailView):
   '''Детали Наценки <<price-manager/<int:id>/>>'''

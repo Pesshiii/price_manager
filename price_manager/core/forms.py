@@ -118,3 +118,4 @@ class PriceManagerForm(forms.ModelForm):
 
 #         if supplier_id:
 #             self.fields['discount'].queryset = Discount.objects.filter(supplier_id=supplier_id).order_by('name')
+
