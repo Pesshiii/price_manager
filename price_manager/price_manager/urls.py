@@ -7,6 +7,7 @@ from django.conf.urls.static import static
 
 urlpatterns = [
     path('admin/', admin.site.urls),
+
     path('', views.MainPage.as_view(), name='main'),
     
     path('supplier/', views.SupplierList.as_view(), name='supplier'),
@@ -31,14 +32,14 @@ urlpatterns = [
     # path('category/<int:id>/delete/', views.CategoryDelete.as_view(), name='category-delete'),
     # path('category/sort/', views.CategorySortSupplierProduct.as_view(), name='category-sort'),
     # path('category/create/', views.CategoryCreate.as_view(), name='category-create'),
-
-
+    path('category/autocomplete',views.CategoryAutocomplete.as_view(),name='category-autocomplete'),
+    
     path('currency/', views.CurrencyList.as_view(), name='currency'),
     path('currency/create/', views.CurrencyCreate.as_view(), name='currency-create'),
     path('currency/<int:id>/update', views.CurrencyUpdate.as_view(), name='currency-update'),
 
     path('price-manager/', views.PriceManagerList.as_view(), name='price-manager'),
-    path('price-manager/<int:id>/', views.PriceManagerDetail.as_view(), name='price-manager-detail'),
+    path('price-manager/<int:id>/', views.PriceManagerUpdate.as_view(), name='price-manager-update'),
     path('price-manager/create/', views.PriceManagerCreate.as_view(), name='price-manager-create'),
     path('price-manager/<int:id>/delete', views.PriceManagerDelete.as_view(), name='price-manager-delete'),
 

@@ -233,7 +233,7 @@ class CategoryListTable(tables.Table):
 
 class PriceManagerListTable(tables.Table):
   '''Таблица Наценок отображаемая на странице Наценки'''
-  name = tables.LinkColumn('price-manager-detail', args=[tables.A('pk')])
+  name = tables.LinkColumn('price-manager-update', args=[tables.A('pk')])
   class Meta:
     model = PriceManager
     fields = [key for key, value in get_field_details(PriceManager).items() if not '_ptr' in key]

@@ -42,6 +42,8 @@ INSTALLED_APPS = [
     'django_tables2',
     'import_export',
     'django_filters',
+    'dal',
+    'dal_select2',
 ]
 
 MIDDLEWARE = [
