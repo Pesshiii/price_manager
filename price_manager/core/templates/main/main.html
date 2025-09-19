@@ -24,14 +24,9 @@
 {% endblock %}
 
 {% block body %}
-<button class="btn btn-primary" type="button" data-bs-toggle="offcanvas" data-bs-target="#offcanvasScrolling" aria-controls="offcanvasScrolling">Фильтры</button>
-
-<div class="offcanvas offcanvas-start" data-bs-scroll="false" data-bs-backdrop="true" tabindex="-1" id="offcanvasScrolling" aria-labelledby="offcanvasScrollingLabel">
-  <div class="offcanvas-header">
-    <h5 class="offcanvas-title" id="offcanvasScrollingLabel">Фильтры</h5>
-    <button type="button" class="btn-close" data-bs-dismiss="offcanvas" aria-label="Close"></button>
-  </div>
-  <div class="offcanvas-body">
+<div class="row">
+  <div class="col-md-4 card mt-5">
+    <h2>Фильтры</h2>
     <form method="get" class="form">
       {{filter.form.media}}
       {% for item in filter.form %}
@@ -55,17 +50,17 @@
       </div>
     </form>
   </div>
-</div>
-<div class="container-fluid mt-4 mb-5">
-  <h1 class="mb-4">Главный прайс</h1>
-  
-    <!-- Таблица -->
-    <div class="col-md-12 mb-5">
-      {% load export_url from django_tables2 %}
-  
-      <div class="table-responsive card p-3 shadow-sm overflow-visible">
-        {% load django_tables2 %}
-        {% render_table table %}
+  <div class="container-fluid mt-4 mb-5 col-md-8">
+    <h1 class="mb-4">Главный прайс</h1>
+    
+      <!-- Таблица -->
+      <div class="col-md-12 mb-5">
+        {% load export_url from django_tables2 %}
+    
+        <div class="table-responsive card p-3 shadow-sm overflow-visible">
+          {% load django_tables2 %}
+          {% render_table table %}
+        </div>
       </div>
     </div>
   </div>
