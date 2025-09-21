@@ -76,5 +76,25 @@
   document.body.addEventListener('htmx:configRequest', (evt) => {
     evt.detail.headers['X-CSRFToken'] = '{{ csrf_token }}';
   });
+
+  document.addEventListener('DOMContentLoaded', () => {
+    const enhanceSelect = (selector) => {
+      const element = window.jQuery ? window.jQuery(selector) : null;
+      if (element && element.length && element.select2) {
+        element.select2({
+          width: '100%',
+          placeholder: element.data('placeholder') || '',
+          allowClear: true,
+          language: {
+            noResults: () => 'Ничего не найдено',
+            searching: () => 'Поиск…'
+          }
+        });
+      }
+    };
+
+    enhanceSelect('#id_supplier');
+    enhanceSelect('#id_manufacturer');
+  });
 </script>
 {% endblock %}
