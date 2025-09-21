@@ -1,0 +1,5 @@
+{% include 'main/includes/filter_field.html' with field=filter_form.supplier container_id='supplier-filter-container' header_id='supplier-filter-header' collapse_id='supplier-filter-collapse' accordion_parent_id='main-filter-accordion' hx_swap_oob=True %}
+
+{% include 'main/includes/filter_field.html' with field=filter_form.manufacturer container_id='manufacturer-filter-container' header_id='manufacturer-filter-header' collapse_id='manufacturer-filter-collapse' accordion_parent_id='main-filter-accordion' hx_swap_oob=True %}
+
+{% include 'main/includes/filter_field.html' with field=filter_form.category container_id='category-filter-container' header_id='category-filter-header' collapse_id='category-filter-collapse' accordion_parent_id='main-filter-accordion' is_category=True category_tree=category_tree selected_categories=selected_categories hx_swap_oob=True %}

@@ -72,36 +72,154 @@ def toggle_basket(request, pk):
     )
     return HttpResponse(html)
 
+def build_category_tree(categories):
+  children_map = defaultdict(list)
+  for category in categories:
+    children_map[category.parent_id].append(category)
+  for siblings in children_map.values():
+    siblings.sort(key=lambda item: item.name.lower())
+  def build_nodes(parent_id):
+    nodes = []
+    for category in children_map.get(parent_id, []):
+      nodes.append({
+          'category': category,
+          'children': build_nodes(category.id)
+      })
+    return nodes
+  return build_nodes(None)
+
+
+def _collect_int_values(values):
+  result = set()
+  for value in values:
+    try:
+      result.add(int(value))
+    except (TypeError, ValueError):
+      continue
+  return result
+
+
+def _expand_category_ids_with_ancestors(category_ids):
+  expanded_ids = set(category_ids)
+  to_process = {category_id for category_id in expanded_ids if category_id is not None}
+  while to_process:
+    parents = set(
+        Category.objects
+        .filter(id__in=to_process)
+        .values_list('parent_id', flat=True)
+    )
+    parents.discard(None)
+    new_ids = parents - expanded_ids
+    if not new_ids:
+      break
+    expanded_ids.update(new_ids)
+    to_process = new_ids
+  expanded_ids.discard(None)
+  return expanded_ids
+
+
+def _get_search_filtered_queryset(request):
+  filter_data = request.GET.copy()
+  for field in ('category', 'supplier', 'manufacturer'):
+    filter_data.pop(field, None)
+  filter_data.pop('page', None)
+  filterset = MainProductFilter(data=filter_data, queryset=MainProduct.objects.all())
+  return filterset.qs
+
+
+def get_main_filter_context(request):
+  filterset = MainProductFilter(data=request.GET or None, queryset=MainProduct.objects.all())
+  filter_form = filterset.form
+
+  queryset = _get_search_filtered_queryset(request)
+
+  selected_supplier_ids = _collect_int_values(request.GET.getlist('supplier'))
+  selected_manufacturer_ids = _collect_int_values(request.GET.getlist('manufacturer'))
+  selected_category_ids = _collect_int_values(request.GET.getlist('category'))
+
+  supplier_ids = set(queryset.values_list('supplier_id', flat=True))
+  supplier_ids.discard(None)
+  supplier_ids.update(selected_supplier_ids)
+
+  manufacturer_ids = set(queryset.values_list('manufacturer_id', flat=True))
+  manufacturer_ids.discard(None)
+  manufacturer_ids.update(selected_manufacturer_ids)
+
+  category_ids = set(queryset.values_list('category_id', flat=True))
+  category_ids.discard(None)
+  category_ids.update(selected_category_ids)
+  category_ids = _expand_category_ids_with_ancestors(category_ids)
+
+  supplier_queryset = Supplier.objects.filter(id__in=supplier_ids).order_by('name') if supplier_ids else Supplier.objects.none()
+  manufacturer_queryset = Manufacturer.objects.filter(id__in=manufacturer_ids).order_by('name') if manufacturer_ids else Manufacturer.objects.none()
+  category_queryset = Category.objects.filter(id__in=category_ids).select_related('parent') if category_ids else Category.objects.none()
+
+  filter_form.fields['supplier'].queryset = supplier_queryset
+  filter_form.fields['manufacturer'].queryset = manufacturer_queryset
+  filter_form.fields['category'].queryset = category_queryset
+
+  selected_categories = {str(value) for value in request.GET.getlist('category') if value}
+
+  category_tree = build_category_tree(list(category_queryset))
+
+  return {
+      'filter_form': filter_form,
+      'category_tree': category_tree,
+      'selected_categories': selected_categories,
+  }
+
+
 class MainPage(SingleTableMixin, FilterView):
   model = MainProduct
   filterset_class = MainProductFilter
   table_class = MainProductListTable
   template_name = 'main/main.html'
+
   def get_table(self, **kwargs):
     return super().get_table(**kwargs, request=self.request)
+
   def get_context_data(self, **kwargs):
     context = super().get_context_data(**kwargs)
-    category_field = context['filter'].form['category']
-    category_list = list(category_field.field.queryset.select_related('parent'))
-    context['category_tree'] = self._build_category_tree(category_list)
-    selected_categories = category_field.value() or []
-    context['selected_categories'] = {str(value) for value in selected_categories}
+    filter_context = get_main_filter_context(self.request)
+    context.update(filter_context)
+
+    filter_form = filter_context['filter_form']
+    dynamic_url = reverse('main-filter-options')
+    hx_attrs = {
+        'hx-get': dynamic_url,
+        'hx-target': '#filters-update-sink',
+        'hx-include': '#main-filter-form',
+    }
+
+    search_field = filter_form.fields['search']
+    search_field.widget.attrs.update({
+        **hx_attrs,
+        'hx-trigger': 'keyup changed delay:500ms',
+        'autocomplete': 'off',
+    })
+
+    anti_search_field = filter_form.fields['anti_search']
+    anti_search_field.widget.attrs.update({
+        **hx_attrs,
+        'hx-trigger': 'keyup changed delay:500ms',
+        'autocomplete': 'off',
+    })
+
+    if 'available' in filter_form.fields:
+      filter_form.fields['available'].widget.attrs.update({
+          **hx_attrs,
+          'hx-trigger': 'change',
+      })
+
     return context
-  def _build_category_tree(self, categories):
-    children_map = defaultdict(list)
-    for category in categories:
-      children_map[category.parent_id].append(category)
-    for siblings in children_map.values():
-      siblings.sort(key=lambda item: item.name.lower())
-    def build_nodes(parent_id):
-      nodes = []
-      for category in children_map.get(parent_id, []):
-        nodes.append({
-            'category': category,
-            'children': build_nodes(category.id)
-        })
-      return nodes
-    return build_nodes(None)
+
+
+class MainFilterOptionsView(View):
+  template_name = 'main/includes/dynamic_filters.html'
+
+  def get(self, request, *args, **kwargs):
+    context = get_main_filter_context(request)
+    return render(request, self.template_name, context)
 
 # Обработка поставщика
 
