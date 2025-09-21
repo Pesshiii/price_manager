@@ -68,6 +68,15 @@ class MainPage(SingleTableMixin, FilterView):
   template_name = 'main/main.html'
   def get_table(self, **kwargs):
     return super().get_table(**kwargs, request=self.request)
+  def get_context_data(self, **kwargs):
+    context = super().get_context_data(**kwargs)
+    context['available_suppliers'] = Supplier.objects.filter(
+        mainproduct__available=True
+    ).distinct().order_by('name')
+    context['available_manufacturers'] = Manufacturer.objects.filter(
+        mainproduct__available=True
+    ).distinct().order_by('name')
+    return context
 
 # Обработка поставщика
 

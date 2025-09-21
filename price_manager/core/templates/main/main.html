@@ -33,6 +33,28 @@
       <form method="get" class="card p-3 shadow-sm">
         <h5 class="mb-3">Фильтры</h5>
 
+        <div class="mb-3">
+          <h6 class="fw-semibold">Доступные поставщики</h6>
+          <ul class="list-unstyled small mb-0">
+            {% for supplier in available_suppliers %}
+              <li>{{ supplier.name }}</li>
+            {% empty %}
+              <li class="text-muted">Нет доступных поставщиков</li>
+            {% endfor %}
+          </ul>
+        </div>
+
+        <div class="mb-4">
+          <h6 class="fw-semibold">Доступные производители</h6>
+          <ul class="list-unstyled small mb-0">
+            {% for manufacturer in available_manufacturers %}
+              <li>{{ manufacturer.name }}</li>
+            {% empty %}
+              <li class="text-muted">Нет доступных производителей</li>
+            {% endfor %}
+          </ul>
+        </div>
+
         <!-- Поиск по всем полям -->
         {% for item in filter.form %}
         <div class="container">
