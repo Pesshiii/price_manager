@@ -27,21 +27,36 @@
 <div class="row">
   <div class="col-md-4 card mt-5">
     <h2>Фильтры</h2>
-    <form method="get" class="form">
-      {{filter.form.media}}
-      {% for item in filter.form %}
+    <form method="get" class="form" id="main-filter-form">
+      {{ filter_form.media }}
+
       <div class="row mt-3">
         <div class="form-group">
-            <label for="{{ item.id_for_label }}"> {{item.label}} </label>
-            {% if item.name == 'category' %}
-              {% include 'includes/category_tree_filter.html' with field=item category_tree=category_tree selected_categories=selected_categories %}
-            {% else %}
-              {{ item }}
-            {% endif %}
+          <label for="{{ filter_form.search.id_for_label }}">{{ filter_form.search.label }}</label>
+          {{ filter_form.search }}
         </div>
       </div>
-      {% endfor %}
-      
+
+      <div class="row mt-3">
+        <div class="form-group">
+          <label for="{{ filter_form.anti_search.id_for_label }}">{{ filter_form.anti_search.label }}</label>
+          {{ filter_form.anti_search }}
+        </div>
+      </div>
+
+      {% if filter_form.available %}
+      <div class="row mt-3">
+        <div class="form-group">
+          <label for="{{ filter_form.available.id_for_label }}">{{ filter_form.available.label }}</label>
+          {{ filter_form.available }}
+        </div>
+      </div>
+      {% endif %}
+
+      <div id="dynamic-filter-options">
+        {% include 'main/includes/dynamic_filters.html' %}
+      </div>
+
       <div class="row mt-3">
           <div class="col-12">
               <button type="submit" class="btn btn-primary">
@@ -77,24 +92,32 @@
     evt.detail.headers['X-CSRFToken'] = '{{ csrf_token }}';
   });
 
-  document.addEventListener('DOMContentLoaded', () => {
-    const enhanceSelect = (selector) => {
-      const element = window.jQuery ? window.jQuery(selector) : null;
-      if (element && element.length && element.select2) {
-        element.select2({
-          width: '100%',
-          placeholder: element.data('placeholder') || '',
-          allowClear: true,
-          language: {
-            noResults: () => 'Ничего не найдено',
-            searching: () => 'Поиск…'
-          }
-        });
-      }
-    };
+  const enhanceSelect = (selector) => {
+    const element = window.jQuery ? window.jQuery(selector) : null;
+    if (element && element.length && element.select2) {
+      element.select2({
+        width: '100%',
+        placeholder: element.data('placeholder') || '',
+        allowClear: true,
+        language: {
+          noResults: () => 'Ничего не найдено',
+          searching: () => 'Поиск…'
+        }
+      });
+    }
+  };
 
+  const initDynamicFilters = () => {
     enhanceSelect('#id_supplier');
     enhanceSelect('#id_manufacturer');
+  };
+
+  document.addEventListener('DOMContentLoaded', initDynamicFilters);
+
+  document.body.addEventListener('htmx:afterSwap', (event) => {
+    if (event.target && event.target.id === 'dynamic-filter-options') {
+      initDynamicFilters();
+    }
   });
 </script>
 {% endblock %}

@@ -1,0 +1,20 @@
+<div class="row mt-3">
+  <div class="form-group">
+    <label for="{{ filter_form.supplier.id_for_label }}">{{ filter_form.supplier.label }}</label>
+    {{ filter_form.supplier }}
+  </div>
+</div>
+
+<div class="row mt-3">
+  <div class="form-group">
+    <label for="{{ filter_form.manufacturer.id_for_label }}">{{ filter_form.manufacturer.label }}</label>
+    {{ filter_form.manufacturer }}
+  </div>
+</div>
+
+<div class="row mt-3">
+  <div class="form-group">
+    <label for="{{ filter_form.category.id_for_label }}">{{ filter_form.category.label }}</label>
+    {% include 'includes/category_tree_filter.html' with field=filter_form.category category_tree=category_tree selected_categories=selected_categories %}
+  </div>
+</div>
