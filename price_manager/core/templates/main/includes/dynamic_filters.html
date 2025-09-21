@@ -1,0 +1,5 @@
+{% include 'main/includes/filter_field.html' with field=filter_form.supplier container_id='supplier-filter-container' collapse_id='supplier-filter-collapse' hx_swap_oob=True %}
+
+{% include 'main/includes/filter_field.html' with field=filter_form.manufacturer container_id='manufacturer-filter-container' collapse_id='manufacturer-filter-collapse' hx_swap_oob=True %}
+
+{% include 'main/includes/filter_field.html' with field=filter_form.category container_id='category-filter-container' collapse_id='category-filter-collapse' is_category=True category_tree=category_tree selected_categories=selected_categories hx_swap_oob=True %}
