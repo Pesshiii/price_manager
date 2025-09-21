@@ -43,6 +43,28 @@
         </div>
         {%endfor%}
 
+        {% if available_suppliers %}
+        <div class="mt-4">
+          <h6 class="mb-2">Доступные поставщики ({{ available_suppliers|length }})</h6>
+          <div class="d-flex flex-wrap gap-2">
+            {% for supplier in available_suppliers %}
+            <span class="badge text-bg-light border text-wrap">{{ supplier }}</span>
+            {% endfor %}
+          </div>
+        </div>
+        {% endif %}
+
+        {% if available_manufacturers %}
+        <div class="mt-4">
+          <h6 class="mb-2">Доступные производители ({{ available_manufacturers|length }})</h6>
+          <div class="d-flex flex-wrap gap-2">
+            {% for manufacturer in available_manufacturers %}
+            <span class="badge text-bg-light border text-wrap">{{ manufacturer }}</span>
+            {% endfor %}
+          </div>
+        </div>
+        {% endif %}
+
         <!-- Кнопки -->
         <div class=" d-flex gap-2 mt-5">
           <button type="submit" class="btn btn-primary">
