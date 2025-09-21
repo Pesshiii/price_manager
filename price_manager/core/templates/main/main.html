@@ -21,38 +21,89 @@
     .hover-wrapper:focus .hover-card {
       display: block;
     }
+
+    .main-page-layout {
+      padding-right: 360px;
+    }
+
+    .filter-panel {
+      position: fixed;
+      top: 96px;
+      right: 32px;
+      width: 320px;
+      max-height: calc(100vh - 128px);
+      overflow-y: auto;
+      z-index: 1030;
+    }
+
+    .filter-panel form {
+      padding-bottom: 1rem;
+    }
+
+    .filter-panel .form-group + .form-group {
+      margin-top: 1rem;
+    }
+
+    .table-area {
+      margin-top: 2rem;
+    }
+
+    @media (max-width: 991.98px) {
+      .main-page-layout {
+        padding-right: 0;
+      }
+
+      .filter-panel {
+        position: static;
+        width: 100%;
+        max-height: none;
+        margin-top: 1.5rem;
+        right: auto;
+      }
+
+      .table-area {
+        margin-top: 1.5rem;
+      }
+    }
 {% endblock %}
 
 {% block body %}
-<div class="row">
-  <div class="col-md-4 card mt-5">
-    <h2>Фильтры</h2>
+<div class="container-fluid main-page-layout">
+  <div class="table-area mb-5">
+    <h1 class="mb-4">Главный прайс</h1>
+
+    {% load export_url from django_tables2 %}
+
+    <div class="table-responsive card p-3 shadow-sm overflow-visible">
+      {% load django_tables2 %}
+      {% render_table table %}
+    </div>
+  </div>
+</div>
+
+<div class="filter-panel card shadow-sm">
+  <div class="card-body">
+    <h2 class="h4">Фильтры</h2>
     <form method="get" class="form" id="main-filter-form">
       {{ filter_form.media }}
 
       <div id="filters-update-sink" class="d-none"></div>
 
-      <div class="row mt-3">
-        <div class="form-group">
-          <label for="{{ filter_form.search.id_for_label }}">{{ filter_form.search.label }}</label>
-          {{ filter_form.search }}
-        </div>
+      <div class="form-group mt-3">
+        <label for="{{ filter_form.search.id_for_label }}">{{ filter_form.search.label }}</label>
+        {{ filter_form.search }}
       </div>
 
-      <div class="row mt-3">
-        <div class="form-group">
-          <label for="{{ filter_form.anti_search.id_for_label }}">{{ filter_form.anti_search.label }}</label>
-          {{ filter_form.anti_search }}
-        </div>
+      <div class="form-group mt-3">
+        <label for="{{ filter_form.anti_search.id_for_label }}">{{ filter_form.anti_search.label }}</label>
+        {{ filter_form.anti_search }}
       </div>
 
 
       {% if filter_form.available %}
-      <div class="row mt-3">
-        <div class="form-group">
-          <label for="{{ filter_form.available.id_for_label }}">{{ filter_form.available.label }}</label>
-          {{ filter_form.available }}
-        </div>
+      <div class="form-group mt-3">
+        <label for="{{ filter_form.available.id_for_label }}">{{ filter_form.available.label }}</label>
+        {{ filter_form.available }}
       </div>
       {% endif %}
 
@@ -63,31 +114,15 @@
       {% include 'main/includes/filter_field.html' with field=filter_form.category container_id='category-filter-container' collapse_id='category-filter-collapse' is_category=True category_tree=category_tree selected_categories=selected_categories available_options=None collapsible=False %}
 
 
-      <div class="row mt-3">
-          <div class="col-12">
-              <button type="submit" class="btn btn-primary">
-                🔍 Искать
-              </button>
-              <a href="{% url 'main-product-sync'%}" class="btn btn-success">
-                <i class="bi bi-recycle"></i> Обновить
-              </a>
-          </div>
+      <div class="mt-4 d-flex gap-2">
+          <button type="submit" class="btn btn-primary flex-grow-1">
+            🔍 Искать
+          </button>
+          <a href="{% url 'main-product-sync'%}" class="btn btn-success">
+            <i class="bi bi-recycle"></i> Обновить
+          </a>
       </div>
     </form>
-  </div>
-  <div class="container-fluid mt-4 mb-5 col-md-8">
-    <h1 class="mb-4">Главный прайс</h1>
-    
-      <!-- Таблица -->
-      <div class="col-md-12 mb-5">
-        {% load export_url from django_tables2 %}
-    
-        <div class="table-responsive card p-3 shadow-sm overflow-visible">
-          {% load django_tables2 %}
-          {% render_table table %}
-        </div>
-      </div>
-    </div>
   </div>
 </div>
 {% endblock %}
