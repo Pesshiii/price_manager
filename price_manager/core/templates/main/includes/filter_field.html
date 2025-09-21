@@ -1,27 +1,28 @@
-<div id="{{ container_id }}" class="accordion-item"{% if hx_swap_oob %} hx-swap-oob="true"{% endif %}>
-  <h2 class="accordion-header" id="{{ header_id }}">
+
+{% with field_value=field.value %}
+<div id="{{ container_id }}" class="filter-toggle-section mt-3"{% if hx_swap_oob %} hx-swap-oob="true"{% endif %}>
+  <div class="d-flex justify-content-between align-items-center">
+    <span class="fw-semibold">{{ field.label }}</span>
     <button
-        class="accordion-button collapsed"
+        class="btn btn-sm btn-outline-secondary"
         type="button"
         data-bs-toggle="collapse"
         data-bs-target="#{{ collapse_id }}"
-        aria-expanded="false"
-        aria-controls="{{ collapse_id }}">
-      {{ field.label }}
+        aria-expanded="{% if field_value %}true{% else %}false{% endif %}"
+        aria-controls="{{ collapse_id }}"
+        data-filter-toggle="button"
+        data-expanded-text="Скрыть"
+        data-collapsed-text="Показать">
+      {% if field_value %}Скрыть{% else %}Показать{% endif %}
     </button>
-  </h2>
-  <div
-      id="{{ collapse_id }}"
-      class="accordion-collapse collapse"
-      aria-labelledby="{{ header_id }}"
-      {% if accordion_parent_id %}data-bs-parent="#{{ accordion_parent_id }}"{% endif %}>
-    <div class="accordion-body">
-      {% if not is_category %}
-        <label for="{{ field.id_for_label }}" class="form-label visually-hidden">{{ field.label }}</label>
-        {{ field }}
-      {% else %}
-        {% include 'includes/category_tree_filter.html' with field=field category_tree=category_tree selected_categories=selected_categories %}
-      {% endif %}
-    </div>
+  </div>
+  <div id="{{ collapse_id }}" class="collapse{% if field_value %} show{% endif %} mt-2">
+    {% if not is_category %}
+      <label for="{{ field.id_for_label }}" class="form-label">{{ field.label }}</label>
+      {{ field }}
+    {% else %}
+      {% include 'includes/category_tree_filter.html' with field=field category_tree=category_tree selected_categories=selected_categories %}
+    {% endif %}
   </div>
 </div>
+{% endwith %}
