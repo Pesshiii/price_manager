@@ -68,6 +68,21 @@ class MainPage(SingleTableMixin, FilterView):
   template_name = 'main/main.html'
   def get_table(self, **kwargs):
     return super().get_table(**kwargs, request=self.request)
+  def get_context_data(self, **kwargs):
+    context = super().get_context_data(**kwargs)
+    queryset = context.get('filter').qs if context.get('filter') else MainProduct.objects.none()
+    context['available_suppliers'] = list(
+      queryset.order_by('supplier__name')
+              .values_list('supplier__name', flat=True)
+              .distinct()
+    )
+    context['available_manufacturers'] = list(
+      queryset.filter(manufacturer__isnull=False)
+              .order_by('manufacturer__name')
+              .values_list('manufacturer__name', flat=True)
+              .distinct()
+    )
+    return context
 
 # Обработка поставщика
 
