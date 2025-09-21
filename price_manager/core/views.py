@@ -188,7 +188,6 @@ class MainPage(SingleTableMixin, FilterView):
     hx_attrs = {
         'hx-get': dynamic_url,
         'hx-target': '#filters-update-sink',
-
         'hx-include': '#main-filter-form',
     }
 
