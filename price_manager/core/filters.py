@@ -9,12 +9,26 @@ class MainProductFilter(FilterSet):
         queryset=Category.objects.all(),
         widget=forms.CheckboxSelectMultiple
     )
-  supplier = filters.ModelMultipleChoiceFilter(field_name='supplier',
-                                               queryset=Supplier.objects.all(),
-                                               widget=forms.CheckboxSelectMultiple)
-  manufacturer = filters.ModelMultipleChoiceFilter(field_name='manufacturer',
-                                               queryset=Manufacturer.objects.all(),
-                                               widget=forms.CheckboxSelectMultiple)
+  supplier = filters.ModelMultipleChoiceFilter(
+      field_name='supplier',
+      queryset=Supplier.objects.all(),
+      widget=forms.SelectMultiple(
+          attrs={
+              'class': 'form-select select2',
+              'data-placeholder': 'Выберите поставщиков'
+          }
+      )
+  )
+  manufacturer = filters.ModelMultipleChoiceFilter(
+      field_name='manufacturer',
+      queryset=Manufacturer.objects.all(),
+      widget=forms.SelectMultiple(
+          attrs={
+              'class': 'form-select select2',
+              'data-placeholder': 'Выберите производителей'
+          }
+      )
+  )
   class Meta:
     model = MainProduct
     fields = ['search', 'anti_search', 'supplier', 'category', 'manufacturer', 'available']
