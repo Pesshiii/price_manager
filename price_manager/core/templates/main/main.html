@@ -56,11 +56,11 @@
       </div>
       {% endif %}
 
-      {% include 'main/includes/filter_field.html' with field=filter_form.supplier container_id='supplier-filter-container' collapse_id='supplier-filter-collapse' %}
+      {% include 'main/includes/filter_field.html' with field=filter_form.supplier container_id='supplier-filter-container' collapse_id='supplier-filter-collapse' available_options=available_suppliers available_options_label='Доступные поставщики' %}
 
-      {% include 'main/includes/filter_field.html' with field=filter_form.manufacturer container_id='manufacturer-filter-container' collapse_id='manufacturer-filter-collapse' %}
+      {% include 'main/includes/filter_field.html' with field=filter_form.manufacturer container_id='manufacturer-filter-container' collapse_id='manufacturer-filter-collapse' available_options=available_manufacturers available_options_label='Доступные производители' %}
 
-      {% include 'main/includes/filter_field.html' with field=filter_form.category container_id='category-filter-container' collapse_id='category-filter-collapse' is_category=True category_tree=category_tree selected_categories=selected_categories %}
+      {% include 'main/includes/filter_field.html' with field=filter_form.category container_id='category-filter-container' collapse_id='category-filter-collapse' is_category=True category_tree=category_tree selected_categories=selected_categories available_options=None %}
 
 
       <div class="row mt-3">
