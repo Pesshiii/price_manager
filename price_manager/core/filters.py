@@ -1,21 +1,13 @@
 from django_filters import filters, FilterSet
 from .models import *
 from django import forms
-from dal import autocomplete
 
 class MainProductFilter(FilterSet):
   search = filters.CharFilter(method='search_method', label='Поиск')
   anti_search = filters.CharFilter(method='anti_search_method', label='Исключения')
   category = filters.ModelMultipleChoiceFilter(
         queryset=Category.objects.all(),
-        widget=autocomplete.ModelSelect2Multiple(
-            url='category-autocomplete',
-            attrs={
-              'class':'form-control select2-multiple',
-              'data-placeholder': 'Выберите категории...',
-              'data-minimum-input-length': 2,
-            }
-        )
+        widget=forms.CheckboxSelectMultiple
     )
   supplier = filters.ModelMultipleChoiceFilter(field_name='supplier',
                                                queryset=Supplier.objects.all(),

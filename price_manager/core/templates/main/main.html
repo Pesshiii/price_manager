@@ -33,7 +33,11 @@
       <div class="row mt-3">
         <div class="form-group">
             <label for="{{ item.id_for_label }}"> {{item.label}} </label>
-            {{ item }}
+            {% if item.name == 'category' %}
+              {% include 'includes/category_tree_filter.html' with field=item category_tree=category_tree selected_categories=selected_categories %}
+            {% else %}
+              {{ item }}
+            {% endif %}
         </div>
       </div>
       {% endfor %}
