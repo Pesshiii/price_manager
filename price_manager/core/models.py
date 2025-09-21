@@ -13,6 +13,19 @@ from django.contrib.postgres.search import (SearchVectorField, SearchVector, Sea
 
 
 class Supplier(models.Model):
+  """
+  Модель Supplier представляет поставщика товаров.
+  Атрибуты:
+    name (CharField): Название поставщика (уникальное).
+    price_updated_at (DateTimeField): Дата и время последнего обновления цены.
+    stock_updated_at (DateTimeField): Дата и время последнего обновления остатка.
+    delivery_days (PositiveIntegerField): Срок доставки в днях.
+  Методы:
+    __str__: Возвращает название поставщика.
+  Meta:
+    verbose_name: Человекочитаемое имя модели ("Поставщик").
+  """
+
   name = models.CharField(verbose_name='Поставщик',
                         unique=True)
   price_updated_at = models.DateTimeField(verbose_name='Последнее обновление цены', 
@@ -30,6 +43,15 @@ class Supplier(models.Model):
   
 
 class Discount(models.Model):
+  """
+  Модель Discount представляет скидку, связанную с определённым поставщиком.
+  Поля:
+  - name: Название скидки.
+  - supplier: Ссылка на поставщика, к которому относится скидка.
+  Ограничения:
+  - Уникальность сочетания названия скидки и поставщика.
+  """
+  
   name = models.CharField(verbose_name='Название',
                           null=False)
   supplier = models.ForeignKey(Supplier,
@@ -98,9 +120,22 @@ class Category(models.Model):
 # Модели для применения наценок
 
 class PriceManager(models.Model):
-  '''
-  Используется для нацепки класса наценок на товары\\
-  '''
+  """
+  Модель PriceManager предназначена для управления ценами и скидками товаров от различных поставщиков.
+  Атрибуты:
+    name (CharField): Название менеджера цен. Должно быть уникальным.
+    supplier (ForeignKey): Ссылка на поставщика (Supplier). При удалении поставщика связанные менеджеры цен также удаляются.
+    discounts (ManyToManyField): Группы скидок, связанные с менеджером цен.
+    source (CharField): Источник цены, от которой производится расчет (выбор из предопределённых вариантов).
+    dest (CharField): Целевая цена, которую необходимо рассчитать (выбор из предопределённых вариантов).
+    price_from (DecimalField): Нижняя граница цены для применения менеджера цен.
+    price_to (DecimalField): Верхняя граница цены для применения менеджера цен.
+    markup (DecimalField): Процентная накрутка на цену (от -100 до 100).
+    increase (DecimalField): Фиксированная надбавка к цене.
+  Методы:
+    __str__: Возвращает название менеджера цен.
+  """
+  
   name = models.CharField(verbose_name='Название',
                           unique=True)
   supplier = models.ForeignKey(Supplier,

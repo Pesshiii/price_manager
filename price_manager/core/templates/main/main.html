@@ -46,6 +46,7 @@
         </div>
       </div>
 
+
       {% if filter_form.available %}
       <div class="row mt-3">
         <div class="form-group">
@@ -60,6 +61,7 @@
       {% include 'main/includes/filter_field.html' with field=filter_form.manufacturer container_id='manufacturer-filter-container' collapse_id='manufacturer-filter-collapse' %}
 
       {% include 'main/includes/filter_field.html' with field=filter_form.category container_id='category-filter-container' collapse_id='category-filter-collapse' is_category=True category_tree=category_tree selected_categories=selected_categories %}
+
 
       <div class="row mt-3">
           <div class="col-12">
@@ -115,7 +117,7 @@
     enhanceSelect('#id_supplier');
     enhanceSelect('#id_manufacturer');
   };
-
+  
   const setToggleButtonState = (button, isExpanded) => {
     const expandedText = button.getAttribute('data-expanded-text') || button.textContent;
     const collapsedText = button.getAttribute('data-collapsed-text') || button.textContent;
