@@ -10,6 +10,7 @@ urlpatterns = [
 
     path('', views.MainPage.as_view(), name='main'),
     path('main/filter-options/', views.MainFilterOptionsView.as_view(), name='main-filter-options'),
+    path('main/table/', views.MainTableView.as_view(), name='main-table'),
     
     path('supplier/', views.SupplierList.as_view(), name='supplier'),
     path('supplier/<int:id>/', views.SupplierDetail.as_view(), name='supplier-detail'),

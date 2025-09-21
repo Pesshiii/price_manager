@@ -158,6 +158,9 @@ def get_main_filter_context(request):
   filter_form.fields['manufacturer'].queryset = manufacturer_queryset
   filter_form.fields['category'].queryset = category_queryset
 
+  available_suppliers = list(supplier_queryset)
+  available_manufacturers = list(manufacturer_queryset)
+
   selected_categories = {str(value) for value in request.GET.getlist('category') if value}
 
   category_tree = build_category_tree(list(category_queryset))
@@ -166,6 +169,8 @@ def get_main_filter_context(request):
       'filter_form': filter_form,
       'category_tree': category_tree,
       'selected_categories': selected_categories,
+      'available_suppliers': available_suppliers,
+      'available_manufacturers': available_manufacturers,
   }
 
 
@@ -211,6 +216,7 @@ class MainPage(SingleTableMixin, FilterView):
           'hx-trigger': 'change',
       })
 
+    context['table_update_url'] = reverse('main-table')
     return context
 
 
@@ -220,6 +226,10 @@ class MainFilterOptionsView(View):
   def get(self, request, *args, **kwargs):
     context = get_main_filter_context(request)
     return render(request, self.template_name, context)
+
+
+class MainTableView(MainPage):
+  template_name = 'main/includes/table.html'
 
 # Обработка поставщика
 
