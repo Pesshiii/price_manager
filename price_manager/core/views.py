@@ -19,6 +19,7 @@ from django.views.generic import (View,
 from django.views.decorators.http import require_POST
 from django.urls import reverse
 from typing import Optional, Any, Dict, Iterable
+from collections import defaultdict
 from django.shortcuts import redirect, render
 from django_tables2 import SingleTableView, RequestConfig, SingleTableMixin
 from django_filters.views import FilterView, FilterMixin
@@ -78,6 +79,29 @@ class MainPage(SingleTableMixin, FilterView):
   template_name = 'main/main.html'
   def get_table(self, **kwargs):
     return super().get_table(**kwargs, request=self.request)
+  def get_context_data(self, **kwargs):
+    context = super().get_context_data(**kwargs)
+    category_field = context['filter'].form['category']
+    category_list = list(category_field.field.queryset.select_related('parent'))
+    context['category_tree'] = self._build_category_tree(category_list)
+    selected_categories = category_field.value() or []
+    context['selected_categories'] = {str(value) for value in selected_categories}
+    return context
+  def _build_category_tree(self, categories):
+    children_map = defaultdict(list)
+    for category in categories:
+      children_map[category.parent_id].append(category)
+    for siblings in children_map.values():
+      siblings.sort(key=lambda item: item.name.lower())
+    def build_nodes(parent_id):
+      nodes = []
+      for category in children_map.get(parent_id, []):
+        nodes.append({
+            'category': category,
+            'children': build_nodes(category.id)
+        })
+      return nodes
+    return build_nodes(None)
 
 # Обработка поставщика
 
