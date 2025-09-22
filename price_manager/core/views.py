@@ -901,9 +901,18 @@ def sync_main_products(request, **kwargs):
         mp.available = mp.stock > 0
         mp.stock_updated_at = timezone.now()
         change = True
+<<<<<<< Updated upstream
       if change:
         mps.append(mp)
 
+=======
+      sv = SearchVector('name', config='russian') + SearchVector('article', config='russian')
+      if not mp.search_vector == sv:
+        mp.search_vector = sv
+        change = True
+      if change:
+        mps.append(mp)
+>>>>>>> Stashed changes
 
     except Exception as ex:
       errors += 1
