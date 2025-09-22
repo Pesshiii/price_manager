@@ -584,7 +584,7 @@ def upload_supplier_products(request, **kwargs):
           main_product, main_created = MainProduct.objects.get_or_create(supplier=supplier, article=product.article,
                                                               name=product.name)
           main_product.available = (product.stock > 0)
-          main_product.search_vector = SearchVector('name', config='russian')
+          main_product.search_vector = SearchVector('name', config='russian') + SearchVector('article', config='russian')
           if main_created and 'category' in rev_links:
             main_product.category = product.category
           if main_created and 'manufacturer' in rev_links:
