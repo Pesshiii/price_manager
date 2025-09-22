@@ -1,6 +1,9 @@
 from import_export import resources, fields
 from import_export.widgets import ForeignKeyWidget
 from .models import MainProduct, Supplier, Manufacturer, Category
+from import_export import resources, fields
+from import_export.widgets import ForeignKeyWidget, ManyToManyWidget
+from .models import SupplierProduct, Supplier, Manufacturer, Category, Discount
 
 class CategoryWidget(ForeignKeyWidget):
     """Категория строкой: 'Инструмент > Ручной инструмент > Отвертки'."""
@@ -52,6 +55,36 @@ class MainProductResource(resources.ModelResource):
         fields = tuple(f.name for f in MainProduct._meta.fields)
         export_order = fields
         # Импортируем c сопоставлением по ID
+        import_id_fields = ("id",)
+        skip_unchanged = True
+        report_skipped = True
+
+class SupplierProductResource(resources.ModelResource):
+    supplier = fields.Field(
+        column_name="supplier",
+        attribute="supplier",
+        widget=ForeignKeyWidget(Supplier, "name"),
+    )
+    manufacturer = fields.Field(
+        column_name="manufacturer",
+        attribute="manufacturer",
+        widget=ForeignKeyWidget(Manufacturer, "name"),
+    )
+    category = fields.Field(
+        column_name="category",
+        attribute="category",
+        widget=CategoryWidget(Category, "name"),
+    )
+    discounts = fields.Field(
+        column_name="discounts",
+        attribute="discounts",
+        widget=ManyToManyWidget(Discount, field="name", separator=", "),
+    )
+
+    class Meta:
+        model = SupplierProduct
+        fields = tuple(f.name for f in SupplierProduct._meta.fields) + ("discounts",)
+        export_order = fields
         import_id_fields = ("id",)
         skip_unchanged = True
         report_skipped = True
