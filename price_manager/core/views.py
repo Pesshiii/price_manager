@@ -910,7 +910,7 @@ def sync_main_products(request, **kwargs):
     except Exception as ex:
       errors += 1
       messages.error(request, f"Ошибка при обновлении {sp}: {ex}")
-  updated = MainProduct.objects.bulk_update(mps, ['stock', 'stock_updated_at', 'available', 'manufacturer', 'category'])
+  updated = MainProduct.objects.bulk_update(mps, ['stock', 'stock_updated_at', 'available', 'manufacturer', 'category', 'search_vector'])
   messages.success(request, f"Остатки обновлены у {updated} товаров, ошибок: {errors}")
   for price_manager in PriceManager.objects.all():
     apply_price_manager(price_manager)
