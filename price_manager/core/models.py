@@ -193,7 +193,7 @@ class PriceManager(models.Model):
   def __str__(self):
     return self.name
    
-MP_TABLE_FIELDS = ['article', 'category', 'supplier', 'name', 'manufacturer','prime_cost', 'stock', 'available']
+MP_TABLE_FIELDS = ['article', 'supplier', 'name', 'manufacturer','prime_cost', 'stock']
 MP_CHARS = ['sku', 'article', 'name']
 MP_FKS = ['supplier', 'category', 'discount', 'manufacturer', 'price_manager']
 MP_DECIMALS = ['weight', 'length', 'width', 'depth']

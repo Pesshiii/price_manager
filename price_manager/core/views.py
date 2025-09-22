@@ -746,7 +746,7 @@ def upload_supplier_products(request, **kwargs):
           main_product, main_created = MainProduct.objects.get_or_create(supplier=supplier, article=product.article,
                                                               name=product.name)
           main_product.available = (product.stock > 0)
-          main_product.search_vector = SearchVector('name', config='russian')
+          main_product.search_vector = SearchVector('name', config='russian') + SearchVector('article', config='russian')
           if main_created and 'category' in rev_links:
             main_product.category = product.category
           if main_created and 'manufacturer' in rev_links:
@@ -1155,6 +1155,10 @@ def sync_main_products(request, **kwargs):
         mp.available = mp.stock > 0
         mp.stock_updated_at = timezone.now()
         change = True
+      sv = SearchVector('name', config='russian') + SearchVector('article', config='russian')
+      if not mp.search_vector == sv:
+        mp.search_vector = sv
+        change = True
       if change:
         mps.append(mp)
 
@@ -1162,7 +1166,7 @@ def sync_main_products(request, **kwargs):
     except Exception as ex:
       errors += 1
       messages.error(request, f"Ошибка при обновлении {sp}: {ex}")
-  updated = MainProduct.objects.bulk_update(mps, ['stock', 'stock_updated_at', 'available', 'manufacturer', 'category'])
+  updated = MainProduct.objects.bulk_update(mps, ['stock', 'stock_updated_at', 'available', 'manufacturer', 'category', 'search_vector'])
   messages.success(request, f"Остатки обновлены у {updated} товаров, ошибок: {errors}")
   for price_manager in PriceManager.objects.all():
     apply_price_manager(price_manager)
