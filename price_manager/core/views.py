@@ -813,13 +813,23 @@ class PriceManagerCreate(SingleTableMixin, CreateView):
       query |= Q(price_to__isnull=True)
     conf_price_manager = PriceManager.objects.filter(query)
     if cleaned_data['discounts']:
+      discs_without_rrp = [disc for disc in cleaned_data['discounts'] 
+                           if not disc.name=='Есть РРЦ'
+                           and not disc.name=='Нет РРЦ']
+      rrp = None
+      for disc in cleaned_data['discounts']:
+        if disc.name=='Есть РРЦ' or disc.name=='Нет РРЦ':
+          rrp = disc
       conf_price_manager = conf_price_manager.filter(
-      Q(discounts__in=cleaned_data['discounts'])|
-      Q(discounts__isnull=True))
+        Q(discounts__in=discs_without_rrp)|
+        Q(discounts__isnull=True))
+      if rrp:
+        conf_price_manager = conf_price_manager.filter(discounts=rrp)
     conf_price_manager = conf_price_manager.filter(
       dest=cleaned_data['dest'])
     conf_price_manager = conf_price_manager.filter(supplier=cleaned_data['supplier'])
     if conf_price_manager.exists():
+
       messages.error(self.request, f'Пересечение с другой наценкой: {conf_price_manager.first().name}')
       return self.form_invalid(form)
     if not self.request.POST.get('btn') == 'save': return self.form_invalid(form)
