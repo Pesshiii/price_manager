@@ -4,6 +4,20 @@
 Новый поставщик
 {% endblock %}
 
+{% block style %}
+  .table-scroll-top {
+    overflow-x: auto;
+    overflow-y: hidden;
+    margin-bottom: .5rem;
+  }
+  .table-scroll-top > div {
+    height: 1px;        /* «заглушка», которая задаёт ширину */
+  }
+  .table-scroll {
+    overflow-x: auto;
+  }
+{% endblock %}
+
 {% block body %}
   <div class="container">
     <h1>Новая настройка</h1>
@@ -26,8 +40,11 @@
               <button type="submit" class="btn btn-secondary" value="save" name="submit-btn">Сохранить</button>
             </div>
           </div>
-          <div class="row table-responsive p-3">
-            {% render_table table %}
+          <div class="row p-3">
+          <div class="table-scroll-top"><div></div></div>
+            <div class="table-responsive table-scroll">
+              {% render_table table %}
+            </div>
           </div>
         </div>
         <div class="col-md-4 accordion" id="accordionDict">
@@ -41,5 +58,36 @@
 {% endblock %}
 
 {% block script %}
+<style>
+  .table-scroll-top {
+    overflow-x: auto;
+    overflow-y: hidden;
+    margin-bottom: .5rem;
+  }
+  .table-scroll-top > div {
+    height: 1px;        /* «заглушка», которая задаёт ширину */
+  }
+  .table-scroll {
+    overflow-x: auto;
+  }
+</style>
+<script>
+document.addEventListener('DOMContentLoaded', function () {
+  const topScroll = document.querySelector('.table-scroll-top');
+  const tableScroll = document.querySelector('.table-scroll');
+  if (!topScroll || !tableScroll) return;
 
+  const spacer = topScroll.firstElementChild;
+  const syncWidth = () => spacer.style.width = tableScroll.scrollWidth + 'px';
+  syncWidth();
+  window.addEventListener('resize', syncWidth);
+
+  topScroll.addEventListener('scroll', () => {
+    tableScroll.scrollLeft = topScroll.scrollLeft;
+  });
+  tableScroll.addEventListener('scroll', () => {
+    topScroll.scrollLeft = tableScroll.scrollLeft;
+  });
+});
+</script>
 {% endblock %}
