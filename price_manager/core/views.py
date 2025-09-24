@@ -904,19 +904,15 @@ def sync_main_products(request, **kwargs):
     try:
       if not sp.main_product:
         continue  # пропускаем без связи
-      change = False
       mp = sp.main_product
       if not mp.stock == sp.stock:
         mp.stock = sp.stock
         mp.available = mp.stock > 0
-        mp.stock_updated_at = timezone.now()
-        change = True
+      mp.stock_updated_at = timezone.now()
       sv = SearchVector('name', config='russian') + SearchVector('article', config='russian')
       if not mp.search_vector == sv:
         mp.search_vector = sv
-        change = True
-      if change:
-        mps.append(mp)
+      mps.append(mp)
     except Exception as ex:
       errors += 1
       messages.error(request, f"Ошибка при обновлении {sp}: {ex}")
