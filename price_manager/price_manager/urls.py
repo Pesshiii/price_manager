@@ -51,7 +51,14 @@ urlpatterns = [
 
     path('main-product/<int:id>/update', views.MainProductUpdate.as_view(), name='main-product-update'),
     path('main-product/sync/', views.sync_main_products, name='main-product-sync'),
-    path('toggle-basket/<int:pk>/', views.toggle_basket, name='toggle-basket'),
-
     path('upload/<str:name>/<int:id>/', views.FileUpload.as_view(), name='upload'),
+
+    path('shopping-tabs/', views.ShoppingTabListView.as_view(), name='shopping-tab-list'),
+    path('shopping-tabs/<int:pk>/', views.ShoppingTabDetailView.as_view(), name='shopping-tab-detail'),
+    path('shopping-tabs/<int:pk>/delete/', views.ShoppingTabDeleteView.as_view(), name='shopping-tab-delete'),
+    path('shopping-tabs/<int:tab_pk>/products/create/', views.ShoppingTabProductCreateView.as_view(), name='shopping-tab-product-create'),
+    path('shopping-tabs/<int:tab_pk>/products/<int:product_pk>/edit/', views.ShoppingTabProductUpdateView.as_view(), name='shopping-tab-product-update'),
+    path('shopping-tabs/<int:tab_pk>/products/<int:pk>/delete/', views.ShoppingTabProductDeleteView.as_view(), name='shopping-tab-product-delete'),
+    path('shopping-tabs/select/<int:product_id>/', views.ShoppingTabSelectionView.as_view(), name='shopping-tab-select'),
+    path('shopping-tabs/<int:tab_pk>/add/<int:product_id>/', views.ShoppingTabAddProductView.as_view(), name='shopping-tab-add-product'),
 ] + static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)
