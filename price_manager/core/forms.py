@@ -5,6 +5,64 @@ from .models import PriceManager, Discount
 
 from .models import *
 
+
+class ShopingTabForm(forms.ModelForm):
+  class Meta:
+    model = ShopingTab
+    fields = ['name']
+    widgets = {
+      'name': forms.TextInput(attrs={'class': 'form-control', 'placeholder': 'Например, "Клиент А"'})
+    }
+
+  def __init__(self, *args, **kwargs):
+    self.user = kwargs.pop('user', None)
+    super().__init__(*args, **kwargs)
+
+  def clean_name(self):
+    name = self.cleaned_data['name']
+    if self.user:
+      qs = ShopingTab.objects.filter(user=self.user, name__iexact=name)
+      if self.instance.pk:
+        qs = qs.exclude(pk=self.instance.pk)
+      if qs.exists():
+        raise forms.ValidationError('Корзина с таким названием уже существует.')
+    return name
+
+  def save(self, commit=True):
+    instance = super().save(commit=False)
+    if self.user is not None:
+      instance.user = self.user
+    if commit:
+      instance.save()
+    return instance
+
+
+class AlternateProductForm(forms.ModelForm):
+  class Meta:
+    model = AlternateProduct
+    fields = ['name', 'main_product']
+    widgets = {
+      'name': forms.TextInput(attrs={'class': 'form-control', 'placeholder': 'Название товара'}),
+      'main_product': forms.Select(attrs={'class': 'form-select'})
+    }
+
+  def __init__(self, *args, **kwargs):
+    super().__init__(*args, **kwargs)
+    self.fields['main_product'].required = False
+    self.fields['main_product'].queryset = MainProduct.objects.order_by('name')
+
+  def clean(self):
+    cleaned_data = super().clean()
+    name = cleaned_data.get('name')
+    main_product = cleaned_data.get('main_product')
+    if name:
+      qs = AlternateProduct.objects.filter(name=name, main_product=main_product)
+      if self.instance.pk:
+        qs = qs.exclude(pk=self.instance.pk)
+      if qs.exists():
+        raise forms.ValidationError('Товар с такими параметрами уже существует.')
+    return cleaned_data
+
 class SupplierForm(forms.ModelForm):
   class Meta:
     model = Supplier

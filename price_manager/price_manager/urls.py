@@ -13,6 +13,11 @@ urlpatterns = [
     path('', views.MainPage.as_view(), name='main'),
     path('main/filter-options/', views.MainFilterOptionsView.as_view(), name='main-filter-options'),
     path('main/table/', views.MainTableView.as_view(), name='main-table'),
+    path('shoping-tabs/', views.ShopingTabListView.as_view(), name='shoping-tab-list'),
+    path('shoping-tabs/<int:pk>/delete/', views.ShopingTabDeleteView.as_view(), name='shoping-tab-delete'),
+    path('shoping-tabs/<int:tab_id>/products/<int:pk>/edit/', views.AlternateProductUpdateView.as_view(), name='shoping-tab-product-edit'),
+    path('shoping-tabs/<int:tab_id>/products/<int:pk>/remove/', views.ShopingTabRemoveProductView.as_view(), name='shoping-tab-product-remove'),
+    path('shoping-tabs/add-main-product/', views.add_main_product_to_tab, name='shoping-tab-add-main-product'),
     
     path('supplier/', views.SupplierList.as_view(), name='supplier'),
     path('supplier/<int:id>/', views.SupplierDetail.as_view(), name='supplier-detail'),
@@ -51,7 +56,5 @@ urlpatterns = [
 
     path('main-product/<int:id>/update', views.MainProductUpdate.as_view(), name='main-product-update'),
     path('main-product/sync/', views.sync_main_products, name='main-product-sync'),
-    path('toggle-basket/<int:pk>/', views.toggle_basket, name='toggle-basket'),
-
     path('upload/<str:name>/<int:id>/', views.FileUpload.as_view(), name='upload'),
 ] + static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)

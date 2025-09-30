@@ -177,8 +177,10 @@ class MainProductListTable(tables.Table):
                          verbose_name='')
   def __init__(self, *args, **kwargs):
     self.request = kwargs.pop('request')
+    self.shoping_tabs = list(ShopingTab.objects.filter(user=self.request.user).order_by('name')) if self.request.user.is_authenticated else []
+    self.tabs_available = bool(self.shoping_tabs)
     super().__init__(*args, **kwargs)
-  
+
   class Meta:
     model = MainProduct
     fields = ['actions']
@@ -192,7 +194,7 @@ class MainProductListTable(tables.Table):
             'main/product/actions.html',
             {
                 'record': record,
-                'basket': self.request.session.get('basket', []),
+                'tabs_available': self.tabs_available,
             }
         )
   def render_name(self, record):

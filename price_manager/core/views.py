@@ -25,6 +25,9 @@ from django.shortcuts import redirect, render
 from django_tables2 import SingleTableView, RequestConfig, SingleTableMixin
 from django_filters.views import FilterView, FilterMixin
 from dal import autocomplete
+from django.contrib.auth.mixins import LoginRequiredMixin
+from django.contrib.auth.decorators import login_required
+from django.db.models import Prefetch
 
 # Импорты моделей, функций, форм, таблиц
 from .models import *
@@ -68,29 +71,6 @@ class CategoryAutocomplete(autocomplete.Select2QuerySetView):
 
         return qs
 
-
-@require_POST
-def toggle_basket(request, pk):
-    basket = request.session.setdefault('basket', [])
-    pk = int(pk)
-
-    if pk in basket:
-        basket.remove(pk)
-    else:
-        basket.append(pk)
-
-    request.session.modified = True
-
-    # return only the fresh button
-    html = render_to_string(
-        'main/product/actions.html',
-        {
-            'record': get_object_or_404(MainProduct, pk=pk),
-            'basket': basket,
-        },
-        request=request
-    )
-    return HttpResponse(html)
 
 def build_category_tree(categories):
   children_map = defaultdict(list)
@@ -237,6 +217,15 @@ class MainPage(SingleTableMixin, FilterView):
       })
 
     context['table_update_url'] = reverse('main-table')
+    if self.request.user.is_authenticated:
+      tabs_prefetch = Prefetch('products')
+      context['shoping_tabs'] = list(
+        ShopingTab.objects.filter(user=self.request.user)
+        .prefetch_related(tabs_prefetch)
+        .order_by('name')
+      )
+    else:
+      context['shoping_tabs'] = []
     return context
 
 
@@ -1113,6 +1102,138 @@ class PriceManagerDelete(DeleteView):
   template_name = 'price_manager/confirm_delete.html'
   pk_url_kwarg = 'id'
   success_url = '/price-manager/'
+
+
+# Управление корзинами
+
+class ShopingTabListView(LoginRequiredMixin, TemplateView):
+  template_name = 'shoping_tab/list.html'
+
+  def get_queryset(self):
+    products_prefetch = Prefetch('products', queryset=AlternateProduct.objects.select_related('main_product').order_by('name'))
+    return (ShopingTab.objects
+            .filter(user=self.request.user)
+            .prefetch_related(products_prefetch)
+            .order_by('name'))
+
+  def get_context_data(self, **kwargs):
+    context = super().get_context_data(**kwargs)
+    tabs = list(self.get_queryset())
+    context['tabs'] = tabs
+    context['tab_form'] = getattr(self, 'tab_form', ShopingTabForm(user=self.request.user))
+    product_forms = getattr(self, 'product_forms', {})
+    context['product_forms'] = {
+      tab.id: product_forms.get(tab.id, AlternateProductForm(prefix=f'tab-{tab.id}'))
+      for tab in tabs
+    }
+    context['has_tabs'] = bool(tabs)
+    return context
+
+  def post(self, request, *args, **kwargs):
+    action = request.POST.get('action')
+    if action == 'create_tab':
+      form = ShopingTabForm(request.POST, user=request.user)
+      if form.is_valid():
+        tab = form.save()
+        messages.success(request, f'Корзина "{tab.name}" создана.')
+        return redirect('shoping-tab-list')
+      self.tab_form = form
+    elif action == 'add_product':
+      tab = get_object_or_404(ShopingTab, pk=request.POST.get('tab_id'), user=request.user)
+      form = AlternateProductForm(request.POST, prefix=f'tab-{tab.id}')
+      if form.is_valid():
+        cleaned = form.cleaned_data
+        product = AlternateProduct.objects.filter(name=cleaned['name'], main_product=cleaned['main_product']).first()
+        if product is None:
+          product = form.save()
+        tab.products.add(product)
+        messages.success(request, f'Товар "{product.name}" добавлен в корзину "{tab.name}".')
+        return redirect(f"{reverse('shoping-tab-list')}#tab-{tab.id}")
+      self.product_forms = {tab.id: form}
+    else:
+      messages.error(request, 'Неизвестное действие.')
+    return self.get(request, *args, **kwargs)
+
+
+class ShopingTabDeleteView(LoginRequiredMixin, View):
+  def post(self, request, pk):
+    tab = get_object_or_404(ShopingTab, pk=pk, user=request.user)
+    tab_name = tab.name
+    tab.delete()
+    messages.success(request, f'Корзина "{tab_name}" удалена.')
+    return redirect('shoping-tab-list')
+
+
+class ShopingTabRemoveProductView(LoginRequiredMixin, View):
+  def post(self, request, tab_id, pk):
+    tab = get_object_or_404(ShopingTab, pk=tab_id, user=request.user)
+    product = get_object_or_404(AlternateProduct, pk=pk)
+    tab.products.remove(product)
+    if not product.shoping_tabs.exists():
+      product.delete()
+    messages.success(request, f'Товар удалён из корзины "{tab.name}".')
+    return redirect(f"{reverse('shoping-tab-list')}#tab-{tab.id}")
+
+
+class AlternateProductUpdateView(LoginRequiredMixin, UpdateView):
+  model = AlternateProduct
+  form_class = AlternateProductForm
+  template_name = 'shoping_tab/alternate_product_form.html'
+  pk_url_kwarg = 'pk'
+
+  def dispatch(self, request, *args, **kwargs):
+    self.tab = get_object_or_404(ShopingTab, pk=kwargs['tab_id'], user=request.user)
+    return super().dispatch(request, *args, **kwargs)
+
+  def get_queryset(self):
+    return self.tab.products.all()
+
+  def get_form_kwargs(self):
+    kwargs = super().get_form_kwargs()
+    kwargs.setdefault('prefix', f'edit-{self.object.pk}')
+    return kwargs
+
+  def form_valid(self, form):
+    messages.success(self.request, 'Изменения сохранены.')
+    return super().form_valid(form)
+
+  def get_success_url(self):
+    return f"{reverse('shoping-tab-list')}#tab-{self.tab.pk}"
+
+  def get_context_data(self, **kwargs):
+    context = super().get_context_data(**kwargs)
+    context['tab'] = self.tab
+    return context
+
+
+@login_required
+@require_POST
+def add_main_product_to_tab(request):
+  tab_id = request.POST.get('tab_id')
+  main_product_id = request.POST.get('main_product_id')
+  if not tab_id or not main_product_id:
+    messages.error(request, 'Не удалось определить корзину или товар.')
+    return redirect('main')
+
+  tab = get_object_or_404(ShopingTab, pk=tab_id, user=request.user)
+  main_product = get_object_or_404(MainProduct, pk=main_product_id)
+
+  existing_in_tab = tab.products.filter(main_product=main_product).first()
+  if existing_in_tab:
+    messages.info(request, f'Товар уже находится в корзине "{tab.name}".')
+    return redirect('main')
+
+  alternate_product = AlternateProduct.objects.filter(main_product=main_product).first()
+  if alternate_product is None:
+    alternate_product = AlternateProduct.objects.create(
+      name=main_product.name,
+      main_product=main_product
+    )
+
+  tab.products.add(alternate_product)
+  messages.success(request, f'Товар "{main_product.name}" добавлен в корзину "{tab.name}".')
+  return redirect('main')
+
 
 def apply_price_manager(price_manager: PriceManager):
   products = SupplierProduct.objects.all()
