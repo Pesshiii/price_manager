@@ -11,19 +11,44 @@
               hx-post="{% url 'shopping-tab-add-product' tab_pk=tab.pk product_id=product.pk %}"
               hx-target="#shopping-tab-selection-modal-content"
               hx-swap="innerHTML"
-              class="list-group-item list-group-item-action d-flex justify-content-between align-items-center gap-3">
+              class="list-group-item list-group-item-action">
           {% csrf_token %}
-          <div class="flex-grow-1">
-            <div class="fw-semibold">{{ tab.name }}</div>
-            <div class="small text-muted">Товаров: {{ tab.product_count }}</div>
+          <div class="d-flex flex-column gap-2">
+            <div class="d-flex justify-content-between align-items-start gap-2">
+              <div>
+                <div class="fw-semibold">{{ tab.name }}</div>
+                <div class="small text-muted">Товаров: {{ tab.product_count }}</div>
+              </div>
+              {% if tab.pk in existing_tab_ids %}
+                <span class="badge bg-success-subtle text-success-emphasis">Есть связка</span>
+              {% endif %}
+            </div>
+            {% if tab.products.all %}
+              <div>
+                <label class="form-label small mb-1">Связать с товаром корзины</label>
+                <select name="alternate_product_id" class="form-select form-select-sm">
+                  <option value="">Создать новый товар</option>
+                  {% for alternate in tab.products.all %}
+                    <option value="{{ alternate.pk }}" {% if alternate.main_product_id == product.pk %}selected{% endif %}>
+                      {{ alternate.name }}{% if alternate.main_product %} ({{ alternate.main_product.name }}){% endif %}
+                    </option>
+                  {% endfor %}
+                </select>
+              </div>
+            {% else %}
+              <input type="hidden" name="alternate_product_id" value="">
+              <div class="small text-muted">В корзине пока нет товаров. Будет создан новый товар.</div>
+            {% endif %}
+            <div class="d-flex justify-content-end">
+              <button type="submit" class="btn btn-primary btn-sm">
+                {% if tab.pk in existing_tab_ids %}
+                  <i class="bi bi-arrow-repeat"></i> Обновить связь
+                {% else %}
+                  <i class="bi bi-cart-plus"></i> Добавить
+                {% endif %}
+              </button>
+            </div>
           </div>
-          {% if tab.pk in existing_tab_ids %}
-            <span class="badge bg-success-subtle text-success-emphasis">Уже добавлен</span>
-          {% else %}
-            <button type="submit" class="btn btn-primary btn-sm">
-              <i class="bi bi-cart-plus"></i> Добавить
-            </button>
-          {% endif %}
         </form>
       {% endfor %}
     </div>

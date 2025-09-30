@@ -18,7 +18,7 @@ from django.contrib.auth.mixins import LoginRequiredMixin
 from django.urls import reverse
 from typing import Optional, Any, Dict, Iterable
 from collections import defaultdict
-from django.db.models import Count
+from django.db.models import Count, Prefetch
 from django_tables2 import SingleTableView, RequestConfig, SingleTableMixin
 from django_filters.views import FilterView, FilterMixin
 from dal import autocomplete
@@ -1318,6 +1318,12 @@ class ShoppingTabSelectionView(LoginRequiredMixin, TemplateView):
       ShopingTab.objects
       .filter(user=self.request.user)
       .annotate(product_count=Count('products', distinct=True))
+      .prefetch_related(
+        Prefetch(
+          'products',
+          queryset=AlternateProduct.objects.select_related('main_product').order_by('name')
+        )
+      )
       .order_by('name')
     )
     existing_tab_ids = set(
@@ -1339,17 +1345,42 @@ class ShoppingTabAddProductView(LoginRequiredMixin, View):
   def post(self, request, tab_pk, product_id):
     tab = get_object_or_404(ShopingTab, pk=tab_pk, user=request.user)
     product = get_object_or_404(MainProduct, pk=product_id)
-    if tab.products.filter(main_product=product).exists():
-      status = 'info'
-      message_text = 'Товар уже добавлен в выбранную корзину.'
-    else:
-      alternate_product, _ = AlternateProduct.objects.get_or_create(
-        main_product=product,
-        defaults={'name': product.name},
+    alternate_product_id = request.POST.get('alternate_product_id')
+    if alternate_product_id:
+      alternate_product = get_object_or_404(
+        AlternateProduct,
+        pk=alternate_product_id,
+        shoping_tabs=tab,
       )
-      tab.products.add(alternate_product)
-      status = 'success'
-      message_text = 'Товар добавлен в корзину.'
+      already_linked = alternate_product.main_product_id == product.pk
+      if not already_linked:
+        (tab.products
+         .filter(main_product=product)
+         .exclude(pk=alternate_product.pk)
+         .update(main_product=None))
+        alternate_product.main_product = product
+        alternate_product.save(update_fields=['main_product'])
+        status = 'success'
+        message_text = (
+          f'Товар связан с «{alternate_product.name}» в корзине «{tab.name}».')
+      else:
+        status = 'info'
+        message_text = 'Выбранный товар уже связан с этой позицией корзины.'
+    else:
+      if tab.products.filter(main_product=product).exists():
+        status = 'info'
+        message_text = 'Товар уже связан с выбранной корзиной.'
+      else:
+        alternate_product, created = AlternateProduct.objects.get_or_create(
+          name=product.name,
+          main_product=product,
+        )
+        tab.products.add(alternate_product)
+        status = 'success'
+        if created:
+          message_text = f'Товар добавлен в корзину «{tab.name}».'
+        else:
+          message_text = f'Товар привязан к корзине «{tab.name}».'
     context = {
       'tab': tab,
       'product': product,
