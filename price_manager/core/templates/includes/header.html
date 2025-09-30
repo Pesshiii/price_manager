@@ -29,7 +29,10 @@
         <a class="btn btn-link" href="{% url 'admin:index' %}">Админ</a>
         {% if user.is_authenticated %}
           <span class="navbar-text">{{ user.get_username }}</span>
-          <a class="btn btn-outline-secondary" href="{% url 'logout' %}">Выйти</a>
+          <form action="{% url 'logout' %}" method="post">
+            {% csrf_token %}
+            <button type="submit" class="btn btn-secondary">Выйти</button>
+          </form>
         {% else %}
           <a class="btn btn-primary" href="{% url 'login' %}">Войти</a>
         {% endif %}
