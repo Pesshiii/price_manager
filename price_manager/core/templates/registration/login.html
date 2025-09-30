@@ -1,0 +1,44 @@
+{% extends 'base.html' %}
+
+{% block title %}Вход{% endblock %}
+
+{% block body %}
+<div class="row justify-content-center">
+  <div class="col-md-5 col-lg-4">
+    <h1 class="h3 mb-4 text-center">Вход в систему</h1>
+    <form method="post" novalidate>
+      {% csrf_token %}
+      {% if form.non_field_errors %}
+        <div class="alert alert-danger" role="alert">
+          {% for error in form.non_field_errors %}
+            <div>{{ error }}</div>
+          {% endfor %}
+        </div>
+      {% endif %}
+      <div class="mb-3">
+        <label class="form-label" for="{{ form.username.id_for_label }}">Имя пользователя</label>
+        {{ form.username }}
+        {% if form.username.errors %}
+          <div class="invalid-feedback d-block">
+            {% for error in form.username.errors %}
+              <div>{{ error }}</div>
+            {% endfor %}
+          </div>
+        {% endif %}
+      </div>
+      <div class="mb-3">
+        <label class="form-label" for="{{ form.password.id_for_label }}">Пароль</label>
+        {{ form.password }}
+        {% if form.password.errors %}
+          <div class="invalid-feedback d-block">
+            {% for error in form.password.errors %}
+              <div>{{ error }}</div>
+            {% endfor %}
+          </div>
+        {% endif %}
+      </div>
+      <button type="submit" class="btn btn-primary w-100">Войти</button>
+    </form>
+  </div>
+</div>
+{% endblock %}

@@ -8,6 +8,7 @@ from django.utils import timezone
 from django.http import HttpResponseRedirect, HttpResponse
 from django.template.loader import render_to_string
 from django.contrib import messages
+from django.contrib.auth.views import LoginView, LogoutView
 from django.views.generic import (View,
                                   ListView,
                                   DetailView,
@@ -37,6 +38,25 @@ from decimal import Decimal, InvalidOperation
 import pandas as pd
 import re
 import math
+
+
+class AppLoginView(LoginView):
+    template_name = 'registration/login.html'
+    redirect_authenticated_user = True
+
+    def get_form(self, form_class=None):
+        form = super().get_form(form_class)
+        for field in form.fields.values():
+            existing_classes = field.widget.attrs.get('class', '')
+            classes = [cls for cls in existing_classes.split() if cls]
+            if 'form-control' not in classes:
+                classes.append('form-control')
+            field.widget.attrs['class'] = ' '.join(classes) if classes else 'form-control'
+        return form
+
+
+class AppLogoutView(LogoutView):
+    next_page = 'login'
 
 class CategoryAutocomplete(autocomplete.Select2QuerySetView):
     def get_queryset(self):

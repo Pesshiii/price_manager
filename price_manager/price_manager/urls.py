@@ -7,6 +7,8 @@ from django.conf.urls.static import static
 
 urlpatterns = [
     path('admin/', admin.site.urls),
+    path('accounts/login/', views.AppLoginView.as_view(), name='login'),
+    path('accounts/logout/', views.AppLogoutView.as_view(), name='logout'),
 
     path('', views.MainPage.as_view(), name='main'),
     path('main/filter-options/', views.MainFilterOptionsView.as_view(), name='main-filter-options'),
