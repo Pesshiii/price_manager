@@ -1,0 +1,40 @@
+<div class="modal-header">
+  <h5 class="modal-title">Добавить «{{ product.name|truncatechars:60 }}»</h5>
+  <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Закрыть"></button>
+</div>
+<div class="modal-body">
+  {% if tabs %}
+    <p class="text-muted">Выберите корзину, в которую нужно добавить товар.</p>
+    <div class="list-group">
+      {% for tab in tabs %}
+        <form method="post"
+              hx-post="{% url 'shopping-tab-add-product' tab_pk=tab.pk product_id=product.pk %}"
+              hx-target="#shopping-tab-selection-modal-content"
+              hx-swap="innerHTML"
+              class="list-group-item list-group-item-action d-flex justify-content-between align-items-center gap-3">
+          {% csrf_token %}
+          <div class="flex-grow-1">
+            <div class="fw-semibold">{{ tab.name }}</div>
+            <div class="small text-muted">Товаров: {{ tab.product_count }}</div>
+          </div>
+          {% if tab.pk in existing_tab_ids %}
+            <span class="badge bg-success-subtle text-success-emphasis">Уже добавлен</span>
+          {% else %}
+            <button type="submit" class="btn btn-primary btn-sm">
+              <i class="bi bi-cart-plus"></i> Добавить
+            </button>
+          {% endif %}
+        </form>
+      {% endfor %}
+    </div>
+  {% else %}
+    <div class="text-center text-muted py-4">
+      <i class="bi bi-basket fs-1 d-block mb-3"></i>
+      <p class="mb-0">У вас еще нет корзин. Сначала создайте корзину.</p>
+    </div>
+  {% endif %}
+</div>
+<div class="modal-footer">
+  <a href="{% url 'shopping-tab-list' %}" class="btn btn-outline-secondary">Управлять корзинами</a>
+  <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Закрыть</button>
+</div>

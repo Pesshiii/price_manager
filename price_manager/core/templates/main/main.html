@@ -264,6 +264,16 @@
     initDynamicFilters();
     initFilterToggles();
     registerAutoUpdate();
+    const shoppingTabModal = document.getElementById('shoppingTabSelectionModal');
+    if (shoppingTabModal) {
+      const modalContent = shoppingTabModal.querySelector('#shopping-tab-selection-modal-content');
+      const defaultMarkup = modalContent ? modalContent.innerHTML : '';
+      shoppingTabModal.addEventListener('hidden.bs.modal', () => {
+        if (modalContent) {
+          modalContent.innerHTML = defaultMarkup;
+        }
+      });
+    }
   });
 
   const shouldEnhance = (target) => {
