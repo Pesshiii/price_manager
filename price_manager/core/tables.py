@@ -192,7 +192,6 @@ class MainProductListTable(tables.Table):
             'main/product/actions.html',
             {
                 'record': record,
-                'basket': self.request.session.get('basket', []),
             }
         )
   def render_name(self, record):

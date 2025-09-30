@@ -1,14 +1,13 @@
 # Импорты из django
 from django.shortcuts import (render,
                               redirect,
-                              get_object_or_404,
-                              HttpResponse,
-)
+                              get_object_or_404)
 from django.utils import timezone
-from django.http import HttpResponseRedirect, HttpResponse
+from django.http import HttpResponseRedirect, JsonResponse
 from django.template.loader import render_to_string
 from django.contrib import messages
 from django.contrib.auth.views import LoginView, LogoutView
+from django.contrib.auth.mixins import LoginRequiredMixin
 from django.views.generic import (View,
                                   ListView,
                                   DetailView,
@@ -17,8 +16,7 @@ from django.views.generic import (View,
                                   DeleteView,
                                   FormView,
                                   TemplateView)
-from django.views.decorators.http import require_POST
-from django.urls import reverse
+from django.urls import reverse, reverse_lazy
 from typing import Optional, Any, Dict, Iterable
 from collections import defaultdict
 from django.shortcuts import redirect, render
@@ -35,6 +33,7 @@ from .filters import *
 
 # Импорты сторонних библиотек
 from decimal import Decimal, InvalidOperation
+from django.db import IntegrityError
 import pandas as pd
 import re
 import math
@@ -68,29 +67,6 @@ class CategoryAutocomplete(autocomplete.Select2QuerySetView):
 
         return qs
 
-
-@require_POST
-def toggle_basket(request, pk):
-    basket = request.session.setdefault('basket', [])
-    pk = int(pk)
-
-    if pk in basket:
-        basket.remove(pk)
-    else:
-        basket.append(pk)
-
-    request.session.modified = True
-
-    # return only the fresh button
-    html = render_to_string(
-        'main/product/actions.html',
-        {
-            'record': get_object_or_404(MainProduct, pk=pk),
-            'basket': basket,
-        },
-        request=request
-    )
-    return HttpResponse(html)
 
 def build_category_tree(categories):
   children_map = defaultdict(list)
@@ -1156,7 +1132,7 @@ class MainProductUpdate(UpdateView):
     pk_url_kwarg = 'id'
 
 def sync_main_products(request, **kwargs):
-  """Обновляет только остатки (stock) в MainProduct из SupplierProduct"""
+  """Обновляет только остатки (stock) в MainProduct из SupplierProduct"""  
   updated = 0
   errors = 0
 
@@ -1194,3 +1170,122 @@ def sync_main_products(request, **kwargs):
   return redirect('main')
 
 
+class ShopingTabListView(LoginRequiredMixin, TemplateView):
+  template_name = 'shoping_tab/list.html'
+
+  def get_context_data(self, **kwargs):
+    context = super().get_context_data(**kwargs)
+    tabs = (
+      ShopingTab.objects
+      .filter(user=self.request.user)
+      .prefetch_related('products__main_product')
+      .order_by('name')
+    )
+    context['tabs'] = tabs
+    context['create_form'] = ShopingTabForm()
+    context['tab_entries'] = [
+      (tab, AlternateProductForm(auto_id=f'id_%s_tab_{tab.pk}'))
+      for tab in tabs
+    ]
+    return context
+
+  def post(self, request, *args, **kwargs):
+    form = ShopingTabForm(request.POST)
+    if form.is_valid():
+      tab = form.save(commit=False)
+      tab.user = request.user
+      tab.save()
+      messages.success(request, 'Корзина создана')
+    else:
+      messages.error(request, 'Не удалось создать корзину')
+    return redirect('shoping-tab-list')
+
+
+class ShopingTabDeleteView(LoginRequiredMixin, View):
+  def post(self, request, pk):
+    tab = get_object_or_404(ShopingTab, pk=pk, user=request.user)
+    tab.delete()
+    messages.success(request, 'Корзина удалена')
+    return redirect('shoping-tab-list')
+
+
+class ShopingTabProductCreateView(LoginRequiredMixin, View):
+  def post(self, request, tab_id):
+    tab = get_object_or_404(ShopingTab, pk=tab_id, user=request.user)
+    form = AlternateProductForm(request.POST)
+    if form.is_valid():
+      try:
+        product = form.save()
+      except IntegrityError:
+        product = AlternateProduct.objects.filter(
+          name=form.cleaned_data['name'],
+          main_product=form.cleaned_data.get('main_product')
+        ).first()
+        if not product:
+          messages.error(request, 'Не удалось добавить товар')
+          return redirect('shoping-tab-list')
+      tab.products.add(product)
+      messages.success(request, 'Товар добавлен в корзину')
+    else:
+      messages.error(request, 'Не удалось добавить товар, проверьте данные формы')
+    return redirect('shoping-tab-list')
+
+
+class ShopingTabProductRemoveView(LoginRequiredMixin, View):
+  def post(self, request, tab_id, product_id):
+    tab = get_object_or_404(ShopingTab, pk=tab_id, user=request.user)
+    product = get_object_or_404(AlternateProduct, pk=product_id)
+    tab.products.remove(product)
+    if not product.shoping_tabs.exists():
+      product.delete()
+    messages.success(request, 'Товар удален из корзины')
+    return redirect('shoping-tab-list')
+
+
+class AlternateProductUpdateView(LoginRequiredMixin, UpdateView):
+  model = AlternateProduct
+  form_class = AlternateProductForm
+  template_name = 'shoping_tab/alternate_product_form.html'
+  success_url = reverse_lazy('shoping-tab-list')
+
+  def get_queryset(self):
+    return AlternateProduct.objects.filter(shoping_tabs__user=self.request.user).distinct()
+
+  def form_valid(self, form):
+    messages.success(self.request, 'Товар обновлен')
+    return super().form_valid(form)
+
+  def form_invalid(self, form):
+    messages.error(self.request, 'Не удалось обновить товар')
+    return super().form_invalid(form)
+
+
+class ShopingTabSelectionView(LoginRequiredMixin, TemplateView):
+  template_name = 'shoping_tab/add_from_main_modal.html'
+
+  def get_context_data(self, **kwargs):
+    context = super().get_context_data(**kwargs)
+    product = get_object_or_404(MainProduct, pk=self.kwargs['product_id'])
+    tabs = ShopingTab.objects.filter(user=self.request.user).order_by('name')
+    context['product'] = product
+    context['tabs'] = tabs
+    return context
+
+
+class ShopingTabAddProductView(LoginRequiredMixin, View):
+  def post(self, request):
+    form = ShopingTabAddProductForm(request.user, request.POST)
+    if form.is_valid():
+      tab = form.cleaned_data['shoping_tab']
+      main_product = form.cleaned_data['main_product']
+      alternate_product, _ = AlternateProduct.objects.get_or_create(
+        name=main_product.name,
+        main_product=main_product
+      )
+      if tab.products.filter(pk=alternate_product.pk).exists():
+        message = 'Товар уже добавлен в корзину'
+      else:
+        tab.products.add(alternate_product)
+        message = 'Товар добавлен в корзину'
+      return JsonResponse({'status': 'ok', 'message': message})
+    return JsonResponse({'status': 'error', 'errors': form.errors}, status=400)

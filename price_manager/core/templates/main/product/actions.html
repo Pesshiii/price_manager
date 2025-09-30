@@ -1,14 +1,13 @@
-<form hx-post="{% url 'toggle-basket' pk=record.pk %}"
-hx-target="this"
-hx-swap="outerHTML"
-style="display:inline;">
-<div class="container d-flex">
-<a href="{% url 'main-product-update' record.id %}" class="btn btn-sm btn-primary">
+<div class="btn-group" role="group">
+  <a href="{% url 'main-product-update' record.id %}" class="btn btn-sm btn-primary" title="Редактировать">
     <i class="bi bi-pencil-square"></i>
   </a>
-<button type="submit"
-class="btn btn-sm {% if record.pk in basket %}btn-danger{% else %}btn-success{% endif %}">
-{% if record.pk in basket %}<i class="bi bi-cart-plus-fill"></i>{% else %}<i class="bi bi-cart-plus"></i>{% endif %}
-</button>
+  <button type="button"
+          class="btn btn-sm btn-success add-to-shopping-tab-btn"
+          data-product-id="{{ record.pk }}"
+          data-product-name="{{ record.name }}"
+          data-modal-url="{% url 'shoping-tab-selection' record.pk %}"
+          title="Добавить в корзину">
+    <i class="bi bi-cart-plus"></i>
+  </button>
 </div>
-</form>

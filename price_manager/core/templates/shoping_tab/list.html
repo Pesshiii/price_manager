@@ -1,0 +1,135 @@
+{% extends 'base.html' %}
+
+{% block title %}
+Корзины
+{% endblock %}
+
+{% block body %}
+<div class="d-flex justify-content-between align-items-center mb-4">
+  <h1 class="h3 mb-0">Корзины</h1>
+  <a href="{% url 'main' %}" class="btn btn-outline-secondary">
+    <i class="bi bi-arrow-left"></i> На главную
+  </a>
+</div>
+
+<div class="card mb-4">
+  <div class="card-body">
+    <h2 class="h5">Создать корзину</h2>
+    <form method="post" action="{% url 'shoping-tab-list' %}" class="row g-3 align-items-end mt-2">
+      {% csrf_token %}
+      <div class="col-md-6 col-lg-4">
+        <label for="{{ create_form.name.id_for_label }}" class="form-label">Название</label>
+        {{ create_form.name }}
+      </div>
+      <div class="col-auto">
+        <button type="submit" class="btn btn-primary">
+          <i class="bi bi-plus-lg"></i> Добавить
+        </button>
+      </div>
+    </form>
+  </div>
+</div>
+
+{% if tab_entries %}
+  {% for tab, product_form in tab_entries %}
+    <div class="card mb-4">
+      <div class="card-header d-flex justify-content-between align-items-center">
+        <div>
+          <h2 class="h5 mb-1">{{ tab.name }}</h2>
+          <span class="text-muted">Товаров: {{ tab.products.count }}</span>
+        </div>
+        <form method="post" action="{% url 'shoping-tab-delete' tab.pk %}" onsubmit="return confirm('Удалить корзину "{{ tab.name }}"?');">
+          {% csrf_token %}
+          <button type="submit" class="btn btn-outline-danger btn-sm">
+            <i class="bi bi-trash"></i> Удалить
+          </button>
+        </form>
+      </div>
+      <div class="card-body">
+        <h3 class="h6">Добавить товар</h3>
+        <form method="post" action="{% url 'shoping-tab-product-create' tab.pk %}" class="row g-3 align-items-end mb-4">
+          {% csrf_token %}
+          <div class="col-md-6 col-lg-4">
+            <label for="{{ product_form.name.id_for_label }}" class="form-label">Название</label>
+            {{ product_form.name }}
+          </div>
+          <div class="col-md-6 col-lg-4">
+            <label for="{{ product_form.main_product.id_for_label }}" class="form-label">Главный товар</label>
+            {{ product_form.main_product }}
+            <div class="form-text">Необязательно. Можно выбрать товар из главного прайса.</div>
+          </div>
+          <div class="col-auto">
+            <button type="submit" class="btn btn-success">
+              <i class="bi bi-plus-lg"></i> Добавить
+            </button>
+          </div>
+        </form>
+
+        <div class="table-responsive">
+          <table class="table table-sm align-middle">
+            <thead>
+              <tr>
+                <th>Название</th>
+                <th>Главный товар</th>
+                <th class="text-end">Действия</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for product in tab.products.all %}
+                <tr>
+                  <td>{{ product.name }}</td>
+                  <td>
+                    {% if product.main_product %}
+                      <a href="{% url 'main-product-update' product.main_product.pk %}">
+                        {{ product.main_product.name }}
+                      </a>
+                    {% else %}
+                      <span class="text-muted">Не указано</span>
+                    {% endif %}
+                  </td>
+                  <td class="text-end">
+                    <div class="btn-group" role="group">
+                      <a href="{% url 'alternate-product-update' product.pk %}" class="btn btn-outline-primary btn-sm">
+                        <i class="bi bi-pencil"></i>
+                      </a>
+                      <form method="post" action="{% url 'shoping-tab-product-remove' tab.pk product.pk %}" class="d-inline">
+                        {% csrf_token %}
+                        <button type="submit" class="btn btn-outline-danger btn-sm" title="Удалить" onclick="return confirm('Удалить товар из корзины?');">
+                          <i class="bi bi-trash"></i>
+                        </button>
+                      </form>
+                    </div>
+                  </td>
+                </tr>
+              {% empty %}
+                <tr>
+                  <td colspan="3" class="text-center text-muted">В корзине нет товаров</td>
+                </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  {% endfor %}
+{% else %}
+  <div class="alert alert-info">Пока нет ни одной корзины. Создайте первую, чтобы начать.</div>
+{% endif %}
+{% endblock %}
+
+{% block script %}
+{{ block.super }}
+<script>
+  document.addEventListener('DOMContentLoaded', () => {
+    document.querySelectorAll('.select2').forEach((element) => {
+      if (window.jQuery && window.jQuery(element).select2) {
+        window.jQuery(element).select2({
+          width: '100%',
+          allowClear: true,
+          placeholder: element.dataset.placeholder || ''
+        });
+      }
+    });
+  });
+</script>
+{% endblock %}

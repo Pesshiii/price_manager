@@ -117,6 +117,7 @@
     </form>
   </div>
 </div>
+<div id="shopping-tab-modal-container"></div>
 {% endblock %}
 
 {% block script %}
@@ -287,6 +288,107 @@
     }
     initFilterToggles();
     registerAutoUpdate();
+  });
+
+  const getCsrfToken = () => {
+    const match = document.cookie.match(/csrftoken=([^;]+)/);
+    return match ? decodeURIComponent(match[1]) : '';
+  };
+
+  const showTemporaryAlert = (message, type = 'success') => {
+    let container = document.querySelector('.alert-container');
+    if (!container) {
+      container = document.createElement('div');
+      container.className = 'alert-container m-5 position-fixed end-0 top-0 p-3';
+      container.style.zIndex = '1055';
+      document.body.appendChild(container);
+    }
+
+    const alert = document.createElement('div');
+    alert.className = `alert alert-${type} alert-dismissible fade show d-flex align-items-center`;
+    alert.setAttribute('role', 'alert');
+    alert.innerHTML = `<div>${message}</div><button type="button" class="btn-close ms-auto" data-bs-dismiss="alert" aria-label="Close"></button>`;
+    container.appendChild(alert);
+
+    window.setTimeout(() => {
+      try {
+        bootstrap.Alert.getOrCreateInstance(alert).close();
+      } catch (error) {
+        alert.remove();
+      }
+    }, 4000);
+  };
+
+  document.addEventListener('click', async (event) => {
+    const button = event.target.closest('.add-to-shopping-tab-btn');
+    if (!button) {
+      return;
+    }
+
+    event.preventDefault();
+
+    const modalUrl = button.getAttribute('data-modal-url');
+    if (!modalUrl) {
+      return;
+    }
+
+    try {
+      const response = await fetch(modalUrl, {
+        headers: {
+          'X-Requested-With': 'XMLHttpRequest',
+        },
+      });
+
+      if (!response.ok) {
+        throw new Error('Не удалось открыть окно выбора корзины');
+      }
+
+      const html = await response.text();
+      const container = document.getElementById('shopping-tab-modal-container');
+      if (container) {
+        container.innerHTML = html;
+      }
+    } catch (error) {
+      showTemporaryAlert(error.message || 'Произошла ошибка', 'danger');
+    }
+  });
+
+  document.addEventListener('submit', async (event) => {
+    const form = event.target;
+    if (!(form instanceof HTMLFormElement) || form.id !== 'add-to-shopping-tab-form') {
+      return;
+    }
+
+    event.preventDefault();
+
+    const formData = new FormData(form);
+
+    try {
+      const response = await fetch(form.action, {
+        method: 'POST',
+        headers: {
+          'X-CSRFToken': getCsrfToken(),
+          'X-Requested-With': 'XMLHttpRequest',
+        },
+        body: formData,
+      });
+
+      const data = await response.json();
+
+      if (response.ok && data.status === 'ok') {
+        const modalElement = document.getElementById('add-to-shopping-tab-modal');
+        if (modalElement) {
+          const modalInstance = bootstrap.Modal.getInstance(modalElement) || new bootstrap.Modal(modalElement);
+          modalInstance.hide();
+        }
+        showTemporaryAlert(data.message || 'Товар добавлен в корзину', 'success');
+      } else {
+        const message = data && data.errors ? Object.values(data.errors).flat().join('\n') : 'Не удалось добавить товар';
+        showTemporaryAlert(message, 'danger');
+      }
+    } catch (error) {
+      showTemporaryAlert('Не удалось добавить товар', 'danger');
+    }
   });
 </script>
 {% endblock %}

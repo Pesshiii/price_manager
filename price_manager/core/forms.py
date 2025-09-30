@@ -5,6 +5,51 @@ from .models import PriceManager, Discount
 
 from .models import *
 
+
+class ShopingTabForm(forms.ModelForm):
+  class Meta:
+    model = ShopingTab
+    fields = ['name']
+    widgets = {
+      'name': forms.TextInput(attrs={'class': 'form-control', 'placeholder': 'Название корзины'})
+    }
+
+
+class AlternateProductForm(forms.ModelForm):
+  def __init__(self, *args, **kwargs):
+    super().__init__(*args, **kwargs)
+    self.fields['main_product'].required = False
+    self.fields['main_product'].queryset = MainProduct.objects.order_by('name')
+
+  class Meta:
+    model = AlternateProduct
+    fields = ['name', 'main_product']
+    widgets = {
+      'name': forms.TextInput(attrs={'class': 'form-control', 'placeholder': 'Название товара'}),
+      'main_product': forms.Select(attrs={'class': 'form-select select2'})
+    }
+    labels = {
+      'name': 'Название',
+      'main_product': 'Главный товар'
+    }
+
+
+class ShopingTabAddProductForm(forms.Form):
+  shoping_tab = forms.ModelChoiceField(
+    queryset=ShopingTab.objects.none(),
+    label='Корзина',
+    widget=forms.Select(attrs={'class': 'form-select'})
+  )
+  main_product = forms.ModelChoiceField(
+    queryset=MainProduct.objects.order_by('name'),
+    label='',
+    widget=forms.HiddenInput()
+  )
+
+  def __init__(self, user, *args, **kwargs):
+    super().__init__(*args, **kwargs)
+    self.fields['shoping_tab'].queryset = ShopingTab.objects.filter(user=user).order_by('name')
+
 class SupplierForm(forms.ModelForm):
   class Meta:
     model = Supplier

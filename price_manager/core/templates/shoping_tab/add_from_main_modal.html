@@ -1,0 +1,53 @@
+<div class="modal fade" id="add-to-shopping-tab-modal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h1 class="modal-title fs-5">Добавить в корзину</h1>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Закрыть"></button>
+      </div>
+      <div class="modal-body">
+        <p class="mb-3">Выберите корзину для товара <strong>{{ product.name }}</strong>.</p>
+        {% if tabs %}
+          <form id="add-to-shopping-tab-form" action="{% url 'shoping-tab-add-product' %}" method="post">
+            {% csrf_token %}
+            <input type="hidden" name="main_product" value="{{ product.pk }}">
+            <div class="mb-3">
+              <label for="id_shoping_tab" class="form-label">Корзина</label>
+              <select name="shoping_tab" class="form-select" required>
+                <option value="" selected disabled>Выберите корзину</option>
+                {% for tab in tabs %}
+                  <option value="{{ tab.pk }}">{{ tab.name }}</option>
+                {% endfor %}
+              </select>
+            </div>
+            <div class="modal-footer px-0 pb-0">
+              <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Отмена</button>
+              <button type="submit" class="btn btn-primary">
+                <i class="bi bi-cart-plus"></i> Добавить
+              </button>
+            </div>
+          </form>
+        {% else %}
+          <div class="alert alert-info">
+            У вас еще нет корзин. <a href="{% url 'shoping-tab-list' %}">Создайте корзину</a>, чтобы добавить в нее товары.
+          </div>
+          <div class="modal-footer px-0 pb-0">
+            <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Закрыть</button>
+            <a href="{% url 'shoping-tab-list' %}" class="btn btn-primary">Перейти к корзинам</a>
+          </div>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+</div>
+<script>
+  (function() {
+    const modalElement = document.getElementById('add-to-shopping-tab-modal');
+    const modal = new bootstrap.Modal(modalElement);
+    modalElement.addEventListener('hidden.bs.modal', () => {
+      modal.dispose();
+      modalElement.remove();
+    });
+    modal.show();
+  })();
+</script>

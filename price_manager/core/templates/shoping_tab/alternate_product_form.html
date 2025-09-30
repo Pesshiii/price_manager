@@ -1,0 +1,51 @@
+{% extends 'base.html' %}
+
+{% block title %}
+Редактирование товара
+{% endblock %}
+
+{% block body %}
+<h1 class="h3 mb-4">Редактирование товара</h1>
+<form method="post" class="card card-body shadow-sm">
+  {% csrf_token %}
+  <div class="row g-3">
+    <div class="col-md-6 col-lg-4">
+      <label for="{{ form.name.id_for_label }}" class="form-label">Название</label>
+      {{ form.name }}
+      {% if form.name.errors %}
+        <div class="text-danger small">{{ form.name.errors|join:', ' }}</div>
+      {% endif %}
+    </div>
+    <div class="col-md-6 col-lg-4">
+      <label for="{{ form.main_product.id_for_label }}" class="form-label">Главный товар</label>
+      {{ form.main_product }}
+      {% if form.main_product.errors %}
+        <div class="text-danger small">{{ form.main_product.errors|join:', ' }}</div>
+      {% endif %}
+    </div>
+  </div>
+  <div class="mt-4 d-flex gap-2">
+    <button type="submit" class="btn btn-primary">
+      <i class="bi bi-save"></i> Сохранить
+    </button>
+    <a href="{% url 'shoping-tab-list' %}" class="btn btn-outline-secondary">Отмена</a>
+  </div>
+</form>
+{% endblock %}
+
+{% block script %}
+{{ block.super }}
+<script>
+  document.addEventListener('DOMContentLoaded', () => {
+    document.querySelectorAll('.select2').forEach((element) => {
+      if (window.jQuery && window.jQuery(element).select2) {
+        window.jQuery(element).select2({
+          width: '100%',
+          allowClear: true,
+          placeholder: element.dataset.placeholder || ''
+        });
+      }
+    });
+  });
+</script>
+{% endblock %}

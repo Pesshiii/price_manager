@@ -51,7 +51,13 @@ urlpatterns = [
 
     path('main-product/<int:id>/update', views.MainProductUpdate.as_view(), name='main-product-update'),
     path('main-product/sync/', views.sync_main_products, name='main-product-sync'),
-    path('toggle-basket/<int:pk>/', views.toggle_basket, name='toggle-basket'),
+    path('shoping-tabs/', views.ShopingTabListView.as_view(), name='shoping-tab-list'),
+    path('shoping-tabs/<int:pk>/delete/', views.ShopingTabDeleteView.as_view(), name='shoping-tab-delete'),
+    path('shoping-tabs/<int:tab_id>/products/add/', views.ShopingTabProductCreateView.as_view(), name='shoping-tab-product-create'),
+    path('shoping-tabs/<int:tab_id>/products/<int:product_id>/remove/', views.ShopingTabProductRemoveView.as_view(), name='shoping-tab-product-remove'),
+    path('alternate-products/<int:pk>/update/', views.AlternateProductUpdateView.as_view(), name='alternate-product-update'),
+    path('shoping-tabs/select/<int:product_id>/', views.ShopingTabSelectionView.as_view(), name='shoping-tab-selection'),
+    path('shoping-tabs/add-product/', views.ShopingTabAddProductView.as_view(), name='shoping-tab-add-product'),
 
     path('upload/<str:name>/<int:id>/', views.FileUpload.as_view(), name='upload'),
 ] + static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)
