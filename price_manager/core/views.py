@@ -908,7 +908,7 @@ def sync_main_products(request, **kwargs):
       if not mp.stock == sp.stock:
         mp.stock = sp.stock
         mp.available = mp.stock > 0
-      mp.stock_updated_at = timezone.now()
+      mp.stock_updated_at = sp.supplier.stock_updated_at
       sv = SearchVector('name', config='russian') + SearchVector('article', config='russian')
       if not mp.search_vector == sv:
         mp.search_vector = sv
