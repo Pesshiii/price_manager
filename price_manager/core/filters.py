@@ -56,8 +56,13 @@ class MainProductFilter(FilterSet):
       if not lexeme_list:
         continue
       for component in lexeme_list:
-        if component:
-          lexemes.add(component.lower())
+        if not component:
+          continue
+        component_lower = component.lower()
+        for bit in bits:
+          if bit in component_lower or component_lower in bit:
+            lexemes.add(component_lower)
+            break
 
     matched_terms = []
     for bit in bits:
