@@ -1,9 +1,6 @@
 from import_export import resources, fields
-from import_export.widgets import ForeignKeyWidget
-from .models import MainProduct, Supplier, Manufacturer, Category
-from import_export import resources, fields
 from import_export.widgets import ForeignKeyWidget, ManyToManyWidget
-from .models import SupplierProduct, Supplier, Manufacturer, Category, Discount
+from .models import *
 
 class CategoryWidget(ForeignKeyWidget):
     """Категория строкой: 'Инструмент > Ручной инструмент > Отвертки'."""
@@ -19,8 +16,7 @@ class CategoryWidget(ForeignKeyWidget):
             parent = node
         return node
 
-    # было: def render(self, value, obj=None):
-    def render(self, value, obj=None, **kwargs):  # ← добавить **kwargs
+    def render(self, value, obj=None, **kwargs):
         if not value:
             return ""
         path = []
@@ -57,6 +53,7 @@ class MainProductResource(resources.ModelResource):
         # Импортируем c сопоставлением по ID
         import_id_fields = ("id",)
         skip_unchanged = True
+        skip_errors = True
         report_skipped = True
 
 class SupplierProductResource(resources.ModelResource):
@@ -87,4 +84,5 @@ class SupplierProductResource(resources.ModelResource):
         export_order = fields
         import_id_fields = ("id",)
         skip_unchanged = True
+        skip_errors = True
         report_skipped = True
