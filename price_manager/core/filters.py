@@ -50,7 +50,6 @@ class MainProductFilter(FilterSet):
         output_field=ArrayField(models.TextField())
       )
     ).values_list('lexemes', flat=True)
-
     lexemes = set()
     for lexeme_list in lexeme_lists:
       if not lexeme_list:
@@ -63,31 +62,21 @@ class MainProductFilter(FilterSet):
           if bit in component_lower or component_lower in bit:
             lexemes.add(component_lower)
             break
-
     matched_terms = []
     for bit in bits:
-      best_match = bit
-      best_ratio = 0
       for component in lexemes:
-        if bit in component or component in bit:
-          ratio = min(len(bit), len(component)) / max(len(bit), len(component))
-          if ratio > best_ratio:
-            best_ratio = ratio
-            best_match = component
-      matched_terms.append(best_match)
-
+        ratio = min(len(bit), len(component)) / max(len(bit), len(component))
+        if abs(ratio - 1) < .5:
+          matched_terms.append(component)
     if not matched_terms:
       return queryset
-
-    search_queries = [SearchQuery(term, search_type="websearch") for term in matched_terms]
+    matched_terms = list(set(matched_terms))
+    search_queries = [Q(search_vector__contains=term) for term in matched_terms]
     combined_query = search_queries[0]
     for query_obj in search_queries[1:]:
-      combined_query &= query_obj
+      combined_query |= query_obj
 
-    rank = SearchRank("search_vector", combined_query)
-    queryset = queryset.annotate(rank=rank)
-
-    return queryset.filter(search_vector=combined_query).order_by("-rank")
+    return queryset.filter(combined_query)
   def anti_search_method(self, queryset, name, value):
     query = SearchQuery(value, search_type="websearch")  # or "websearch" or "plain"
     rank  = SearchRank("search_vector", query)
