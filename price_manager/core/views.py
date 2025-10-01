@@ -719,9 +719,15 @@ def upload_supplier_products(request, **kwargs):
               continue
             continue
           if field in SP_PRICES:
-            setattr(product, field, get_safe(row[column], float) * get_safe(setting.currency.value, float))
+            try:
+              setattr(product, field, get_safe(row[column], float) * get_safe(setting.currency.value, float))
+            except BaseException as ex:
+              messages.error(request, f'Ошибка конвертации цены {row[column]} в поле {field}: {ex}')
             continue
-          setattr(product, field, convert_sp(row[column], field))
+          try:
+            setattr(product, field, convert_sp(row[column], field))
+          except BaseException as ex:
+            messages.error(request, f'Ошибка конвертации {row[column]} в поле {field}: {ex}')
         if not product.rmp == 0 and not product.discounts.contains(discs['Есть РРЦ']):
           discs_add.append(
             product.discounts.through(supplierproduct=product,
@@ -1147,7 +1153,7 @@ def sync_main_products(request, **kwargs):
       if not mp.stock == sp.stock:
         mp.stock = sp.stock
         mp.available = mp.stock > 0
-        mp.stock_updated_at = timezone.now()
+        mp.stock_updated_at = sp.supplier.stock_updated_at
         change = True
       sv = SearchVector('name', config='russian') + SearchVector('article', config='russian')
       if not mp.search_vector == sv:
