@@ -62,6 +62,11 @@
                     </div>
                   </div>
                   <div class="d-flex gap-2">
+                    {% load special_tags %}
+                    <button class="btn btn-sm btn-outline-secondary" onclick="copyToClipboard(
+                      '{{tab.name}} \n{% for product in products|get:tab.name%}{{product.name}}  -   {{product.main_product.name}}\n{% endfor %}')">
+                      <i class="bi bi-clipboard-plus"></i>
+                    </button>
                     <a href="{% url 'shopping-tab-detail' tab.pk %}" class="btn btn-sm btn-outline-primary">
                       <i class="bi bi-box-arrow-in-right"></i> Открыть
                     </a>
@@ -86,4 +91,12 @@
     </div>
   </div>
 </div>
+{% endblock %}
+
+{% block script %}
+  <script>
+  function copyToClipboard(text) {
+      navigator.clipboard.writeText(text);
+  }
+  </script>
 {% endblock %}

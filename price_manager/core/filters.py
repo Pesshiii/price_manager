@@ -39,12 +39,12 @@ class MainProductFilter(FilterSet):
     queryset = queryset.annotate(rank=rank)
 
     for bit in value.split(' '):
-      query = SearchQuery(bit, search_type="websearch")
+      query = SearchQuery(bit, search_type="websearch", config='russian')
       queryset = queryset.filter(search_vector=query)      # uses GIN index
     
     return queryset.order_by("-rank")
   def anti_search_method(self, queryset, name, value):
-    query = SearchQuery(value, search_type="websearch")  # or "websearch" or "plain"
+    query = SearchQuery(value, search_type="websearch", config='russian')  # or "websearch" or "plain"
     rank  = SearchRank("search_vector", query)
 
     anti_queryset = queryset.annotate(rank=rank)

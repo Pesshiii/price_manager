@@ -1188,6 +1188,7 @@ class ShoppingTabListView(LoginRequiredMixin, TemplateView):
       .annotate(product_count=Count('products', distinct=True))
       .order_by('name')
     )
+    context['products'] = {tab.name: [product for product in tab.products.all()] for tab in context['tabs']}
     return context
 
   def post(self, request, *args, **kwargs):
