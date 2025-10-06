@@ -23,7 +23,18 @@
       <label for="{{ field.id_for_label }}" class="form-label">{{ field.label }}</label>
       {{ field }}
     {% else %}
-      {% include 'includes/category_tree_filter.html' with field=field category_tree=category_tree selected_categories=selected_categories %}
+      <div data-category-filter>
+        <label for="{{ field.auto_id }}_search" class="form-label">Поиск категории</label>
+        <input
+            type="search"
+            id="{{ field.auto_id }}_search"
+            class="form-control form-control-sm"
+            placeholder="Начните вводить название категории"
+            data-category-filter-search
+            data-ignore-auto-update="true"
+        >
+        {% include 'includes/category_tree_filter.html' with field=field category_tree=category_tree selected_categories=selected_categories %}
+      </div>
     {% endif %}
     {% if options is not None %}
       <div class="mt-3">

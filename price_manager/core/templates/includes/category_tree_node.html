@@ -1,4 +1,4 @@
-<li>
+<li data-category-node data-category-name="{{ node.category.name|lower|escape }}">
   <div class="form-check">
     <input
         class="form-check-input"
@@ -7,8 +7,16 @@
         value="{{ node.category.pk }}"
         id="{{ field.auto_id }}_{{ node.category.pk }}"
         {% if node.category.pk|stringformat:'s' in selected_categories %}checked{% endif %}
+        {% if node.children %}disabled data-category-non-selectable="true"{% else %}{% if node.category.pk|stringformat:'s' in selected_categories %}checked{% endif %}{% endif %}
     >
     <label class="form-check-label" for="{{ field.auto_id }}_{{ node.category.pk }}">{{ node.category.name }}</label>
+    <label
+        class="form-check-label{% if node.children %} text-muted{% endif %}"
+        for="{{ field.auto_id }}_{{ node.category.pk }}"
+        {% if node.children %}title="Выберите подкатегорию"{% endif %}
+    >
+      {{ node.category.name }}
+    </label>
   </div>
   {% if node.children %}
     <ul class="list-unstyled ms-3">

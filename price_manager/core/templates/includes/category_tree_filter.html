@@ -1,4 +1,4 @@
-<div class="category-tree">
+<div class="category-tree" data-category-tree>
   <ul class="list-unstyled">
     {% for node in category_tree %}
       {% include 'includes/category_tree_node.html' with node=node field=field selected_categories=selected_categories %}

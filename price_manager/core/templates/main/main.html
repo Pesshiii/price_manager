@@ -229,6 +229,10 @@
 
   const scheduleTableUpdate = debounce(requestTableUpdate, 500);
 
+  const shouldIgnoreAutoUpdate = (element) => {
+    return Boolean(element && element.dataset && element.dataset.ignoreAutoUpdate === 'true');
+  };
+
   const registerAutoUpdate = () => {
     const form = getFilterForm();
     if (!form || form.dataset.autoUpdateInitialized === 'true') {
@@ -242,6 +246,9 @@
       }
 
       if (target.matches('input[type="text"], input[type="search"], textarea')) {
+        if (shouldIgnoreAutoUpdate(target)) {
+          return;
+        }
         scheduleTableUpdate();
       }
     });
@@ -253,6 +260,9 @@
       }
 
       if (target.matches('input, select, textarea')) {
+        if (shouldIgnoreAutoUpdate(target)) {
+          return;
+        }
         requestTableUpdate();
       }
     });
@@ -260,10 +270,84 @@
     form.dataset.autoUpdateInitialized = 'true';
   };
 
+  const initCategoryFilterSearch = () => {
+    const containers = document.querySelectorAll('[data-category-filter]');
+    containers.forEach((container) => {
+      if (container.dataset.categoryFilterInitialized === 'true') {
+        return;
+      }
+
+      const searchInput = container.querySelector('[data-category-filter-search]');
+      const tree = container.querySelector('[data-category-tree]');
+
+      if (!searchInput || !tree) {
+        return;
+      }
+
+      const getChildList = (parent) => {
+        return Array.from(parent.children).find((element) => element.tagName === 'UL');
+      };
+
+      const getChildNodes = (parent) => {
+        const list = getChildList(parent);
+        if (!list) {
+          return [];
+        }
+        return Array.from(list.children).filter((child) => child.matches('[data-category-node]'));
+      };
+
+      const getRootNodes = () => {
+        const rootList = tree.querySelector('ul');
+        if (!rootList) {
+          return [];
+        }
+        return Array.from(rootList.children).filter((child) => child.matches('[data-category-node]'));
+      };
+
+      const filterTree = () => {
+        const term = searchInput.value.trim().toLowerCase();
+
+        if (!term) {
+          tree.querySelectorAll('[data-category-node]').forEach((node) => {
+            node.classList.remove('d-none');
+          });
+          return;
+        }
+
+        const applyFilter = (node) => {
+          const name = (node.dataset.categoryName || '').toLowerCase();
+          const children = getChildNodes(node);
+
+          let hasMatchingChild = false;
+          children.forEach((child) => {
+            if (applyFilter(child)) {
+              hasMatchingChild = true;
+            }
+          });
+
+          const matchesSelf = name.includes(term);
+          const shouldShow = matchesSelf || hasMatchingChild;
+          node.classList.toggle('d-none', !shouldShow);
+          return shouldShow;
+        };
+
+        getRootNodes().forEach((node) => {
+          applyFilter(node);
+        });
+      };
+
+      const debouncedFilter = debounce(filterTree, 150);
+      searchInput.addEventListener('input', debouncedFilter);
+      filterTree();
+      container.dataset.categoryFilterInitialized = 'true';
+    });
+  };
+
   document.addEventListener('DOMContentLoaded', () => {
     initDynamicFilters();
     initFilterToggles();
     registerAutoUpdate();
+    initCategoryFilterSearch();
     const shoppingTabModal = document.getElementById('shoppingTabSelectionModal');
     if (shoppingTabModal) {
       const modalContent = shoppingTabModal.querySelector('#shopping-tab-selection-modal-content');
@@ -288,6 +372,7 @@
       initDynamicFilters();
       initFilterToggles();
       registerAutoUpdate();
+      initCategoryFilterSearch();
     }
   });
 
@@ -297,6 +382,7 @@
     }
     initFilterToggles();
     registerAutoUpdate();
+    initCategoryFilterSearch();
   });
 </script>
 {% endblock %}
