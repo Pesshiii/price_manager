@@ -29,11 +29,22 @@ class MainProductFilter(FilterSet):
           }
       )
   )
+  available = filters.BooleanFilter(
+      field_name='stock',
+      widget=forms.Select(
+          attrs={
+              'class': 'form-select',
+          },
+          choices=[('', 'Любой'), ('true', 'В наличии'), ('false', 'Нет в наличии')]
+      ),
+      label='В наличии',
+      method='filter_available'
+  )
   class Meta:
     model = MainProduct
     fields = ['search', 'anti_search', 'supplier', 'category', 'manufacturer', 'available']
   def search_method(self, queryset, name, value):
-    query = SearchQuery(value, search_type="websearch")  # or "websearch" or "plain"
+    query = SearchQuery(value, search_type="websearch", config='russian')  # or "websearch" or "plain"
     rank  = SearchRank("search_vector", query)
 
     queryset = queryset.annotate(rank=rank)
@@ -53,6 +64,12 @@ class MainProductFilter(FilterSet):
       query = SearchQuery(bit, search_type="websearch")
       anti_queryset = anti_queryset.filter(search_vector=query)     # uses GIN index
     return queryset.filter(~Q(id__in=anti_queryset))
+  def filter_available(self, queryset, name, value):
+    if value is True:
+      return queryset.filter(stock__gt=0)
+    elif value is False:
+      return queryset.filter(Q(stock=0)|Q(stock__isnull=True))
+    return queryset
   
 class SupplierProductFilter(FilterSet):
   class Meta:

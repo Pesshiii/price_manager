@@ -268,9 +268,10 @@ class SupplierDetail(SingleTableMixin, FilterView):
 class SupplierCreate(CreateView):
   '''Таблица создания Поставщиков <<supplier/create/>>'''
   model = Supplier
-  fields = ['name', 'delivery_days']
+  fields = ['name', 'delivery_days', 'currency']
   success_url = '/supplier'
   template_name = 'supplier/create.html'
+
 
 class SupplierDelete(DeleteView):
   model = Supplier
@@ -720,7 +721,7 @@ def upload_supplier_products(request, **kwargs):
             continue
           if field in SP_PRICES:
             try:
-              setattr(product, field, get_safe(row[column], float) * get_safe(setting.currency.value, float))
+              setattr(product, field, get_safe(row[column], float))
             except BaseException as ex:
               messages.error(request, f'Ошибка конвертации цены {row[column]} в поле {field}: {ex}')
             continue
@@ -728,24 +729,17 @@ def upload_supplier_products(request, **kwargs):
             setattr(product, field, convert_sp(row[column], field))
           except BaseException as ex:
             messages.error(request, f'Ошибка конвертации {row[column]} в поле {field}: {ex}')
-        if not product.rmp == 0 and not product.discounts.contains(discs['Есть РРЦ']):
-          discs_add.append(
-            product.discounts.through(supplierproduct=product,
-                                      discount=discs['Есть РРЦ']))
+        if not product.rrp == 0 and not product.discounts.contains(discs['Есть РРЦ']):
           if product.discounts.contains(discs['Нет РРЦ']):
             discs_remove.append(product.discounts.through.objects.get(supplierproduct=product,
                                       discount=discs['Нет РРЦ']).id)
-        elif product.rmp == 0 and not product.discounts.contains(discs['Нет РРЦ']):
-          discs_add.append(
-            product.discounts.through(supplierproduct=product,
-                                      discount=discs['Нет РРЦ']))
+        elif product.rrp == 0 and not product.discounts.contains(discs['Нет РРЦ']):
           if product.discounts.contains(discs['Есть РРЦ']):
             discs_remove.append(product.discounts.through.objects.get(supplierproduct=product,
                                       discount=discs['Есть РРЦ']).id)
         if setting.update_main:
           main_product, main_created = MainProduct.objects.get_or_create(supplier=supplier, article=product.article,
                                                               name=product.name)
-          main_product.available = (product.stock > 0)
           main_product.search_vector = SearchVector('name', config='russian') + SearchVector('article', config='russian')
           if main_created and 'category' in rev_links:
             main_product.category = product.category
@@ -758,9 +752,9 @@ def upload_supplier_products(request, **kwargs):
       except BaseException as ex:
         exs.append(ex)
 
-  MainProduct.objects.bulk_update(mp, fields=['supplier', 'article', 'name', 'search_vector', 'available', 'manufacturer'])
+  MainProduct.objects.bulk_update(mp, fields=['supplier', 'article', 'name', 'search_vector', 'manufacturer'])
   SupplierProduct.objects.bulk_update(sp, fields=[field for field in links.values() if not field=='discounts'])
-  SupplierProduct.objects.bulk_update(sp, fields=['supplier_price', 'rmp', 'main_product'])
+  SupplierProduct.objects.bulk_update(sp, fields=['supplier_price', 'rrp', 'main_product'])
   SupplierProduct.discounts.through.objects.bulk_create(discs_add)
   SupplierProduct.discounts.through.objects.filter(id__in=discs_remove).delete()
   for price in SP_PRICES:
@@ -978,6 +972,12 @@ class PriceManagerCreate(SingleTableMixin, CreateView):
       conf_price_manager = conf_price_manager.filter(
       Q(discounts__in=cleaned_data['discounts'])|
       Q(discounts__isnull=True))
+    if cleaned_data['has_rrp'] is None:
+      conf_price_manager = conf_price_manager.filter(Q(has_rrp__isnull=True)|Q(has_rrp=True)|Q(has_rrp=False))
+    elif cleaned_data['has_rrp']:
+      conf_price_manager = conf_price_manager.filter(Q(has_rrp=True)|Q(has_rrp__isnull=True))
+    else:
+      conf_price_manager = conf_price_manager.filter(Q(has_rrp=False)|Q(has_rrp__isnull=True))
     conf_price_manager = conf_price_manager.filter(
       dest=cleaned_data['dest'])
     conf_price_manager = conf_price_manager.filter(supplier=cleaned_data['supplier'])
@@ -1069,6 +1069,12 @@ class PriceManagerUpdate(SingleTableMixin, UpdateView):
       conf_price_manager = conf_price_manager.filter(
       Q(discounts__in=cleaned_data['discounts'])|
       Q(discounts__isnull=True))
+    if cleaned_data['has_rrp'] is None:
+      conf_price_manager = conf_price_manager.filter(Q(has_rrp__isnull=True)|Q(has_rrp=True)|Q(has_rrp=False))
+    elif cleaned_data['has_rrp']:
+      conf_price_manager = conf_price_manager.filter(Q(has_rrp=True)|Q(has_rrp__isnull=True))
+    else:
+      conf_price_manager = conf_price_manager.filter(Q(has_rrp=False)|Q(has_rrp__isnull=True))
     conf_price_manager = conf_price_manager.filter(
       dest=cleaned_data['dest'])
     conf_price_manager = conf_price_manager.filter(supplier=cleaned_data['supplier'])
@@ -1098,6 +1104,10 @@ def apply_price_manager(price_manager: PriceManager):
   products = SupplierProduct.objects.all()
   products = products.filter(
     supplier=price_manager.supplier)
+  if price_manager.has_rrp:
+    products = products.filter(rrp__gt=0)
+  else:
+    products = products.filter(Q(rrp=0)|Q(rrp__isnull=True))
   if price_manager.discounts:
     products = products.filter(
       discounts__in=price_manager.discounts.all())
@@ -1120,7 +1130,7 @@ def apply_price_manager(price_manager: PriceManager):
             price_manager.dest, 
             math.ceil(getattr(
               product if price_manager.source in SP_PRICES else main_product, price_manager.source, None
-              )*(1+price_manager.markup/100)+price_manager.increase))
+              )*main_product.supplier.currency.value*(1+price_manager.markup/100)+price_manager.increase))
     main_product.price_updated_at = timezone.now()
     mps.append(main_product)
   MainProduct.objects.bulk_update(mps, fields=[price_manager.dest, 'price_updated_at'])
@@ -1152,7 +1162,6 @@ def sync_main_products(request, **kwargs):
       mp = sp.main_product
       if not mp.stock == sp.stock:
         mp.stock = sp.stock
-        mp.available = mp.stock > 0
         mp.stock_updated_at = sp.supplier.stock_updated_at
         change = True
       sv = SearchVector('name', config='russian') + SearchVector('article', config='russian')
@@ -1166,7 +1175,7 @@ def sync_main_products(request, **kwargs):
     except Exception as ex:
       errors += 1
       messages.error(request, f"Ошибка при обновлении {sp}: {ex}")
-  updated = MainProduct.objects.bulk_update(mps, ['stock', 'stock_updated_at', 'available', 'manufacturer', 'category', 'search_vector'])
+  updated = MainProduct.objects.bulk_update(mps, ['stock', 'stock_updated_at', 'manufacturer', 'category', 'search_vector'])
   messages.success(request, f"Остатки обновлены у {updated} товаров, ошибок: {errors}")
   for price_manager in PriceManager.objects.all():
     apply_price_manager(price_manager)

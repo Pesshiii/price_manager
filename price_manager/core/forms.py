@@ -54,12 +54,6 @@ class SettingForm(forms.ModelForm):
     widget=forms.HiddenInput,
     required=False
   )
-  currency = forms.ModelChoiceField(
-    Currency.objects,
-    label='Валюта',
-    required=True,
-    initial=Currency.objects.get(name='KZT')
-  )
   class Meta:
     model = Setting
     fields = '__all__'
@@ -88,9 +82,7 @@ class InitialForm(forms.Form):
 class PriceManagerForm(forms.ModelForm):
   class Meta:
     model = PriceManager
-    fields = ['name', 'supplier', 'discounts', 'source', 'dest', 'price_from', 'price_to', 'markup', 'increase']
-
-
+    fields = '__all__'
 class ShopingTabCreateForm(forms.ModelForm):
   class Meta:
     model = ShopingTab

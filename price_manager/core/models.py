@@ -10,7 +10,17 @@ from django.contrib.postgres.search import (SearchVectorField, SearchVector, Sea
 
 
 # Основные классы для продуктов(главных/поставщика)
-
+  
+class Currency(models.Model):
+  name = models.CharField(verbose_name='Название',
+                          unique=True,
+                          null=False)
+  value = models.DecimalField(verbose_name='Тенге',
+                               max_digits=1000,
+                               null=False,
+                               decimal_places=2)
+  def __str__(self):
+    return self.name
 
 class Supplier(models.Model):
   """
@@ -31,6 +41,11 @@ class Supplier(models.Model):
   price_updated_at = models.DateTimeField(verbose_name='Последнее обновление цены', 
                                           null=True,
                                           blank=True)
+  currency = models.ForeignKey(Currency,
+                               verbose_name='Валюта поставщика',
+                                on_delete=models.PROTECT,
+                                default=1,
+                                blank=False)
   stock_updated_at = models.DateTimeField(verbose_name='Последнее обновление остатка', 
                                           null=True,
                                           blank=True)
@@ -88,17 +103,7 @@ class ManufacturerDict(models.Model):
     verbose_name = 'Словарь Производителя'
   def __str__(self):
     return f'{self.name}({self.manufacturer.name})'
-  
-class Currency(models.Model):
-  name = models.CharField(verbose_name='Название',
-                          unique=True,
-                          null=False)
-  value = models.DecimalField(verbose_name='Тенге',
-                               max_digits=1000,
-                               null=False,
-                               decimal_places=2)
-  def __str__(self):
-    return self.name
+
 
 class Category(models.Model):
   parent = models.ForeignKey('self',
@@ -144,18 +149,21 @@ class PriceManager(models.Model):
                                related_name='price_managers',
                                null=True,
                                blank=False)
+  has_rrp = models.BooleanField(verbose_name='Есть РРЦ',
+                             choices=[(None, 'Без разницы'),(True,'Да'),(False,'Нет')],
+                             null=True,
+                             blank=True)
   discounts = models.ManyToManyField(Discount,
                                verbose_name='Группа скидок',
                                related_name='price_managers',
                                blank=True)
   source = models.CharField(verbose_name='От какой цены считать',
                                  choices=[
-                                  ('rmp', 'РРЦ в тенге'),
-                                  ('supplier_price', 'Цена поставщика в тенге'),
+                                  ('rrp', 'РРЦ в валюте поставщика'),
+                                  ('supplier_price', 'Цена поставщика в валюте поставщика'),
                                   ('basic_price', 'Базовая цена'),
                                   ('prime_cost', 'Себестоимость'),
                                   ('m_price', 'Цена ИМ'),
-                                  ('rmp', 'РРЦ'),
                                   ('wholesale_price', 'Оптовая цена'),
                                   ('wholesale_price_extra', 'Оптовая цена1')])
   dest = models.CharField(verbose_name='Какую цену считать',
@@ -231,8 +239,6 @@ class MainProduct(models.Model):
                                    blank=True)
   stock = models.PositiveIntegerField(verbose_name='Остаток',
                                       null=True)
-  available = models.BooleanField(verbose_name='Наличие',
-                              default=False)
   weight = models.DecimalField(
       verbose_name='Вес',
       decimal_places=1,
@@ -305,10 +311,10 @@ class MainProduct(models.Model):
       GinIndex(fields=['search_vector']),
     ]
   
-SP_TABLE_FIELDS = ['discounts', 'category','article', 'name', 'supplier_price', 'rmp']
+SP_TABLE_FIELDS = ['discounts', 'category','article', 'name', 'supplier_price', 'rrp']
 SP_CHARS = ['article', 'name']
 SP_FKS = ['main_product', 'category', 'supplier', 'manufacturer', 'discounts']
-SP_PRICES = ['supplier_price', 'rmp']
+SP_PRICES = ['supplier_price', 'rrp']
 SP_INTEGERS = ['stock']
 SP_MANAGMENT = ['updated_at']
 
@@ -348,12 +354,12 @@ class SupplierProduct(models.Model):
   stock = models.PositiveIntegerField(verbose_name='Остаток',
                               default=0)
   supplier_price = models.DecimalField(
-      verbose_name='Цена поставщика в тенге',
+      verbose_name='Цена поставщика в валюте поставщика',
       decimal_places=2,
       max_digits=20,
       default=0)
-  rmp = models.DecimalField(
-      verbose_name='РРЦ в тенге',
+  rrp = models.DecimalField(
+      verbose_name='РРЦ в валюте поставщика',
       decimal_places=2,
       max_digits=20,
       default=0)
@@ -378,8 +384,8 @@ LINKS = {'': 'Не включать',
          'discounts': 'Группа скидок',
          'manufacturer': 'Производитель',
          'stock': 'Остаток',
-         'supplier_price': 'Цена поставщика в указанной валюте',
-         'rmp': 'РРЦ в указанной валюте',
+         'supplier_price': 'Цена поставщика в валюте поставщика',
+         'rrp': 'РРЦ в валюте поставщика',
          }
 
 class Setting(models.Model):
@@ -395,10 +401,6 @@ class Setting(models.Model):
                                   default=True)
   differ_by_name = models.BooleanField(verbose_name='Различать по имени',
                                        default=True)
-  currency = models.ForeignKey(Currency,
-                               verbose_name='Валюта',
-                               on_delete=models.PROTECT,
-                               blank=False)
   class Meta:
     constraints = [models.UniqueConstraint(fields=['name', 'supplier'], name='name_supplier_constraint')]
 
