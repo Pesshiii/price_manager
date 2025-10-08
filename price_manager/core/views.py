@@ -1101,6 +1101,17 @@ class PriceManagerDelete(DeleteView):
   success_url = '/price-manager/'
 
 def apply_price_manager(price_manager: PriceManager):
+  has_rrp = Discount.objects.filter(name="Есть РРЦ").first()
+  no_rrp = Discount.objects.filter(name="Есть РРЦ").first()
+  if has_rrp and price_manager.discounts.contains(has_rrp):
+    price_manager.discounts.remove(has_rrp)
+    price_manager.has_rrp = True
+    price_manager.save()
+  if no_rrp and price_manager.discounts.contains(no_rrp):
+    price_manager.discounts.remove(no_rrp)
+    price_manager.has_rrp = False
+    price_manager.save()
+  price_manager.discounts
   products = SupplierProduct.objects.all()
   products = products.filter(
     supplier=price_manager.supplier)
@@ -1126,11 +1137,18 @@ def apply_price_manager(price_manager: PriceManager):
   for product in products:
     main_product = product.main_product
     main_product.price_managers.add(price_manager)
+
+    if has_rrp and product.discounts.contains(has_rrp):
+      product.discounts.remove(has_rrp)
+      product.save()
+    if no_rrp and product.discounts.contains(no_rrp):
+      product.discounts.remove(no_rrp)
+      product.save()
+    
     setattr(main_product, 
             price_manager.dest, 
             math.ceil(getattr(
-              product if price_manager.source in SP_PRICES else main_product, price_manager.source, None
-              )*main_product.supplier.currency.value*(1+price_manager.markup/100)+price_manager.increase))
+              product if price_manager.source in SP_PRICES else main_product, price_manager.source, 0)*main_product.supplier.currency.value*(1+price_manager.markup/100)+price_manager.increase))
     main_product.price_updated_at = timezone.now()
     mps.append(main_product)
   MainProduct.objects.bulk_update(mps, fields=[price_manager.dest, 'price_updated_at'])
@@ -1164,10 +1182,10 @@ def sync_main_products(request, **kwargs):
         mp.stock = sp.stock
         mp.stock_updated_at = sp.supplier.stock_updated_at
         change = True
-      sv = SearchVector('name', config='russian') + SearchVector('article', config='russian')
-      if not mp.search_vector == sv:
-        mp.search_vector = sv
-        change = True
+      # sv = SearchVector('name', config='russian') + SearchVector('article', config='russian')
+      # if not mp.search_vector == sv:
+      #   mp.search_vector = sv
+      #   change = True
       if change:
         mps.append(mp)
 
