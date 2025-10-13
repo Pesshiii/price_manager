@@ -268,7 +268,7 @@ class SupplierDetail(SingleTableMixin, FilterView):
 class SupplierCreate(CreateView):
   '''Таблица создания Поставщиков <<supplier/create/>>'''
   model = Supplier
-  fields = ['name', 'delivery_days', 'currency']
+  fields = SUPPLIER_SPECIFIABLE_FIELDS
   success_url = '/supplier'
   template_name = 'supplier/create.html'
 
@@ -282,7 +282,7 @@ class SupplierDelete(DeleteView):
 class SupplierUpdate(UpdateView):
   '''Таблица  обновления Поставщиков <<supplier/update/>>'''
   model = Supplier
-  fields = '__all__'
+  fields = SUPPLIER_SPECIFIABLE_FIELDS
   success_url = '/supplier'
   template_name = 'supplier/update.html'
   pk_url_kwarg='id'
@@ -360,10 +360,16 @@ def get_safe(value, type=None):
 
 def convert_sp(value, field):
   if field in SP_PRICES:
-    num = float(value)
+    if not value or  value == '':
+      num = 0
+    else:
+      num = float(value)
     return 0 if num < 0 else num
   if field in SP_INTEGERS:
-    num = int(value)
+    if not value or  value == '':
+      num = 0
+    else:
+      num = int(float(value))
     return 0 if num < 0 else num
   return value
 
@@ -654,6 +660,19 @@ def delete_supplier_product(request, **kwargs):
   product.delete()
   return redirect('supplier-detail', id = id)
 
+def clean_column(column):
+  column = column.str.strip()
+
+  # # Convert to lowercase/uppercase
+  # column = column.str.lower()
+  # column = column.str.upper()
+
+  # Remove special characters
+  column = column.str.replace(r'[^\w\s]', '', regex=True)
+
+  # Replace multiple spaces with single space
+  column = column.str.replace(r'\s+', ' ', regex=True)
+  return column
 
 def upload_supplier_products(request, **kwargs):
   '''Тригер загрузки товаров <<setting/<int:id>/upload/<int:f_id>/upload/>>'''
@@ -669,9 +688,8 @@ def upload_supplier_products(request, **kwargs):
 
   discs = {}
   if 'discounts' in rev_links:
+    df[rev_links['discounts']] = clean_column(df[rev_links['discounts']])
     discs = {disc: Discount.objects.get_or_create(supplier=supplier, name=disc)[0] for disc in df[rev_links['discounts']].unique()}
-  discs['Есть РРЦ']= Discount.objects.get_or_create(supplier=supplier, name='Есть РРЦ')[0]
-  discs['Нет РРЦ']= Discount.objects.get_or_create(supplier=supplier, name='Нет РРЦ')[0]
   cats = {}
   if 'category' in rev_links:
     cats = {cat: Category.objects.get_or_create(name=cat)[0] for cat in df[rev_links['category']].unique()}
@@ -729,14 +747,6 @@ def upload_supplier_products(request, **kwargs):
             setattr(product, field, convert_sp(row[column], field))
           except BaseException as ex:
             messages.error(request, f'Ошибка конвертации {row[column]} в поле {field}: {ex}')
-        if not product.rrp == 0 and not product.discounts.contains(discs['Есть РРЦ']):
-          if product.discounts.contains(discs['Нет РРЦ']):
-            discs_remove.append(product.discounts.through.objects.get(supplierproduct=product,
-                                      discount=discs['Нет РРЦ']).id)
-        elif product.rrp == 0 and not product.discounts.contains(discs['Нет РРЦ']):
-          if product.discounts.contains(discs['Есть РРЦ']):
-            discs_remove.append(product.discounts.through.objects.get(supplierproduct=product,
-                                      discount=discs['Есть РРЦ']).id)
         if setting.update_main:
           main_product, main_created = MainProduct.objects.get_or_create(supplier=supplier, article=product.article,
                                                               name=product.name)
@@ -755,8 +765,6 @@ def upload_supplier_products(request, **kwargs):
   MainProduct.objects.bulk_update(mp, fields=['supplier', 'article', 'name', 'search_vector', 'manufacturer'])
   SupplierProduct.objects.bulk_update(sp, fields=[field for field in links.values() if not field=='discounts'])
   SupplierProduct.objects.bulk_update(sp, fields=['supplier_price', 'rrp', 'main_product'])
-  SupplierProduct.discounts.through.objects.bulk_create(discs_add)
-  SupplierProduct.discounts.through.objects.filter(id__in=discs_remove).delete()
   for price in SP_PRICES:
     if price in rev_links:
       supplier.price_updated_at = timezone.now()
@@ -913,6 +921,12 @@ class PriceManagerCreate(SingleTableMixin, CreateView):
     cleaned_data = self.cleaned_data
     products = products.filter(
       supplier=cleaned_data['supplier'])
+    if not cleaned_data['has_rrp'] is None:
+      if cleaned_data['has_rrp']:
+        products = products.filter(rrp__gt=0)
+      else:
+        products = products.filter(rrp=0)
+
     if cleaned_data['discounts']:
       products = products.filter(
         discounts__in=cleaned_data['discounts'])
@@ -948,7 +962,7 @@ class PriceManagerCreate(SingleTableMixin, CreateView):
       if price_from>=price_to:
         messages.error(self.request, f'''Неверная ценовая зона: "От" больше или равен "До"''')
         return self.form_invalid(form)
-    if price_to==0:
+    if price_to and price_to==0:
       messages.error(self.request, f'''Неверная ценовая зона: "До" равен 0''')
       return self.form_invalid(form)
     query = Q()
@@ -1007,6 +1021,12 @@ class PriceManagerUpdate(SingleTableMixin, UpdateView):
     cleaned_data = self.cleaned_data
     products = products.filter(
       supplier=cleaned_data['supplier'])
+    if not cleaned_data['has_rrp'] is None:
+      if cleaned_data['has_rrp']:
+        products = products.filter(rrp__gt=0)
+      else:
+        products = products.filter(rrp=0)
+
     if cleaned_data['discounts']:
       products = products.filter(
         discounts__in=cleaned_data['discounts'])
@@ -1101,27 +1121,22 @@ class PriceManagerDelete(DeleteView):
   success_url = '/price-manager/'
 
 def apply_price_manager(price_manager: PriceManager):
-  has_rrp = Discount.objects.filter(name="Есть РРЦ").first()
-  no_rrp = Discount.objects.filter(name="Есть РРЦ").first()
-  if has_rrp and price_manager.discounts.contains(has_rrp):
-    price_manager.discounts.remove(has_rrp)
-    price_manager.has_rrp = True
-    price_manager.save()
-  if no_rrp and price_manager.discounts.contains(no_rrp):
-    price_manager.discounts.remove(no_rrp)
-    price_manager.has_rrp = False
-    price_manager.save()
-  price_manager.discounts
   products = SupplierProduct.objects.all()
   products = products.filter(
     supplier=price_manager.supplier)
-  if price_manager.has_rrp:
-    products = products.filter(rrp__gt=0)
-  else:
-    products = products.filter(Q(rrp=0)|Q(rrp__isnull=True))
-  if price_manager.discounts:
+  if not price_manager.has_rrp is None:
+    if price_manager.has_rrp:
+      products = products.filter(rrp__gt=0)
+    else:
+      products = products.filter(rrp=0)
+
+  discounts = list(price_manager.discounts.values_list('id'))
+  if not discounts == []:
     products = products.filter(
-      discounts__in=price_manager.discounts.all())
+      discounts__in=discounts)
+    
+
+
   if price_manager.source in SP_PRICES:
     products = products.filter(get_price_querry(
       price_manager.price_from,
@@ -1132,25 +1147,18 @@ def apply_price_manager(price_manager: PriceManager):
       price_manager.price_from,
       price_manager.price_to,
       f'''main_product__{price_manager.source}'''))
-
   mps = []
   for product in products:
     main_product = product.main_product
     main_product.price_managers.add(price_manager)
 
-    if has_rrp and product.discounts.contains(has_rrp):
-      product.discounts.remove(has_rrp)
-      product.save()
-    if no_rrp and product.discounts.contains(no_rrp):
-      product.discounts.remove(no_rrp)
-      product.save()
-    
     setattr(main_product, 
             price_manager.dest, 
             math.ceil(getattr(
               product if price_manager.source in SP_PRICES else main_product, price_manager.source, 0)*main_product.supplier.currency.value*(1+price_manager.markup/100)+price_manager.increase))
     main_product.price_updated_at = timezone.now()
     mps.append(main_product)
+  print(price_manager.dest)
   MainProduct.objects.bulk_update(mps, fields=[price_manager.dest, 'price_updated_at'])
   
 
@@ -1164,13 +1172,17 @@ class MainProductUpdate(UpdateView):
     pk_url_kwarg = 'id'
 
 def sync_main_products(request, **kwargs):
-  """Обновляет только остатки (stock) в MainProduct из SupplierProduct"""
+  """Обновляет остатки и применяет наценки в MainProduct из SupplierProduct"""
   updated = 0
   errors = 0
 
   supplier_products = SupplierProduct.objects.select_related("main_product").all()
 
   mps = []
+
+  
+  has_rrp = Discount.objects.filter(name="Есть РРЦ").first()
+  no_rrp = Discount.objects.filter(name="Нет РРЦ").first()
 
   for sp in supplier_products:
     try:
@@ -1182,21 +1194,35 @@ def sync_main_products(request, **kwargs):
         mp.stock = sp.stock
         mp.stock_updated_at = sp.supplier.stock_updated_at
         change = True
-      # sv = SearchVector('name', config='russian') + SearchVector('article', config='russian')
-      # if not mp.search_vector == sv:
-      #   mp.search_vector = sv
-      #   change = True
       if change:
         mps.append(mp)
 
-
+    
+      if has_rrp and sp.discounts.contains(has_rrp):
+        sp.discounts.remove(has_rrp)
+        sp.save()
+      if no_rrp and sp.discounts.contains(no_rrp):
+        sp.discounts.remove(no_rrp)
+        sp.save()
     except Exception as ex:
       errors += 1
       messages.error(request, f"Ошибка при обновлении {sp}: {ex}")
   updated = MainProduct.objects.bulk_update(mps, ['stock', 'stock_updated_at', 'manufacturer', 'category', 'search_vector'])
   messages.success(request, f"Остатки обновлены у {updated} товаров, ошибок: {errors}")
   for price_manager in PriceManager.objects.all():
+    if has_rrp and price_manager.discounts.contains(has_rrp):
+      price_manager.discounts.remove(has_rrp)
+      price_manager.has_rrp = True
+      price_manager.save()
+    if no_rrp and price_manager.discounts.contains(no_rrp):
+      price_manager.discounts.remove(no_rrp)
+      price_manager.has_rrp = False
+      price_manager.save()
     apply_price_manager(price_manager)
+  if has_rrp:
+    has_rrp.delete()
+  if no_rrp:
+    no_rrp.delete()
   messages.success(request, 'Наценки применены')
   return redirect('main')
 

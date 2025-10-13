@@ -7,7 +7,9 @@ from django.dispatch import receiver
 from django.contrib.postgres.indexes import GinIndex
 from django.contrib.postgres.search import (SearchVectorField, SearchVector, SearchQuery, SearchRank)
 
-
+TIME_FREQ = {'Каждый день': 1,
+             'Каждую неделю': 7,
+             'Каждые три недели': 21}
 
 # Основные классы для продуктов(главных/поставщика)
   
@@ -21,6 +23,8 @@ class Currency(models.Model):
                                decimal_places=2)
   def __str__(self):
     return self.name
+
+SUPPLIER_SPECIFIABLE_FIELDS = ['name', 'delivery_days', 'currency', 'price_update_rate', 'stock_update_rate']
 
 class Supplier(models.Model):
   """
@@ -51,6 +55,10 @@ class Supplier(models.Model):
                                           blank=True)
   delivery_days = models.PositiveIntegerField(verbose_name='Срок доставки',
                                               default=0)
+  price_update_rate = models.CharField(verbose_name='Частота обновления цен',
+                                       choices=[(_, _) for _ in TIME_FREQ.keys()])
+  stock_update_rate = models.CharField(verbose_name='Частота обновления остатков',
+                                       choices=[(_, _) for _ in TIME_FREQ.keys()])
   class Meta:
     verbose_name = 'Поставщик'
   def __str__(self):

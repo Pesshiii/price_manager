@@ -1,4 +1,5 @@
 from django.utils.html import format_html, mark_safe
+from django.utils import timezone
 from django.template.loader import render_to_string
 import django_tables2 as tables
 
@@ -23,7 +24,13 @@ class SupplierListTable(tables.Table):
     attrs = {
       'class': 'table table-auto table-stripped table-hover clickable-rows'
       }
-    
+  def render_name(self, record):
+    now = timezone.now()
+    danger = (now - record.stock_updated_at).days >= TIME_FREQ[record.stock_update_rate] or (now - record.price_updated_at).days >= TIME_FREQ[record.price_update_rate]
+    color = 'danger' if danger else 'success'
+    return format_html(f'''<span class=" status-indicator bg-{color} rounded-circle"></span> {record.name}''')
+  
+
 class SettingListTable(tables.Table):
   '''Таблица отображаемая на странице Поставщик/Настройки'''
   actions = tables.TemplateColumn(
