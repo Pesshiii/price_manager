@@ -26,7 +26,10 @@ class SupplierListTable(tables.Table):
       }
   def render_name(self, record):
     now = timezone.now()
-    danger = (now - record.stock_updated_at).days >= TIME_FREQ[record.stock_update_rate] or (now - record.price_updated_at).days >= TIME_FREQ[record.price_update_rate]
+    try:
+      danger = (now - record.stock_updated_at).days >= TIME_FREQ[record.stock_update_rate] or (now - record.price_updated_at).days >= TIME_FREQ[record.price_update_rate]
+    except:
+      danger = False
     color = 'danger' if danger else 'success'
     return format_html(f'''<span class=" status-indicator bg-{color} rounded-circle"></span> {record.name}''')
   
