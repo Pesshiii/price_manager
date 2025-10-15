@@ -112,20 +112,13 @@ class ShopingTabUpdateForm(forms.ModelForm):
 class AlternateProductForm(forms.ModelForm):
   class Meta:
     model = AlternateProduct
-    fields = ['name', 'main_product']
+    fields = ['name']
     labels = {
       'name': 'Название',
-      'main_product': 'Главный товар',
     }
     widgets = {
-      'name': forms.TextInput(attrs={'class': 'form-control'}),
-      'main_product': forms.Select(attrs={'class': 'form-select'}),
+      'name': forms.TextInput(attrs={'class': 'form-control'})
     }
-
-  def __init__(self, *args, **kwargs):
-    super().__init__(*args, **kwargs)
-    self.fields['main_product'].required = False
-    self.fields['main_product'].queryset = MainProduct.objects.order_by('name')
 
 # class PriceManagerAdminForm(forms.ModelForm):
 #     class Meta:
