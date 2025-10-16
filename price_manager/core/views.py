@@ -700,8 +700,6 @@ def upload_supplier_products(request, **kwargs):
   
   sp = []
   mp = []
-  discs_add = []
-  discs_remove = []
   new = 0
   overall = 0
   exs = []

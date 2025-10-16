@@ -13,13 +13,13 @@ class Migration(migrations.Migration):
         migrations.AddField(
             model_name='supplier',
             name='price_update_rate',
-            field=models.CharField(choices=[('Каждый день', 'Каждый день'), ('Каждую неделю', 'Каждую неделю'), ('Каждые три недели', 'Каждые три недели')], default=1, verbose_name='Частота обновления цен'),
+            field=models.CharField(choices=[('Каждый день', 'Каждый день'), ('Каждую неделю', 'Каждую неделю'), ('Каждые три недели', 'Каждые три недели')], default='Каждый день', verbose_name='Частота обновления цен'),
             preserve_default=False,
         ),
         migrations.AddField(
             model_name='supplier',
             name='stock_update_rate',
-            field=models.CharField(choices=[('Каждый день', 'Каждый день'), ('Каждую неделю', 'Каждую неделю'), ('Каждые три недели', 'Каждые три недели')], default=1, verbose_name='Частота обновления остатков'),
+            field=models.CharField(choices=[('Каждый день', 'Каждый день'), ('Каждую неделю', 'Каждую неделю'), ('Каждые три недели', 'Каждые три недели')], default='Каждый день', verbose_name='Частота обновления остатков'),
             preserve_default=False,
         ),
         migrations.AlterField(
