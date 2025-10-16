@@ -17,7 +17,7 @@ from django.views.generic import (View,
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.urls import reverse
 from typing import Optional, Any, Dict, Iterable
-from collections import defaultdict
+from collections import defaultdict, OrderedDict
 from django.db.models import Count, Prefetch
 from django_tables2 import SingleTableView, RequestConfig, SingleTableMixin
 from django_filters.views import FilterView, FilterMixin
@@ -173,6 +173,7 @@ class MainPage(SingleTableMixin, FilterView):
   filterset_class = MainProductFilter
   table_class = MainProductListTable
   template_name = 'main/main.html'
+  table_pagination = False
 
   def get_table(self, **kwargs):
     return super().get_table(**kwargs, request=self.request)
@@ -181,6 +182,41 @@ class MainPage(SingleTableMixin, FilterView):
     context = super().get_context_data(**kwargs)
     filter_context = get_main_filter_context(self.request)
     context.update(filter_context)
+
+    filterset = context.get('filter')
+    category_tables = []
+
+    if filterset is not None:
+      filtered_records = list(filterset.qs.select_related('category'))
+
+      grouped_records = OrderedDict()
+      for product in filtered_records:
+        category = product.category
+        key = category.pk if category else None
+        if key not in grouped_records:
+          grouped_records[key] = {
+              'category': category,
+              'records': []
+          }
+        grouped_records[key]['records'].append(product)
+
+      sorted_groups = sorted(
+          grouped_records.values(),
+          key=lambda item: (
+              item['category'] is None,
+              (item['category'].name.lower() if item['category'] else ''),
+          )
+      )
+
+      for group in sorted_groups:
+        category_table = self.table_class(group['records'], request=self.request)
+        RequestConfig(self.request, paginate=False).configure(category_table)
+        category_tables.append({
+            'category': group['category'],
+            'table': category_table,
+        })
+
+    context['category_tables'] = category_tables
 
     filter_form = filter_context['filter_form']
     dynamic_url = reverse('main-filter-options')
