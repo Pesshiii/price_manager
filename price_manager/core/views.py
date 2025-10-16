@@ -210,7 +210,7 @@ class MainPage(SingleTableMixin, FilterView):
 
       for group in sorted_groups:
         category_table = self.table_class(group['records'], request=self.request)
-        RequestConfig(self.request, paginate=False).configure(category_table)
+        RequestConfig(self.request).configure(category_table)
         category_tables.append({
             'category': group['category'],
             'table': category_table,
