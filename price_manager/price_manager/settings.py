@@ -42,6 +42,8 @@ INSTALLED_APPS = [
     'django_tables2',
     'import_export',
     'django_filters',
+    'dal',
+    'dal_select2',
 ]
 
 MIDDLEWARE = [
@@ -50,6 +52,7 @@ MIDDLEWARE = [
     'django.middleware.common.CommonMiddleware',
     'django.middleware.csrf.CsrfViewMiddleware',
     'django.contrib.auth.middleware.AuthenticationMiddleware',
+    'core.middleware.LoginRequiredMiddleware',
     'django.contrib.messages.middleware.MessageMiddleware',
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
 ]
@@ -110,7 +113,7 @@ DATABASES = {
     # }
 }
 
-DATA_UPLOAD_MAX_NUMBER_FIELDS = 20000
+DATA_UPLOAD_MAX_NUMBER_FIELDS = 50000
 
 
 # Password validation
@@ -165,3 +168,17 @@ MESSAGE_TAGS = {
     messages.WARNING: 'alert-warning',
     messages.ERROR: 'alert-danger',
 }
+
+LOGIN_URL = 'login'
+LOGIN_REDIRECT_URL = 'main'
+LOGOUT_REDIRECT_URL = 'login'
+LOGIN_EXEMPT_URLS = (
+    'login',
+    'logout',
+    'admin:login',
+    'admin:logout',
+    'admin:password_reset',
+    'admin:password_reset_done',
+    'admin:password_reset_confirm',
+    'admin:password_reset_complete',
+)

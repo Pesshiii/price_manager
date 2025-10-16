@@ -54,12 +54,6 @@ class SettingForm(forms.ModelForm):
     widget=forms.HiddenInput,
     required=False
   )
-  currency = forms.ModelChoiceField(
-    Currency.objects,
-    label='Валюта',
-    required=True,
-    initial=Currency.objects.get(name='KZT')
-  )
   class Meta:
     model = Setting
     fields = '__all__'
@@ -83,12 +77,48 @@ class InitialForm(forms.Form):
   initial = forms.CharField(label='Начальное значение',
                             required=False,
                             empty_value='')
-  
+
 
 class PriceManagerForm(forms.ModelForm):
   class Meta:
     model = PriceManager
-    fields = ['name', 'supplier', 'discounts', 'source', 'dest', 'price_from', 'price_to', 'markup', 'increase']
+    fields = '__all__'
+class ShopingTabCreateForm(forms.ModelForm):
+  class Meta:
+    model = ShopingTab
+    fields = ['name']
+    labels = {
+      'name': 'Название корзины',
+    }
+    widgets = {
+      'name': forms.TextInput(attrs={'class': 'form-control', 'placeholder': 'Например, Заказ №1'}),
+    }
+
+
+class ShopingTabUpdateForm(forms.ModelForm):
+  class Meta:
+    model = ShopingTab
+    fields = ['name', 'open']
+    labels = {
+      'name': 'Название',
+      'open': 'Открыта',
+    }
+    widgets = {
+      'name': forms.TextInput(attrs={'class': 'form-control'}),
+      'open': forms.CheckboxInput(attrs={'class': 'form-check-input'}),
+    }
+
+
+class AlternateProductForm(forms.ModelForm):
+  class Meta:
+    model = AlternateProduct
+    fields = ['name']
+    labels = {
+      'name': 'Название',
+    }
+    widgets = {
+      'name': forms.TextInput(attrs={'class': 'form-control'})
+    }
 
 # class PriceManagerAdminForm(forms.ModelForm):
 #     class Meta:
@@ -118,3 +148,4 @@ class PriceManagerForm(forms.ModelForm):
 
 #         if supplier_id:
 #             self.fields['discount'].queryset = Discount.objects.filter(supplier_id=supplier_id).order_by('name')
+
