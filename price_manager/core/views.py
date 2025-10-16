@@ -784,7 +784,8 @@ def upload_supplier_products(request, **kwargs):
         if setting.update_main:
           main_product, main_created = MainProduct.objects.get_or_create(supplier=supplier, article=product.article,
                                                               name=product.name)
-          main_product.search_vector = SearchVector('name', config='russian') + SearchVector('article', config='russian') + SearchVector('category__name', config='russian')
+          text = main_product._build_search_text()
+          main_product.search_vector = SearchVector(Value(text), config='russian')
           if main_created and 'category' in rev_links:
             main_product.category = product.category
           if main_created and 'manufacturer' in rev_links:
@@ -1228,10 +1229,11 @@ def sync_main_products(request, **kwargs):
         mp.stock = sp.stock
         mp.stock_updated_at = sp.supplier.stock_updated_at
         change = True
-      if change:
-        mps.append(mp)
+      text = mp._build_search_text()
+      mp.search_vector = SearchVector(Value(text), config='russian')
+      # if change:
+      mps.append(mp)
 
-    
       if has_rrp and sp.discounts.contains(has_rrp):
         sp.discounts.remove(has_rrp)
         sp.save()

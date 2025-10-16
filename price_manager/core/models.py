@@ -6,6 +6,7 @@ from django.dispatch import receiver
 
 from django.contrib.postgres.indexes import GinIndex
 from django.contrib.postgres.search import (SearchVectorField, SearchVector, SearchQuery, SearchRank)
+from django.db.models import Value
 
 TIME_FREQ = {'Каждый день': 1,
              'Каждую неделю': 7,
@@ -307,6 +308,27 @@ class MainProduct(models.Model):
     )
   def __str__(self):
     return self.sku if self.sku else 'Не указан'
+  def _build_search_text(self) -> str:
+    """Собираем строку для поиска без join-ов."""
+    parts = [
+        self.name or "",
+        getattr(self.category, "name", "") or "",
+        getattr(self.manufacturer, "name", "") or "",
+        self.article or "",
+        self.sku or "",
+    ]
+    return " ".join(p for p in parts if p)
+
+  def rebuild_search_vector(self):
+    """Обновляет search_vector без join-полей (через константу)."""
+    text = self._build_search_text()
+    MainProduct.objects.filter(pk=self.pk).update(
+        search_vector=SearchVector(Value(text), config='russian')
+    )
+
+  def save(self, *args, **kwargs):
+      super().save(*args, **kwargs)
+      self.rebuild_search_vector()
   class Meta:
     verbose_name = 'Главный продукт'
     constraints = [
