@@ -187,18 +187,29 @@ class MainPage(SingleTableMixin, FilterView):
     category_tables = []
 
     if filterset is not None:
-      filtered_records = list(filterset.qs.select_related('category'))
+      filtered_records = filterset.qs.select_related('category')
 
       grouped_records = OrderedDict()
-      for product in filtered_records:
-        category = product.category
-        key = category.pk if category else None
-        if key not in grouped_records:
-          grouped_records[key] = {
-              'category': category,
-              'records': []
-          }
-        grouped_records[key]['records'].append(product)
+      print(filtered_records.filter(category__isnull=True))
+      grouped_records[None] = {
+                'category': Category.objects.none(),
+                'records': list(filtered_records.filter(category__isnull=True))
+            }
+      for category in Category.objects.all():
+        if not list(filtered_records.filter(category=category)) == []:
+          grouped_records[category.pk] = {
+                'category': category,
+                'records': [filtered_records.filter(category=category)]
+            }
+      # for product in filtered_records:
+      #   category = product.category
+      #   key = category.pk if category else None
+      #   if key not in grouped_records:
+      #     grouped_records[key] = {
+      #         'category': category,
+      #         'records': []
+      #     }
+      #   grouped_records[key]['records'].append(product)
 
       sorted_groups = sorted(
           grouped_records.values(),
