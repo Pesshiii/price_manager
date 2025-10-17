@@ -190,7 +190,6 @@ class MainPage(SingleTableMixin, FilterView):
       filtered_records = filterset.qs.select_related('category')
 
       grouped_records = OrderedDict()
-      print(filtered_records.filter(category__isnull=True))
       grouped_records[None] = {
                 'category': Category.objects.none(),
                 'records': list(filtered_records.filter(category__isnull=True))
@@ -199,7 +198,7 @@ class MainPage(SingleTableMixin, FilterView):
         if not list(filtered_records.filter(category=category)) == []:
           grouped_records[category.pk] = {
                 'category': category,
-                'records': [filtered_records.filter(category=category)]
+                'records': list(filtered_records.filter(category=category))
             }
       # for product in filtered_records:
       #   category = product.category
