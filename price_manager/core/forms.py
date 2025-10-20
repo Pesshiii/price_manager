@@ -131,7 +131,7 @@ class ShoppingTabSelectionForm(forms.Form):
   new_tab_name = forms.CharField(
     required=False,
     label='Название новой заявки',
-    widget=forms.TextInput(attrs={'class': 'form-control', 'placeholder': 'Например, Заявка от сегодня'})
+    widget=forms.TextInput(attrs={'class': 'form-control', 'placeholder': 'Новая заявка'})
   )
   quantity = forms.IntegerField(
     min_value=1,

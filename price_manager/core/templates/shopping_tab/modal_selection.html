@@ -23,7 +23,7 @@
                    value="{{ value }}"
                    class="form-check-input flex-shrink-0"
                    data-tab-choice
-                   {% if form.tab.value == value or (form.tab.value is None and value == form.NEW_TAB_VALUE) %}checked{% endif %}>
+                   {% if form.tab.value is value%}checked{% elif form.tab.value is None and value is form.NEW_TAB_VALUE%}checked{% endif %}>
             <span>{{ label }}</span>
           </label>
         {% endfor %}
