@@ -1,0 +1,157 @@
+{% extends 'base.html' %}
+{% load special_tags %}
+
+{% block title %}{{ shopping_tab.name }}{% endblock %}
+
+{% block body %}
+<div class="d-flex flex-column flex-md-row justify-content-between align-items-md-center mb-4 gap-3">
+  <div>
+    <h1 class="h3 mb-1">{{ shopping_tab.name }}</h1>
+    <div>
+      {% if shopping_tab.open %}
+        <span class="badge text-bg-success">Заявка открыта</span>
+      {% else %}
+        <span class="badge text-bg-secondary">Заявка закрыта</span>
+      {% endif %}
+    </div>
+  </div>
+  <div class="d-flex flex-wrap gap-2">
+    <a class="btn btn-outline-primary" href="{% url 'shopping-tab-update' shopping_tab.pk %}">
+      <i class="bi bi-pencil"></i> Редактировать
+    </a>
+    <button type="button" class="btn btn-outline-secondary" data-copy-source="copy-data-{{ shopping_tab.pk }}">
+      <i class="bi bi-clipboard"></i> Копировать
+    </button>
+    <textarea id="copy-data-{{ shopping_tab.pk }}" class="visually-hidden">{{ copy_text }}</textarea>
+  </div>
+</div>
+
+<div class="row g-4 mb-4">
+  <div class="col-md-3">
+    <div class="card shadow-sm h-100">
+      <div class="card-body">
+        <div class="text-muted mb-1">Позиций</div>
+        <div class="h4 mb-0">{{ items|length }}</div>
+      </div>
+    </div>
+  </div>
+  <div class="col-md-3">
+    <div class="card shadow-sm h-100">
+      <div class="card-body">
+        <div class="text-muted mb-1">Количество товаров</div>
+        <div class="h4 mb-0">{{ total_quantity }}</div>
+      </div>
+    </div>
+  </div>
+  <div class="col-md-3">
+    <div class="card shadow-sm h-100">
+      <div class="card-body">
+        <div class="text-muted mb-1">Сумма, ₽</div>
+        <div class="h4 mb-0">{{ totals.price|floatformat:2 }}</div>
+      </div>
+    </div>
+  </div>
+  <div class="col-md-3">
+    <div class="card shadow-sm h-100">
+      <div class="card-body">
+        <div class="text-muted mb-1">Вес / Объем</div>
+        <div class="h4 mb-0">{{ totals.weight|floatformat:2 }} кг / {{ totals.volume|floatformat:2 }} м³</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="card shadow-sm">
+  <div class="card-header">Состав заявки</div>
+  <div class="card-body">
+    {% if items %}
+      <div class="table-responsive">
+        <table class="table table-hover align-middle">
+          <thead>
+            <tr>
+              <th>Артикул</th>
+              <th>Название</th>
+              <th>Поставщик</th>
+              <th class="text-center">Кол-во</th>
+              <th class="text-end">Цена ИМ, ₽</th>
+              <th class="text-end">Сумма, ₽</th>
+              <th class="text-center">Действия</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for item in items %}
+              {% with product=item.product %}
+              <tr>
+                <td class="fw-semibold">{{ product.article }}</td>
+                <td>
+                  <div class="fw-semibold">{{ product.name }}</div>
+                  <div class="text-muted small">SKU: {{ product.sku|default:'—' }}</div>
+                </td>
+                <td>{{ product.supplier.name }}</td>
+                <td class="text-center">{{ item.quantity }}</td>
+                <td class="text-end">{{ product.m_price|floatformat:2 }}</td>
+                <td class="text-end">{{ product.m_price|mul:item.quantity|floatformat:2 }}</td>
+                <td class="text-center">
+                  <form method="post" action="{% url 'shopping-tab-item-delete' shopping_tab.pk item.pk %}" class="d-inline">
+                    {% csrf_token %}
+                    <button type="submit" class="btn btn-sm btn-outline-danger" title="Удалить">
+                      <i class="bi bi-trash"></i>
+                    </button>
+                  </form>
+                </td>
+              </tr>
+              {% endwith %}
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    {% else %}
+      <p class="text-muted mb-0">В заявке пока нет товаров. Добавьте их с главной страницы через значок корзины.</p>
+    {% endif %}
+  </div>
+</div>
+{% endblock %}
+
+{% block script %}
+{{ block.super }}
+<script>
+  (function() {
+    const handleCopyClick = (event) => {
+      const button = event.target.closest('[data-copy-source]');
+      if (!button) {
+        return;
+      }
+      const sourceId = button.getAttribute('data-copy-source');
+      if (!sourceId) {
+        return;
+      }
+      const source = document.getElementById(sourceId);
+      if (!source) {
+        return;
+      }
+      const text = source.value || source.textContent || '';
+      if (!text.trim()) {
+        return;
+      }
+      navigator.clipboard?.writeText(text).then(() => {
+        button.classList.add('btn-success');
+        button.classList.remove('btn-outline-secondary');
+        window.setTimeout(() => {
+          button.classList.remove('btn-success');
+          button.classList.add('btn-outline-secondary');
+        }, 1500);
+      }).catch(() => {
+        const textarea = document.createElement('textarea');
+        textarea.classList.add('visually-hidden');
+        textarea.value = text;
+        document.body.appendChild(textarea);
+        textarea.select();
+        document.execCommand('copy');
+        document.body.removeChild(textarea);
+      });
+    };
+
+    document.addEventListener('click', handleCopyClick);
+  })();
+</script>
+{% endblock %}

@@ -1262,3 +1262,157 @@ def sync_main_products(request, **kwargs):
   messages.success(request, 'Наценки применены')
   return redirect('main')
 
+
+class ShoppingTabListView(LoginRequiredMixin, TemplateView):
+  template_name = 'shopping_tab/list.html'
+
+  def get_tabs_queryset(self):
+    return ShopingTab.objects.filter(user=self.request.user).prefetch_related(
+      Prefetch('items', queryset=ShoppingTabItem.objects.select_related('product__supplier'))
+    )
+
+  def get_context_data(self, **kwargs):
+    context = super().get_context_data(**kwargs)
+    tabs = list(self.get_tabs_queryset().order_by('-open', 'name'))
+    totals_map = {}
+    copy_map = {}
+    quantity_map = {}
+    items_count_map = {}
+    for tab in tabs:
+      items = tab.get_items()
+      totals_map[tab.pk] = tab.calculate_totals(items)
+      copy_map[tab.pk] = tab.build_copy_text(items)
+      quantity_map[tab.pk] = sum(item.quantity for item in items)
+      items_count_map[tab.pk] = len(items)
+    context.update({
+      'shopping_tabs': tabs,
+      'create_form': kwargs.get('create_form') or ShoppingTabForm(user=self.request.user),
+      'totals_map': totals_map,
+      'copy_text_map': copy_map,
+      'quantity_map': quantity_map,
+      'items_count_map': items_count_map,
+    })
+    return context
+
+  def post(self, request, *args, **kwargs):
+    form = ShoppingTabForm(request.POST, user=request.user)
+    if form.is_valid():
+      shopping_tab = form.save(commit=False)
+      shopping_tab.user = request.user
+      shopping_tab.save()
+      messages.success(request, 'Заявка создана.')
+      return redirect('shopping-tab-detail', pk=shopping_tab.pk)
+    context = self.get_context_data(create_form=form)
+    return self.render_to_response(context)
+
+
+class ShoppingTabDetailView(LoginRequiredMixin, DetailView):
+  template_name = 'shopping_tab/detail.html'
+  model = ShopingTab
+  context_object_name = 'shopping_tab'
+
+  def get_queryset(self):
+    return ShopingTab.objects.filter(user=self.request.user).prefetch_related(
+      Prefetch('items', queryset=ShoppingTabItem.objects.select_related('product__supplier'))
+    )
+
+  def get_context_data(self, **kwargs):
+    context = super().get_context_data(**kwargs)
+    shopping_tab = context['shopping_tab']
+    items = shopping_tab.get_items()
+    totals = shopping_tab.calculate_totals(items)
+    context.update({
+      'items': items,
+      'totals': totals,
+      'total_quantity': sum(item.quantity for item in items),
+      'copy_text': shopping_tab.build_copy_text(items),
+    })
+    return context
+
+
+class ShoppingTabUpdateView(LoginRequiredMixin, UpdateView):
+  template_name = 'shopping_tab/form.html'
+  model = ShopingTab
+  form_class = ShoppingTabForm
+  context_object_name = 'shopping_tab'
+
+  def get_queryset(self):
+    return ShopingTab.objects.filter(user=self.request.user)
+
+  def form_valid(self, form):
+    messages.success(self.request, 'Заявка обновлена.')
+    return super().form_valid(form)
+
+  def get_success_url(self):
+    return reverse('shopping-tab-detail', kwargs={'pk': self.object.pk})
+
+  def get_form_kwargs(self):
+    kwargs = super().get_form_kwargs()
+    kwargs['user'] = self.request.user
+    return kwargs
+
+
+class ShoppingTabItemDeleteView(LoginRequiredMixin, View):
+  def post(self, request, tab_id, item_id):
+    shopping_tab = get_object_or_404(ShopingTab, pk=tab_id, user=request.user)
+    item = get_object_or_404(ShoppingTabItem, pk=item_id, shopping_tab=shopping_tab)
+    item.delete()
+    messages.success(request, 'Товар удален из заявки.')
+    return redirect('shopping-tab-detail', pk=shopping_tab.pk)
+
+
+class ShoppingTabSelectionView(LoginRequiredMixin, View):
+  template_name = 'shopping_tab/modal_selection.html'
+  success_template_name = 'shopping_tab/modal_success.html'
+
+  def get_tabs(self, request):
+    return ShopingTab.objects.filter(user=request.user, open=True).order_by('name')
+
+  def get(self, request, product_id):
+    product = get_object_or_404(MainProduct, pk=product_id)
+    tabs = list(self.get_tabs(request))
+    form = ShoppingTabSelectionForm(user=request.user, tabs=tabs)
+    context = {
+      'form': form,
+      'product': product,
+      'tabs': tabs,
+    }
+    return render(request, self.template_name, context)
+
+  def post(self, request, product_id):
+    product = get_object_or_404(MainProduct, pk=product_id)
+    tabs = list(self.get_tabs(request))
+    form = ShoppingTabSelectionForm(request.POST, user=request.user, tabs=tabs)
+    if form.is_valid():
+      shopping_tab = form.cleaned_data.get('tab_instance')
+      if shopping_tab is None:
+        shopping_tab = ShopingTab.objects.create(user=request.user, name=form.cleaned_data['new_tab_name'])
+
+      quantity = form.cleaned_data['quantity']
+      item, created = ShoppingTabItem.objects.get_or_create(
+        shopping_tab=shopping_tab,
+        product=product,
+        defaults={'quantity': quantity}
+      )
+      if not created:
+        item.quantity += quantity
+        item.save(update_fields=['quantity', 'updated_at'])
+
+      context = {
+        'product': product,
+        'shopping_tab': shopping_tab,
+        'quantity': quantity,
+      }
+      response = render(request, self.success_template_name, context)
+      response.status_code = 201
+      return response
+
+    context = {
+      'form': form,
+      'product': product,
+      'tabs': tabs,
+    }
+    response = render(request, self.template_name, context)
+    response.status_code = 400
+    return response
+

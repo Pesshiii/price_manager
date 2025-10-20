@@ -1,3 +1,6 @@
+from collections import OrderedDict
+from decimal import Decimal
+
 from django.db import models
 from django.db.models import Q
 from django.core.validators import (FileExtensionValidator, MinValueValidator, MaxValueValidator)
@@ -471,11 +474,97 @@ class ShopingTab(models.Model):
                           null=False)
   products = models.ManyToManyField(MainProduct,
                                     verbose_name='Товары',
-                                    related_name='shoping_tabs')
-  quantity = models.IntegerField(verbose_name='Количество',
-                                 default=1)
+                                    related_name='shoping_tabs',
+                                    through='ShoppingTabItem')
   open = models.BooleanField(verbose_name='Открыта',
                              default=True)
+
   class Meta:
     verbose_name = 'Заявка'
     constraints = [models.UniqueConstraint(fields=['user', 'name'], name='user_name_constraint')]
+
+  def __str__(self):
+    return self.name
+
+  def get_items(self):
+    if hasattr(self, '_prefetched_objects_cache') and 'items' in self._prefetched_objects_cache:
+      cached_items = self._prefetched_objects_cache['items']
+      if isinstance(cached_items, list):
+        return cached_items
+    return list(self.items.select_related('product__supplier'))
+
+  def calculate_totals(self, items=None):
+    items = items or self.get_items()
+    total_price = Decimal('0')
+    total_weight = Decimal('0')
+    total_volume = Decimal('0')
+
+    for item in items:
+      product = item.product
+      if product is None:
+        continue
+
+      quantity = item.quantity or 0
+      total_price += (product.m_price or Decimal('0')) * quantity
+      total_weight += (product.weight or Decimal('0')) * quantity
+
+      length = product.length or Decimal('0')
+      width = product.width or Decimal('0')
+      depth = product.depth or Decimal('0')
+      total_volume += length * width * depth * quantity
+
+    return {
+      'price': total_price,
+      'weight': total_weight,
+      'volume': total_volume,
+    }
+
+  def build_copy_text(self, items=None):
+    items = items or self.get_items()
+    grouped = OrderedDict()
+
+    for item in items:
+      product = item.product
+      if product is None:
+        continue
+
+      supplier_name = getattr(product.supplier, 'name', 'Без поставщика')
+      grouped.setdefault(supplier_name, []).append(
+        f"{product.article} -- {item.quantity} \"шт\""
+      )
+
+    parts = []
+    for supplier_name, lines in grouped.items():
+      parts.extend(lines)
+      parts.append(supplier_name)
+      parts.append('')
+
+    if parts and parts[-1] == '':
+      parts.pop()
+
+    return '\n'.join(parts)
+
+
+class ShoppingTabItem(models.Model):
+  shopping_tab = models.ForeignKey(ShopingTab,
+                                   on_delete=models.CASCADE,
+                                   related_name='items',
+                                   verbose_name='Заявка')
+  product = models.ForeignKey(MainProduct,
+                              on_delete=models.CASCADE,
+                              related_name='shopping_items',
+                              verbose_name='Товар')
+  quantity = models.PositiveIntegerField(verbose_name='Количество',
+                                         default=1)
+  created_at = models.DateTimeField(auto_now_add=True)
+  updated_at = models.DateTimeField(auto_now=True)
+
+  class Meta:
+    verbose_name = 'Позиция заявки'
+    verbose_name_plural = 'Позиции заявки'
+    constraints = [
+      models.UniqueConstraint(fields=['shopping_tab', 'product'], name='shopping_tab_product_unique'),
+    ]
+
+  def __str__(self):
+    return f"{self.product} x {self.quantity}"

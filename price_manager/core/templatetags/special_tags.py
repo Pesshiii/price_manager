@@ -1,3 +1,5 @@
+from decimal import Decimal, InvalidOperation
+
 from django import template
 
 register = template.Library()
@@ -32,3 +34,11 @@ def margin(first, second):
   if first == 0:
     return 0
   return (float(first) - float(second))/float(first) * 100
+
+
+@register.filter
+def mul(left, right):
+  try:
+    return Decimal(left) * Decimal(right)
+  except (InvalidOperation, TypeError, ValueError):
+    return Decimal('0')

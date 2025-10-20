@@ -8,6 +8,7 @@
             title="Добавить в корзину"
             data-bs-toggle="modal"
             data-bs-target="#shoppingTabSelectionModal"
+            hx-get="{% url 'shopping-tab-selection' record.id %}"
             hx-target="#shopping-tab-selection-modal-content"
             hx-swap="innerHTML">
       <i class="bi bi-cart-plus"></i>

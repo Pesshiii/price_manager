@@ -1,0 +1,80 @@
+<div class="modal-header">
+  <h5 class="modal-title">Добавить «{{ product.name }}»</h5>
+  <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Закрыть"></button>
+</div>
+<div class="modal-body">
+  {% if form.non_field_errors %}
+    <div class="alert alert-danger">{{ form.non_field_errors|join:' ' }}</div>
+  {% endif %}
+  <form method="post"
+        hx-post="{% url 'shopping-tab-selection' product.pk %}"
+        hx-target="#shopping-tab-selection-modal-content"
+        hx-swap="innerHTML"
+        novalidate>
+    {% csrf_token %}
+
+    <div class="mb-4">
+      <label class="form-label">{{ form.tab.label }}</label>
+      <div class="list-group">
+        {% for value, label in form.fields.tab.choices %}
+          <label class="list-group-item d-flex align-items-center gap-2">
+            <input type="radio"
+                   name="{{ form.tab.name }}"
+                   value="{{ value }}"
+                   class="form-check-input flex-shrink-0"
+                   data-tab-choice
+                   {% if form.tab.value == value or (form.tab.value is None and value == form.NEW_TAB_VALUE) %}checked{% endif %}>
+            <span>{{ label }}</span>
+          </label>
+        {% endfor %}
+      </div>
+      {% if form.tab.errors %}
+        <div class="invalid-feedback d-block">{{ form.tab.errors|join:', ' }}</div>
+      {% endif %}
+    </div>
+
+    <div class="mb-3" data-new-tab-container {% if form.tab.value != form.NEW_TAB_VALUE %}hidden{% endif %}>
+      <label for="id_new_tab_name" class="form-label">{{ form.new_tab_name.label }}</label>
+      {{ form.new_tab_name }}
+      {% if form.new_tab_name.errors %}
+        <div class="invalid-feedback d-block">{{ form.new_tab_name.errors|join:', ' }}</div>
+      {% endif %}
+    </div>
+
+    <div class="mb-3">
+      <label for="id_quantity" class="form-label">{{ form.quantity.label }}</label>
+      {{ form.quantity }}
+      {% if form.quantity.errors %}
+        <div class="invalid-feedback d-block">{{ form.quantity.errors|join:', ' }}</div>
+      {% endif %}
+    </div>
+
+    <div class="d-flex justify-content-end gap-2">
+      <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Отмена</button>
+      <button type="submit" class="btn btn-primary">Добавить</button>
+    </div>
+  </form>
+</div>
+
+<script>
+  (function() {
+    const container = document.querySelector('[data-new-tab-container]');
+    if (!container) {
+      return;
+    }
+
+    const toggleNewTabField = () => {
+      const selected = document.querySelector('input[data-tab-choice]:checked');
+      if (!selected) {
+        return;
+      }
+      container.hidden = selected.value !== '{{ form.NEW_TAB_VALUE }}';
+    };
+
+    document.querySelectorAll('input[data-tab-choice]').forEach((input) => {
+      input.addEventListener('change', toggleNewTabField);
+    });
+
+    toggleNewTabField();
+  })();
+</script>
