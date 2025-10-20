@@ -1,0 +1,150 @@
+{% extends 'base.html' %}
+{% load special_tags %}
+
+{% block title %}Корзины{% endblock %}
+
+{% block body %}
+<div class="d-flex flex-column flex-md-row justify-content-between align-items-md-center mb-4 gap-3">
+  <div>
+    <h1 class="h3 mb-0">Корзины</h1>
+    <p class="text-muted mb-0">Создавайте заявки и управляйте составом прямо из этого раздела.</p>
+  </div>
+  <a class="btn btn-outline-primary" href="{% url 'shopping-tab-list' %}">
+    <i class="bi bi-arrow-clockwise"></i> Обновить
+  </a>
+</div>
+
+<div class="row g-4">
+  <div class="col-lg-4">
+    <div class="card shadow-sm h-100">
+      <div class="card-header">Новая заявка</div>
+      <div class="card-body">
+        <form method="post" novalidate>
+          {% csrf_token %}
+          <div class="mb-3">
+            <label for="id_name" class="form-label">{{ create_form.name.label }}</label>
+            {{ create_form.name }}
+            {% if create_form.name.errors %}
+              <div class="invalid-feedback d-block">{{ create_form.name.errors|join:', ' }}</div>
+            {% endif %}
+          </div>
+          <div class="form-check mb-3">
+            {{ create_form.open }}
+            <label class="form-check-label" for="id_open">{{ create_form.open.label }}</label>
+          </div>
+          <button type="submit" class="btn btn-primary w-100">
+            <i class="bi bi-plus-circle"></i> Создать заявку
+          </button>
+        </form>
+      </div>
+    </div>
+  </div>
+  <div class="col-lg-8">
+    <div class="card shadow-sm h-100">
+      <div class="card-header d-flex align-items-center justify-content-between">
+        <span>Ваши заявки</span>
+        <span class="badge text-bg-light">{{ shopping_tabs|length }}</span>
+      </div>
+      <div class="card-body">
+        {% if shopping_tabs %}
+          <div class="table-responsive">
+            <table class="table table-hover align-middle">
+              <thead>
+                <tr>
+                  <th>Название</th>
+                  <th class="text-center">Позиций</th>
+                  <th class="text-center">Товаров</th>
+                  <th class="text-end">Сумма, ₽</th>
+                  <th class="text-center">Статус</th>
+                  <th class="text-end">Действия</th>
+                </tr>
+              </thead>
+              <tbody>
+                {% for tab in shopping_tabs %}
+                  {% with totals=totals_map|get_item:tab.pk %}
+                  <tr>
+                    <td>
+                      <a class="fw-semibold text-decoration-none" href="{% url 'shopping-tab-detail' tab.pk %}">{{ tab.name }}</a>
+                    </td>
+                    <td class="text-center">{{ items_count_map|get_item:tab.pk }}</td>
+                    <td class="text-center">{{ quantity_map|get_item:tab.pk }}</td>
+                    <td class="text-end">{{ totals.price|floatformat:2 }}</td>
+                    <td class="text-center">
+                      {% if tab.open %}
+                        <span class="badge text-bg-success">Открыта</span>
+                      {% else %}
+                        <span class="badge text-bg-secondary">Закрыта</span>
+                      {% endif %}
+                    </td>
+                    <td class="text-end">
+                      <div class="btn-group" role="group">
+                        <a class="btn btn-sm btn-outline-primary" href="{% url 'shopping-tab-update' tab.pk %}" title="Редактировать">
+                          <i class="bi bi-pencil"></i>
+                        </a>
+                        <button type="button"
+                                class="btn btn-sm btn-outline-secondary"
+                                data-copy-source="copy-data-{{ tab.pk }}"
+                                title="Скопировать содержимое">
+                          <i class="bi bi-clipboard"></i>
+                        </button>
+                      </div>
+                      <textarea id="copy-data-{{ tab.pk }}" class="visually-hidden">{{ copy_text_map|get_item:tab.pk }}</textarea>
+                    </td>
+                  </tr>
+                  {% endwith %}
+                {% endfor %}
+              </tbody>
+            </table>
+          </div>
+        {% else %}
+          <p class="text-muted mb-0">У вас еще нет ни одной заявки. Создайте первую с помощью формы слева.</p>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block script %}
+{{ block.super }}
+<script>
+  (function() {
+    const handleCopyClick = (event) => {
+      const button = event.target.closest('[data-copy-source]');
+      if (!button) {
+        return;
+      }
+      const sourceId = button.getAttribute('data-copy-source');
+      if (!sourceId) {
+        return;
+      }
+      const source = document.getElementById(sourceId);
+      if (!source) {
+        return;
+      }
+      const text = source.value || source.textContent || '';
+      if (!text.trim()) {
+        return;
+      }
+      navigator.clipboard?.writeText(text).then(() => {
+        button.classList.add('btn-success');
+        button.classList.remove('btn-outline-secondary');
+        window.setTimeout(() => {
+          button.classList.remove('btn-success');
+          button.classList.add('btn-outline-secondary');
+        }, 1500);
+      }).catch(() => {
+        const textarea = document.createElement('textarea');
+        textarea.classList.add('visually-hidden');
+        textarea.value = text;
+        document.body.appendChild(textarea);
+        textarea.select();
+        document.execCommand('copy');
+        document.body.removeChild(textarea);
+      });
+    };
+
+    document.addEventListener('click', handleCopyClick);
+  })();
+</script>
+{% endblock %}

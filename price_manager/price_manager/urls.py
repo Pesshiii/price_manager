@@ -53,4 +53,10 @@ urlpatterns = [
     path('main-product/sync/', views.sync_main_products, name='main-product-sync'),
     path('upload/<str:name>/<int:id>/', views.FileUpload.as_view(), name='upload'),
 
+    path('shopping-tabs/', views.ShoppingTabListView.as_view(), name='shopping-tab-list'),
+    path('shopping-tabs/<int:pk>/', views.ShoppingTabDetailView.as_view(), name='shopping-tab-detail'),
+    path('shopping-tabs/<int:pk>/edit/', views.ShoppingTabUpdateView.as_view(), name='shopping-tab-update'),
+    path('shopping-tabs/<int:tab_id>/items/<int:item_id>/delete/', views.ShoppingTabItemDeleteView.as_view(), name='shopping-tab-item-delete'),
+    path('shopping-tabs/select/<int:product_id>/', views.ShoppingTabSelectionView.as_view(), name='shopping-tab-selection'),
+
 ] + static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)
