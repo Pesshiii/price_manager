@@ -4,6 +4,54 @@ import django.db.models.deletion
 from django.db import migrations, models
 
 
+def forwards_migrate_products(apps, schema_editor):
+    ShopingTab = apps.get_model("core", "ShopingTab")
+    ShoppingTabItem = apps.get_model("core", "ShoppingTabItem")
+
+    db_alias = schema_editor.connection.alias
+
+    for tab in ShopingTab.objects.using(db_alias).all():
+        try:
+            quantity = getattr(tab, "quantity", 1) or 1
+        except AttributeError:
+            quantity = 1
+
+        legacy_manager = getattr(tab, "legacy_products", None)
+        if legacy_manager is None:
+            continue
+
+        products = list(legacy_manager.using(db_alias).all())
+        for product in products:
+            ShoppingTabItem.objects.using(db_alias).get_or_create(
+                shopping_tab=tab,
+                product=product,
+                defaults={"quantity": quantity},
+            )
+
+
+def backwards_migrate_products(apps, schema_editor):
+    ShopingTab = apps.get_model("core", "ShopingTab")
+    ShoppingTabItem = apps.get_model("core", "ShoppingTabItem")
+
+    db_alias = schema_editor.connection.alias
+
+    for tab in ShopingTab.objects.using(db_alias).all():
+        legacy_manager = getattr(tab, "legacy_products", None)
+        if legacy_manager is None:
+            continue
+
+        items = ShoppingTabItem.objects.using(db_alias).filter(shopping_tab=tab)
+        total_quantity = 0
+        manager = legacy_manager.using(db_alias)
+        for item in items:
+            manager.add(item.product)
+            total_quantity += item.quantity or 0
+
+        if hasattr(tab, "quantity"):
+            tab.quantity = total_quantity or 1
+            tab.save(update_fields=["quantity"])
+
+
 class Migration(migrations.Migration):
 
     dependencies = [
@@ -11,10 +59,6 @@ class Migration(migrations.Migration):
     ]
 
     operations = [
-        migrations.RemoveField(
-            model_name="shopingtab",
-            name="quantity",
-        ),
         migrations.CreateModel(
             name="ShoppingTabItem",
             fields=[
@@ -57,7 +101,12 @@ class Migration(migrations.Migration):
                 "verbose_name_plural": "Позиции заявки",
             },
         ),
-        migrations.AlterField(
+        migrations.RenameField(
+            model_name="shopingtab",
+            old_name="products",
+            new_name="legacy_products",
+        ),
+        migrations.AddField(
             model_name="shopingtab",
             name="products",
             field=models.ManyToManyField(
@@ -66,6 +115,15 @@ class Migration(migrations.Migration):
                 to="core.mainproduct",
                 verbose_name="Товары",
             ),
+        ),
+        migrations.RunPython(forwards_migrate_products, backwards_migrate_products),
+        migrations.RemoveField(
+            model_name="shopingtab",
+            name="quantity",
+        ),
+        migrations.RemoveField(
+            model_name="shopingtab",
+            name="legacy_products",
         ),
         migrations.AddConstraint(
             model_name="shoppingtabitem",
