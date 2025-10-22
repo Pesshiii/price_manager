@@ -1203,15 +1203,15 @@ def apply_price_manager(price_manager: PriceManager):
   mps = []
   for product in products:
     main_product = product.main_product
-    main_product.price_managers.add(price_manager)
+    if main_product:
+      main_product.price_managers.add(price_manager)
 
-    setattr(main_product, 
-            price_manager.dest, 
-            math.ceil(getattr(
-              product if price_manager.source in SP_PRICES else main_product, price_manager.source, 0)*main_product.supplier.currency.value*(1+price_manager.markup/100)+price_manager.increase))
-    main_product.price_updated_at = timezone.now()
-    mps.append(main_product)
-  print(price_manager.dest)
+      setattr(main_product, 
+              price_manager.dest, 
+              math.ceil(getattr(
+                product if price_manager.source in SP_PRICES else main_product, price_manager.source, 0)*main_product.supplier.currency.value*(1+price_manager.markup/100)+price_manager.increase))
+      main_product.price_updated_at = timezone.now()
+      mps.append(main_product)
   MainProduct.objects.bulk_update(mps, fields=[price_manager.dest, 'price_updated_at'])
   
 
