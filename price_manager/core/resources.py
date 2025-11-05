@@ -26,6 +26,7 @@ class CategoryWidget(ForeignKeyWidget):
             cur = cur.parent
         return " > ".join(reversed(path))
     
+    
 class MainProductWidget(ForeignKeyWidget):
     """Главный продукт по артикулу и поставщику."""
 
@@ -45,8 +46,7 @@ class MainProductWidget(ForeignKeyWidget):
         if not value:
             return ""
         return value.article
-
-
+    
 class SupplierWidget(ForeignKeyWidget):
     """Поставщик по названию."""
 
@@ -83,18 +83,20 @@ class MainProductResource(resources.ModelResource):
     supplier = fields.Field(
         column_name="supplier",
         attribute="supplier",
-        widget=ForeignKeyWidget(Supplier, "name"),
+        widget=SupplierWidget(Supplier, "name"),
     )
     manufacturer = fields.Field(
         column_name="manufacturer",
         attribute="manufacturer",
-        widget=ForeignKeyWidget(Manufacturer, "name"),
+        widget=ManufacturerWidget(Manufacturer, "name"),
     )
     category = fields.Field(
         column_name="category",
         attribute="category",
         widget=CategoryWidget(Category, "name"),
     )
+    supplier_prices = fields.Field(column_name='Supplier Prices')
+    
 
     class Meta:
         model = MainProduct
@@ -113,6 +115,7 @@ class MainProductResource(resources.ModelResource):
             "wholesale_price",
             "basic_price",
             "m_price",
+            "supplier_prices",
         )
 
         import_fields = (
@@ -134,6 +137,18 @@ class MainProductResource(resources.ModelResource):
         skip_unchanged = True
         report_skipped = True
 
+    def dehydrate_supplier_prices(self, mainproduct):
+        """Format all supplier prices for this main product"""
+        supplier_product = mainproduct.supplier_product.all()
+        if not supplier_product:
+            return "No suppliers"
+        
+        price_list = []
+        for sp in supplier_product:
+            price_list.append(f"{sp.supplier.name}: {sp.supplier_price}({sp.rrp}) {sp.supplier.currency}")
+        
+        return " | ".join(price_list)
+
     def get_import_fields(self, selected_fields=None):
         """Ограничить набор импортируемых полей"""
         return [self.fields[f] for f in self.Meta.import_fields]
@@ -151,12 +166,12 @@ class SupplierProductResource(resources.ModelResource):
     supplier = fields.Field(
         column_name="supplier",
         attribute="supplier",
-        widget=ForeignKeyWidget(Supplier, "name"),
+        widget=SupplierWidget(Supplier, "name"),
     )
     manufacturer = fields.Field(
         column_name="manufacturer",
         attribute="manufacturer",
-        widget=ForeignKeyWidget(Manufacturer, "name"),
+        widget=ManufacturerWidget(Manufacturer, "name"),
     )
     category = fields.Field(
         column_name="category",
