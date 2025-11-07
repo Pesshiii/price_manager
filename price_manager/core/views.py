@@ -187,34 +187,42 @@ class MainPage(SingleTableMixin, FilterView):
     category_tables = []
 
     if filterset is not None:
-      filtered_records = list(filterset.qs.select_related('category'))
+      filtered_records = filterset.qs.select_related('category')
 
-      grouped_records = OrderedDict()
-      for product in filtered_records:
-        category = product.category
-        key = category.pk if category else None
-        if key not in grouped_records:
-          grouped_records[key] = {
-              'category': category,
-              'records': []
-          }
-        grouped_records[key]['records'].append(product)
-
-      sorted_groups = sorted(
-          grouped_records.values(),
-          key=lambda item: (
-              item['category'] is None,
-              (item['category'].name.lower() if item['category'] else ''),
-          )
-      )
-
-      for group in sorted_groups:
-        category_table = self.table_class(group['records'], request=self.request)
+      if len(filtered_records) > 1000:
+        category_table = self.table_class(filtered_records, request=self.request)
         RequestConfig(self.request).configure(category_table)
         category_tables.append({
-            'category': group['category'],
+            'category': Category.objects.none(),
             'table': category_table,
         })
+      else:
+        grouped_records = OrderedDict()
+        grouped_records[None] = {
+                  'category': Category.objects.none(),
+                  'records': list(filtered_records.filter(category__isnull=True))
+              }
+        for category in Category.objects.all():
+          if not list(filtered_records.filter(category=category)) == []:
+            grouped_records[category.pk] = {
+                  'category': category,
+                  'records': list(filtered_records.filter(category=category))
+              }
+        sorted_groups = sorted(
+            grouped_records.values(),
+            key=lambda item: (
+                item['category'] is None,
+                (item['category'].name.lower() if item['category'] else ''),
+            )
+        )
+
+        for group in sorted_groups:
+          category_table = self.table_class(group['records'], request=self.request)
+          RequestConfig(self.request, paginate=False).configure(category_table)
+          category_tables.append({
+              'category': group['category'],
+              'table': category_table,
+          })
 
     context['category_tables'] = category_tables
 
@@ -1193,7 +1201,6 @@ def apply_price_manager(price_manager: PriceManager):
               product if price_manager.source in SP_PRICES else main_product, price_manager.source, 0)*main_product.supplier.currency.value*(1+price_manager.markup/100)+price_manager.increase))
     main_product.price_updated_at = timezone.now()
     mps.append(main_product)
-  print(price_manager.dest)
   MainProduct.objects.bulk_update(mps, fields=[price_manager.dest, 'price_updated_at'])
   
 
