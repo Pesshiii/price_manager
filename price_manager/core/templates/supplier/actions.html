@@ -1,8 +1,11 @@
 <div class="container d-flex">
-<a href="{% url 'supplier-delete' record.id %}" class="btn btn-sm btn-danger">
-  <i class="bi bi-trash-fill"></i>
-</a>
-<a href="{% url 'supplier-update' record.id %}" class="btn btn-sm btn-primary">
-  <i class="bi bi-pencil-square"></i>
-</a>
+  <a href="{% url 'supplier-settings' record.id %}" class="btn btn-sm btn-success">
+    <i class="bi bi-upload"></i>
+  </a>
+  <a href="{% url 'supplier-delete' record.id %}" class="btn btn-sm btn-danger">
+    <i class="bi bi-trash-fill"></i>
+  </a>
+  <a href="{% url 'supplier-update' record.id %}" class="btn btn-sm btn-primary">
+    <i class="bi bi-pencil-square"></i>
+  </a>
 </div>
