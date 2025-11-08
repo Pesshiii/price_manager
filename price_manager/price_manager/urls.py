@@ -26,16 +26,7 @@ urlpatterns = [
     path('setting/<int:id>/delete', views.SettingDelete.as_view(), name='setting-delete'),
     path('setting/<int:id>/upload/<int:f_id>/', views.SettingUpdate.as_view(), name='setting-update'),
     path('setting/<int:id>/upload/<int:f_id>/upload', views.SettingUpload.as_view(), name='setting-upload'),
-
-    # path('manufacturer/', views.ManufacturerList.as_view(), name='manufacturer'),
-    # path('manufacturer/<int:id>/', views.ManufacturerDetail.as_view(), name='manufacturer-detail'),
-    # path('manufacturer/<int:id>/add-alt/', views.ManufacturerDictCreate.as_view(), name='manufacturer-dict-create'),
-    # path('manufacturer/create/', views.ManufacturerCreate.as_view(), name='manufacturer-create'),
     
-    # path('category/', views.CategoryList.as_view(), name='category'),
-    # path('category/<int:id>/delete/', views.CategoryDelete.as_view(), name='category-delete'),
-    # path('category/sort/', views.CategorySortSupplierProduct.as_view(), name='category-sort'),
-    # path('category/create/', views.CategoryCreate.as_view(), name='category-create'),
     path('category/autocomplete',views.CategoryAutocomplete.as_view(),name='category-autocomplete'),
     
     path('currency/', views.CurrencyList.as_view(), name='currency'),
@@ -51,6 +42,7 @@ urlpatterns = [
 
     path('main-product/<int:id>/update', views.MainProductUpdate.as_view(), name='main-product-update'),
     path('main-product/sync/', views.sync_main_products, name='main-product-sync'),
+
     path('upload/<str:name>/<int:id>/', views.FileUpload.as_view(), name='upload'),
 
     path('shopping-tabs/', views.ShoppingTabListView.as_view(), name='shopping-tab-list'),

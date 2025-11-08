@@ -886,49 +886,6 @@ class CurrencyUpdate(UpdateView):
   def get_success_url(self):
     return '/currency/'
   
-# Обработка категорий
-
-class CategorySortSupplierProduct(FormView):
-  '''Добавление товаров в категорию категорий <<category/>>'''
-  model = Category
-  template_name = 'category/sort.html'
-  success_url = '/category/sort/'
-  form_class = CategoryAddForm
-  def get_context_data(self, **kwargs):
-    context = super().get_context_data(**kwargs)
-    context['search_form']=SortSupplierProductFilterForm(self.request.GET)
-    queryset = SupplierProduct.objects.search_fields(self.request.GET)
-    context['table'] = SortSupplierProductTable(queryset)
-    RequestConfig(self.request).configure(context['table'])
-    return context
-  def form_valid(self, form):
-    selected_products = self.request.POST.getlist('selected_items')
-    category = form.cleaned_data['category']
-    queryset = SupplierProduct.objects.search_fields(self.request.GET)
-    if selected_products and category:
-      queryset.filter(pk__in=selected_products).update(category=category)
-    return super().form_valid(form)
-  
-class CategoryList(SingleTableView):
-  '''Отображение категорий <<category/>>'''
-  model = Category
-  table_class = CategoryListTable
-  template_name = 'category/list.html'
-
-class CategoryCreate(CreateView):
-  '''Создание Категории <<category/create/>>'''
-  model = Category
-  fields = '__all__'
-  success_url = '/category/sort/'
-  template_name = 'category/create.html'
-
-class CategoryDelete(DeleteView):
-  '''Удаление Категории <<category/<<int:id>>delete/>>'''
-  model = Category
-  pk_url_kwarg = 'id'
-  success_url = '/category/'
-  template_name = 'category/confirm_delete.html'
-
 # Обработка наценок
 
 class PriceManagerList(SingleTableView):
