@@ -14,6 +14,8 @@ urlpatterns = [
     path('main/filter-options/', views.MainFilterOptionsView.as_view(), name='main-filter-options'),
     path('main/table/', views.MainTableView.as_view(), name='main-table'),
     
+    path('instructions/', views.InstructionsView.as_view(), name='instructions'),
+    
     path('supplier/', views.SupplierList.as_view(), name='supplier'),
     path('supplier/<int:id>/', views.SupplierDetail.as_view(), name='supplier-detail'),
     path('supplier/<int:id>/update', views.SupplierUpdate.as_view(), name='supplier-update'),
@@ -26,7 +28,7 @@ urlpatterns = [
     path('setting/<int:id>/delete', views.SettingDelete.as_view(), name='setting-delete'),
     path('setting/<int:id>/upload/<int:f_id>/', views.SettingUpdate.as_view(), name='setting-update'),
     path('setting/<int:id>/upload/<int:f_id>/upload', views.SettingUpload.as_view(), name='setting-upload'),
-    
+
     path('category/autocomplete',views.CategoryAutocomplete.as_view(),name='category-autocomplete'),
     
     path('currency/', views.CurrencyList.as_view(), name='currency'),

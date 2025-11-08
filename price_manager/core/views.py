@@ -1449,3 +1449,6 @@ class ShoppingTabAddProductView(LoginRequiredMixin, View):
     }
     return render(request, self.template_name, context)
 
+
+class InstructionsView(LoginRequiredMixin, TemplateView):
+    template_name = 'main/instructions.html'
