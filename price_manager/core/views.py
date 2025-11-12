@@ -189,7 +189,7 @@ class MainPage(SingleTableMixin, FilterView):
     if filterset is not None:
       filtered_records = filterset.qs.select_related('category')
 
-      if len(filtered_records) > 1000:
+      if len(filtered_records) > 10000:
         category_table = self.table_class(filtered_records, request=self.request)
         RequestConfig(self.request).configure(category_table)
         category_tables.append({
