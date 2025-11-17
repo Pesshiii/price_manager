@@ -38,7 +38,14 @@ INSTALLED_APPS = [
     'django.contrib.messages',
     'django.contrib.staticfiles',
     'django.contrib.postgres',
-    'core',
+    'common.apps.CommonConfig',
+    'main_price.apps.MainPriceConfig',
+    'supplier_manager.apps.SupplierManagerConfig',
+    'setting_manager.apps.SettingManagerConfig',
+    'file_manager.apps.FileManagerConfig',
+    'price_manager_app.apps.PriceManagerConfig',
+    'tutorials.apps.TutorialsConfig',
+    'shoping_cart.apps.ShopingCartConfig',
     'django_tables2',
     'import_export',
     'django_filters',
@@ -52,7 +59,7 @@ MIDDLEWARE = [
     'django.middleware.common.CommonMiddleware',
     'django.middleware.csrf.CsrfViewMiddleware',
     'django.contrib.auth.middleware.AuthenticationMiddleware',
-    'core.middleware.LoginRequiredMiddleware',
+    'common.middleware.LoginRequiredMiddleware',
     'django.contrib.messages.middleware.MessageMiddleware',
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
 ]
@@ -62,9 +69,7 @@ ROOT_URLCONF = 'price_manager.urls'
 TEMPLATES = [
     {
         'BACKEND': 'django.template.backends.django.DjangoTemplates',
-        'DIRS': [
-          'core/templates',
-        ],
+        'DIRS': [BASE_DIR / 'templates'],
         'APP_DIRS': True,
         'OPTIONS': {
             'context_processors': [
