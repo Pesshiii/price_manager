@@ -43,26 +43,24 @@ class MainProductFilter(FilterSet):
   class Meta:
     model = MainProduct
     fields = ['search', 'anti_search', 'supplier', 'category', 'manufacturer', 'available']
+  def _build_partial_query(self, value):
+    terms = [bit for bit in value.split() if bit]
+    if not terms:
+      return None
+    raw_query = ' & '.join(f"{term}:*" for term in terms)
+    return SearchQuery(raw_query, search_type='raw', config='russian')
   def search_method(self, queryset, name, value):
-    query = SearchQuery(value, search_type="websearch", config='russian')  # or "websearch" or "plain"
-    rank  = SearchRank("search_vector", query)
-
-    queryset = queryset.annotate(rank=rank)
-
-    for bit in value.split(' '):
-      query = SearchQuery(bit, search_type="websearch", config='russian')
-      queryset = queryset.filter(search_vector=query)      # uses GIN index
-    
-    return queryset.order_by("-rank")
+    query = self._build_partial_query(value)
+    if query is None:
+      return queryset
+    rank = SearchRank("search_vector", query)
+    return queryset.annotate(rank=rank).filter(search_vector=query).order_by("-rank")
   def anti_search_method(self, queryset, name, value):
-    query = SearchQuery(value, search_type="websearch", config='russian')  # or "websearch" or "plain"
-    rank  = SearchRank("search_vector", query)
-
-    anti_queryset = queryset.annotate(rank=rank)
-
-    for bit in value.split(' '):
-      query = SearchQuery(bit, search_type="websearch")
-      anti_queryset = anti_queryset.filter(search_vector=query)     # uses GIN index
+    query = self._build_partial_query(value)
+    if query is None:
+      return queryset
+    rank = SearchRank("search_vector", query)
+    anti_queryset = queryset.annotate(rank=rank).filter(search_vector=query)
     return queryset.filter(~Q(id__in=anti_queryset))
   def filter_available(self, queryset, name, value):
     if value is True:

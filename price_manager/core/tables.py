@@ -42,7 +42,7 @@ class SettingListTable(tables.Table):
     verbose_name='Действия',
     attrs = {'td': {'class': 'text-right'}}
   )
-  name = tables.LinkColumn('setting-detail', args=[tables.A('pk')])
+  name = tables.LinkColumn('upload', args=['setting-update', tables.A('pk')])
   class Meta:
     model = Setting
     fields = [field for field in get_field_details(model).keys()]

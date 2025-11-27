@@ -189,42 +189,40 @@ class MainPage(SingleTableMixin, FilterView):
     if filterset is not None:
       filtered_records = filterset.qs.select_related('category')
 
-      grouped_records = OrderedDict()
-      grouped_records[None] = {
-                'category': Category.objects.none(),
-                'records': list(filtered_records.filter(category__isnull=True))
-            }
-      for category in Category.objects.all():
-        if not list(filtered_records.filter(category=category)) == []:
-          grouped_records[category.pk] = {
-                'category': category,
-                'records': list(filtered_records.filter(category=category))
-            }
-      # for product in filtered_records:
-      #   category = product.category
-      #   key = category.pk if category else None
-      #   if key not in grouped_records:
-      #     grouped_records[key] = {
-      #         'category': category,
-      #         'records': []
-      #     }
-      #   grouped_records[key]['records'].append(product)
-
-      sorted_groups = sorted(
-          grouped_records.values(),
-          key=lambda item: (
-              item['category'] is None,
-              (item['category'].name.lower() if item['category'] else ''),
-          )
-      )
-
-      for group in sorted_groups:
-        category_table = self.table_class(group['records'], request=self.request)
+      if len(filtered_records) > 10000:
+        category_table = self.table_class(filtered_records, request=self.request)
         RequestConfig(self.request).configure(category_table)
         category_tables.append({
-            'category': group['category'],
+            'category': Category.objects.none(),
             'table': category_table,
         })
+      else:
+        grouped_records = OrderedDict()
+        grouped_records[None] = {
+                  'category': Category.objects.none(),
+                  'records': list(filtered_records.filter(category__isnull=True))
+              }
+        for category in Category.objects.all():
+          if not list(filtered_records.filter(category=category)) == []:
+            grouped_records[category.pk] = {
+                  'category': category,
+                  'records': list(filtered_records.filter(category=category))
+              }
+        sorted_groups = sorted(
+            grouped_records.values(),
+            key=lambda item: (
+                item['category'] is None,
+                (item['category'].name.lower() if item['category'] else ''),
+            )
+        )
+
+        for group in sorted_groups:
+          category_table = self.table_class(group['records'], request=self.request)
+          RequestConfig(self.request, paginate=False).configure(category_table)
+          category_tables.append({
+              'category': group['category'],
+              'table': category_table,
+          })
 
     context['category_tables'] = category_tables
 
@@ -888,49 +886,6 @@ class CurrencyUpdate(UpdateView):
   def get_success_url(self):
     return '/currency/'
   
-# Обработка категорий
-
-class CategorySortSupplierProduct(FormView):
-  '''Добавление товаров в категорию категорий <<category/>>'''
-  model = Category
-  template_name = 'category/sort.html'
-  success_url = '/category/sort/'
-  form_class = CategoryAddForm
-  def get_context_data(self, **kwargs):
-    context = super().get_context_data(**kwargs)
-    context['search_form']=SortSupplierProductFilterForm(self.request.GET)
-    queryset = SupplierProduct.objects.search_fields(self.request.GET)
-    context['table'] = SortSupplierProductTable(queryset)
-    RequestConfig(self.request).configure(context['table'])
-    return context
-  def form_valid(self, form):
-    selected_products = self.request.POST.getlist('selected_items')
-    category = form.cleaned_data['category']
-    queryset = SupplierProduct.objects.search_fields(self.request.GET)
-    if selected_products and category:
-      queryset.filter(pk__in=selected_products).update(category=category)
-    return super().form_valid(form)
-  
-class CategoryList(SingleTableView):
-  '''Отображение категорий <<category/>>'''
-  model = Category
-  table_class = CategoryListTable
-  template_name = 'category/list.html'
-
-class CategoryCreate(CreateView):
-  '''Создание Категории <<category/create/>>'''
-  model = Category
-  fields = '__all__'
-  success_url = '/category/sort/'
-  template_name = 'category/create.html'
-
-class CategoryDelete(DeleteView):
-  '''Удаление Категории <<category/<<int:id>>delete/>>'''
-  model = Category
-  pk_url_kwarg = 'id'
-  success_url = '/category/'
-  template_name = 'category/confirm_delete.html'
-
 # Обработка наценок
 
 class PriceManagerList(SingleTableView):
@@ -1206,12 +1161,12 @@ def apply_price_manager(price_manager: PriceManager):
     if main_product:
       main_product.price_managers.add(price_manager)
 
-      setattr(main_product, 
-              price_manager.dest, 
-              math.ceil(getattr(
-                product if price_manager.source in SP_PRICES else main_product, price_manager.source, 0)*main_product.supplier.currency.value*(1+price_manager.markup/100)+price_manager.increase))
-      main_product.price_updated_at = timezone.now()
-      mps.append(main_product)
+    setattr(main_product, 
+            price_manager.dest, 
+            math.ceil(getattr(
+              product if price_manager.source in SP_PRICES else main_product, price_manager.source, 0)*main_product.supplier.currency.value*(1+price_manager.markup/100)+price_manager.increase))
+    main_product.price_updated_at = timezone.now()
+    mps.append(main_product)
   MainProduct.objects.bulk_update(mps, fields=[price_manager.dest, 'price_updated_at'])
   
 
@@ -1502,3 +1457,6 @@ class ShoppingTabAddProductView(LoginRequiredMixin, View):
     }
     return render(request, self.template_name, context)
 
+
+class InstructionsView(LoginRequiredMixin, TemplateView):
+    template_name = 'main/instructions.html'
