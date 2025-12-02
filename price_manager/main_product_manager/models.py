@@ -130,9 +130,41 @@ class MainProduct(models.Model):
     constraints = [
       models.UniqueConstraint(
         fields=['supplier', 'article', 'name'],
-        name='mp_uniqe_supplier_article_name'
+        name='mp_unique_supplier_article_name'
       )
     ]
     indexes = [
       GinIndex(fields=['search_vector']),
+    ]
+
+class MainProductLog(models.Model):
+  update_time = models.DateTimeField(verbose_name='Дата',
+                                   auto_now_add=True)
+  main_product = models.ForeignKey(MainProduct,
+                                   verbose_name='Товар',
+                                   on_delete=models.CASCADE, 
+                                   related_name='mp_log')
+  price = models.DecimalField(
+      verbose_name='Цена',
+      decimal_places=2,
+      max_digits=20,
+      null=True)
+  price_type = models.CharField(verbose_name='Тип цены',
+                                null=True,
+                                choices=[
+                                  (None, '----'),
+                                  ('basic_price', 'Базовая цена'),
+                                  ('prime_cost', 'Себестоимость'),
+                                  ('m_price', 'Цена ИМ'),
+                                  ('wholesale_price', 'Оптовая цена'),
+                                  ('wholesale_price_extra', 'Оптовая цена1')])
+  stock = models.PositiveIntegerField(verbose_name='Остаток',
+                                      null=True)
+  class Meta:
+    verbose_name = 'Изменения Главных продуктов'
+    constraints = [
+      models.UniqueConstraint(
+        fields=['update_time', 'main_product'],
+        name='mpl_unique_date_mp'
+      )
     ]

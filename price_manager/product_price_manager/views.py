@@ -30,7 +30,7 @@ from django.db.models import Q
 from .models import PriceManager
 from file_manager.models import FileModel
 from core.functions import *
-from main_product_manager.models import MainProduct, MP_PRICES
+from main_product_manager.models import MainProduct, MainProductLog, MP_PRICES
 from .forms import *
 from .tables import *
 from .filters import *
@@ -275,6 +275,9 @@ class PriceManagerDelete(DeleteView):
   success_url = '/price-manager/'
 
 def apply_price_manager(price_manager: PriceManager):
+  if price_manager.source == 'rmp':
+    price_manager.source = 'rrp'
+    price_manager.save()
   products = SupplierProduct.objects.all()
   products = products.filter(
     supplier=price_manager.supplier)
@@ -302,15 +305,24 @@ def apply_price_manager(price_manager: PriceManager):
       price_manager.price_to,
       f'''main_product__{price_manager.source}'''))
   mps = []
+  mpls = []
   for product in products:
+    if not product.main_product:
+      continue
     main_product = product.main_product
     main_product.price_managers.add(price_manager)
-
+    price = math.ceil(
+      getattr(
+              product 
+              if price_manager.source in SP_PRICES 
+              else main_product, price_manager.source, 0)
+      *main_product.supplier.currency.value*(1+price_manager.markup/100)+price_manager.increase)
+    if getattr(main_product, price_manager.dest) == price:
+      continue
     setattr(main_product, 
-            price_manager.dest, 
-            math.ceil(getattr(
-              product if price_manager.source in SP_PRICES else main_product, price_manager.source, 0)*main_product.supplier.currency.value*(1+price_manager.markup/100)+price_manager.increase))
+            price_manager.dest, price)
     main_product.price_updated_at = timezone.now()
     mps.append(main_product)
+    mpls.append(MainProductLog(main_product = main_product, price = getattr(main_product, price_manager.dest), price_type = price_manager.dest))
+  MainProductLog.objects.bulk_create(mpls)
   MainProduct.objects.bulk_update(mps, fields=[price_manager.dest, 'price_updated_at'])
-  

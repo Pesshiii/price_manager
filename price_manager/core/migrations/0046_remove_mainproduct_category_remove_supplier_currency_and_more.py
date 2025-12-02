@@ -115,4 +115,15 @@ class Migration(migrations.Migration):
                 ),
             ],
         ),
+        migrations.SeparateDatabaseAndState(
+            state_operations=[
+                migrations.AlterField(
+                    model_name='alternateproduct',
+                    name='main_product',
+                    field=models.ForeignKey(blank=True, null=True, on_delete=django.db.models.deletion.SET_NULL, related_name='alternate_products', to='main_product_manager.mainproduct', verbose_name='Главный продукт'),
+                ),
+            ],
+            database_operations=[
+            ],
+        ),
     ]

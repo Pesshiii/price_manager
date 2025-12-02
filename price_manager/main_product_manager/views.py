@@ -26,6 +26,7 @@ from dal import autocomplete
 # Импорты моделей, функций, форм, таблиц
 from .models import *
 from supplier_product_manager.models import SupplierProduct
+from supplier_manager.models import Discount
 from file_manager.models import FileModel
 from core.functions import *
 from .forms import *
@@ -262,49 +263,23 @@ def sync_main_products(request, **kwargs):
 
   mps = []
 
-  
-  has_rrp = Discount.objects.filter(name="Есть РРЦ").first()
-  no_rrp = Discount.objects.filter(name="Нет РРЦ").first()
-
   for sp in supplier_products:
     try:
-      if not sp.main_product:
+      if not sp.main_product or sp.main_product.stock == sp.stock:
         continue  # пропускаем без связи
-      change = False
       mp = sp.main_product
-      if not mp.stock == sp.stock:
-        mp.stock = sp.stock
-        mp.stock_updated_at = sp.supplier.stock_updated_at
-        change = True
+      mp.stock = sp.stock
+      mp.stock_updated_at = sp.supplier.stock_updated_at
       text = mp._build_search_text()
       mp.search_vector = SearchVector(Value(text), config='russian')
-      # if change:
       mps.append(mp)
-
-      if has_rrp and sp.discounts.contains(has_rrp):
-        sp.discounts.remove(has_rrp)
-        sp.save()
-      if no_rrp and sp.discounts.contains(no_rrp):
-        sp.discounts.remove(no_rrp)
-        sp.save()
     except Exception as ex:
       errors += 1
       messages.error(request, f"Ошибка при обновлении {sp}: {ex}")
   updated = MainProduct.objects.bulk_update(mps, ['stock', 'stock_updated_at', 'manufacturer', 'category', 'search_vector'])
+  MainProductLog.objects.bulk_create([MainProductLog(main_product=mp, stock=mp.stock) for mp in mps])
   messages.success(request, f"Остатки обновлены у {updated} товаров, ошибок: {errors}")
   for price_manager in PriceManager.objects.all():
-    if has_rrp and price_manager.discounts.contains(has_rrp):
-      price_manager.discounts.remove(has_rrp)
-      price_manager.has_rrp = True
-      price_manager.save()
-    if no_rrp and price_manager.discounts.contains(no_rrp):
-      price_manager.discounts.remove(no_rrp)
-      price_manager.has_rrp = False
-      price_manager.save()
     apply_price_manager(price_manager)
-  if has_rrp:
-    has_rrp.delete()
-  if no_rrp:
-    no_rrp.delete()
   messages.success(request, 'Наценки применены')
   return redirect('main')

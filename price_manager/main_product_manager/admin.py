@@ -37,3 +37,8 @@ class MainProductAdmin(ImportExportModelAdmin):
     list_display_links = ['id', 'name']
     search_fields = ['article', 'name', 'sku', 'stock']
     list_filter = ['supplier', 'manufacturer']
+
+@admin.register(MainProductLog)
+class MainProductLogAdmin(admin.ModelAdmin):
+    list_display = ['update_time', 'main_product__name', 'price_type', 'price', 'stock']
+    search_fields = ['main_product__name']
