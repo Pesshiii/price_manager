@@ -38,12 +38,17 @@ INSTALLED_APPS = [
     'django.contrib.messages',
     'django.contrib.staticfiles',
     'django.contrib.postgres',
-    'core',
     'django_tables2',
     'import_export',
     'django_filters',
     'dal',
     'dal_select2',
+    'core',
+    'file_manager',
+    'supplier_product_manager',
+    'product_price_manager',
+    'main_product_manager',
+    'supplier_manager',
 ]
 
 MIDDLEWARE = [
