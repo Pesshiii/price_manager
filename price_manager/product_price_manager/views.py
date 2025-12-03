@@ -27,7 +27,7 @@ from dal import autocomplete
 from django.db.models import Q
 
 # Импорты моделей, функций, форм, таблиц
-from .models import PriceManager
+from .models import PriceManager, UniquePriceManager
 from file_manager.models import FileModel
 from core.functions import *
 from main_product_manager.models import MainProduct, MainProductLog, MP_PRICES
@@ -323,6 +323,41 @@ def apply_price_manager(price_manager: PriceManager):
             price_manager.dest, price)
     main_product.price_updated_at = timezone.now()
     mps.append(main_product)
-    mpls.append(MainProductLog(main_product = main_product, price = getattr(main_product, price_manager.dest), price_type = price_manager.dest))
+    mpls.append(MainProductLog(main_product = main_product, price = price, price_type = price_manager.dest))
   MainProductLog.objects.bulk_create(mpls)
   MainProduct.objects.bulk_update(mps, fields=[price_manager.dest, 'price_updated_at'])
+
+def apply_unique_price_manager(upm: UniquePriceManager):
+  mps = MainProduct.objects.filter(id__in=upm.main_products.values_list('id'))
+  mpls = []
+  for product in mps:
+    product : MainProduct = product
+    price = math.ceil(
+      getattr(
+              SupplierProduct.objects.filter(id__in=product.supplier_products.values_list('id')).first()
+              if not upm.source in SP_PRICES 
+              else product, upm.source, 0)
+      *product.supplier.currency.value*(1+upm.markup/100)+upm.increase)
+    if getattr(product, upm.dest) == price:
+      continue
+    setattr(product, 
+            upm.dest, price)
+    product.price_updated_at = timezone.now()
+    mpls.append(MainProductLog(main_product = product, price = price, price_type = upm.dest))
+  MainProductLog.objects.bulk_create(mpls)
+  MainProduct.objects.bulk_update(mps, fields=[upm.dest, 'price_updated_at'])
+
+
+
+class CreateUniquePriceManager(CreateView):
+  model = UniquePriceManager
+  fields = '__all__'
+  template_name = 'price_manager/create_unique_pricemanager.html'
+  success_url='/'
+  def form_valid(self, form):
+    if self.kwargs.get('mp_id', None):
+      obj = form.save()
+      MainProduct.objects.get(id=self.kwargs.get('mp_id')).unique_price_managers.add(obj.id)
+    else:
+      messages.error(self.request, 'Главный товар неопознан')
+    return super().form_valid(form)

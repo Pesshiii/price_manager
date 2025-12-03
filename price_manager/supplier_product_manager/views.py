@@ -25,6 +25,7 @@ from .tables import *
 from .filters import *
 
 import pandas as pd
+from decimal import Decimal, InvalidOperation
 import re
 
 class SupplierSettingList(SingleTableView):
@@ -65,7 +66,7 @@ class SupplierDetail(SingleTableMixin, FilterView):
 
 def clean_headers(df):
   """Clean headers from unwanted characters"""
-  df.columns = [re.sub(r'[\r\n\t]', '', col) for col in df.columns]
+  df.columns = [re.sub(r'[\r\n\t]', '', str(col)) for col in df.columns]
   return df
 
 
@@ -131,20 +132,80 @@ def get_safe(value, type=None):
     return float(value)
   return value
 
+def get_safe(value, type=None):
+    """
+    Универсальное приведение типов.
+    Не меняет файл поставщика, только приводит значение в момент чтения.
+    Поддерживает форматы: '950,00', '950.00', '1 234,56', '950.'
+    """
+    if not type or value in ('', None):
+        return value
+
+    # если уже число – просто вернём
+    if isinstance(value, (int, float, Decimal)):
+        v = value
+    else:
+        # строку нормализуем только в памяти
+        v = str(value).strip()
+        # убираем пробелы и неразрывные пробелы
+        v = v.replace(' ', '').replace('\xa0', '')
+        # если есть запятая и нет точки – считаем, что это десятичный разделитель
+        if ',' in v and '.' not in v:
+            v = v.replace(',', '.')
+
+    try:
+        if type == int:
+            return int(float(v))
+        if type == float:
+            return float(v)
+        if type == Decimal:
+            return Decimal(str(v))
+    except (ValueError, InvalidOperation):
+        # если совсем не получилось – оставим как есть
+        return 0
+
+
 def convert_sp(value, field):
   if field in SP_PRICES:
     if not value or  value == '':
       num = 0
     else:
-      num = float(value)
+      num = get_safe(value, Decimal)
     return 0 if num < 0 else num
   if field in SP_INTEGERS:
     if not value or  value == '':
       num = 0
     else:
-      num = int(float(value))
+      num = get_safe(value, int)
     return 0 if num < 0 else num
   return value
+
+
+def convert_sp(value, field):
+    """
+    Приведение значений для SupplierProduct.
+    Цены и остатки — через get_safe, без правок исходного файла.
+    """
+    # цены (supplier_price, rrp)
+    if field in SP_PRICES:
+        num = get_safe(value, Decimal)
+        if num in ('', None):
+            num = Decimal('0')
+        if num < 0:
+            num = Decimal('0')
+        return num
+
+    # целые поля (stock)
+    if field in SP_INTEGERS:
+        num = get_safe(value, int)
+        if num in ('', None):
+            num = 0
+        if num < 0:
+            num = 0
+        return num
+
+    # остальные поля оставляем как есть
+    return value
 
 def get_data(df: pd.DataFrame, request, setting: Setting):
   post = request.POST
@@ -385,6 +446,7 @@ class SettingDisplay(DetailView):
         self.df = excel_file.parse(setting.sheet_name, nrows=500).dropna(how='all').dropna(axis=1, how='all')
       except:
         self.df = excel_file.parse(setting.sheet_name).dropna(how='all').dropna(axis=1, how='all')
+      context['entries'] = len(excel_file.parse(setting.sheet_name).dropna(how='all').dropna(axis=1, how='all'))
       self.df = clean_headers(self.df)
       file_model.file.close()
       self.df, self.links, self.initials, self.dicts = get_upload_data(setting, self.df)
@@ -489,7 +551,7 @@ def upload_supplier_products(request, **kwargs):
             continue
           if field in SP_PRICES:
             try:
-              setattr(product, field, get_safe(row[column], float))
+              setattr(product, field, get_safe(row[column], Decimal))
             except BaseException as ex:
               messages.error(request, f'Ошибка конвертации цены {row[column]} в поле {field}: {ex}')
             continue

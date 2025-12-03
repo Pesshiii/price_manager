@@ -3,7 +3,7 @@ from django.contrib.postgres.search import SearchVectorField, SearchVector
 from django.contrib.postgres.indexes import GinIndex
 from django.db.models import Value
 from supplier_manager.models import Supplier, Category, Manufacturer
-from product_price_manager.models import PriceManager
+from product_price_manager.models import PriceManager, UniquePriceManager
 
    
 MP_TABLE_FIELDS = ['article', 'supplier', 'name', 'manufacturer','prime_cost', 'stock']
@@ -80,6 +80,12 @@ class MainProduct(models.Model):
     related_name='main_products',
     blank=True
   )
+  unique_price_managers = models.ManyToManyField(
+    UniquePriceManager,
+    verbose_name= 'Индивидуальные наценки',
+    related_name='main_products',
+    blank=True
+  )
   length = models.DecimalField(verbose_name='Длина',
                                max_digits=10,
                                decimal_places=2,
@@ -93,9 +99,9 @@ class MainProduct(models.Model):
                                decimal_places=2,
                                default=0)
   price_updated_at = models.DateTimeField(verbose_name='Последнее обновление цены',
-                                    auto_now_add=True)
+                                    null=True)
   stock_updated_at = models.DateTimeField(verbose_name='Последнее обновление остатка',
-                                    auto_now_add=True)
+                                    null=True)
   search_vector = SearchVectorField(null=True, editable=False, unique=False, verbose_name="Вектор поиска")
   def save(self, *args, **kwargs):
     super().save(*args, **kwargs)

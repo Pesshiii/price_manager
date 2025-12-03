@@ -79,3 +79,48 @@ class PriceManager(models.Model):
       default=0)
   def __str__(self):
     return self.name
+
+
+class UniquePriceManager(models.Model):
+  """
+  Модель PriceManager предназначена для управления ценами и скидками товаров от различных поставщиков.
+  Атрибуты:
+    name (CharField): Название менеджера цен. Должно быть уникальным.
+    supplier (ForeignKey): Ссылка на поставщика (Supplier). При удалении поставщика связанные менеджеры цен также удаляются.
+    discounts (ManyToManyField): Группы скидок, связанные с менеджером цен.
+    source (CharField): Источник цены, от которой производится расчет (выбор из предопределённых вариантов).
+    dest (CharField): Целевая цена, которую необходимо рассчитать (выбор из предопределённых вариантов).
+    price_from (DecimalField): Нижняя граница цены для применения менеджера цен.
+    price_to (DecimalField): Верхняя граница цены для применения менеджера цен.
+    markup (DecimalField): Процентная накрутка на цену (от -100 до 100).
+    increase (DecimalField): Фиксированная надбавка к цене.
+  Методы:
+    __str__: Возвращает название менеджера цен.
+  """
+  source = models.CharField(verbose_name='От какой цены считать',
+                                 choices=[
+                                  ('rrp', 'РРЦ в валюте поставщика'),
+                                  ('supplier_price', 'Цена поставщика в валюте поставщика'),
+                                  ('basic_price', 'Базовая цена'),
+                                  ('prime_cost', 'Себестоимость'),
+                                  ('m_price', 'Цена ИМ'),
+                                  ('wholesale_price', 'Оптовая цена'),
+                                  ('wholesale_price_extra', 'Оптовая цена1')])
+  dest = models.CharField(verbose_name='Какую цену считать',
+                                 choices=[
+                                  ('basic_price', 'Базовая цена'),
+                                  ('prime_cost', 'Себестоимость'),
+                                  ('m_price', 'Цена ИМ'),
+                                  ('wholesale_price', 'Оптовая цена'),
+                                  ('wholesale_price_extra', 'Оптовая цена1')])
+  markup = models.DecimalField(
+      verbose_name='Накрутка',
+      decimal_places=2,
+      max_digits=5,
+      validators=[MinValueValidator(-100), MaxValueValidator(100)],
+      default=0)
+  increase = models.DecimalField(
+      verbose_name='Надбавка',
+      decimal_places=2,
+      max_digits=20,
+      default=0)

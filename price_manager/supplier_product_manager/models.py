@@ -13,7 +13,7 @@ SP_MANAGMENT = ['updated_at']
 class SupplierProduct(models.Model):
   main_product=models.ForeignKey(MainProduct,
                         verbose_name='sku',
-                        related_name='supplier_product',
+                        related_name='supplier_products',
                         on_delete=models.SET_NULL,
                         null=True,
                         blank=True)

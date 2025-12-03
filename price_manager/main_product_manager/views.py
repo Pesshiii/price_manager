@@ -32,7 +32,7 @@ from core.functions import *
 from .forms import *
 from .tables import *
 from .filters import *
-from product_price_manager.views import apply_price_manager
+from product_price_manager.views import apply_price_manager, apply_unique_price_manager
 
 # Импорты сторонних библиотек
 from decimal import Decimal, InvalidOperation
@@ -279,6 +279,8 @@ def sync_main_products(request, **kwargs):
   updated = MainProduct.objects.bulk_update(mps, ['stock', 'stock_updated_at', 'manufacturer', 'category', 'search_vector'])
   MainProductLog.objects.bulk_create([MainProductLog(main_product=mp, stock=mp.stock) for mp in mps])
   messages.success(request, f"Остатки обновлены у {updated} товаров, ошибок: {errors}")
+  for upm in UniquePriceManager.objects.all():
+    apply_unique_price_manager(upm)
   for price_manager in PriceManager.objects.all():
     apply_price_manager(price_manager)
   messages.success(request, 'Наценки применены')

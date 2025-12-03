@@ -1,6 +1,6 @@
 <div class="d-flex gap-1">
-  <a href="{% url 'main-product-update' record.id %}" class="btn btn-sm btn-primary" title="Редактировать товар">
-    <i class="bi bi-pencil-square"></i>
+  <a href="{% url 'add-unique-pricemanager' record.id %}" class="btn btn-sm btn-primary" title="Добавить Индивидуальную наценку">
+    <i class="bi bi-pencil"></i>
   </a>
   {% if request.user.is_authenticated %}
     <button type="button"
