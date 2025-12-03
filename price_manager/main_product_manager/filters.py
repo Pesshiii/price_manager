@@ -3,6 +3,7 @@ from .models import Category, Supplier, Manufacturer, MainProduct
 from django import forms
 from django.contrib.postgres.search import SearchQuery, SearchRank
 from django.db.models import Q
+import re
 
 class MainProductFilter(FilterSet):
   search = filters.CharFilter(method='search_method', label='Поиск')
@@ -46,10 +47,12 @@ class MainProductFilter(FilterSet):
     model = MainProduct
     fields = ['search', 'anti_search', 'supplier', 'category', 'manufacturer', 'available']
   def _build_partial_query(self, value):
+    value = re.sub(r"[^\w-]+", " ", value, flags=re.UNICODE)
     terms = [bit for bit in value.split() if bit]
     if not terms:
       return None
-    raw_query = ' & '.join(f"{term}:*" for term in terms)
+    raw_query = ' & '.join(f'''{term}:*''' for term in terms)
+    print(SearchQuery(raw_query, search_type='raw', config='russian'))
     return SearchQuery(raw_query, search_type='raw', config='russian')
   def search_method(self, queryset, name, value):
     query = self._build_partial_query(value)

@@ -9,7 +9,7 @@ class SupplierProductAdmin(admin.ModelAdmin):
     list_display.append('display_discounts')
     # делаем кликабельным поле name (или id, если удобнее)
     list_display_links = ['id', 'name']
-    search_fields = ['article', 'name', 'sku', 'stock']
+    search_fields = ['article', 'name', 'stock']
     list_filter = ['supplier', 'manufacturer']
     def display_discounts(self, obj):
         return ", ".join([discount.name for discount in obj.discounts.all()])
