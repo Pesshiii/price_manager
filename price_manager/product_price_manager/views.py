@@ -20,11 +20,16 @@ from django.contrib.auth.mixins import LoginRequiredMixin
 from django.urls import reverse
 from typing import Optional, Any, Dict, Iterable
 from collections import defaultdict, OrderedDict
-from django.db.models import Count, Prefetch
+from django.db.models import (F, ExpressionWrapper, 
+                              fields, Func, 
+                              Value, Min,
+                              Q, DecimalField,
+                              OuterRef, Subquery)
+from django.db.models.functions import Ceil
+
 from django_tables2 import SingleTableView, RequestConfig, SingleTableMixin
 from django_filters.views import FilterView, FilterMixin
 from dal import autocomplete
-from django.db.models import Q
 
 # Импорты моделей, функций, форм, таблиц
 from .models import PriceManager, UniquePriceManager
@@ -274,10 +279,77 @@ class PriceManagerDelete(DeleteView):
   pk_url_kwarg = 'id'
   success_url = '/price-manager/'
 
-def apply_price_manager(price_manager: PriceManager):
+
+def apply_unique_price_manager(upm: UniquePriceManager):
+  mps = MainProduct.objects.filter(id__in=upm.main_products.values_list('id'))
+  source = upm.source
+  if upm.source in SP_PRICES:
+    mps = mps.annotate(source_price=Min(f'supplier_products__{upm.source}'))
+    source = 'source_price'
+  
+  calc_qs = (
+    mps.filter(pk=OuterRef("pk"))
+    .annotate(
+        _changed_price=ExpressionWrapper(
+            Ceil(
+                F(source) * F("supplier__currency__value")
+                * (1 + Decimal(upm.markup) / Decimal(100))
+                + Decimal(upm.increase)
+            ),
+            output_field=DecimalField(),
+        )
+    )
+    .values("_changed_price")[:1]
+  )
+  
+  mps = mps.annotate(
+        changed_price=Subquery(calc_qs, output_field=DecimalField())
+    )
+
+  mps = mps.filter(~Q(**{f'{upm.dest}':F('changed_price')}))
+  
+  mps.update(**{upm.dest:F('changed_price'),
+               'price_updated_at':timezone.now()})
+  
+  through = MainProduct.unique_price_managers.through  # промежуточная модель
+
+  # Берём id уже существующих связей, чтобы не дублировать
+  existing_ids = set(
+      through.objects.filter(
+          mainproduct_id__in=mps.values_list('id', flat=True),
+          uniquepricemanager_id=upm.id,
+      ).values_list('mainproduct_id', flat=True)
+  )
+
+  # Формируем новые связи
+
+  links = []
+  logs = []
+  
+  for mp in mps:
+    if mp.id not in existing_ids:
+      links.append(through(mainproduct_id=mp.id, uniquepricemanager_id=upm.id))
+    logs.append(MainProductLog(
+      main_product=mp,
+      price_field=upm.dest,
+      price=getattr(mp, upm.dest)
+    ))
+  through.objects.bulk_create(links, batch_size=1000)
+  MainProductLog.objects.bulk_create(logs)
+  return list(mps.values_list('id'))
+
+def apply_price_manager(price_manager: PriceManager, changed_mps: Optional[Iterable[int]]=None):
+
+
+  ## Следует убрать после обновления в главной ветке ###
+
   if price_manager.source == 'rmp':
     price_manager.source = 'rrp'
     price_manager.save()
+
+  ######################################################
+
+
   products = SupplierProduct.objects.all()
   products = products.filter(
     supplier=price_manager.supplier)
@@ -291,8 +363,6 @@ def apply_price_manager(price_manager: PriceManager):
   if not discounts == []:
     products = products.filter(
       discounts__in=discounts)
-    
-
 
   if price_manager.source in SP_PRICES:
     products = products.filter(get_price_querry(
@@ -304,50 +374,74 @@ def apply_price_manager(price_manager: PriceManager):
       price_manager.price_from,
       price_manager.price_to,
       f'''main_product__{price_manager.source}'''))
-  mps = []
-  mpls = []
-  for product in products:
-    if not product.main_product:
-      continue
-    main_product = product.main_product
-    main_product.price_managers.add(price_manager)
-    price = math.ceil(
-      getattr(
-              product 
-              if price_manager.source in SP_PRICES 
-              else main_product, price_manager.source, 0)
-      *main_product.supplier.currency.value*(1+price_manager.markup/100)+price_manager.increase)
-    if getattr(main_product, price_manager.dest) == price:
-      continue
-    setattr(main_product, 
-            price_manager.dest, price)
-    main_product.price_updated_at = timezone.now()
-    mps.append(main_product)
-    mpls.append(MainProductLog(main_product = main_product, price = price, price_type = price_manager.dest))
-  MainProductLog.objects.bulk_create(mpls)
-  MainProduct.objects.bulk_update(mps, fields=[price_manager.dest, 'price_updated_at'])
+  
+  mps = MainProduct.objects.filter(id__in=products.values_list('main_product__id')).filter(~Q(id__in=changed_mps) if changed_mps else Q())
+  source = price_manager.source
+  if price_manager.source in SP_PRICES:
+    mps = mps.annotate(source_price=Min(f'supplier_products__{price_manager.source}'))
+    source = 'source_price'
 
-def apply_unique_price_manager(upm: UniquePriceManager):
-  mps = MainProduct.objects.filter(id__in=upm.main_products.values_list('id'))
-  mpls = []
-  for product in mps:
-    product : MainProduct = product
-    price = math.ceil(
-      getattr(
-              SupplierProduct.objects.filter(id__in=product.supplier_products.values_list('id')).first()
-              if not upm.source in SP_PRICES 
-              else product, upm.source, 0)
-      *product.supplier.currency.value*(1+upm.markup/100)+upm.increase)
-    if getattr(product, upm.dest) == price:
-      continue
-    setattr(product, 
-            upm.dest, price)
-    product.price_updated_at = timezone.now()
-    mpls.append(MainProductLog(main_product = product, price = price, price_type = upm.dest))
-  MainProductLog.objects.bulk_create(mpls)
-  MainProduct.objects.bulk_update(mps, fields=[upm.dest, 'price_updated_at'])
+  calc_qs = (
+    mps.filter(pk=OuterRef("pk"))
+    .annotate(
+        _changed_price=ExpressionWrapper(
+            Ceil(
+                F(source) * F("supplier__currency__value")
+                * (1 + Decimal(price_manager.markup) / Decimal(100))
+                + Decimal(price_manager.increase)
+            ),
+            output_field=DecimalField(),
+        )
+    )
+    .values("_changed_price")[:1]
+  )
+  
+  mps = mps.annotate(
+        changed_price=Subquery(calc_qs, output_field=DecimalField())
+    )
 
+  mps = mps.filter(~Q(**{f'{price_manager.dest}':F('changed_price')}))
 
+  
+  mps.update(**{price_manager.dest:F('changed_price'),
+               'price_updated_at':timezone.now()})
+  
+  
+  through = MainProduct.price_managers.through  # промежуточная модель
+
+  # Берём id уже существующих связей, чтобы не дублировать
+  existing_ids = set(
+      through.objects.filter(
+          mainproduct_id__in=mps.values_list('id', flat=True),
+          pricemanager_id=price_manager.id,
+      ).values_list('mainproduct_id', flat=True)
+  )
+
+  # Формируем новые связи
+
+  links = []
+  logs = []
+  
+  for mp in mps:
+    if mp.id not in existing_ids:
+      links.append(through(mainproduct_id=mp.id, pricemanager_id=price_manager.id))
+    logs.append(MainProductLog(
+      main_product=mp,
+      price_field=price_manager.dest,
+      price=getattr(mp, price_manager.dest)
+    ))
+  through.objects.bulk_create(links, batch_size=1000)
+  MainProductLog.objects.bulk_create(logs)
+  return list(mps.values_list('id'))
+
+def apply_price_managers(request):
+  changed_mps = set()
+  for upm in UniquePriceManager.objects.all():
+    changed_mps.update(apply_unique_price_manager(upm))
+  for price_manager in PriceManager.objects.all():
+    changed_mps.update(apply_price_manager(price_manager, changed_mps))
+  
+  messages.success(request, f'Наценки применены. Изменено товаров: {len(changed_mps)}')
 
 class CreateUniquePriceManager(CreateView):
   model = UniquePriceManager

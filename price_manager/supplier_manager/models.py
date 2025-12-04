@@ -35,14 +35,14 @@ class Supplier(models.Model):
 
   name = models.CharField(verbose_name='Поставщик',
                         unique=True)
-  price_updated_at = models.DateTimeField(verbose_name='Последнее обновление цены', 
-                                          null=True,
-                                          blank=True)
   currency = models.ForeignKey(Currency,
                                verbose_name='Валюта поставщика',
                                 on_delete=models.PROTECT,
                                 default=1,
                                 blank=False)
+  price_updated_at = models.DateTimeField(verbose_name='Последнее обновление цены', 
+                                          null=True,
+                                          blank=True)
   stock_updated_at = models.DateTimeField(verbose_name='Последнее обновление остатка', 
                                           null=True,
                                           blank=True)

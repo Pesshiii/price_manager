@@ -18,7 +18,9 @@ from django.contrib.auth.mixins import LoginRequiredMixin
 from django.urls import reverse
 from typing import Optional, Any, Dict, Iterable
 from collections import defaultdict, OrderedDict
-from django.db.models import Count, Prefetch
+from django.db.models import Count, Prefetch, F, Q, Value, Max, Subquery, OuterRef, IntegerField, ExpressionWrapper
+from django.contrib.postgres.search import SearchVector
+# Импорты из сторонних приложений
 from django_tables2 import SingleTableView, RequestConfig, SingleTableMixin
 from django_filters.views import FilterView, FilterMixin
 from dal import autocomplete
@@ -32,7 +34,7 @@ from core.functions import *
 from .forms import *
 from .tables import *
 from .filters import *
-from product_price_manager.views import apply_price_manager, apply_unique_price_manager
+from product_price_manager.views import apply_price_managers
 
 # Импорты сторонних библиотек
 from decimal import Decimal, InvalidOperation
@@ -256,32 +258,58 @@ class MainProductUpdate(UpdateView):
 
 def sync_main_products(request, **kwargs):
   """Обновляет остатки и применяет наценки в MainProduct из SupplierProduct"""
-  updated = 0
-  errors = 0
+  supplier_products = SupplierProduct.objects.select_related('main_product', 'supplier').filter(main_product__isnull=False)
 
-  supplier_products = SupplierProduct.objects.select_related("main_product").all()
+  supplier_products = supplier_products.filter(
+      ~Q(main_product__stock=F('stock')))
+  
+  mps = MainProduct.objects.filter(id__in=supplier_products.values_list('main_product_id', flat=True))
 
-  mps = []
+  calc_qs = (
+    mps.filter(pk=OuterRef("pk"))
+    .annotate(
+        _changed_stock=ExpressionWrapper(
+            Max(F('supplier_products__stock')),
+            output_field=IntegerField(),
+        )
+    )
+    .values("_changed_stock")[:1]
+  )
+  
+  mps = mps.annotate(
+        changed_stock=Subquery(calc_qs, output_field=IntegerField())
+    )
+  
+  
+  calc_qs = (
+    mps.filter(pk=OuterRef("pk"))
+    .annotate(
+        _sua=ExpressionWrapper(
+            Max(F('supplier__stock_updated_at')),
+            output_field=IntegerField(),
+        )
+    )
+    .values("_sua")[:1]
+  )
+  
+  
+  mps = mps.annotate(
+        sua=Subquery(calc_qs, output_field=IntegerField())
+    )
 
-  for sp in supplier_products:
-    try:
-      if not sp.main_product or sp.main_product.stock == sp.stock:
-        continue  # пропускаем без связи
-      mp = sp.main_product
-      mp.stock = sp.stock
-      mp.stock_updated_at = sp.supplier.stock_updated_at
-      text = mp._build_search_text()
-      mp.search_vector = SearchVector(Value(text), config='russian')
-      mps.append(mp)
-    except Exception as ex:
-      errors += 1
-      messages.error(request, f"Ошибка при обновлении {sp}: {ex}")
-  updated = MainProduct.objects.bulk_update(mps, ['stock', 'stock_updated_at', 'manufacturer', 'category', 'search_vector'])
+  updated = mps.update(
+      stock=F('changed_stock'),
+      stock_updated_at=F('sua'),
+      )
+  
+  
+
+  MainProductLog.objects.bulk_create((MainProductLog(
+      main_product=mp,
+      stock=mp.stock,
+    ) for mp in mps))
   MainProductLog.objects.bulk_create([MainProductLog(main_product=mp, stock=mp.stock) for mp in mps])
-  messages.success(request, f"Остатки обновлены у {updated} товаров, ошибок: {errors}")
-  for upm in UniquePriceManager.objects.all():
-    apply_unique_price_manager(upm)
-  for price_manager in PriceManager.objects.all():
-    apply_price_manager(price_manager)
-  messages.success(request, 'Наценки применены')
+  messages.success(request, f"Остатки обновлены у {updated} товаров")
+
+  apply_price_managers(request)
   return redirect('main')
