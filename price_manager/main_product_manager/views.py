@@ -308,7 +308,6 @@ def sync_main_products(request, **kwargs):
       main_product=mp,
       stock=mp.stock,
     ) for mp in mps))
-  MainProductLog.objects.bulk_create([MainProductLog(main_product=mp, stock=mp.stock) for mp in mps])
   messages.success(request, f"Остатки обновлены у {updated} товаров")
 
   apply_price_managers(request)

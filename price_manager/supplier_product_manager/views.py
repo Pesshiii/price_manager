@@ -19,6 +19,7 @@ from django.db.models import Value
 
 # Импорты моделей, функций, форм, таблиц
 from file_manager.models import FileModel
+from main_product_manager.models import MainProduct, MainProductLog
 from core.functions import extract_initial_from_post
 from .forms import *
 from .tables import *
@@ -513,7 +514,7 @@ def upload_supplier_products(request, **kwargs):
     mans = {man: Manufacturer.objects.get_or_create(name=man)[0] for man in df[rev_links['manufacturer']].unique()}
   
   sp = []
-  mp = []
+  mps = []
   new = 0
   overall = 0
   exs = []
@@ -569,13 +570,18 @@ def upload_supplier_products(request, **kwargs):
           if main_created and 'manufacturer' in rev_links:
             main_product.manufacturer = product.manufacturer
           product.main_product = main_product
-          mp.append(main_product)
+          mps.append(main_product)
         sp.append(product)
         overall += 1
       except BaseException as ex:
         exs.append(ex)
 
-  MainProduct.objects.bulk_update(mp, fields=['supplier', 'article', 'name', 'search_vector', 'manufacturer'])
+  MainProduct.objects.bulk_update(mps, fields=['supplier', 'article', 'name', 'search_vector', 'manufacturer'])
+  if 'stock' in links.values():
+    MainProductLog.objects.bulk_create((MainProductLog(
+        main_product=mp,
+        stock=mp.stock,
+      ) for mp in mps))
   SupplierProduct.objects.bulk_update(sp, fields=[field for field in links.values() if not field=='discounts'])
   SupplierProduct.objects.bulk_update(sp, fields=['supplier_price', 'rrp', 'main_product'])
   for price in SP_PRICES:
