@@ -99,20 +99,25 @@ class UniquePriceManager(models.Model):
   """
   source = models.CharField(verbose_name='От какой цены считать',
                                  choices=[
+                                  (None, 'Фиксированная цена'),
                                   ('rrp', 'РРЦ в валюте поставщика'),
                                   ('supplier_price', 'Цена поставщика в валюте поставщика'),
                                   ('basic_price', 'Базовая цена'),
                                   ('prime_cost', 'Себестоимость'),
                                   ('m_price', 'Цена ИМ'),
                                   ('wholesale_price', 'Оптовая цена'),
-                                  ('wholesale_price_extra', 'Оптовая цена1')])
+                                  ('wholesale_price_extra', 'Оптовая цена1')],
+                                  blank=True,
+                                  null=True)
   dest = models.CharField(verbose_name='Какую цену считать',
                                  choices=[
                                   ('basic_price', 'Базовая цена'),
                                   ('prime_cost', 'Себестоимость'),
                                   ('m_price', 'Цена ИМ'),
                                   ('wholesale_price', 'Оптовая цена'),
-                                  ('wholesale_price_extra', 'Оптовая цена1')])
+                                  ('wholesale_price_extra', 'Оптовая цена1')],
+                                  blank=True,
+                                  null=True)
   markup = models.DecimalField(
       verbose_name='Накрутка',
       decimal_places=2,
@@ -124,3 +129,10 @@ class UniquePriceManager(models.Model):
       decimal_places=2,
       max_digits=20,
       default=0)
+  fixed_price = models.DecimalField(
+      verbose_name='Фиксированная цена',
+      decimal_places=2,
+      max_digits=20,
+      validators=[MinValueValidator(0)],
+      null=True,
+      blank=True)

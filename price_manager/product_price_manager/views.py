@@ -449,6 +449,16 @@ class CreateUniquePriceManager(CreateView):
   template_name = 'price_manager/create_unique_pricemanager.html'
   success_url='/'
   def form_valid(self, form):
+    if form.cleaned_data['source'] is None:
+      if form.cleaned_data['fixed_price'] is None:
+        messages.error(self.request, 'Для фиксированной цены необходимо указать значение фиксированной цены')
+        return self.form_invalid(form)
+    if form.cleaned_data['source'] == form.cleaned_data['dest']:
+      messages.error(self.request, 'Цена не может считаться от себя же')
+      return self.form_invalid(form)
+    if form.cleaned_data['source'] and not form.cleaned_data['dest']:
+      messages.error(self.request, 'Если указана исходная цена, то необходимо указать целевую цену')
+      return self.form_invalid(form)
     if self.kwargs.get('mp_id', None):
       obj = form.save()
       MainProduct.objects.get(id=self.kwargs.get('mp_id')).unique_price_managers.add(obj.id)
