@@ -312,3 +312,6 @@ def sync_main_products(request, **kwargs):
 
   apply_price_managers(request)
   return redirect('main')
+
+
+

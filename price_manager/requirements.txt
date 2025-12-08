@@ -8,3 +8,4 @@ tablib>=3.8.0
 django-import-export>=4.3.9
 django-filter>=25.1
 django-autocomplete-light>=3.12.1
+django-htmx>=1.27.0

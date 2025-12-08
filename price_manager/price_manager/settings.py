@@ -49,6 +49,7 @@ INSTALLED_APPS = [
     'product_price_manager',
     'main_product_manager',
     'supplier_manager',
+    'django_htmx',
 ]
 
 MIDDLEWARE = [
@@ -60,6 +61,7 @@ MIDDLEWARE = [
     'core.middleware.LoginRequiredMiddleware',
     'django.contrib.messages.middleware.MessageMiddleware',
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
+    "django_htmx.middleware.HtmxMiddleware",
 ]
 
 ROOT_URLCONF = 'price_manager.urls'
@@ -69,6 +71,7 @@ TEMPLATES = [
         'BACKEND': 'django.template.backends.django.DjangoTemplates',
         'DIRS': [
           'core/templates',
+          'main_product_manager/templates'
         ],
         'APP_DIRS': True,
         'OPTIONS': {
@@ -91,31 +94,14 @@ MEDIA_URL = '/media/'
 # https://docs.djangoproject.com/en/5.2/ref/settings/#databases
 
 DATABASES = {
-    # 'default': {
-    #     'ENGINE': 'django.db.backends.sqlite3',
-    #     'NAME': BASE_DIR / 'db.sqlite3',
-    #     "OPTIONS": {
-    #         "transaction_mode": "IMMEDIATE",   # ADDED FOR SQLITE DB   /
-    #     },                                     # TRY REMOVE ON OTHER DB/
-    # }
     'default': {
         'ENGINE': 'django.db.backends.postgresql',
-        # 'NAME': 'postgres',
-        # 'USER': 'postgres',
         'NAME': 'price_manager',
         'USER': 'priceuser',
         'PASSWORD': 'postgres',
         'HOST': 'localhost',
         'PORT': '5432',
     }
-    # 'default': {
-    #     'ENGINE': 'django.db.backends.postgresql',
-    #     'NAME': 'price_manager',
-    #     'USER': 'priceuser',
-    #     'PASSWORD': 'postgres',
-    #     'HOST': 'localhost',
-    #     'PORT': '5432',
-    # }
 }
 
 DATA_UPLOAD_MAX_NUMBER_FIELDS = 50000
@@ -156,6 +142,10 @@ USE_TZ = True
 # https://docs.djangoproject.com/en/5.2/howto/static-files/
 
 STATIC_URL = 'static/'
+
+STATICFILES_DIRS = [
+  BASE_DIR / 'static'
+]
 
 # Default primary key field type
 # https://docs.djangoproject.com/en/5.2/ref/settings/#default-auto-field
