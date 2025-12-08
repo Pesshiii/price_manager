@@ -50,6 +50,7 @@ INSTALLED_APPS = [
     'main_product_manager',
     'supplier_manager',
     'django_htmx',
+    'template_partials',
 ]
 
 MIDDLEWARE = [
@@ -75,6 +76,7 @@ TEMPLATES = [
         ],
         'APP_DIRS': True,
         'OPTIONS': {
+            "builtins": ["template_partials.templatetags.partials"],
             'context_processors': [
                 'django.template.context_processors.request',
                 'django.contrib.auth.context_processors.auth',
