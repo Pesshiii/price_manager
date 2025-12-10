@@ -47,13 +47,14 @@ class MainProductFilter(FilterSet):
     model = MainProduct
     fields = ['search', 'anti_search', 'supplier', 'category', 'manufacturer', 'available']
   def _build_partial_query(self, value):
-    value = re.sub(r"[^\w-]+", " ", value, flags=re.UNICODE)
+    value = re.sub(r"[^\w\-\\\/]+", " ", value, flags=re.UNICODE)
     terms = [bit for bit in value.split() if bit]
     if not terms:
       return None
-    raw_query = ' & '.join(f'''{term}:*''' for term in terms)
-    print(SearchQuery(raw_query, search_type='raw', config='russian'))
-    return SearchQuery(raw_query, search_type='raw', config='russian')
+    query = SearchQuery('')
+    for term in terms:
+      query &= SearchQuery(f'{term}:*', search_type='raw', config='russian')
+    return query
   def search_method(self, queryset, name, value):
     query = self._build_partial_query(value)
     if query is None:

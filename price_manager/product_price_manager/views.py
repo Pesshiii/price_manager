@@ -283,34 +283,61 @@ class PriceManagerDelete(DeleteView):
 def apply_unique_price_manager(upm: UniquePriceManager):
   mps = MainProduct.objects.filter(id__in=upm.main_products.values_list('id'))
   source = upm.source
-  if upm.source in SP_PRICES:
+  if not upm.source:
+    calc_qs = (
+      mps.filter(pk=OuterRef("pk"))
+      .annotate(
+          _changed_price=ExpressionWrapper(
+              Ceil(
+                  upm.fixed_price,
+                  output_field=DecimalField()
+              ),
+              output_field=DecimalField(),
+          )
+      )
+      .values("_changed_price")[:1]
+    )
+  elif upm.source in SP_PRICES:
     mps = mps.annotate(source_price=Min(f'supplier_products__{upm.source}'))
     source = 'source_price'
-  
-  calc_qs = (
-    mps.filter(pk=OuterRef("pk"))
-    .annotate(
-        _changed_price=ExpressionWrapper(
-            Ceil(
-                F(source) * F("supplier__currency__value")
-                * (1 + Decimal(upm.markup) / Decimal(100))
-                + Decimal(upm.increase)
-            ),
-            output_field=DecimalField(),
-        )
+    calc_qs = (
+      mps.filter(pk=OuterRef("pk"))
+      .annotate(
+          _changed_price=ExpressionWrapper(
+              Ceil(
+                  F(source) * F("supplier__currency__value")
+                  * (1 + Decimal(upm.markup) / Decimal(100))
+                  + Decimal(upm.increase)
+              ),
+              output_field=DecimalField(),
+          )
+      )
+      .values("_changed_price")[:1]
     )
-    .values("_changed_price")[:1]
-  )
+  else:
+    calc_qs = (
+      mps.filter(pk=OuterRef("pk"))
+      .annotate(
+          _changed_price=ExpressionWrapper(
+              Ceil(
+                  F(source)
+                  * (1 + Decimal(upm.markup) / Decimal(100))
+                  + Decimal(upm.increase)
+              ),
+              output_field=DecimalField(),
+          )
+      )
+      .values("_changed_price")[:1]
+    )
   
   mps = mps.annotate(
         changed_price=Subquery(calc_qs, output_field=DecimalField())
     )
-
+  
+  print(mps)
+  
   mps = mps.filter(~Q(**{f'{upm.dest}':F('changed_price')}))
-  
-  mps.update(**{upm.dest:F('changed_price'),
-               'price_updated_at':timezone.now()})
-  
+
   through = MainProduct.unique_price_managers.through  # промежуточная модель
 
   # Берём id уже существующих связей, чтобы не дублировать
@@ -331,14 +358,17 @@ def apply_unique_price_manager(upm: UniquePriceManager):
       links.append(through(mainproduct_id=mp.id, uniquepricemanager_id=upm.id))
     logs.append(MainProductLog(
       main_product=mp,
-      price_field=upm.dest,
-      price=getattr(mp, upm.dest)
+      price_type=upm.dest,
+      price=getattr(mp, 'changed_price')
     ))
   through.objects.bulk_create(links, batch_size=1000)
-  MainProductLog.objects.bulk_create(logs)
-  return list(mps.values_list('id'))
+  MainProductLog.objects.bulk_create(logs, ignore_conflicts=True)
+  mp_ids = mps.values('id')
+  mps.update(**{f'{upm.dest}':F('changed_price'),
+               'price_updated_at':timezone.now()})
+  return list(mp_ids)
 
-def apply_price_manager(price_manager: PriceManager, changed_mps: Optional[Iterable[int]]=None):
+def apply_price_manager(price_manager: PriceManager):
 
 
   ## Следует убрать после обновления в главной ветке ###
@@ -375,26 +405,40 @@ def apply_price_manager(price_manager: PriceManager, changed_mps: Optional[Itera
       price_manager.price_to,
       f'''main_product__{price_manager.source}'''))
   
-  mps = MainProduct.objects.filter(id__in=products.values_list('main_product__id')).filter(~Q(id__in=changed_mps) if changed_mps else Q())
+  mps = MainProduct.objects.filter(id__in=products.values_list('main_product__id'))
   source = price_manager.source
   if price_manager.source in SP_PRICES:
     mps = mps.annotate(source_price=Min(f'supplier_products__{price_manager.source}'))
     source = 'source_price'
-
-  calc_qs = (
-    mps.filter(pk=OuterRef("pk"))
-    .annotate(
-        _changed_price=ExpressionWrapper(
-            Ceil(
-                F(source) * F("supplier__currency__value")
-                * (1 + Decimal(price_manager.markup) / Decimal(100))
-                + Decimal(price_manager.increase)
-            ),
-            output_field=DecimalField(),
-        )
+    calc_qs = (
+      mps.filter(pk=OuterRef("pk"))
+      .annotate(
+          _changed_price=ExpressionWrapper(
+              Ceil(
+                  F(source) * F("supplier__currency__value")
+                  * (1 + Decimal(price_manager.markup) / Decimal(100))
+                  + Decimal(price_manager.increase)
+              ),
+              output_field=DecimalField(),
+          )
+      )
+      .values("_changed_price")[:1]
     )
-    .values("_changed_price")[:1]
-  )
+  else:
+    calc_qs = (
+      mps.filter(pk=OuterRef("pk"))
+      .annotate(
+          _changed_price=ExpressionWrapper(
+              Ceil(
+                  F(source)
+                  * (1 + Decimal(price_manager.markup) / Decimal(100))
+                  + Decimal(price_manager.increase)
+              ),
+              output_field=DecimalField(),
+          )
+      )
+      .values("_changed_price")[:1]
+    )
   
   mps = mps.annotate(
         changed_price=Subquery(calc_qs, output_field=DecimalField())
@@ -402,10 +446,6 @@ def apply_price_manager(price_manager: PriceManager, changed_mps: Optional[Itera
 
   mps = mps.filter(~Q(**{f'{price_manager.dest}':F('changed_price')}))
 
-  
-  mps.update(**{price_manager.dest:F('changed_price'),
-               'price_updated_at':timezone.now()})
-  
   
   through = MainProduct.price_managers.through  # промежуточная модель
 
@@ -427,19 +467,23 @@ def apply_price_manager(price_manager: PriceManager, changed_mps: Optional[Itera
       links.append(through(mainproduct_id=mp.id, pricemanager_id=price_manager.id))
     logs.append(MainProductLog(
       main_product=mp,
-      price_field=price_manager.dest,
-      price=getattr(mp, price_manager.dest)
+      price_type=price_manager.dest,
+      price=getattr(mp, 'changed_price')
     ))
   through.objects.bulk_create(links, batch_size=1000)
   MainProductLog.objects.bulk_create(logs)
-  return list(mps.values_list('id'))
+  mp_ids = mps.values('id')
+  print(mps)
+  mps.update(**{price_manager.dest:F('changed_price'),
+               'price_updated_at':timezone.now()})
+  return list(mp_ids)
 
 def apply_price_managers(request):
   changed_mps = set()
-  for upm in UniquePriceManager.objects.all():
-    changed_mps.update(apply_unique_price_manager(upm))
   for price_manager in PriceManager.objects.all():
-    changed_mps.update(apply_price_manager(price_manager, changed_mps))
+    changed_mps = changed_mps.union(set(apply_price_manager(price_manager)))
+  for upm in UniquePriceManager.objects.all():
+    changed_mps = changed_mps.union(set(apply_unique_price_manager(upm)))
   
   messages.success(request, f'Наценки применены. Изменено товаров: {len(changed_mps)}')
 
@@ -453,15 +497,16 @@ class CreateUniquePriceManager(CreateView):
       if form.cleaned_data['fixed_price'] is None:
         messages.error(self.request, 'Для фиксированной цены необходимо указать значение фиксированной цены')
         return self.form_invalid(form)
-    if form.cleaned_data['source'] == form.cleaned_data['dest']:
+    elif form.cleaned_data['source'] == form.cleaned_data['dest']:
       messages.error(self.request, 'Цена не может считаться от себя же')
       return self.form_invalid(form)
-    if form.cleaned_data['source'] and not form.cleaned_data['dest']:
+    if not form.cleaned_data['dest']:
       messages.error(self.request, 'Если указана исходная цена, то необходимо указать целевую цену')
       return self.form_invalid(form)
     if self.kwargs.get('mp_id', None):
       obj = form.save()
       MainProduct.objects.get(id=self.kwargs.get('mp_id')).unique_price_managers.add(obj.id)
+      messages.success(self.request, 'Наценка сохранена')
     else:
       messages.error(self.request, 'Главный товар неопознан')
     return super().form_valid(form)
