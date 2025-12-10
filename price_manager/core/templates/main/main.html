@@ -68,53 +68,55 @@
 {% endblock %}
 
 {% block body %}
-<div class="container-fluid main-page-layout">
-  {% include 'main/includes/table.html' %}
-</div>
+<div id="mainproduct-block">
+  <div class="container-fluid main-page-layout">
+    {% include 'main/includes/table.html' %}
+  </div>
 
-<div class="filter-panel card shadow-sm">
-  <div class="card-body">
-    <h2 class="h4">Фильтры</h2>
-    <form method="get" class="form" id="main-filter-form">
-      {{ filter_form.media }}
+  <div class="filter-panel card shadow-sm mt-4">
+    <div class="card-body">
+      <h2 class="h4">Фильтры</h2>
+      <form method="get" class="form" id="main-filter-form">
+        {{ filter_form.media }}
 
-      <div id="filters-update-sink" class="d-none"></div>
+        <div id="filters-update-sink" class="d-none"></div>
 
-      <div class="form-group mt-3">
-        <label for="{{ filter_form.search.id_for_label }}">{{ filter_form.search.label }}</label>
-        {{ filter_form.search }}
-      </div>
+        <div class="form-group mt-3">
+          <label for="{{ filter_form.search.id_for_label }}">{{ filter_form.search.label }}</label>
+          {{ filter_form.search }}
+        </div>
 
-      <div class="form-group mt-3">
-        <label for="{{ filter_form.anti_search.id_for_label }}">{{ filter_form.anti_search.label }}</label>
-        {{ filter_form.anti_search }}
-      </div>
-
-
-      {% if filter_form.available %}
-      <div class="form-group mt-3">
-        <label for="{{ filter_form.available.id_for_label }}">{{ filter_form.available.label }}</label>
-        {{ filter_form.available }}
-      </div>
-      {% endif %}
-      
-      {% include 'main/includes/filter_field.html' with field=filter_form.category container_id='category-filter-container' collapse_id='category-filter-collapse' is_category=True category_tree=category_tree selected_categories=selected_categories available_options=None collapsible=False %}
-      
-      {% include 'main/includes/filter_field.html' with field=filter_form.manufacturer container_id='manufacturer-filter-container' collapse_id='manufacturer-filter-collapse' available_options=available_manufacturers available_options_label='Доступные производители' collapsible=False %}
-      
-      {% include 'main/includes/filter_field.html' with field=filter_form.supplier container_id='supplier-filter-container' collapse_id='supplier-filter-collapse' available_options=available_suppliers available_options_label='Доступные поставщики' collapsible=False %}
+        <div class="form-group mt-3">
+          <label for="{{ filter_form.anti_search.id_for_label }}">{{ filter_form.anti_search.label }}</label>
+          {{ filter_form.anti_search }}
+        </div>
 
 
+        {% if filter_form.available %}
+        <div class="form-group mt-3">
+          <label for="{{ filter_form.available.id_for_label }}">{{ filter_form.available.label }}</label>
+          {{ filter_form.available }}
+        </div>
+        {% endif %}
+        
+        {% include 'main/includes/filter_field.html' with field=filter_form.category container_id='category-filter-container' collapse_id='category-filter-collapse' is_category=True category_tree=category_tree selected_categories=selected_categories available_options=None collapsible=False %}
+        
+        {% include 'main/includes/filter_field.html' with field=filter_form.manufacturer container_id='manufacturer-filter-container' collapse_id='manufacturer-filter-collapse' available_options=available_manufacturers available_options_label='Доступные производители' collapsible=False %}
+        
+        {% include 'main/includes/filter_field.html' with field=filter_form.supplier container_id='supplier-filter-container' collapse_id='supplier-filter-collapse' available_options=available_suppliers available_options_label='Доступные поставщики' collapsible=False %}
 
-      <div class="mt-4 d-flex gap-2">
-          <button type="submit" class="btn btn-primary flex-grow-1">
-            🔍 Искать
-          </button>
-          <a href="{% url 'main-product-sync'%}" class="btn btn-success">
-            <i class="bi bi-recycle"></i> Обновить
-          </a>
-      </div>
-    </form>
+
+
+        <div class="mt-4 d-flex gap-2">
+            <button type="submit" class="btn btn-primary flex-grow-1">
+              🔍 Искать
+            </button>
+            <a href="{% url 'main-product-sync'%}" class="btn btn-success">
+              <i class="bi bi-recycle"></i> Обновить
+            </a>
+        </div>
+      </form>
+    </div>
   </div>
 </div>
 {% endblock %}

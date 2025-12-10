@@ -1,23 +1,15 @@
 <div class="d-flex gap-1">
   <a href="{% url 'add-unique-pricemanager' record.id %}" class="btn btn-sm btn-primary" title="Добавить Индивидуальную наценку">
-    <i class="bi bi-pencil"></i>
+    <i class="bi bi-currency-dollar"></i>
   </a>
-  {% if request.user.is_authenticated %}
-    <button type="button"
-            class="btn btn-sm btn-success"
-            title="Добавить в корзину"
-            data-bs-toggle="modal"
-            data-bs-target="#shoppingTabSelectionModal"
-            hx-get="{% url 'shopping-tab-select' record.pk %}"
-            hx-target="#shopping-tab-selection-modal-content"
-            hx-swap="innerHTML">
-      <i class="bi bi-cart-plus"></i>
-    </button>
-  {% else %}
-    <a href="{% url 'login' %}?next={{ request.get_full_path|urlencode }}"
-       class="btn btn-sm btn-outline-secondary"
-       title="Войти, чтобы добавить в корзину">
-      <i class="bi bi-cart-plus"></i>
-    </a>
-  {% endif %}
+  <button type="button"
+          class="btn btn-sm btn-success"
+          title="Добавить в корзину"
+          data-bs-toggle="modal"
+          data-bs-target="#shoppingTabSelectionModal"
+          hx-get="{% url 'shopping-tab-select' record.pk %}"
+          hx-target="#shopping-tab-selection-modal-content"
+          hx-swap="innerHTML">
+    <i class="bi bi-cart-plus"></i>
+  </button>
 </div>

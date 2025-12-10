@@ -24,6 +24,7 @@ from django.contrib.postgres.search import SearchVector
 from django_tables2 import SingleTableView, RequestConfig, SingleTableMixin
 from django_filters.views import FilterView, FilterMixin
 from dal import autocomplete
+from django_htmx.http import retarget
 
 # Импорты моделей, функций, форм, таблиц
 from .models import *
@@ -249,13 +250,6 @@ class MainTableView(MainPage):
   
 # Обработка продуктов главного прайса
 
-class MainProductUpdate(UpdateView):
-    model = MainProduct
-    form_class = MainProductForm
-    template_name = 'main/product/update.html'
-    success_url = '/'
-    pk_url_kwarg = 'id'
-
 def sync_main_products(request, **kwargs):
   """Обновляет остатки и применяет наценки в MainProduct из SupplierProduct"""
   supplier_products = SupplierProduct.objects.select_related('main_product', 'supplier').filter(main_product__isnull=False)
@@ -315,3 +309,39 @@ def sync_main_products(request, **kwargs):
 
 
 
+class MainProductInfo(DetailView):
+  template_name='mainproduct/partials/info.html'
+  model=MainProduct
+  def get_template_names(self) -> list[str]:
+    if self.request.htmx:
+      return [self.template_name + '#partial']
+    return super().get_template_names()
+  
+  
+
+
+class MainProductDetail(DetailView):
+  template_name='mainproduct/partials/detail.html'
+  model=MainProduct
+  def get(self, request, *args, **kwargs):
+    if not self.request.htmx:
+      return redirect(reverse('mainproduct-info', kwargs=self.kwargs))
+    return super().get(request, *args, **kwargs)
+  
+
+class MainProductUpdate(UpdateView):
+  model = MainProduct
+  form_class = MainProductForm
+  template_name = 'mainproduct/partials/update.html'
+  def get_success_url(self):
+    return reverse('mainproduct-info', kwargs=self.kwargs)
+  def get(self, request, *args, **kwargs):
+    if not self.request.htmx:
+      return redirect(reverse('mainproduct-info', kwargs=self.kwargs))
+    return super().get(request, *args, **kwargs)
+  def form_valid(self, form):
+    if form.is_valid():
+      form.save()
+      return redirect(reverse('mainproduct-detail', kwargs=self.kwargs))
+    else:
+      return redirect(reverse('mainproduct-update', kwargs=self.kwargs))

@@ -18,7 +18,7 @@
         {% block style %} {% endblock %}
     </style>
 </head>
-<body  hx-headers='{"x-csrftoken": "{{ csrf_token }}"}'>
+<body  hx-headers='{"X-CSRFToken": "{{ csrf_token }}"}'>
     {% include 'includes/header.html' %}
     <div class="container mt-5">
         {% if messages %}

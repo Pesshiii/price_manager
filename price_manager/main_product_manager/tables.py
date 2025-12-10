@@ -37,7 +37,7 @@ class MainProductListTable(tables.Table):
         )
   def render_name(self, record):
     return render_to_string(
-      'main/product/card.html',
+      'mainproduct/includes/name.html',
       {
         'record': record,
       }
