@@ -2,6 +2,11 @@
 from django.contrib import admin
 from django.urls import path
 from core import views
+from file_manager import views as fm_views
+from supplier_product_manager import views as spm_views
+from main_product_manager import views as mp_views
+from supplier_manager import views as sm_views
+from product_price_manager import views as ppm_views
 from django.conf import settings
 from django.conf.urls.static import static
 
@@ -10,42 +15,47 @@ urlpatterns = [
     path('accounts/login/', views.AppLoginView.as_view(), name='login'),
     path('accounts/logout/', views.AppLogoutView.as_view(), name='logout'),
 
-    path('', views.MainPage.as_view(), name='main'),
-    path('main/filter-options/', views.MainFilterOptionsView.as_view(), name='main-filter-options'),
-    path('main/table/', views.MainTableView.as_view(), name='main-table'),
+    path('', mp_views.MainPage.as_view(), name='main'),
+    path('main/filter-options/', mp_views.MainFilterOptionsView.as_view(), name='main-filter-options'),
+    path('main/table/', mp_views.MainTableView.as_view(), name='main-table'),
     
     path('instructions/', views.InstructionsView.as_view(), name='instructions'),
     
-    path('supplier/', views.SupplierList.as_view(), name='supplier'),
-    path('supplier/<int:id>/', views.SupplierDetail.as_view(), name='supplier-detail'),
-    path('supplier/<int:id>/update', views.SupplierUpdate.as_view(), name='supplier-update'),
-    path('supplier/<int:id>/delete/', views.SupplierDelete.as_view(), name='supplier-delete'),
-    path('supplier/<int:id>/settings/', views.SupplierSettingList.as_view(), name='supplier-settings'),
-    path('supplier/create/', views.SupplierCreate.as_view(), name='supplier-create'),
-    path('supplier/<int:id>/setting/create/<int:f_id>/', views.SettingCreate.as_view(), name='setting-create'),
+    path('supplier/', sm_views.SupplierList.as_view(), name='supplier'),
+    path('supplier/<int:id>/', spm_views.SupplierDetail.as_view(), name='supplier-detail'),
+    path('supplier/<int:id>/update', sm_views.SupplierUpdate.as_view(), name='supplier-update'),
+    path('supplier/<int:id>/delete/', sm_views.SupplierDelete.as_view(), name='supplier-delete'),
+    path('supplier/<int:id>/settings/', spm_views.SupplierSettingList.as_view(), name='supplier-settings'),
+    path('supplier/create/', sm_views.SupplierCreate.as_view(), name='supplier-create'),
+    path('supplier/<int:id>/setting/create/<int:f_id>/', spm_views.SettingCreate.as_view(), name='setting-create'),
 
-    path('setting/<int:id>/', views.SettingDetail.as_view(), name='setting-detail'),
-    path('setting/<int:id>/delete', views.SettingDelete.as_view(), name='setting-delete'),
-    path('setting/<int:id>/upload/<int:f_id>/', views.SettingUpdate.as_view(), name='setting-update'),
-    path('setting/<int:id>/upload/<int:f_id>/upload', views.SettingUpload.as_view(), name='setting-upload'),
+    path('setting/<int:id>/', spm_views.SettingDetail.as_view(), name='setting-detail'),
+    path('setting/<int:id>/delete', spm_views.SettingDelete.as_view(), name='setting-delete'),
+    path('setting/<int:id>/upload/<int:f_id>/', spm_views.SettingUpdate.as_view(), name='setting-update'),
+    path('setting/<int:id>/upload/<int:f_id>/upload', spm_views.SettingUpload.as_view(), name='setting-upload'),
 
-    path('category/autocomplete',views.CategoryAutocomplete.as_view(),name='category-autocomplete'),
+    path('category/autocomplete',sm_views.CategoryAutocomplete.as_view(),name='category-autocomplete'),
     
-    path('currency/', views.CurrencyList.as_view(), name='currency'),
-    path('currency/create/', views.CurrencyCreate.as_view(), name='currency-create'),
-    path('currency/<int:id>/update', views.CurrencyUpdate.as_view(), name='currency-update'),
+    path('currency/', sm_views.CurrencyList.as_view(), name='currency'),
+    path('currency/create/', sm_views.CurrencyCreate.as_view(), name='currency-create'),
+    path('currency/<int:id>/update', sm_views.CurrencyUpdate.as_view(), name='currency-update'),
 
-    path('price-manager/', views.PriceManagerList.as_view(), name='price-manager'),
-    path('price-manager/<int:id>/', views.PriceManagerUpdate.as_view(), name='price-manager-update'),
-    path('price-manager/create/', views.PriceManagerCreate.as_view(), name='price-manager-create'),
-    path('price-manager/<int:id>/delete', views.PriceManagerDelete.as_view(), name='price-manager-delete'),
+    path('price-manager/', ppm_views.PriceManagerList.as_view(), name='price-manager'),
+    path('price-manager/<int:id>/', ppm_views.PriceManagerUpdate.as_view(), name='price-manager-update'),
+    path('price-manager/create/', ppm_views.PriceManagerCreate.as_view(), name='price-manager-create'),
+    path('price-manager/<int:id>/delete', ppm_views.PriceManagerDelete.as_view(), name='price-manager-delete'),
+    path('unique-price-manager/<int:mp_id>/add', ppm_views.CreateUniquePriceManager.as_view(), name='add-unique-pricemanager' ),
 
-    path('supplier-product/<int:id>/delete/', views.delete_supplier_product, name='supplier-product-delete'),
+    path('supplier-product/<int:id>/delete/', spm_views.delete_supplier_product, name='supplier-product-delete'),
 
-    path('main-product/<int:id>/update', views.MainProductUpdate.as_view(), name='main-product-update'),
-    path('main-product/sync/', views.sync_main_products, name='main-product-sync'),
+    path('main-product/<int:id>/update', mp_views.MainProductUpdate.as_view(), name='main-product-update'),
+    path('main-product/sync/', mp_views.sync_main_products, name='main-product-sync'),
+    path('mainproduct/<int:pk>/info', mp_views.MainProductInfo.as_view(), name='mainproduct-info'),
+    path('mainproduct/<int:pk>/update', mp_views.MainProductUpdate.as_view(), name='mainproduct-update'),
+    path('mainproduct/<int:pk>/detail', mp_views.MainProductDetail.as_view(), name='mainproduct-detail'),
 
-    path('upload/<str:name>/<int:id>/', views.FileUpload.as_view(), name='upload'),
+
+    path('upload/<str:name>/<int:id>/', fm_views.FileUpload.as_view(), name='upload'),
 
     path('shopping-tabs/', views.ShoppingTabListView.as_view(), name='shopping-tab-list'),
     path('shopping-tabs/<int:pk>/', views.ShoppingTabDetailView.as_view(), name='shopping-tab-detail'),

@@ -1,0 +1,19 @@
+<div>
+  <h1>
+    {{mainproduct.name}}
+  </h1>
+  <div>
+    <p class="">Индивидуальный номер: {{mainproduct.sku}}.</p>
+    <p class="">Базовая цена: {{mainproduct.basic_price}} тг.</p>
+    <p class="">Себестоимость: {{mainproduct.prime_cost}} тг.</p>
+    <p class="">Цена ИМ: {{mainproduct.m_price}} тг.</p>
+    <p class="">Последнее обновление: {{mainproduct.price_updated_at}}</p>
+  </div>
+
+  <button class="btn btn-success" 
+      hx-get="{% url 'mainproduct-update' pk=mainproduct.pk %}" 
+      hx-target="#mainproduct-card"
+      hx-push-url="{% url 'mainproduct-update' pk=mainproduct.pk %}">
+      Изменить
+  </button>
+</div>

@@ -2,6 +2,7 @@ import pandas as pd
 from io import StringIO
 from .models import *
 from django.db import transaction
+from supplier_manager.models import Manufacturer, Category, ManufacturerDict
 # Работа с моделями
 
 def get_field_details(Model) -> dict:
@@ -21,11 +22,11 @@ def get_field_details(Model) -> dict:
     for field in Model._meta.get_fields() if not 'id' in field.name
   }
 
-SP_FOREIGN = [key for key, value in get_field_details(SupplierProduct).items() 
-              if '_ptr' in key
-              or (value['is_relation'] and not key in ['category', 'manufacturer'])
-              ]
-MP_FOREIGN = [key for key, value in get_field_details(MainProduct).items() if '_ptr' in key]
+# SP_FOREIGN = [key for key, value in get_field_details(SupplierProduct).items() 
+#               if '_ptr' in key
+#               or (value['is_relation'] and not key in ['category', 'manufacturer'])
+#               ]
+# MP_FOREIGN = [key for key, value in get_field_details(MainProduct).items() if '_ptr' in key]
 
 NECESSARY = ['supplier', 'article', 'name']
 
