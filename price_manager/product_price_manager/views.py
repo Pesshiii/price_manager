@@ -473,7 +473,6 @@ def apply_price_manager(price_manager: PriceManager):
   through.objects.bulk_create(links, batch_size=1000)
   MainProductLog.objects.bulk_create(logs)
   mp_ids = mps.values('id')
-  print(mps)
   mps.update(**{price_manager.dest:F('changed_price'),
                'price_updated_at':timezone.now()})
   return list(mp_ids)
