@@ -22,7 +22,6 @@ from typing import Optional, Any, Dict, Iterable
 from collections import defaultdict, OrderedDict
 from django.db.models import Count, Prefetch
 from django_tables2 import SingleTableView, RequestConfig, SingleTableMixin
-from django_filters.views import FilterView, FilterMixin
 from dal import autocomplete
 from django.db.models import Q
 

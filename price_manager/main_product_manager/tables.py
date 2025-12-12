@@ -60,3 +60,13 @@ class CategoryListTable(tables.Table):
       'class': 'table table-auto table-stripped table-hover clickable-rows'
       }
     
+
+class MainProductLogTable(tables.Table):
+  class Meta:
+    model = MainProductLog
+    fields = ['update_time', 'stock', 'price_type', 'price']
+    template_name = 'django_tables2/bootstrap5.html'
+    attrs = {
+      'class': 'clickable-rows table table-auto table-stripped table-hover'
+      }
+    paginate=False

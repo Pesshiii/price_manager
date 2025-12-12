@@ -3,7 +3,7 @@ from django.contrib.postgres.search import SearchVectorField, SearchVector
 from django.contrib.postgres.indexes import GinIndex
 from django.db.models import Value
 from supplier_manager.models import Supplier, Category, Manufacturer
-from product_price_manager.models import PriceManager, UniquePriceManager
+from product_price_manager.models import PriceManager, UniquePriceManager, PRICE_TYPES
 
    
 MP_TABLE_FIELDS = ['article', 'supplier', 'name', 'manufacturer','prime_cost', 'stock']

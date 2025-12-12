@@ -28,8 +28,6 @@ from django.db.models import (F, ExpressionWrapper,
 from django.db.models.functions import Ceil
 
 from django_tables2 import SingleTableView, RequestConfig, SingleTableMixin
-from django_filters.views import FilterView, FilterMixin
-from dal import autocomplete
 
 # Импорты моделей, функций, форм, таблиц
 from .models import PriceManager, UniquePriceManager
@@ -489,8 +487,13 @@ def apply_price_managers(request):
 class CreateUniquePriceManager(CreateView):
   model = UniquePriceManager
   fields = '__all__'
-  template_name = 'price_manager/create_unique_pricemanager.html'
-  success_url='/'
+  template_name = 'price_manager/partials/create_unique_pricemanager.html'
+  def get_success_url(self):
+    return reverse('mainproduct-detail', kwargs={'pk':self.kwargs.get('pk', None)})
+  def get(self, request, *args, **kwargs):
+    if not self.request.htmx:
+      return redirect(reverse('mainproduct-info', kwargs=self.kwargs))
+    return super().get(request, *args, **kwargs)
   def form_valid(self, form):
     if form.cleaned_data['source'] is None:
       if form.cleaned_data['fixed_price'] is None:
@@ -502,10 +505,54 @@ class CreateUniquePriceManager(CreateView):
     if not form.cleaned_data['dest']:
       messages.error(self.request, 'Если указана исходная цена, то необходимо указать целевую цену')
       return self.form_invalid(form)
-    if self.kwargs.get('mp_id', None):
+    if self.kwargs.get('pk', None):
       obj = form.save()
-      MainProduct.objects.get(id=self.kwargs.get('mp_id')).unique_price_managers.add(obj.id)
+      MainProduct.objects.get(id=self.kwargs.get('pk')).unique_price_managers.add(obj.id)
       messages.success(self.request, 'Наценка сохранена')
     else:
       messages.error(self.request, 'Главный товар неопознан')
     return super().form_valid(form)
+  
+  
+
+class UniquePriceManagerList(TemplateView):
+  '''Отображение наценок <</price_manager/>>'''
+  template_name = 'price_manager/partials/list.html'
+  def get_context_data(self, **kwargs):
+    context = super().get_context_data(**kwargs)
+    context['mainproduct'] = MainProduct.objects.get(pk=self.kwargs.get('pk',None))
+    context['uniquepricemanagers'] = UniquePriceManager.objects.filter(main_products=self.kwargs.get('pk',None))
+    return context
+
+class UniquePriceManagerUpdate(UpdateView):
+  template_name = 'price_manager/partials/update.html'
+
+class UpdateUniquePriceManager(UpdateView):
+  model = UniquePriceManager
+  fields = '__all__'
+  template_name = 'price_manager/partials/update.html'
+  def get_success_url(self):
+    return reverse('mainproduct-detail', kwargs={'pk':self.kwargs.get('pk', None)})
+  def get(self, request, *args, **kwargs):
+    if not self.request.htmx:
+      return redirect(reverse('mainproduct-info', kwargs=self.kwargs))
+    return super().get(request, *args, **kwargs)
+  def form_valid(self, form):
+    if form.cleaned_data['source'] is None:
+      if form.cleaned_data['fixed_price'] is None:
+        messages.error(self.request, 'Для фиксированной цены необходимо указать значение фиксированной цены')
+        return self.form_invalid(form)
+    elif form.cleaned_data['source'] == form.cleaned_data['dest']:
+      messages.error(self.request, 'Цена не может считаться от себя же')
+      return self.form_invalid(form)
+    if not form.cleaned_data['dest']:
+      messages.error(self.request, 'Если указана исходная цена, то необходимо указать целевую цену')
+      return self.form_invalid(form)
+    if self.kwargs.get('pk', None):
+      obj = form.save()
+      MainProduct.objects.get(id=self.kwargs.get('pk')).unique_price_managers.add(obj.id)
+      messages.success(self.request, 'Наценка сохранена')
+    else:
+      messages.error(self.request, 'Главный товар неопознан')
+    return super().form_valid(form)
+  

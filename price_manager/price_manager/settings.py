@@ -72,7 +72,8 @@ TEMPLATES = [
         'BACKEND': 'django.template.backends.django.DjangoTemplates',
         'DIRS': [
           'core/templates',
-          'main_product_manager/templates'
+          'main_product_manager/templates',
+          'product_price_manager/templates',
         ],
         'APP_DIRS': True,
         'OPTIONS': {

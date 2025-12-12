@@ -44,7 +44,9 @@ urlpatterns = [
     path('price-manager/<int:id>/', ppm_views.PriceManagerUpdate.as_view(), name='price-manager-update'),
     path('price-manager/create/', ppm_views.PriceManagerCreate.as_view(), name='price-manager-create'),
     path('price-manager/<int:id>/delete', ppm_views.PriceManagerDelete.as_view(), name='price-manager-delete'),
-    path('unique-price-manager/<int:mp_id>/add', ppm_views.CreateUniquePriceManager.as_view(), name='add-unique-pricemanager' ),
+    path('uniquepricemanager/<int:pk>/add', ppm_views.CreateUniquePriceManager.as_view(), name='uniquepricemanager-create' ),
+    path('uniquepricemanager/<int:pk>/update', ppm_views.UpdateUniquePriceManager.as_view(), name='uniquepricemanager-update' ),
+    path('uniquepricemanager/<int:pk>/list', ppm_views.UniquePriceManagerList.as_view(), name='uniquepricemanager-list' ),
 
     path('supplier-product/<int:id>/delete/', spm_views.delete_supplier_product, name='supplier-product-delete'),
 
@@ -53,6 +55,7 @@ urlpatterns = [
     path('mainproduct/<int:pk>/info', mp_views.MainProductInfo.as_view(), name='mainproduct-info'),
     path('mainproduct/<int:pk>/update', mp_views.MainProductUpdate.as_view(), name='mainproduct-update'),
     path('mainproduct/<int:pk>/detail', mp_views.MainProductDetail.as_view(), name='mainproduct-detail'),
+    path('mainproduct/<int:pk>/logs', mp_views.MainProductLogList.as_view(), name='mainproductlog-list'),
 
 
     path('upload/<str:name>/<int:id>/', fm_views.FileUpload.as_view(), name='upload'),

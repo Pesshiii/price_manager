@@ -345,3 +345,14 @@ class MainProductUpdate(UpdateView):
       return redirect(reverse('mainproduct-detail', kwargs=self.kwargs))
     else:
       return redirect(reverse('mainproduct-update', kwargs=self.kwargs))
+    
+class MainProductLogList(SingleTableView):
+  model = MainProductLog
+  table_class = MainProductLogTable
+  template_name = 'mainproduct/partials/logs.html'
+  def get_queryset(self):
+    return super().get_queryset().filter(main_product=self.kwargs.get('pk', None)).order_by('update_time')
+  def get(self, request, *args, **kwargs):
+    if not self.request.htmx:
+      return redirect(reverse('mainproduct-info', kwargs=self.kwargs))
+    return super().get(request, *args, **kwargs)

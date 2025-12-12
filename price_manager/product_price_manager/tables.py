@@ -15,3 +15,14 @@ class PriceManagerListTable(tables.Table):
     attrs = {
       'class': 'table table-auto table-stripped table-hover clickable-rows'
       }
+
+
+class UniquePriceManagerTable(tables.Table):
+  name = tables.LinkColumn('price-manager-update', args=[tables.A('pk')])
+  class Meta:
+    model = UniquePriceManager
+    fields = ['source', 'dest', 'price_type', 'fixed_price']
+    template_name = 'django_tables2/bootstrap5.html'
+    attrs = {
+      'class': 'table table-auto table-stripped table-hover clickable-rows'
+      }
