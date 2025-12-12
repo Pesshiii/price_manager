@@ -10,15 +10,15 @@
   </button>
 </div>
 {% for uniquepricemanager in uniquepricemanagers %}
-<div class="border border-dark rounded p-2 row gap-2">
+<div class="border border-dark rounded p-2 row gap-2 mb-2">
   <button type="button"
-      class="btn btn-outline-dark btn-sm col-1 " 
+      class="btn btn-sm col-1 " 
       hx-get="{% url "uniquepricemanager-update" pk=uniquepricemanager.pk%}" 
       hx-target="#mainproduct-card"
       hx-push-url="{% url "uniquepricemanager-update" pk=uniquepricemanager.pk%}">
       <i class="bi bi-pencil-square"></i>
   </button>
-  <div class="col-6">
+  <div class="col-10">
     {{uniquepricemanager}}
   </div>
 </div>
