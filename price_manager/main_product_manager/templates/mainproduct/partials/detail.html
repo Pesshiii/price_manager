@@ -27,9 +27,9 @@
       <p>Логи...</p>
     </div>
   </div>
-  <div id="mainproduct-uniquepricemanagers" 
+  <div id="mainproduct-specialprices" 
     class="col-4 card p-4"
-    hx-get="{% url 'uniquepricemanager-list' pk=mainproduct.pk %}" 
+    hx-get="{% url 'specialprice-list' pk=mainproduct.pk %}" 
     hx-trigger="load" 
     hx-swap="innerHTML">
     <p>Наценки...</p>

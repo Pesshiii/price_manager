@@ -1,5 +1,5 @@
 from django.contrib import admin
-from .models import PriceManager, UniquePriceManager
+from .models import PriceManager, SpecialPrice
 
 @admin.register(PriceManager)
 class PriceManagerAdmin(admin.ModelAdmin):
@@ -8,7 +8,7 @@ class PriceManagerAdmin(admin.ModelAdmin):
         return ", ".join([discount.name for discount in obj.discounts.all()])
     display_discounts.short_description = 'Категории Скидок'
 
-@admin.register(UniquePriceManager)
+@admin.register(SpecialPrice)
 class UniquePriceManagerAdmin(admin.ModelAdmin):
     list_display = ['id', 'main_products_display', 'source', 'dest', 'markup', 'increase', 'fixed_price']
     def main_products_display(self, obj):

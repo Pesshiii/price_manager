@@ -17,10 +17,10 @@ class PriceManagerListTable(tables.Table):
       }
 
 
-class UniquePriceManagerTable(tables.Table):
-  name = tables.LinkColumn('price-manager-update', args=[tables.A('pk')])
+class SpecialPriceTable(tables.Table):
+  name = tables.LinkColumn('speicalprice-update', args=[tables.A('pk')])
   class Meta:
-    model = UniquePriceManager
+    model = SpecialPrice
     fields = ['source', 'dest', 'price_type', 'fixed_price']
     template_name = 'django_tables2/bootstrap5.html'
     attrs = {

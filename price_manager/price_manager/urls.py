@@ -44,9 +44,9 @@ urlpatterns = [
     path('price-manager/<int:id>/', ppm_views.PriceManagerUpdate.as_view(), name='price-manager-update'),
     path('price-manager/create/', ppm_views.PriceManagerCreate.as_view(), name='price-manager-create'),
     path('price-manager/<int:id>/delete', ppm_views.PriceManagerDelete.as_view(), name='price-manager-delete'),
-    path('uniquepricemanager/<int:pk>/add', ppm_views.CreateUniquePriceManager.as_view(), name='uniquepricemanager-create' ),
-    path('uniquepricemanager/<int:pk>/update', ppm_views.UpdateUniquePriceManager.as_view(), name='uniquepricemanager-update' ),
-    path('uniquepricemanager/<int:pk>/list', ppm_views.UniquePriceManagerList.as_view(), name='uniquepricemanager-list' ),
+    path('specialprice/<int:pk>/add', ppm_views.CreateSpecialPrice.as_view(), name='specialprice-create' ),
+    path('specialprice/<int:pk>/update', ppm_views.UpdateSpecialPrice.as_view(), name='specialprice-update' ),
+    path('specialprice/<int:pk>/list', ppm_views.SpecialPriceList.as_view(), name='specialprice-list' ),
 
     path('supplier-product/<int:id>/delete/', spm_views.delete_supplier_product, name='supplier-product-delete'),
 

@@ -30,7 +30,7 @@ from django.db.models.functions import Ceil
 from django_tables2 import SingleTableView, RequestConfig, SingleTableMixin
 
 # Импорты моделей, функций, форм, таблиц
-from .models import PriceManager, UniquePriceManager
+from .models import PriceManager, SpecialPrice
 from file_manager.models import FileModel
 from core.functions import *
 from main_product_manager.models import MainProduct, MainProductLog, MP_PRICES
@@ -278,7 +278,7 @@ class PriceManagerDelete(DeleteView):
   success_url = '/price-manager/'
 
 
-def apply_unique_price_manager(upm: UniquePriceManager):
+def apply_unique_price_manager(upm: SpecialPrice):
   mps = MainProduct.objects.filter(id__in=upm.main_products.values_list('id'))
   source = upm.source
   if not upm.source:
@@ -336,13 +336,13 @@ def apply_unique_price_manager(upm: UniquePriceManager):
   
   mps = mps.filter(~Q(**{f'{upm.dest}':F('changed_price')}))
 
-  through = MainProduct.unique_price_managers.through  # промежуточная модель
+  through = MainProduct.special_prices.through  # промежуточная модель
 
   # Берём id уже существующих связей, чтобы не дублировать
   existing_ids = set(
       through.objects.filter(
           mainproduct_id__in=mps.values_list('id', flat=True),
-          uniquepricemanager_id=upm.id,
+          specialprice_id=upm.id,
       ).values_list('mainproduct_id', flat=True)
   )
 
@@ -353,7 +353,7 @@ def apply_unique_price_manager(upm: UniquePriceManager):
   
   for mp in mps:
     if mp.id not in existing_ids:
-      links.append(through(mainproduct_id=mp.id, uniquepricemanager_id=upm.id))
+      links.append(through(mainproduct_id=mp.id, specialprice_id=upm.id))
     logs.append(MainProductLog(
       main_product=mp,
       price_type=upm.dest,
@@ -479,13 +479,13 @@ def apply_price_managers(request):
   changed_mps = set()
   for price_manager in PriceManager.objects.all():
     changed_mps = changed_mps.union(set(apply_price_manager(price_manager)))
-  for upm in UniquePriceManager.objects.all():
+  for upm in SpecialPrice.objects.all():
     changed_mps = changed_mps.union(set(apply_unique_price_manager(upm)))
   
   messages.success(request, f'Наценки применены. Изменено товаров: {len(changed_mps)}')
 
-class CreateUniquePriceManager(CreateView):
-  model = UniquePriceManager
+class CreateSpecialPrice(CreateView):
+  model = SpecialPrice
   fields = '__all__'
   template_name = 'price_manager/partials/create_unique_pricemanager.html'
   def get_success_url(self):
@@ -507,7 +507,7 @@ class CreateUniquePriceManager(CreateView):
       return self.form_invalid(form)
     if self.kwargs.get('pk', None):
       obj = form.save()
-      MainProduct.objects.get(id=self.kwargs.get('pk')).unique_price_managers.add(obj.id)
+      MainProduct.objects.get(id=self.kwargs.get('pk')).special_prices.add(obj.id)
       messages.success(self.request, 'Наценка сохранена')
     else:
       messages.error(self.request, 'Главный товар неопознан')
@@ -515,20 +515,20 @@ class CreateUniquePriceManager(CreateView):
   
   
 
-class UniquePriceManagerList(TemplateView):
+class SpecialPriceList(TemplateView):
   '''Отображение наценок <</price_manager/>>'''
   template_name = 'price_manager/partials/list.html'
   def get_context_data(self, **kwargs):
     context = super().get_context_data(**kwargs)
     context['mainproduct'] = MainProduct.objects.get(pk=self.kwargs.get('pk',None))
-    context['uniquepricemanagers'] = UniquePriceManager.objects.filter(main_products=self.kwargs.get('pk',None))
+    context['specialprices'] = SpecialPrice.objects.filter(main_products=self.kwargs.get('pk',None))
     return context
 
-class UniquePriceManagerUpdate(UpdateView):
+class SpecialPriceUpdate(UpdateView):
   template_name = 'price_manager/partials/update.html'
 
-class UpdateUniquePriceManager(UpdateView):
-  model = UniquePriceManager
+class UpdateSpecialPrice(UpdateView):
+  model = SpecialPrice
   fields = '__all__'
   template_name = 'price_manager/partials/update.html'
   def get_success_url(self):
@@ -550,7 +550,7 @@ class UpdateUniquePriceManager(UpdateView):
       return self.form_invalid(form)
     if self.kwargs.get('pk', None):
       obj = form.save()
-      MainProduct.objects.get(id=self.kwargs.get('pk')).unique_price_managers.add(obj.id)
+      MainProduct.objects.get(id=self.kwargs.get('pk')).special_prices.add(obj.id)
       messages.success(self.request, 'Наценка сохранена')
     else:
       messages.error(self.request, 'Главный товар неопознан')

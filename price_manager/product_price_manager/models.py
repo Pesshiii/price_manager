@@ -91,7 +91,7 @@ class PriceManager(models.Model):
     return self.name
 
 
-class UniquePriceManager(models.Model):
+class SpecialPrice(models.Model):
   """
   Модель PriceManager предназначена для управления ценами и скидками товаров от различных поставщиков.
   Атрибуты:
