@@ -28,11 +28,9 @@ from django.db.models import (F, ExpressionWrapper,
 from django.db.models.functions import Ceil
 
 from django_tables2 import SingleTableView, RequestConfig, SingleTableMixin
-from django_filters.views import FilterView, FilterMixin
-from dal import autocomplete
 
 # Импорты моделей, функций, форм, таблиц
-from .models import PriceManager, UniquePriceManager
+from .models import PriceManager, SpecialPrice
 from file_manager.models import FileModel
 from core.functions import *
 from main_product_manager.models import MainProduct, MainProductLog, MP_PRICES
@@ -103,8 +101,7 @@ class PriceManagerCreate(SingleTableMixin, CreateView):
     form = super().get_form(self.form_class)
     discounts = Discount.objects.all()
     discounts = discounts.filter(supplier=form['supplier'].value())
-    choices = [(None, 'Все группы скидок')]
-    choices.extend([(disc.id, disc.name) for disc in discounts])
+    choices = [(disc.id, disc.name) for disc in discounts]
     form.fields['discounts'].choices = choices
     return form
   def form_valid(self, form):
@@ -280,7 +277,7 @@ class PriceManagerDelete(DeleteView):
   success_url = '/price-manager/'
 
 
-def apply_unique_price_manager(upm: UniquePriceManager):
+def apply_special_price(upm: SpecialPrice):
   mps = MainProduct.objects.filter(id__in=upm.main_products.values_list('id'))
   source = upm.source
   if not upm.source:
@@ -338,13 +335,13 @@ def apply_unique_price_manager(upm: UniquePriceManager):
   
   mps = mps.filter(~Q(**{f'{upm.dest}':F('changed_price')}))
 
-  through = MainProduct.unique_price_managers.through  # промежуточная модель
+  through = MainProduct.special_prices.through  # промежуточная модель
 
   # Берём id уже существующих связей, чтобы не дублировать
   existing_ids = set(
       through.objects.filter(
           mainproduct_id__in=mps.values_list('id', flat=True),
-          uniquepricemanager_id=upm.id,
+          specialprice_id=upm.id,
       ).values_list('mainproduct_id', flat=True)
   )
 
@@ -355,7 +352,7 @@ def apply_unique_price_manager(upm: UniquePriceManager):
   
   for mp in mps:
     if mp.id not in existing_ids:
-      links.append(through(mainproduct_id=mp.id, uniquepricemanager_id=upm.id))
+      links.append(through(mainproduct_id=mp.id, specialprice_id=upm.id))
     logs.append(MainProductLog(
       main_product=mp,
       price_type=upm.dest,
@@ -363,10 +360,8 @@ def apply_unique_price_manager(upm: UniquePriceManager):
     ))
   through.objects.bulk_create(links, batch_size=1000)
   MainProductLog.objects.bulk_create(logs, ignore_conflicts=True)
-  mp_ids = mps.values('id')
-  mps.update(**{f'{upm.dest}':F('changed_price'),
+  return mps.update(**{f'{upm.dest}':F('changed_price'),
                'price_updated_at':timezone.now()})
-  return list(mp_ids)
 
 def apply_price_manager(price_manager: PriceManager):
 
@@ -472,25 +467,28 @@ def apply_price_manager(price_manager: PriceManager):
     ))
   through.objects.bulk_create(links, batch_size=1000)
   MainProductLog.objects.bulk_create(logs)
-  mp_ids = mps.values('id')
-  mps.update(**{price_manager.dest:F('changed_price'),
+  return mps.update(**{price_manager.dest:F('changed_price'),
                'price_updated_at':timezone.now()})
-  return list(mp_ids)
 
-def apply_price_managers(request):
-  changed_mps = set()
+def update_prices(request):
+  count = 0
   for price_manager in PriceManager.objects.all():
-    changed_mps = changed_mps.union(set(apply_price_manager(price_manager)))
-  for upm in UniquePriceManager.objects.all():
-    changed_mps = changed_mps.union(set(apply_unique_price_manager(upm)))
+    count += apply_price_manager(price_manager)
+  for upm in SpecialPrice.objects.all():
+    count += apply_special_price(upm)
   
-  messages.success(request, f'Наценки применены. Изменено товаров: {len(changed_mps)}')
+  messages.success(request, f'Наценки применены. Изменено товаров: {count}')
 
-class CreateUniquePriceManager(CreateView):
-  model = UniquePriceManager
+class CreateSpecialPrice(CreateView):
+  model = SpecialPrice
   fields = '__all__'
-  template_name = 'price_manager/create_unique_pricemanager.html'
-  success_url='/'
+  template_name = 'price_manager/partials/create.html'
+  def get_success_url(self):
+    return reverse('mainproduct-detail', kwargs={'pk':self.kwargs.get('pk', None)})
+  def get(self, request, *args, **kwargs):
+    if not self.request.htmx:
+      return redirect(reverse('mainproduct-info', kwargs=self.kwargs))
+    return super().get(request, *args, **kwargs)
   def form_valid(self, form):
     if form.cleaned_data['source'] is None:
       if form.cleaned_data['fixed_price'] is None:
@@ -502,10 +500,51 @@ class CreateUniquePriceManager(CreateView):
     if not form.cleaned_data['dest']:
       messages.error(self.request, 'Если указана исходная цена, то необходимо указать целевую цену')
       return self.form_invalid(form)
-    if self.kwargs.get('mp_id', None):
+    if self.kwargs.get('pk', None):
       obj = form.save()
-      MainProduct.objects.get(id=self.kwargs.get('mp_id')).unique_price_managers.add(obj.id)
+      MainProduct.objects.get(id=self.kwargs.get('pk')).special_prices.add(obj.id)
       messages.success(self.request, 'Наценка сохранена')
     else:
       messages.error(self.request, 'Главный товар неопознан')
     return super().form_valid(form)
+  
+  
+
+class SpecialPriceList(TemplateView):
+  '''Отображение наценок <</price_manager/>>'''
+  template_name = 'price_manager/partials/list.html'
+  def get_context_data(self, **kwargs):
+    context = super().get_context_data(**kwargs)
+    context['mainproduct'] = MainProduct.objects.get(pk=self.kwargs.get('pk',None))
+    context['specialprices'] = SpecialPrice.objects.filter(main_products=self.kwargs.get('pk',None))
+    return context
+
+class UpdateSpecialPrice(UpdateView):
+  model = SpecialPrice
+  fields = '__all__'
+  template_name = 'price_manager/partials/update.html'
+  def get_success_url(self):
+    return reverse('mainproduct-detail', kwargs={'pk':self.kwargs.get('pk', None)})
+  def get(self, request, *args, **kwargs):
+    if not self.request.htmx:
+      return redirect(reverse('mainproduct-info', kwargs=self.kwargs))
+    return super().get(request, *args, **kwargs)
+  def form_valid(self, form):
+    if form.cleaned_data['source'] is None:
+      if form.cleaned_data['fixed_price'] is None:
+        messages.error(self.request, 'Для фиксированной цены необходимо указать значение фиксированной цены')
+        return self.form_invalid(form)
+    elif form.cleaned_data['source'] == form.cleaned_data['dest']:
+      messages.error(self.request, 'Цена не может считаться от себя же')
+      return self.form_invalid(form)
+    if not form.cleaned_data['dest']:
+      messages.error(self.request, 'Если указана исходная цена, то необходимо указать целевую цену')
+      return self.form_invalid(form)
+    if self.kwargs.get('pk', None):
+      obj = form.save()
+      MainProduct.objects.get(id=self.kwargs.get('pk')).special_prices.add(obj.id)
+      messages.success(self.request, 'Наценка сохранена')
+    else:
+      messages.error(self.request, 'Главный товар неопознан')
+    return super().form_valid(form)
+  

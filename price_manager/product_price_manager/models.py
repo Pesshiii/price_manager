@@ -3,6 +3,16 @@ from django.core.validators import (MinValueValidator, MaxValueValidator)
 from supplier_manager.models import Supplier, Discount
 # Модели для применения наценок
 
+PRICE_TYPES = {
+  'rrp': 'РРЦ в валюте поставщика',
+  'supplier_price': 'Цена поставщика в валюте поставщика',
+  'basic_price': 'Базовая цена',
+  'prime_cost': 'Себестоимость',
+  'm_price': 'Цена ИМ',
+  'wholesale_price': 'Оптовая цена',
+  'wholesale_price_extra': 'Оптовая цена1',
+}
+
 class PriceManager(models.Model):
   """
   Модель PriceManager предназначена для управления ценами и скидками товаров от различных поставщиков.
@@ -81,7 +91,7 @@ class PriceManager(models.Model):
     return self.name
 
 
-class UniquePriceManager(models.Model):
+class SpecialPrice(models.Model):
   """
   Модель PriceManager предназначена для управления ценами и скидками товаров от различных поставщиков.
   Атрибуты:
@@ -136,3 +146,8 @@ class UniquePriceManager(models.Model):
       validators=[MinValueValidator(0)],
       null=True,
       blank=True)
+  def __str__(self):
+    if self.source:
+      return f'{PRICE_TYPES[self.source]} -> {PRICE_TYPES[self.dest]} ({(1+self.markup/100)*100}% + {self.increase} тг.)'
+    else:
+      return f'{PRICE_TYPES[self.dest]}: {self.fixed_price}'

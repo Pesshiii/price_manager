@@ -1,0 +1,25 @@
+<div class="container mb-4">
+  <h1 class="d-inline">
+    Наценки
+  </h1>
+  <button class="btn btn-secondary d-inline mb-3" 
+        hx-get="{% url 'specialprice-create' pk=mainproduct.pk %}" 
+        hx-target="#mainproduct-card"
+        hx-push-url="{% url 'specialprice-create' pk=mainproduct.pk %}">
+        Добавить
+  </button>
+</div>
+{% for specialprice in specialprices %}
+<div class="border border-dark rounded p-2 row gap-2 mb-2">
+  <button type="button"
+      class="btn btn-sm col-1 " 
+      hx-get="{% url "specialprice-update" pk=specialprice.pk%}" 
+      hx-target="#mainproduct-card"
+      hx-push-url="{% url "specialprice-update" pk=specialprice.pk%}">
+      <i class="bi bi-pencil-square"></i>
+  </button>
+  <div class="col-10">
+    {{specialprice}}
+  </div>
+</div>
+{% endfor %}

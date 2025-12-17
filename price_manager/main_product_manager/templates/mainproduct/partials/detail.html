@@ -1,19 +1,37 @@
-<div>
-  <h1>
-    {{mainproduct.name}}
-  </h1>
-  <div>
-    <p class="">Индивидуальный номер: {{mainproduct.sku}}.</p>
-    <p class="">Базовая цена: {{mainproduct.basic_price}} тг.</p>
-    <p class="">Себестоимость: {{mainproduct.prime_cost}} тг.</p>
-    <p class="">Цена ИМ: {{mainproduct.m_price}} тг.</p>
-    <p class="">Последнее обновление: {{mainproduct.price_updated_at}}</p>
-  </div>
+<div class="row gap-3">
+  <div class="col-7">
+    <div class="card row p-4">
+      <h1>
+        {{mainproduct.name}}
+      </h1>
+      <div>
+        <p class="">Индивидуальный номер: {{mainproduct.sku}}.</p>
+        <p class="">Базовая цена: {{mainproduct.basic_price}} тг.</p>
+        <p class="">Себестоимость: {{mainproduct.prime_cost}} тг.</p>
+        <p class="">Цена ИМ: {{mainproduct.m_price}} тг.</p>
+        <p class="">Последнее обновление: {{mainproduct.price_updated_at}}</p>
+      </div>
 
-  <button class="btn btn-success" 
-      hx-get="{% url 'mainproduct-update' pk=mainproduct.pk %}" 
-      hx-target="#mainproduct-card"
-      hx-push-url="{% url 'mainproduct-update' pk=mainproduct.pk %}">
-      Изменить
-  </button>
+      <button class="btn btn-success" 
+          hx-get="{% url 'mainproduct-update' pk=mainproduct.pk %}" 
+          hx-target="#mainproduct-card"
+          hx-push-url="{% url 'mainproduct-update' pk=mainproduct.pk %}">
+          Изменить
+      </button>
+    </div>
+    <div id="mainproduct-logs" 
+        class="row mt-2"
+        hx-get="{% url 'mainproductlog-list' pk=mainproduct.pk %}" 
+        hx-trigger="load" 
+        hx-swap="innerHTML">
+      <p>Логи...</p>
+    </div>
+  </div>
+  <div id="mainproduct-specialprices" 
+    class="col-4 card p-4"
+    hx-get="{% url 'specialprice-list' pk=mainproduct.pk %}" 
+    hx-trigger="load" 
+    hx-swap="innerHTML">
+    <p>Наценки...</p>
+  </div>
 </div>

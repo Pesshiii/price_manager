@@ -35,7 +35,7 @@ from core.functions import *
 from .forms import *
 from .tables import *
 from .filters import *
-from product_price_manager.views import apply_price_managers
+from product_price_manager.views import update_prices
 
 # Импорты сторонних библиотек
 from decimal import Decimal, InvalidOperation
@@ -279,7 +279,7 @@ def sync_main_products(request, **kwargs):
     mps.filter(pk=OuterRef("pk"))
     .annotate(
         _sua=ExpressionWrapper(
-            Max(F('supplier__stock_updated_at')),
+            F('supplier__stock_updated_at'),
             output_field=IntegerField(),
         )
     )
@@ -304,7 +304,7 @@ def sync_main_products(request, **kwargs):
     ) for mp in mps))
   messages.success(request, f"Остатки обновлены у {updated} товаров")
 
-  apply_price_managers(request)
+  update_prices(request)
   return redirect('main')
 
 
@@ -345,3 +345,14 @@ class MainProductUpdate(UpdateView):
       return redirect(reverse('mainproduct-detail', kwargs=self.kwargs))
     else:
       return redirect(reverse('mainproduct-update', kwargs=self.kwargs))
+    
+class MainProductLogList(SingleTableView):
+  model = MainProductLog
+  table_class = MainProductLogTable
+  template_name = 'mainproduct/partials/logs.html'
+  def get_queryset(self):
+    return super().get_queryset().filter(main_product=self.kwargs.get('pk', None)).order_by('update_time')
+  def get(self, request, *args, **kwargs):
+    if not self.request.htmx:
+      return redirect(reverse('mainproduct-info', kwargs=self.kwargs))
+    return super().get(request, *args, **kwargs)

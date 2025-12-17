@@ -3,7 +3,7 @@ from django.contrib.postgres.search import SearchVectorField, SearchVector
 from django.contrib.postgres.indexes import GinIndex
 from django.db.models import Value
 from supplier_manager.models import Supplier, Category, Manufacturer
-from product_price_manager.models import PriceManager, UniquePriceManager
+from product_price_manager.models import PriceManager, SpecialPrice, PRICE_TYPES
 
    
 MP_TABLE_FIELDS = ['article', 'supplier', 'name', 'manufacturer','prime_cost', 'stock']
@@ -80,9 +80,9 @@ class MainProduct(models.Model):
     related_name='main_products',
     blank=True
   )
-  unique_price_managers = models.ManyToManyField(
-    UniquePriceManager,
-    verbose_name= 'Индивидуальные наценки',
+  special_prices = models.ManyToManyField(
+    SpecialPrice,
+    verbose_name= 'Спец наценки',
     related_name='main_products',
     blank=True
   )
