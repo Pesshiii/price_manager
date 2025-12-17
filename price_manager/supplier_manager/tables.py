@@ -2,6 +2,9 @@ from django.utils.html import format_html, mark_safe
 from django.utils import timezone
 from django.template.loader import render_to_string
 import django_tables2 as tables
+from django.db.models import Q
+
+
 
 from .models import *
 from core.functions import *
@@ -49,16 +52,16 @@ class SupplierListTable(tables.Table):
     return format_html(f'''<span class=" status-indicator bg-{color} rounded-circle"></span> {record.name}({self.mps.filter(supplier=record.pk).count()})''')
   def render_basic_price(self, record):
     mps = self.mps.filter(supplier=record.pk)
-    n_mps = mps.filter(basic_price__isnull=False)
-    return f'{n_mps.count()} / {mps.count()-n_mps.count()}'
+    n_mps = mps.filter(Q(basic_price__isnull=True)|Q(basic_price=0))
+    return f'{mps.count()-n_mps.count()} / {n_mps.count()}'
   def render_m_price(self, record):
     mps = self.mps.filter(supplier=record.pk)
-    n_mps = mps.filter(m_price__isnull=False)
-    return f'{n_mps.count()} / {mps.count()-n_mps.count()}'
+    n_mps = mps.filter(Q(m_price__isnull=True)|Q(m_price=0))
+    return f'{mps.count()-n_mps.count()} / {n_mps.count()}'
   def render_wholesale_price(self, record):
     mps = self.mps.filter(supplier=record.pk)
-    n_mps = mps.filter(wholesale_price__isnull=False)
-    return f'{n_mps.count()} / {mps.count()-n_mps.count()}'
+    n_mps = mps.filter(Q(wholesale_price__isnull=True)|Q(wholesale_price=0))
+    return f'{mps.count()-n_mps.count()} / {n_mps.count()}'
   
 
 class ManufacturerListTable(tables.Table):
