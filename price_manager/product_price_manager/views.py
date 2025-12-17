@@ -278,7 +278,7 @@ class PriceManagerDelete(DeleteView):
   success_url = '/price-manager/'
 
 
-def apply_unique_price_manager(upm: SpecialPrice):
+def apply_special_price(upm: SpecialPrice):
   mps = MainProduct.objects.filter(id__in=upm.main_products.values_list('id'))
   source = upm.source
   if not upm.source:
@@ -361,10 +361,8 @@ def apply_unique_price_manager(upm: SpecialPrice):
     ))
   through.objects.bulk_create(links, batch_size=1000)
   MainProductLog.objects.bulk_create(logs, ignore_conflicts=True)
-  mp_ids = mps.values('id')
-  mps.update(**{f'{upm.dest}':F('changed_price'),
+  return mps.update(**{f'{upm.dest}':F('changed_price'),
                'price_updated_at':timezone.now()})
-  return list(mp_ids)
 
 def apply_price_manager(price_manager: PriceManager):
 
@@ -470,24 +468,22 @@ def apply_price_manager(price_manager: PriceManager):
     ))
   through.objects.bulk_create(links, batch_size=1000)
   MainProductLog.objects.bulk_create(logs)
-  mp_ids = mps.values('id')
-  mps.update(**{price_manager.dest:F('changed_price'),
+  return mps.update(**{price_manager.dest:F('changed_price'),
                'price_updated_at':timezone.now()})
-  return list(mp_ids)
 
-def apply_price_managers(request):
-  changed_mps = set()
+def update_prices(request):
+  count = 0
   for price_manager in PriceManager.objects.all():
-    changed_mps = changed_mps.union(set(apply_price_manager(price_manager)))
+    count += apply_price_manager(price_manager)
   for upm in SpecialPrice.objects.all():
-    changed_mps = changed_mps.union(set(apply_unique_price_manager(upm)))
+    count += apply_special_price(upm)
   
-  messages.success(request, f'Наценки применены. Изменено товаров: {len(changed_mps)}')
+  messages.success(request, f'Наценки применены. Изменено товаров: {count}')
 
 class CreateSpecialPrice(CreateView):
   model = SpecialPrice
   fields = '__all__'
-  template_name = 'price_manager/partials/create_unique_pricemanager.html'
+  template_name = 'price_manager/partials/create.html'
   def get_success_url(self):
     return reverse('mainproduct-detail', kwargs={'pk':self.kwargs.get('pk', None)})
   def get(self, request, *args, **kwargs):
@@ -523,9 +519,6 @@ class SpecialPriceList(TemplateView):
     context['mainproduct'] = MainProduct.objects.get(pk=self.kwargs.get('pk',None))
     context['specialprices'] = SpecialPrice.objects.filter(main_products=self.kwargs.get('pk',None))
     return context
-
-class SpecialPriceUpdate(UpdateView):
-  template_name = 'price_manager/partials/update.html'
 
 class UpdateSpecialPrice(UpdateView):
   model = SpecialPrice

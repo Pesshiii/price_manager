@@ -35,7 +35,7 @@ from core.functions import *
 from .forms import *
 from .tables import *
 from .filters import *
-from product_price_manager.views import apply_price_managers
+from product_price_manager.views import update_prices
 
 # Импорты сторонних библиотек
 from decimal import Decimal, InvalidOperation
@@ -279,7 +279,7 @@ def sync_main_products(request, **kwargs):
     mps.filter(pk=OuterRef("pk"))
     .annotate(
         _sua=ExpressionWrapper(
-            Max(F('supplier__stock_updated_at')),
+            F('supplier__stock_updated_at'),
             output_field=IntegerField(),
         )
     )
@@ -304,7 +304,7 @@ def sync_main_products(request, **kwargs):
     ) for mp in mps))
   messages.success(request, f"Остатки обновлены у {updated} товаров")
 
-  apply_price_managers(request)
+  update_prices(request)
   return redirect('main')
 
 
