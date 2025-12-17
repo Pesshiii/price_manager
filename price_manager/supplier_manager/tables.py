@@ -22,19 +22,23 @@ class SupplierListTable(tables.Table):
   basic_price = tables.Column(
     empty_values=(),
     orderable=False,
-    verbose_name='Базовая цена')
-  m_price = tables.Column(
-    empty_values=(),
-    orderable=False,
-    verbose_name='Цена ИМ')
+    verbose_name=format_html('Базовая цена<br>(есть/нет)'))
   wholesale_price = tables.Column(
     empty_values=(),
     orderable=False,
-    verbose_name='Оптовая цена')
+    verbose_name=format_html('Оптовая цена<br>(есть/нет)'))
+  m_price = tables.Column(
+    empty_values=(),
+    orderable=False,
+    verbose_name=format_html('Цена ИМ<br>(есть/нет)'))
+  prime_cost = tables.Column(
+    empty_values=(),
+    orderable=False,
+    verbose_name=format_html('Себестоимость<br>(есть/нет)'))
   name = tables.LinkColumn('supplier-detail', args=[tables.A('pk')])
   class Meta:
     model = Supplier
-    fields = ['name', 'price_updated_at', 'stock_updated_at', 'basic_price', 'm_price', 'wholesale_price']
+    fields = ['name', 'price_updated_at', 'stock_updated_at', 'basic_price', 'prime_cost', 'm_price', 'wholesale_price']
     template_name = 'django_tables2/bootstrap5.html'
     attrs = {
       'class': 'table table-auto table-stripped table-hover clickable-rows'
@@ -61,6 +65,10 @@ class SupplierListTable(tables.Table):
   def render_wholesale_price(self, record):
     mps = self.mps.filter(supplier=record.pk)
     n_mps = mps.filter(Q(wholesale_price__isnull=True)|Q(wholesale_price=0))
+    return f'{mps.count()-n_mps.count()} / {n_mps.count()}'
+  def render_prime_cost(self, record):
+    mps = self.mps.filter(supplier=record.pk)
+    n_mps = mps.filter(Q(prime_cost__isnull=True)|Q(prime_cost=0))
     return f'{mps.count()-n_mps.count()} / {n_mps.count()}'
   
 
