@@ -101,8 +101,7 @@ class PriceManagerCreate(SingleTableMixin, CreateView):
     form = super().get_form(self.form_class)
     discounts = Discount.objects.all()
     discounts = discounts.filter(supplier=form['supplier'].value())
-    choices = [(None, 'Все группы скидок')]
-    choices.extend([(disc.id, disc.name) for disc in discounts])
+    choices = [(disc.id, disc.name) for disc in discounts]
     form.fields['discounts'].choices = choices
     return form
   def form_valid(self, form):
