@@ -21,7 +21,7 @@ class MainProduct(models.Model):
                          unique=False)
   supplier=models.ForeignKey(Supplier,
                              verbose_name='Поставщик',
-                             related_name='mp_supplier_ptr',
+                             related_name='main_products',
                              on_delete=models.PROTECT,
                              null=False,
                              blank=False)

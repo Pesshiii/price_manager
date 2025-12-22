@@ -38,19 +38,24 @@ INSTALLED_APPS = [
     'django.contrib.messages',
     'django.contrib.staticfiles',
     'django.contrib.postgres',
+
     'django_tables2',
     'import_export',
     'django_filters',
     'dal',
     'dal_select2',
+    'django_htmx',
+    'template_partials',
+    "widget_tweaks",
+
+    "procrastinate.contrib.django",
+
     'core',
     'file_manager',
     'supplier_product_manager',
     'product_price_manager',
     'main_product_manager',
     'supplier_manager',
-    'django_htmx',
-    'template_partials',
 ]
 
 MIDDLEWARE = [
@@ -74,10 +79,16 @@ TEMPLATES = [
           'core/templates',
           'main_product_manager/templates',
           'product_price_manager/templates',
+          'supplier_manager/templates',
+          'supplier_product_manager/templates',
         ],
         'APP_DIRS': True,
         'OPTIONS': {
-            "builtins": ["template_partials.templatetags.partials"],
+            "builtins": [
+                "template_partials.templatetags.partials",
+                "core.templatetags.special_tags",
+                "widget_tweaks.templatetags.widget_tweaks",
+            ],
             'context_processors': [
                 'django.template.context_processors.request',
                 'django.contrib.auth.context_processors.auth',
@@ -180,3 +191,26 @@ LOGIN_EXEMPT_URLS = (
     'admin:password_reset_confirm',
     'admin:password_reset_complete',
 )
+
+LOGGING = {
+    "version": 1,
+    "formatters": {
+        "procrastinate": {
+            "format": "%(asctime)s %(levelname)-7s %(name)s %(message)s"
+        },
+    },
+    "handlers": {
+        "procrastinate": {
+            "level": "DEBUG",
+            "class": "logging.StreamHandler",
+            "formatter": "procrastinate",
+        },
+    },
+    "loggers": {
+        "procrastinate": {
+            "handlers": ["procrastinate"],
+            "level": "DEBUG",
+            "propagate": False,
+        },
+    },
+}

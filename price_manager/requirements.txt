@@ -10,3 +10,5 @@ django-filter>=25.1
 django-autocomplete-light>=3.12.1
 django-htmx>=1.27.0
 django-template-partials>=25.3
+django-widget-tweaks >=1.5
+procrastinate[django]>=3.6.0

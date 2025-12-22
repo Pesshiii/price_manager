@@ -1,5 +1,5 @@
 from django import forms
-from supplier_product_manager.models import Supplier, Setting, LINKS
+from supplier_product_manager.models import Supplier, Setting, LINKS, SupplierFile
 
 # Формы для редактирования/создания настроек
 class SettingForm(forms.ModelForm):
@@ -33,3 +33,8 @@ class InitialForm(forms.Form):
   initial = forms.CharField(label='Начальное значение',
                             required=False,
                             empty_value='')
+  
+class UploadFileForm(forms.ModelForm):
+  class Meta:
+    model = SupplierFile
+    fields = ['file', 'setting']

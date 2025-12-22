@@ -1,5 +1,5 @@
 from django.contrib import admin
-from .models import SupplierProduct
+from .models import SupplierProduct, SupplierFile
 
 
 @admin.register(SupplierProduct)
@@ -14,3 +14,8 @@ class SupplierProductAdmin(admin.ModelAdmin):
     def display_discounts(self, obj):
         return ", ".join([discount.name for discount in obj.discounts.all()])
     display_discounts.short_description = 'Категории Скидок'
+
+@admin.register(SupplierFile)
+class SupplierFileAdmin(admin.ModelAdmin):
+    # показываем все поля модели
+    list_display = ['pk', 'setting', 'status', 'logs']

@@ -28,6 +28,7 @@ urlpatterns = [
     path('supplier/<int:id>/settings/', spm_views.SupplierSettingList.as_view(), name='supplier-settings'),
     path('supplier/create/', sm_views.SupplierCreate.as_view(), name='supplier-create'),
     path('supplier/<int:id>/setting/create/<int:f_id>/', spm_views.SettingCreate.as_view(), name='setting-create'),
+    path('supplier/<int:pk>/upload', spm_views.UploadSupplierFile.as_view(), name='supplier-upload'),
 
     path('setting/<int:id>/', spm_views.SettingDetail.as_view(), name='setting-detail'),
     path('setting/<int:id>/delete', spm_views.SettingDelete.as_view(), name='setting-delete'),

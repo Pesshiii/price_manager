@@ -1,4 +1,6 @@
 from django.db import models
+from django.core.validators import FileExtensionValidator
+
 
 from main_product_manager.models import MainProduct
 from supplier_manager.models import Supplier, Discount, Manufacturer, Category
@@ -9,6 +11,7 @@ SP_FKS = ['main_product', 'category', 'supplier', 'manufacturer', 'discounts']
 SP_PRICES = ['supplier_price', 'rrp']
 SP_INTEGERS = ['stock']
 SP_MANAGMENT = ['updated_at']
+SP_NUMBERS = ['supplier_price', 'rrp', 'stock']
 
 class SupplierProduct(models.Model):
   main_product=models.ForeignKey(MainProduct,
@@ -95,6 +98,8 @@ class Setting(models.Model):
                                        default=True)
   class Meta:
     constraints = [models.UniqueConstraint(fields=['name', 'supplier'], name='name_supplier_constraint')]
+  def __str__(self):
+    return self.name
 
 class Link(models.Model):
   setting = models.ForeignKey(Setting,
@@ -114,3 +119,20 @@ class Dict(models.Model):
   key = models.CharField(verbose_name='Если')
   value = models.CharField(verbose_name='То')
 
+class SupplierFile(models.Model):
+  setting = models.ForeignKey(Setting,
+                              verbose_name="Настройка",
+                              related_name="supplier_file",
+                              on_delete=models.CASCADE)
+  file = models.FileField(verbose_name='Файл',
+                         validators=[FileExtensionValidator(allowed_extensions=['xls', 'xlsx', 'xlsm'])],
+                         null=False)
+  status = models.IntegerField(verbose_name="Статус загрузки",
+                               choices=[
+                                 (0, 'Не загружен'),
+                                 (1, 'Загружен'),
+                                 (-1, 'Ошибка')
+                               ],
+                               default=0,
+                               blank=True)
+  logs = models.CharField(verbose_name="Журнал загрузки", null=True, blank=True)

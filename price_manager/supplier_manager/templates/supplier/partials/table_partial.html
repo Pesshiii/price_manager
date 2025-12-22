@@ -1,0 +1,56 @@
+<table class="table">
+  <thead>
+    <tr>
+      <th scope="col"></th>
+      <th scope="col">Поставщик</th>
+      <th scope="col">Последние обновление цены</th>
+      <th scope="col">Последние обновление остатка</th>
+      <th scope="col">Базовая цена <br> (есть/нет)</th>
+      <th scope="col">Себестоимость <br> (есть/нет)</th>
+      <th scope="col">Цена ИМ <br> (есть/нет)</th>
+      <th scope="col">Оптовая цена <br> (есть/нет)</th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for supplier in suppliers %}
+      <tr>
+        <td>
+          <div class="d-flex gap-1">
+            <button type="button"
+                    class="btn btn-sm btn-success"
+                    title="Загрузка"
+                    data-bs-toggle="modal"
+                    data-bs-target="#modal-container"
+                    hx-get="{% url 'supplier-upload' supplier.pk %}"
+                    hx-target="#modal-container .modal-content"
+                    hx-swap="innerHTML">
+              <i class="bi bi-upload"></i>
+            </button>
+          </div>
+        </td>
+        <td>
+          <span class="badge rounded-pill p-1
+          {% if supplier.danger %}bg-danger {% else %} bg-success {% endif %}">
+          </span>
+          <a href={% url "supplier-detail"  supplier.pk%}> {{supplier.name}} </a>
+          <span class=" badge rounded-pill bg-secondary">
+          {{supplier.total}}
+          </span></td>
+        <td>{{supplier.price_updated_at}}</td>
+        <td>{{supplier.stock_updated_at}}</td>
+        <td>{{supplier.basic_price|subtract:supplier.total}}/{{supplier.basic_price}}</td>
+        <td>{{supplier.wholesale_price|subtract:supplier.total}}/{{supplier.wholesale_price}}</td>
+        <td>{{supplier.m_price|subtract:supplier.total}}/{{supplier.m_price}}</td>
+        <td>{{supplier.prime_cost|subtract:supplier.total}}/{{supplier.prime_cost}}</td>
+      </tr>
+    {% endfor %}
+  </tbody>
+</table>
+
+<div id="modal-container" class="modal fade" tabindex="-1" aria-labelledby="modalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered ">
+        <div class="modal-content">
+
+        </div>
+    </div>
+</div>

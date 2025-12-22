@@ -547,4 +547,3 @@ class UpdateSpecialPrice(UpdateView):
     else:
       messages.error(self.request, 'Главный товар неопознан')
     return super().form_valid(form)
-  

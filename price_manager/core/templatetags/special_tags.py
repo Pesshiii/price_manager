@@ -27,6 +27,11 @@ def is_in(left, right):
 def get(obj, indx):
   return obj[indx]
 
+
+@register.filter
+def subtract(a, b):
+  return (b) - (a)
+
 @register.filter
 def margin(first, second):
   if first == 0:
