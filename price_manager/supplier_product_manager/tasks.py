@@ -180,8 +180,7 @@ def upload_from_df(sfile: SupplierFile):
 
 
 @app.task
-def upload_supplier_files():
-  sfiles = SupplierFile.objects.all()
-  for sfile in sfiles:
-    if sfile.status == 0:
+def upload_supplier_files(sfile_pk):
+  sfile = SupplierFile.objects.get(pk=sfile_pk)
+  if sfile.status == 0:
       upload_from_df(sfile)

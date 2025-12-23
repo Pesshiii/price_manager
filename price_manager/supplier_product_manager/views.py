@@ -2,6 +2,7 @@
 from django.shortcuts import (render,
                               redirect,
                               get_object_or_404)
+from django.utils import timezone
 from django.template.loader import render_to_string
 from django.contrib import messages
 from django.views.generic import (View,
@@ -13,9 +14,12 @@ from django.urls import reverse
 from typing import Dict
 from django_tables2 import SingleTableView, RequestConfig, SingleTableMixin
 from django_filters.views import FilterView
+from django.contrib.postgres.search import SearchVector
+from django.db.models import Value
 
 # Импорты моделей, функций, форм, таблиц
 from file_manager.models import FileModel
+from main_product_manager.models import MainProduct, MainProductLog
 from core.functions import extract_initial_from_post
 from .forms import *
 from .tables import *
@@ -401,6 +405,19 @@ class SettingDetail(SingleTableView):
     context['setting'] = Setting.objects.get(id=context['setting_id'])
     return context
 
+# Обработка продуктов
+
+
+def delete_supplier_product(request, **kwargs):
+  '''
+  Подвязка к функции удаления на странице поставщика
+  <<supplier-product/<int:id>/delete/>>
+  '''
+  product = SupplierProduct.objects.get(id=kwargs['id'])
+  id = product.supplier.id
+  product.delete()
+  return redirect('supplier-detail', id = id)
+
 class UploadSupplierFile(CreateView):
   model = SupplierFile
   form_class = UploadFileForm
@@ -415,8 +432,8 @@ class UploadSupplierFile(CreateView):
     context["supplier"] = Supplier.objects.get(pk=self.kwargs.get('pk'))
     return context
   def form_valid(self, form):
-    form.save()
-    upload_supplier_files.defer()
+    sfile = form.save()
+    upload_supplier_files.defer(sfile_pk=sfile.pk)
     return super().form_valid(form)
   
   def get_success_url(self):

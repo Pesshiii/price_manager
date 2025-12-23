@@ -194,6 +194,7 @@ LOGIN_EXEMPT_URLS = (
 
 LOGGING = {
     "version": 1,
+    'disable_existing_loggers': False,
     "formatters": {
         "procrastinate": {
             "format": "%(asctime)s %(levelname)-7s %(name)s %(message)s"
@@ -201,7 +202,7 @@ LOGGING = {
     },
     "handlers": {
         "procrastinate": {
-            "level": "DEBUG",
+            "level": "INFO",
             "class": "logging.StreamHandler",
             "formatter": "procrastinate",
         },
@@ -209,7 +210,7 @@ LOGGING = {
     "loggers": {
         "procrastinate": {
             "handlers": ["procrastinate"],
-            "level": "DEBUG",
+            "level": "INFO",
             "propagate": False,
         },
     },

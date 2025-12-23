@@ -33,7 +33,6 @@ urlpatterns = [
     path('setting/<int:id>/', spm_views.SettingDetail.as_view(), name='setting-detail'),
     path('setting/<int:id>/delete', spm_views.SettingDelete.as_view(), name='setting-delete'),
     path('setting/<int:id>/upload/<int:f_id>/', spm_views.SettingUpdate.as_view(), name='setting-update'),
-    path('setting/<int:id>/upload/<int:f_id>/upload', spm_views.SettingUpload.as_view(), name='setting-upload'),
 
     path('category/autocomplete',sm_views.CategoryAutocomplete.as_view(),name='category-autocomplete'),
     
