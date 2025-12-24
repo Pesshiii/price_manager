@@ -1,6 +1,7 @@
 from django.utils.html import format_html, mark_safe
 from django.utils import timezone
 from django.template.loader import render_to_string
+from django.db.models import F, Case, When, Q, Value
 import django_tables2 as tables
 
 from .models import *
@@ -14,18 +15,27 @@ class MainProductListTable(tables.Table):
   actions = tables.Column(empty_values=(),
                          orderable=False,
                          verbose_name='')
+  stock_msg = tables.Column(verbose_name='Статус наличия',
+                            orderable=False,
+                            empty_values=())
   def __init__(self, *args, **kwargs):
     self.request = kwargs.pop('request')
+    if hasattr(kwargs, 'data'):
+      kwargs['data'] = kwargs['data'].prefetch_related('supplier')
     super().__init__(*args, **kwargs)
-  
+    
   class Meta:
     model = MainProduct
-    fields = ['actions']
-    fields.extend(MP_TABLE_FIELDS)
+    fields = ['actions', 'article', 'supplier', 'name', 'manufacturer','prime_cost', 'stock', 'stock_msg']
     template_name = 'django_tables2/bootstrap5.html'
     attrs = {
       'class': 'clickable-rows table table-auto table-stripped table-hover'
       }
+  def render_stock_msg(self, record):
+    if not record.stock or record.stock == 0:
+      return record.supplier.msg_navailable
+    else:
+      return record.supplier.msg_available
   def render_actions(self, record):
         return render_to_string(
             'main/product/actions.html',

@@ -52,6 +52,10 @@ class Supplier(models.Model):
                                        choices=[(_, _) for _ in TIME_FREQ.keys()])
   stock_update_rate = models.CharField(verbose_name='Частота обновления остатков',
                                        choices=[(_, _) for _ in TIME_FREQ.keys()])
+  msg_available = models.CharField(verbose_name="Сообщение при наличии",
+                                   default="Есть в наличии")
+  msg_navailable = models.CharField(verbose_name="Сообщение при отсутствии",
+                                    default="Нет в наличии")
   class Meta:
     verbose_name = 'Поставщик'
   def __str__(self):
