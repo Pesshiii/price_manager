@@ -12,4 +12,3 @@ class MainProductForm(forms.ModelForm):
       'width',
       'depth',
     )
-

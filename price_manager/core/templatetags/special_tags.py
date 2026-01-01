@@ -1,4 +1,5 @@
 from django import template
+from product_price_manager.models import PRICE_TYPES
 
 register = template.Library()
 
@@ -32,8 +33,20 @@ def get(obj, indx):
 def subtract(a, b):
   return (b) - (a)
 
+
+@register.filter
+def percent_added(num):
+  return num*100 + 100
+
 @register.filter
 def margin(first, second):
   if first == 0:
     return 0
   return (float(first) - float(second))/float(first) * 100
+
+
+@register.filter
+def price_type(name):
+  if name in PRICE_TYPES.keys():
+    return PRICE_TYPES[name]
+  else: return 'Странная цена'

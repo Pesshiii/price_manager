@@ -1,0 +1,58 @@
+{% extends 'base.html' %}
+
+{% block title %}
+Поставщик: {{supplier.name}}
+{% endblock %}
+
+{% block body %}
+<div class="container-fluid mt-4 mb-5">
+  <div class="container d-flex gap-4">
+    <h1 class="mb-4">
+      {{supplier.name}}
+    </h1>
+    <div class="container mt-4">
+      <a class="btn btn-lg btn-secondary" href="settings" role="button">
+        <i class="bi bi-upload"></i>
+        <span>Импорт продуктов</span>
+      </a>
+      <button type="button"
+              class="btn btn-lg btn-primary"
+              title="Загрузка"
+              data-bs-toggle="modal"
+              data-bs-target="#modal-container"
+              hx-get="{% url 'pricemanager-create' supplier.pk %}"
+              hx-target="#modal-container .modal-content"
+              hx-swap="innerHTML">
+        <i class="bi bi-plus"></i>
+        <span>Добавить наценку</span>
+      </button>
+    </div>
+  </div>
+  <ul class="nav nav-tabs" id="funcTabs" role="tablist">
+    <li class="nav-item" role="presentation">
+      <button class="nav-link active" id="products-tab" data-bs-toggle="tab" data-bs-target="#products" type="button" role="tab" aria-controls="products" aria-selected="true">Продукты</button>
+    </li>
+    <li class="nav-item" role="presentation">
+      <button class="nav-link" id="pricemanagers-tab" data-bs-toggle="tab" data-bs-target="#pricemanagers" type="button" role="tab" aria-controls="pricemanagers" aria-selected="false">Наценки</button>
+    </li>
+  </ul>
+  <div class="tab-content" id="funcTabsContent">
+    <div class="tab-pane show active" id="products" role="tabpanel" aria-labelledby="products-tab">
+      {% include "supplier/partials/detail_products_table_partial.html" %}
+    </div>
+    <div class="tab-pane" id="pricemanagers" role="tabpanel" aria-labelledby="pricemanagers-tab">
+      {% include "supplier/partials/detail_pricemanagers_table_partial.html" %}
+    </div>
+  </div>
+</div>
+<div id="modal-container" class="modal modal-xl" tabindex="-1" aria-labelledby="modalLabel" aria-hidden="true">
+    <div class="modal-dialog">
+        <div class="modal-content">
+
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block script %}
+{% endblock %}

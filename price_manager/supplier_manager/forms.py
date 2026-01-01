@@ -4,7 +4,7 @@ from .models import Supplier, Manufacturer, ManufacturerDict, Category
 class SupplierForm(forms.ModelForm):
   class Meta:
     model = Supplier
-    fields = '__all__'
+    fields = ['name', 'delivery_days', 'currency', 'price_update_rate', 'stock_update_rate', 'msg_available', 'msg_navailable']
 
 class ManufacturerDictForm(forms.ModelForm):
   manufacturer = forms.ModelChoiceField(Manufacturer.objects,

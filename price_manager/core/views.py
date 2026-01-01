@@ -22,6 +22,9 @@ from django.db.models import Count, Prefetch
 from django_tables2 import SingleTableView, RequestConfig, SingleTableMixin
 from django_filters.views import FilterView, FilterMixin
 from dal import autocomplete
+from django.http import HttpResponse
+from django_htmx.http import reswap, trigger_client_event
+
 
 # Импорты моделей, функций, форм, таблиц
 from core.models import *
@@ -36,6 +39,14 @@ from decimal import Decimal, InvalidOperation
 import pandas as pd
 import re
 import math
+
+def toast_messages(request):
+    storage = messages.get_messages(request)
+    if len(storage) == 0:
+        response = HttpResponse()
+        return reswap(response, "none")
+    response = render(request, "core/partials/toast_messages.html")
+    return trigger_client_event(response, "toasts:initialize", after="swap")
 
 
 class AppLoginView(LoginView):

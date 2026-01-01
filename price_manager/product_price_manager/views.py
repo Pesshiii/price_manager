@@ -3,7 +3,8 @@ from supplier_product_manager.tables import SupplierProductPriceManagerTable
 # Импорты из django
 from django.shortcuts import (render,
                               redirect,
-                              get_object_or_404)
+                              get_object_or_404,
+                              resolve_url)
 from django.utils import timezone
 from django.template.loader import render_to_string
 from django.contrib import messages
@@ -28,6 +29,7 @@ from django.db.models import (F, ExpressionWrapper,
 from django.db.models.functions import Ceil
 
 from django_tables2 import SingleTableView, RequestConfig, SingleTableMixin
+from django_htmx.http import HttpResponseClientRefresh 
 
 # Импорты моделей, функций, форм, таблиц
 from .models import PriceManager, SpecialPrice
@@ -61,102 +63,44 @@ def get_price_querry(price_from, price_to, price_prefix):
   else:
     return Q()
 
-class PriceManagerCreate(SingleTableMixin, CreateView):
+class PriceManagerCreate(CreateView):
   '''Создание Наценки <<price-manager/create/>>'''
   model = PriceManager
   form_class = PriceManagerForm
-  table_class = SupplierProductPriceManagerTable
-  success_url = '/price-manager/'
-  template_name = 'price_manager/create.html'
+  template_name = 'price_manager/partials/create.html'
   def get_success_url(self):
-    return f'/price-manager'
-  def get_table_data(self):
-    products = SupplierProduct.objects.all()
-    if not hasattr(self, 'cleaned_data'):
-      return products
-    cleaned_data = self.cleaned_data
-    products = products.filter(
-      supplier=cleaned_data['supplier'])
-    if not cleaned_data['has_rrp'] is None:
-      if cleaned_data['has_rrp']:
-        products = products.filter(rrp__gt=0)
-      else:
-        products = products.filter(rrp=0)
-
-    if cleaned_data['discounts']:
-      products = products.filter(
-        discounts__in=cleaned_data['discounts'])
-    if cleaned_data['source'] in SP_PRICES:
-      products = products.filter(get_price_querry(
-        cleaned_data['price_from'],
-        cleaned_data['price_to'],
-        cleaned_data['source']))
-    elif cleaned_data['source'] in MP_PRICES:
-      products = products.filter(get_price_querry(
-        cleaned_data['price_from'],
-        cleaned_data['price_to'],
-        f'''main_product__{cleaned_data['source']}'''))
-    return products
-  def get_form(self):
-    form = super().get_form(self.form_class)
-    discounts = Discount.objects.all()
-    discounts = discounts.filter(supplier=form['supplier'].value())
-    choices = [(disc.id, disc.name) for disc in discounts]
-    form.fields['discounts'].choices = choices
-    return form
+    return resolve_url('pricemanager-create', self.kwargs.get('pk', None))
+  def get_context_data(self, **kwargs) -> dict[str, Any]:
+    context = super().get_context_data(**kwargs)
+    context['supplier'] = Supplier.objects.get(pk=self.kwargs.get('pk'))
+    return context
+  def form_invalid(self, form):
+    messages.error(self.request, 'Ошибка')
+    response = super().form_invalid(form)
+    return response
   def form_valid(self, form):
-    if not form.is_valid(): return self.form_invalid(form)
-    cleaned_data = form.cleaned_data
-    self.cleaned_data = cleaned_data
-    if cleaned_data['dest'] == cleaned_data['source']:
-      messages.error(self.request, f'Поле не может считатсься от себя же')
+    cd = form.cleaned_data
+    if cd['price_fixed'] and cd['fixed_price'] == 0:
+      form.add_error(field=None, error='Не указана фиксированная цена')
       return self.form_invalid(form)
-    price_from = cleaned_data['price_from']
-    price_to = cleaned_data['price_to']
-    if price_from and price_to:
-      if price_from>=price_to:
-        messages.error(self.request, f'''Неверная ценовая зона: "От" больше или равен "До"''')
+    if not cd['price_fixed']:
+      if not cd['source']:
+        form.add_error(field='source', error='Поле от какой цены считать должно быть указано')
         return self.form_invalid(form)
-    if price_to and price_to==0:
-      messages.error(self.request, f'''Неверная ценовая зона: "До" равен 0''')
-      return self.form_invalid(form)
-    query = Q()
-    if price_from and price_to:
-      if price_from == 0:
-        query |= Q(price_from__isnull=True)
-      else:
-        query |= (Q(price_from__gte=price_from)
-                  &Q(price_from__lte=price_to))
-      query |= (Q(price_to__gte=price_from)
-                &Q(price_to__lte=price_to))
-      query |= (Q(price_to__isnull=True)&Q(price_from__lte=price_to))
-    elif price_to:
-      query |= Q(price_from__lte=price_to)
-      query |= Q(price_from__isnull=True)
-    elif price_from:
-      query |= Q(price_to__gte=price_from)
-      query |= Q(price_to__isnull=True)
-    conf_price_manager = PriceManager.objects.filter(query)
-    if cleaned_data['discounts']:
-      conf_price_manager = conf_price_manager.filter(
-      Q(discounts__in=cleaned_data['discounts'])|
-      Q(discounts__isnull=True))
-    if cleaned_data['has_rrp'] is None:
-      conf_price_manager = conf_price_manager.filter(Q(has_rrp__isnull=True)|Q(has_rrp=True)|Q(has_rrp=False))
-    elif cleaned_data['has_rrp']:
-      conf_price_manager = conf_price_manager.filter(Q(has_rrp=True)|Q(has_rrp__isnull=True))
-    else:
-      conf_price_manager = conf_price_manager.filter(Q(has_rrp=False)|Q(has_rrp__isnull=True))
-    conf_price_manager = conf_price_manager.filter(
-      dest=cleaned_data['dest'])
-    conf_price_manager = conf_price_manager.filter(supplier=cleaned_data['supplier'])
-    if conf_price_manager.exists():
-      messages.error(self.request, f'Пересечение с другой наценкой: {conf_price_manager.first().name}')
-      return self.form_invalid(form)
-    if not self.request.POST.get('btn') == 'save': return self.form_invalid(form)
-    form.save()
-    messages.success(self.request, 'Наценка успешно добавлена')
-    return super().form_invalid(form)
+      if cd['source'] == cd['dest']:
+        form.add_error(field=None, error='Поля от какой цены считать и какую цену считать совпадают')
+        return self.form_invalid(form)
+      if (cd['price_from'] and cd['price_to']
+        and cd['price_from'] >= cd['price_to']):
+        form.add_error(field=None, error='Неверный диапозон цены')
+        return self.form_invalid(form)
+    instance = form.save(commit=False)
+    instance.supplier = Supplier.objects.get(pk=self.kwargs.get('pk'))
+    if cd['price_fixed']:
+      instance.source = 'fixed_price'
+    instance.save()
+    messages.success(self.request, 'Менеджер добавлен')
+    return HttpResponseClientRefresh()
   
 
 
@@ -164,103 +108,40 @@ class PriceManagerUpdate(SingleTableMixin, UpdateView):
   '''Обновление Наценки <<price-manager/<int:id>/>>'''
   model = PriceManager
   form_class = PriceManagerForm
-  table_class = SupplierProductPriceManagerTable
-  success_url = '/price-manager/'
-  template_name = 'price_manager/create.html'
-  pk_url_kwarg = 'id'
+  template_name = 'price_manager/partials/create.html'
   def get_success_url(self):
-    return f'/price-manager'
-  def get_table_data(self):
-    products = SupplierProduct.objects.all()
-    if not hasattr(self, 'cleaned_data'):
-      return products
-    cleaned_data = self.cleaned_data
-    products = products.filter(
-      supplier=cleaned_data['supplier'])
-    if not cleaned_data['has_rrp'] is None:
-      if cleaned_data['has_rrp']:
-        products = products.filter(rrp__gt=0)
-      else:
-        products = products.filter(rrp=0)
-
-    if cleaned_data['discounts']:
-      products = products.filter(
-        discounts__in=cleaned_data['discounts'])
-    if cleaned_data['source'] in SP_PRICES:
-      products = products.filter(get_price_querry(
-        cleaned_data['price_from'],
-        cleaned_data['price_to'],
-        cleaned_data['source']))
-    elif cleaned_data['source'] in MP_PRICES:
-      products = products.filter(get_price_querry(
-        cleaned_data['price_from'],
-        cleaned_data['price_to'],
-        f'''main_product__{cleaned_data['source']}'''))
-    return products
-  def get_form(self):
-    form = super().get_form(self.form_class)
-    discounts = Discount.objects.all()
-    discounts = discounts.filter(supplier=form['supplier'].value())
-
-    choices = [(None, 'Все группы скидок')]
-    choices.extend([(disc.id, disc.name) for disc in discounts])
-    if not form.fields['discounts'].choices == choices:
-      form.fields['discounts'].choices = choices
-    return form
+    return resolve_url('pricemanager-create', self.kwargs.get('pk', None))
+  def get_context_data(self, **kwargs) -> dict[str, Any]:
+    context = super().get_context_data(**kwargs)
+    context['supplier'] = Supplier.objects.get(pk=self.kwargs.get('pk'))
+    return context
+  def form_invalid(self, form):
+    messages.error(self.request, 'Ошибка')
+    response = super().form_invalid(form)
+    return response
   def form_valid(self, form):
-    if not form.is_valid(): return self.form_invalid(form)
-    cleaned_data = form.cleaned_data
-    self.cleaned_data = cleaned_data
-    if cleaned_data['dest'] == cleaned_data['source']:
-      messages.error(self.request, f'Поле не может считатсься от себя же')
+    cd = form.cleaned_data
+    if cd['price_fixed'] and cd['fixed_price'] == 0:
+      form.add_error(field=None, error='Не указана фиксированная цена')
       return self.form_invalid(form)
-    price_from = cleaned_data['price_from']
-    price_to = cleaned_data['price_to']
-    if price_from and price_to:
-      if price_from>=price_to:
-        messages.error(self.request, f'''Неверная ценовая зона: "От" больше или равен "До"''')
+    if not cd['price_fixed']:
+      if not cd['source']:
+        form.add_error(field='source', error='Поле от какой цены считать должно быть указано')
         return self.form_invalid(form)
-    if price_to==0:
-      messages.error(self.request, f'''Неверная ценовая зона: "До" равен 0''')
-      return self.form_invalid(form)
-    query = Q()
-    if price_from and price_to:
-      if price_from == 0:
-        query |= Q(price_from__isnull=True)
-      else:
-        query |= (Q(price_from__gte=price_from)
-                  &Q(price_from__lte=price_to))
-      query |= (Q(price_to__gte=price_from)
-                &Q(price_to__lte=price_to))
-      query |= (Q(price_to__isnull=True)&Q(price_from__lte=price_to))
-    elif price_to:
-      query |= Q(price_from__lte=price_to)
-      query |= Q(price_from__isnull=True)
-    elif price_from:
-      query |= Q(price_to__gte=price_from)
-      query |= Q(price_to__isnull=True)
-    conf_price_manager = PriceManager.objects.filter(query)
-    conf_price_manager = conf_price_manager.filter(~Q(id=self.kwargs.get('id')))
-    if cleaned_data['discounts']:
-      conf_price_manager = conf_price_manager.filter(
-      Q(discounts__in=cleaned_data['discounts'])|
-      Q(discounts__isnull=True))
-    if cleaned_data['has_rrp'] is None:
-      conf_price_manager = conf_price_manager.filter(Q(has_rrp__isnull=True)|Q(has_rrp=True)|Q(has_rrp=False))
-    elif cleaned_data['has_rrp']:
-      conf_price_manager = conf_price_manager.filter(Q(has_rrp=True)|Q(has_rrp__isnull=True))
-    else:
-      conf_price_manager = conf_price_manager.filter(Q(has_rrp=False)|Q(has_rrp__isnull=True))
-    conf_price_manager = conf_price_manager.filter(
-      dest=cleaned_data['dest'])
-    conf_price_manager = conf_price_manager.filter(supplier=cleaned_data['supplier'])
-    if conf_price_manager.exists():
-      messages.error(self.request, f'Пересечение с другой наценкой: {conf_price_manager.first().name}')
-      return self.form_invalid(form)
-    if not self.request.POST.get('btn') == 'save': return self.form_invalid(form)
-    form.save()
-    messages.success(self.request, 'Наценка успешно обновлена')
-    return super().form_invalid(form)
+      if cd['source'] == cd['dest']:
+        form.add_error(field=None, error='Поля от какой цены считать и какую цену считать совпадают')
+        return self.form_invalid(form)
+      if (cd['price_from'] and cd['price_to']
+        and cd['price_from'] >= cd['price_to']):
+        form.add_error(field=None, error='Неверный диапозон цены')
+        return self.form_invalid(form)
+    instance = form.save(commit=False)
+    instance.supplier = Supplier.objects.get(pk=self.kwargs.get('pk'))
+    if cd['price_fixed']:
+      instance.source = 'fixed_price'
+    instance.save()
+    messages.success(self.request, 'Менеджер добавлен')
+    return HttpResponseClientRefresh()
 
 
 class PriceManagerDetail(DetailView):
@@ -331,7 +212,6 @@ def apply_special_price(upm: SpecialPrice):
         changed_price=Subquery(calc_qs, output_field=DecimalField())
     )
   
-  print(mps)
   
   mps = mps.filter(~Q(**{f'{upm.dest}':F('changed_price')}))
 
@@ -363,121 +243,6 @@ def apply_special_price(upm: SpecialPrice):
   return mps.update(**{f'{upm.dest}':F('changed_price'),
                'price_updated_at':timezone.now()})
 
-def apply_price_manager(price_manager: PriceManager):
-
-
-  ## Следует убрать после обновления в главной ветке ###
-
-  if price_manager.source == 'rmp':
-    price_manager.source = 'rrp'
-    price_manager.save()
-
-  ######################################################
-
-
-  products = SupplierProduct.objects.all()
-  products = products.filter(
-    supplier=price_manager.supplier)
-  if not price_manager.has_rrp is None:
-    if price_manager.has_rrp:
-      products = products.filter(rrp__gt=0)
-    else:
-      products = products.filter(rrp=0)
-
-  discounts = list(price_manager.discounts.values_list('id'))
-  if not discounts == []:
-    products = products.filter(
-      discounts__in=discounts)
-
-  if price_manager.source in SP_PRICES:
-    products = products.filter(get_price_querry(
-      price_manager.price_from,
-      price_manager.price_to,
-      price_manager.source))
-  elif price_manager.source in MP_PRICES:
-    products = products.filter(get_price_querry(
-      price_manager.price_from,
-      price_manager.price_to,
-      f'''main_product__{price_manager.source}'''))
-  
-  mps = MainProduct.objects.filter(id__in=products.values_list('main_product__id'))
-  source = price_manager.source
-  if price_manager.source in SP_PRICES:
-    mps = mps.annotate(source_price=Min(f'supplier_products__{price_manager.source}'))
-    source = 'source_price'
-    calc_qs = (
-      mps.filter(pk=OuterRef("pk"))
-      .annotate(
-          _changed_price=ExpressionWrapper(
-              Ceil(
-                  F(source) * F("supplier__currency__value")
-                  * (1 + Decimal(price_manager.markup) / Decimal(100))
-                  + Decimal(price_manager.increase)
-              ),
-              output_field=DecimalField(),
-          )
-      )
-      .values("_changed_price")[:1]
-    )
-  else:
-    calc_qs = (
-      mps.filter(pk=OuterRef("pk"))
-      .annotate(
-          _changed_price=ExpressionWrapper(
-              Ceil(
-                  F(source)
-                  * (1 + Decimal(price_manager.markup) / Decimal(100))
-                  + Decimal(price_manager.increase)
-              ),
-              output_field=DecimalField(),
-          )
-      )
-      .values("_changed_price")[:1]
-    )
-  
-  mps = mps.annotate(
-        changed_price=Subquery(calc_qs, output_field=DecimalField())
-    )
-
-  mps = mps.filter(~Q(**{f'{price_manager.dest}':F('changed_price')}))
-
-  
-  through = MainProduct.price_managers.through  # промежуточная модель
-
-  # Берём id уже существующих связей, чтобы не дублировать
-  existing_ids = set(
-      through.objects.filter(
-          mainproduct_id__in=mps.values_list('id', flat=True),
-          pricemanager_id=price_manager.id,
-      ).values_list('mainproduct_id', flat=True)
-  )
-
-  # Формируем новые связи
-
-  links = []
-  logs = []
-  
-  for mp in mps:
-    if mp.id not in existing_ids:
-      links.append(through(mainproduct_id=mp.id, pricemanager_id=price_manager.id))
-    logs.append(MainProductLog(
-      main_product=mp,
-      price_type=price_manager.dest,
-      price=getattr(mp, 'changed_price')
-    ))
-  through.objects.bulk_create(links, batch_size=1000)
-  MainProductLog.objects.bulk_create(logs)
-  return mps.update(**{price_manager.dest:F('changed_price'),
-               'price_updated_at':timezone.now()})
-
-def update_prices(request):
-  count = 0
-  for price_manager in PriceManager.objects.all():
-    count += apply_price_manager(price_manager)
-  for upm in SpecialPrice.objects.all():
-    count += apply_special_price(upm)
-  
-  messages.success(request, f'Наценки применены. Изменено товаров: {count}')
 
 class CreateSpecialPrice(CreateView):
   model = SpecialPrice

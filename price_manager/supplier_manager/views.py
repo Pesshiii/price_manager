@@ -107,7 +107,7 @@ class SupplierList(ListView):
 class SupplierCreate(CreateView):
   '''Таблица создания Поставщиков <<supplier/create/>>'''
   model = Supplier
-  fields = SUPPLIER_SPECIFIABLE_FIELDS
+  form_class=SupplierForm
   success_url = '/supplier'
   template_name = 'supplier/create.html'
 

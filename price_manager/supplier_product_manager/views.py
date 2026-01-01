@@ -14,12 +14,14 @@ from django.urls import reverse
 from typing import Dict
 from django_tables2 import SingleTableView, RequestConfig, SingleTableMixin
 from django_filters.views import FilterView
+from django.db.models import ExpressionWrapper, Q, BooleanField
 from django.contrib.postgres.search import SearchVector
 from django.db.models import Value
 
 # Импорты моделей, функций, форм, таблиц
 from file_manager.models import FileModel
-from main_product_manager.models import MainProduct, MainProductLog
+from main_product_manager.models import MainProduct, MainProductLog, MP_PRICES
+from product_price_manager.models import PriceManager
 from core.functions import extract_initial_from_post
 from .forms import *
 from .tables import *
@@ -27,8 +29,10 @@ from .filters import *
 from .tasks import upload_supplier_files
 
 import pandas as pd
+import numpy as np
 from decimal import Decimal, InvalidOperation
 import re
+import plotly.express as px
 
 class SupplierSettingList(SingleTableView):
   '''Список Настроек на транице <<supplier/<int:id>/settings/>>'''
@@ -53,12 +57,22 @@ class SupplierDetail(SingleTableMixin, FilterView):
   table_class = SupplierProductListTable
   filterset_class = SupplierProductFilter
   template_name = 'supplier/detail.html'
-
+  def get(self, request, *args, **kwargs):
+    self.supplier = Supplier.objects.get(pk=self.kwargs.get('pk', None))
+    return super().get(request, *args, **kwargs)
   def get_table_data(self):
-    return super().get_table_data().filter(supplier=self.kwargs.get('id', None))
+    return super().get_table_data().filter(supplier=self.supplier)
   def get_context_data(self, **kwargs):
     context = super().get_context_data(**kwargs)
-    context['supplier'] = Supplier.objects.get(id=self.kwargs.get('id'))
+    context['supplier'] = self.supplier
+    # to do: оптимизировать таблицу
+    pms = PriceManager.objects.filter(supplier=self.supplier).annotate(
+    is_published=ExpressionWrapper(
+      Q(fixed_price__isnull=False)|~Q(fixed_price=0),
+      output_field=BooleanField()
+    )
+)
+    context['pricemanagers'] = pms
     return context
 
 
@@ -434,6 +448,7 @@ class UploadSupplierFile(CreateView):
   def form_valid(self, form):
     sfile = form.save()
     upload_supplier_files.defer(sfile_pk=sfile.pk)
+    messages.info(self.request, f"Загрузка файла через настройку {sfile.setting.name}")
     return super().form_valid(form)
   
   def get_success_url(self):

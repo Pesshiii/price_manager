@@ -10,6 +10,7 @@ from product_price_manager import views as ppm_views
 from django.conf import settings
 from django.conf.urls.static import static
 
+
 urlpatterns = [
     path('admin/', admin.site.urls),
     path('accounts/login/', views.AppLoginView.as_view(), name='login'),
@@ -22,7 +23,7 @@ urlpatterns = [
     path('instructions/', views.InstructionsView.as_view(), name='instructions'),
     
     path('supplier/', sm_views.SupplierList.as_view(), name='supplier'),
-    path('supplier/<int:id>/', spm_views.SupplierDetail.as_view(), name='supplier-detail'),
+    path('supplier/<int:pk>/', spm_views.SupplierDetail.as_view(), name='supplier-detail'),
     path('supplier/<int:id>/update', sm_views.SupplierUpdate.as_view(), name='supplier-update'),
     path('supplier/<int:id>/delete/', sm_views.SupplierDelete.as_view(), name='supplier-delete'),
     path('supplier/<int:id>/settings/', spm_views.SupplierSettingList.as_view(), name='supplier-settings'),
@@ -42,7 +43,7 @@ urlpatterns = [
 
     path('price-manager/', ppm_views.PriceManagerList.as_view(), name='price-manager'),
     path('price-manager/<int:id>/', ppm_views.PriceManagerUpdate.as_view(), name='price-manager-update'),
-    path('price-manager/create/', ppm_views.PriceManagerCreate.as_view(), name='price-manager-create'),
+    path('price-manager/create-for/<int:pk>', ppm_views.PriceManagerCreate.as_view(), name='pricemanager-create'),
     path('price-manager/<int:id>/delete', ppm_views.PriceManagerDelete.as_view(), name='price-manager-delete'),
     path('specialprice/<int:pk>/add', ppm_views.CreateSpecialPrice.as_view(), name='specialprice-create' ),
     path('specialprice/<int:pk>/update', ppm_views.UpdateSpecialPrice.as_view(), name='specialprice-update' ),
@@ -68,4 +69,7 @@ urlpatterns = [
     path('shopping-tabs/<int:tab_pk>/products/<int:pk>/delete/', views.ShoppingTabProductDeleteView.as_view(), name='shopping-tab-product-delete'),
     path('shopping-tabs/select/<int:product_id>/', views.ShoppingTabSelectionView.as_view(), name='shopping-tab-select'),
     path('shopping-tabs/<int:tab_pk>/add/<int:product_id>/', views.ShoppingTabAddProductView.as_view(), name='shopping-tab-add-product'),
+
+
+    path("toasts/", views.toast_messages, name="toast-messages"),
 ] + static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)

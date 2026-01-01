@@ -1,9 +1,9 @@
 from django.db import models
 from django.contrib.postgres.search import SearchVectorField, SearchVector 
 from django.contrib.postgres.indexes import GinIndex
-from django.db.models import Value
+from django.db.models import Value, OuterRef, Subquery, Q, F
+from django.core.validators import MinValueValidator, MaxValueValidator
 from supplier_manager.models import Supplier, Category, Manufacturer
-from product_price_manager.models import PriceManager, SpecialPrice, PRICE_TYPES
 
    
 MP_TABLE_FIELDS = ['article', 'supplier', 'name', 'manufacturer','prime_cost', 'stock']
@@ -74,18 +74,6 @@ class MainProduct(models.Model):
       decimal_places=2,
       max_digits=20,
       default=0)
-  price_managers = models.ManyToManyField(
-    PriceManager,
-    verbose_name='Наценка',
-    related_name='main_products',
-    blank=True
-  )
-  special_prices = models.ManyToManyField(
-    SpecialPrice,
-    verbose_name= 'Спец наценки',
-    related_name='main_products',
-    blank=True
-  )
   length = models.DecimalField(verbose_name='Длина',
                                max_digits=10,
                                decimal_places=2,
@@ -127,10 +115,9 @@ class MainProduct(models.Model):
     MainProduct.objects.filter(pk=self.pk).update(
         search_vector=SearchVector(Value(text), config='russian')
     )
-
   def save(self, *args, **kwargs):
-      super().save(*args, **kwargs)
-      self.rebuild_search_vector()
+    super().save(*args, **kwargs)
+    self.rebuild_search_vector()
   class Meta:
     verbose_name = 'Главный продукт'
     constraints = [
@@ -174,3 +161,29 @@ class MainProductLog(models.Model):
         name='mpl_unique_date_mp'
       )
     ]
+
+
+def update_logs():
+  updated_logs = 0
+  for price_type in MP_PRICES[1:]:
+    latest_log_subquery = MainProductLog.filter(
+      main_product__pk=OuterRef('pk')
+    ).filter(price_type=price_type).order_by('-update_time').values(['update_time', 'price'])[:1]
+
+    mps = MainProduct.objects.annotate(
+      latest_log_update=Subquery(latest_log_subquery['update_time']),
+      latest_log_price=Subquery(latest_log_subquery['price'])
+    )
+    mps = mps.filter(~Q(**{price_type:'latest_log_price'}))
+    updated_logs += mps.update(**{price_type:'latest_log_price'})
+  latest_log_subquery = MainProductLog.filter(
+      main_product__pk=OuterRef('pk')
+    ).filter(price_type=price_type).order_by('-update_time').values(['update_time', 'stock'])[:1]
+
+  mps = MainProduct.objects.annotate(
+    latest_log_update=Subquery(latest_log_subquery['update_time']),
+    latest_log_stock=Subquery(latest_log_subquery['stock'])
+  )
+  mps = mps.filter(~Q(**{'stock':'latest_log_stock'}))
+  updated_logs += mps.update(**{'stock':'latest_log_stock'})
+  return updated_logs
