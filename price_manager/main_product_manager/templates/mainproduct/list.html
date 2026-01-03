@@ -1,0 +1,19 @@
+{% extends 'base.html' %}
+
+{% block title %}
+Главная страница
+{% endblock %}
+
+{% block body %}
+  {% partialdef list inline %}
+    <div id="mainproduct-block" class="row gap-2">
+      
+      <div class="col-3">
+        {% include "mainproduct/partials/filter.html" %}
+      </div>
+      <div class="col-8">
+        {% include 'mainproduct/partials/tables_bycat.html' %}
+      </div>
+    </div>
+  {% endpartialdef %}
+{% endblock %}

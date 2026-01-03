@@ -1,10 +1,10 @@
 from django.db import models
 from django.contrib.postgres.search import SearchVectorField, SearchVector 
 from django.contrib.postgres.indexes import GinIndex
-from django.db.models import Value, OuterRef, Subquery, Q, F
+from django.db.models import Value, OuterRef, Subquery, Q, F, Sum
 from django.core.validators import MinValueValidator, MaxValueValidator
+from django.utils import timezone
 from supplier_manager.models import Supplier, Category, Manufacturer
-
    
 MP_TABLE_FIELDS = ['article', 'supplier', 'name', 'manufacturer','prime_cost', 'stock']
 MP_CHARS = ['sku', 'article', 'name']
@@ -34,6 +34,7 @@ class MainProduct(models.Model):
   category = models.ForeignKey(Category,
                                on_delete=models.SET_NULL,
                                verbose_name='Категория',
+                               related_name='mainproducts',
                                null=True,
                                blank=True)
   manufacturer = models.ForeignKey(Manufacturer,
@@ -163,27 +164,48 @@ class MainProductLog(models.Model):
     ]
 
 
+def update_stocks():
+  mps = MainProduct.objects.prefetch_related('supplier_products').annotate(new_stock=Sum('supplier_products__stock'))
+  # mps = mps.filter(~Q(stock=F('new_stock'))|Q(new_stock__isnull=False))
+  # setattr(mps, 'stock', F('new_stock'))
+  return mps.bulk_update(mps, fields=['stock', 'stock_updated_at'])
+
 def update_logs():
   updated_logs = 0
-  for price_type in MP_PRICES[1:]:
-    latest_log_subquery = MainProductLog.filter(
-      main_product__pk=OuterRef('pk')
-    ).filter(price_type=price_type).order_by('-update_time').values(['update_time', 'price'])[:1]
-
-    mps = MainProduct.objects.annotate(
-      latest_log_update=Subquery(latest_log_subquery['update_time']),
-      latest_log_price=Subquery(latest_log_subquery['price'])
+  for price_type in MP_PRICES:
+    latest_log_date_subquery = MainProductLog.objects.filter(
+      main_product__id=OuterRef('pk')
+    ).filter(price_type=price_type).order_by('-update_time').values('update_time')[:1]
+    latest_log_price_subquery =  MainProductLog.objects.filter(
+      main_product__id=OuterRef('pk')
+    ).filter(price_type=price_type).order_by('-update_time').values('price')[:1]
+    mps = MainProduct.objects.all().annotate(
+      **{
+          f'latest_log_{price_type}_data':Subquery(latest_log_date_subquery),
+          f'latest_log_{price_type}':Subquery(latest_log_price_subquery)
+      }
     )
-    mps = mps.filter(~Q(**{price_type:'latest_log_price'}))
-    updated_logs += mps.update(**{price_type:'latest_log_price'})
-  latest_log_subquery = MainProductLog.filter(
-      main_product__pk=OuterRef('pk')
-    ).filter(price_type=price_type).order_by('-update_time').values(['update_time', 'stock'])[:1]
+    mps = mps.filter(~Q(**{price_type:F(f'latest_log_{price_type}')}))
+    mpls = map(lambda item: MainProductLog(price_type=item[0], main_product=item[1], price=getattr(item[1], price_type)), zip([price_type] * mps.count(), mps.all()))
+    mpls = MainProductLog.objects.bulk_create(mpls)
+    updated_logs += len(mpls)
 
-  mps = MainProduct.objects.annotate(
-    latest_log_update=Subquery(latest_log_subquery['update_time']),
-    latest_log_stock=Subquery(latest_log_subquery['stock'])
+
+  latest_log_date_subquery = MainProductLog.objects.filter(
+    main_product__pk=OuterRef('pk')
+  ).filter(price_type__isnull=True).order_by('-update_time').values('update_time')[:1]
+  latest_log_stock_subquery =  MainProductLog.objects.filter(
+    main_product__pk=OuterRef('pk')
+  ).filter(price_type__isnull=True).order_by('-update_time').values('stock')[:1]
+  mps = MainProduct.objects.filter(stock__isnull=False).annotate(
+    **{
+        f'latest_log_stock_data':Subquery(latest_log_date_subquery),
+        f'latest_log_stock':Subquery(latest_log_stock_subquery)
+    }
   )
-  mps = mps.filter(~Q(**{'stock':'latest_log_stock'}))
-  updated_logs += mps.update(**{'stock':'latest_log_stock'})
+  mps = mps.filter(~Q(**{'stock':F('latest_log_stock')}))
+  mpls = map(lambda mp: MainProductLog(main_product=mp, stock=mp.stock),  mps)
+  mpls = MainProductLog.objects.bulk_create(mpls)
+  updated_logs += len(mpls)
   return updated_logs
+

@@ -53,16 +53,6 @@ class PriceManagerList(SingleTableView):
   template_name = 'price_manager/list.html'
 
 
-def get_price_querry(price_from, price_to, price_prefix):
-  if price_from and price_to:
-    return Q(**{f'{price_prefix}__range':(price_from, price_to)})
-  elif price_from:
-    return Q(**{f'{price_prefix}__gte':price_from})
-  elif price_to:
-    return Q(**{f'{price_prefix}__lte':price_to})
-  else:
-    return Q()
-
 class PriceManagerCreate(CreateView):
   '''Создание Наценки <<price-manager/create/>>'''
   model = PriceManager
@@ -156,92 +146,6 @@ class PriceManagerDelete(DeleteView):
   template_name = 'price_manager/confirm_delete.html'
   pk_url_kwarg = 'id'
   success_url = '/price-manager/'
-
-
-def apply_special_price(upm: SpecialPrice):
-  mps = MainProduct.objects.filter(id__in=upm.main_products.values_list('id'))
-  source = upm.source
-  if not upm.source:
-    calc_qs = (
-      mps.filter(pk=OuterRef("pk"))
-      .annotate(
-          _changed_price=ExpressionWrapper(
-              Ceil(
-                  upm.fixed_price,
-                  output_field=DecimalField()
-              ),
-              output_field=DecimalField(),
-          )
-      )
-      .values("_changed_price")[:1]
-    )
-  elif upm.source in SP_PRICES:
-    mps = mps.annotate(source_price=Min(f'supplier_products__{upm.source}'))
-    source = 'source_price'
-    calc_qs = (
-      mps.filter(pk=OuterRef("pk"))
-      .annotate(
-          _changed_price=ExpressionWrapper(
-              Ceil(
-                  F(source) * F("supplier__currency__value")
-                  * (1 + Decimal(upm.markup) / Decimal(100))
-                  + Decimal(upm.increase)
-              ),
-              output_field=DecimalField(),
-          )
-      )
-      .values("_changed_price")[:1]
-    )
-  else:
-    calc_qs = (
-      mps.filter(pk=OuterRef("pk"))
-      .annotate(
-          _changed_price=ExpressionWrapper(
-              Ceil(
-                  F(source)
-                  * (1 + Decimal(upm.markup) / Decimal(100))
-                  + Decimal(upm.increase)
-              ),
-              output_field=DecimalField(),
-          )
-      )
-      .values("_changed_price")[:1]
-    )
-  
-  mps = mps.annotate(
-        changed_price=Subquery(calc_qs, output_field=DecimalField())
-    )
-  
-  
-  mps = mps.filter(~Q(**{f'{upm.dest}':F('changed_price')}))
-
-  through = MainProduct.special_prices.through  # промежуточная модель
-
-  # Берём id уже существующих связей, чтобы не дублировать
-  existing_ids = set(
-      through.objects.filter(
-          mainproduct_id__in=mps.values_list('id', flat=True),
-          specialprice_id=upm.id,
-      ).values_list('mainproduct_id', flat=True)
-  )
-
-  # Формируем новые связи
-
-  links = []
-  logs = []
-  
-  for mp in mps:
-    if mp.id not in existing_ids:
-      links.append(through(mainproduct_id=mp.id, specialprice_id=upm.id))
-    logs.append(MainProductLog(
-      main_product=mp,
-      price_type=upm.dest,
-      price=getattr(mp, 'changed_price')
-    ))
-  through.objects.bulk_create(links, batch_size=1000)
-  MainProductLog.objects.bulk_create(logs, ignore_conflicts=True)
-  return mps.update(**{f'{upm.dest}':F('changed_price'),
-               'price_updated_at':timezone.now()})
 
 
 class CreateSpecialPrice(CreateView):

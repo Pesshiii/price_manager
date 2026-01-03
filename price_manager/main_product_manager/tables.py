@@ -10,7 +10,7 @@ from .forms import *
 
 import pandas as pd
 
-class MainProductListTable(tables.Table):
+class MainProductTable(tables.Table):
   '''Таблица Главного прайса отображаемая на главной странице'''
   actions = tables.Column(empty_values=(),
                          orderable=False,
@@ -21,13 +21,14 @@ class MainProductListTable(tables.Table):
   def __init__(self, *args, **kwargs):
     self.request = kwargs.pop('request')
     if hasattr(kwargs, 'data'):
-      kwargs['data'] = kwargs['data'].prefetch_related('supplier')
+      kwargs['data'] = kwargs['data'].prefetch_related('supplier', 'category', 'manufacturer')
     super().__init__(*args, **kwargs)
+
     
   class Meta:
     model = MainProduct
     fields = ['actions', 'article', 'supplier', 'name', 'manufacturer','prime_cost', 'stock', 'stock_msg']
-    template_name = 'django_tables2/bootstrap5.html'
+    template_name = 'core/includes/table_htmx.html'
     attrs = {
       'class': 'clickable-rows table table-auto table-stripped table-hover'
       }

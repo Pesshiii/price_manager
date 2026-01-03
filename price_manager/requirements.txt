@@ -1,15 +1,23 @@
-pandas>=1.3.0
 django>=5.2.4
-django-tables2>=2.7.5
+
+
+pandas>=1.3.0
 openpyxl>=3.1.5
 xlrd>=2.0.1
 psycopg2>=2.9.10
+
+
+procrastinate[django]>=3.6.0
+
 tablib>=3.8.0
 django-import-export>=4.3.9
+
+
+django-tables2>=2.7.5
+django-crispy-forms>=2.5
 django-filter>=25.1
 django-autocomplete-light>=3.12.1
 django-htmx>=1.27.0
 django-template-partials>=25.3
 django-widget-tweaks >=1.5
-procrastinate[django]>=3.6.0
-plotly>=6.5.0
+crispy-bootstrap4>=2025.6

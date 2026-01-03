@@ -2,14 +2,13 @@ from django.db import models
 from django.core.validators import (MinValueValidator, MaxValueValidator)
 from supplier_manager.models import Supplier
 from supplier_product_manager.models import SupplierProduct, SP_PRICES
-from main_product_manager.models import MainProduct, MP_PRICES
+from main_product_manager.models import MainProduct, MP_PRICES, update_logs
 from django.db.models import (F, ExpressionWrapper, 
                               fields, Func, 
                               Value, Min,
                               Q, DecimalField,
-                              OuterRef, Subquery)
+                              OuterRef, Subquery, Prefetch)
 from django.db.models.functions import Ceil
-
 
 # Импорты сторонних библиотек
 from decimal import Decimal, InvalidOperation
@@ -167,7 +166,7 @@ class PriceManager(models.Model):
         )
         .values("_changed_price")[:1]
       )
-    else:
+    elif price_manager.source in MP_PRICES:
       calc_qs = (
         mps.filter(pk=OuterRef("pk"))
         .annotate(
@@ -176,6 +175,19 @@ class PriceManager(models.Model):
                     F(source)
                     * (1 + Decimal(price_manager.markup) / Decimal(100))
                     + Decimal(price_manager.increase)
+                ),
+                output_field=DecimalField(),
+            )
+        )
+        .values("_changed_price")[:1]
+      )
+    else:  
+      calc_qs = (
+        mps.filter(pk=OuterRef("pk"))
+        .annotate(
+            _changed_price=ExpressionWrapper(
+                Ceil(
+                  Decimal(price_manager.fixed_price)
                 ),
                 output_field=DecimalField(),
             )
@@ -315,27 +327,52 @@ class PriceTag(models.Model):
   def __str__(self):
     return self.name
   
-
 def update_pricetags():
+  count = 0
   for pm in PriceManager.objects.all().prefetch_related('pricetags'):
-    pts = pm.pricetags.values('mp')[:1]['mp']
-    mps = pm.get_fitting_mps().filter(~Q(pricetags__in=pts))
-    for mp in mps:
-      pt = PriceTag.objects.get_or_create(
-        defaults={
-          'mp':mp,
-          'p_manager':pm,
-          'source':pm.source,
-          'dest':pm.dest,
-          'markup':pm.markup,
-          'increase':pm.increase,
-          'fixed_price':pm.fixed_price
-        }
-        )[0]
-      pt.save()
-
+    pts = pm.pricetags.values_list('mp', flat=True)
+    mps = pm.get_fitting_mps().filter(~Q(pk__in=pts))
+    pts = map(
+      lambda item: 
+        PriceTag(**{
+          'mp':item[1],
+          'p_manager':item[0],
+          'source':item[0].source,
+          'dest':item[0].dest,
+          'markup':item[0].markup,
+          'increase':item[0].increase,
+          'fixed_price':item[0].fixed_price
+        }), zip([pm]*mps.count(), mps))
+    count += len(PriceTag.objects.bulk_create(pts))
+  return count
 
 
 def update_prices():
-  mps = MainProduct.objects.all().prefetch_related('supplier_products', 'pricetags')
-  
+  count = 0
+  for dest in MP_PRICES:
+    for source in PRICE_TYPES.keys():
+      if not source: continue
+      pts = PriceTag.objects.filter(source=source, dest=dest).select_related('mp')
+      # if source in SP_PRICES:
+      #   calc_qs = mps.filter(
+      #       pk=OuterRef("pk")
+      #     ).annotate(
+      #           _changed_price=ExpressionWrapper(
+      #                 Ceil(
+      #                   ExpressionWrapper(
+      #                     Max(F(f'supplier_products__{source}')) * F("supplier__currency__value")
+      #                     * (1 + (F("pricetag__markup")) / Decimal(100))
+      #                     + (F("pricetag__increase")),
+      #                     output_field=DecimalField()
+      #                 ),
+      #                 output_field=DecimalField(),
+      #               ), output_field=DecimalField())
+      #       ).values("_changed_price")[:1]
+      #   mps = mps.annotate(
+      #         changed_price=Subquery(calc_qs, output_field=DecimalField())
+      #     )
+    # mps = mps.filter(~Q(**{price_type:F('changed_price')}))
+    # setattr(mps, price_type, F('changed_price'))
+    # print(mps)
+    # count += MainProduct.objects.bulk_update(mps, [price_type, 'price_updated_at'])
+  return count

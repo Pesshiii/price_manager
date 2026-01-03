@@ -16,9 +16,9 @@ urlpatterns = [
     path('accounts/login/', views.AppLoginView.as_view(), name='login'),
     path('accounts/logout/', views.AppLogoutView.as_view(), name='logout'),
 
-    path('', mp_views.MainPage.as_view(), name='main'),
-    path('main/filter-options/', mp_views.MainFilterOptionsView.as_view(), name='main-filter-options'),
-    path('main/table/', mp_views.MainTableView.as_view(), name='main-table'),
+    path('', mp_views.MainPage.as_view(), name='mainproducts'),
+    path('mainproduct/table_bycat/<int:category_pk>', mp_views.MainProductTableView.as_view(), name='mainproduct-table-bycat'),
+    path('mainproduct/table_bycat/', mp_views.MainProductTableView.as_view(), name='mainproduct-table-nocat'),
     
     path('instructions/', views.InstructionsView.as_view(), name='instructions'),
     
@@ -45,9 +45,6 @@ urlpatterns = [
     path('price-manager/<int:id>/', ppm_views.PriceManagerUpdate.as_view(), name='price-manager-update'),
     path('price-manager/create-for/<int:pk>', ppm_views.PriceManagerCreate.as_view(), name='pricemanager-create'),
     path('price-manager/<int:id>/delete', ppm_views.PriceManagerDelete.as_view(), name='price-manager-delete'),
-    path('specialprice/<int:pk>/add', ppm_views.CreateSpecialPrice.as_view(), name='specialprice-create' ),
-    path('specialprice/<int:pk>/update', ppm_views.UpdateSpecialPrice.as_view(), name='specialprice-update' ),
-    path('specialprice/<int:pk>/list', ppm_views.SpecialPriceList.as_view(), name='specialprice-list' ),
 
     path('supplier-product/<int:id>/delete/', spm_views.delete_supplier_product, name='supplier-product-delete'),
 

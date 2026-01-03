@@ -3,74 +3,56 @@ from .models import Category, Supplier, Manufacturer, MainProduct
 from django import forms
 from django.contrib.postgres.search import SearchQuery, SearchRank
 from django.db.models import Q
+
+
+from django.urls import reverse_lazy
+from crispy_forms.helper import FormHelper
+from crispy_forms.layout import Submit, Layout, Field
+
+
 import re
 
 class MainProductFilter(FilterSet):
-  search = filters.CharFilter(method='search_method', label='Поиск')
-  anti_search = filters.CharFilter(method='anti_search_method', label='Исключения')
-  category = filters.ModelMultipleChoiceFilter(
-        queryset=Category.objects.all(),
-        widget=forms.CheckboxSelectMultiple
-    )
-  supplier = filters.ModelMultipleChoiceFilter(
-      field_name='supplier',
-      queryset=Supplier.objects.all(),
-      widget=forms.SelectMultiple(
-          attrs={
-              'class': 'form-select select2',
-              'data-placeholder': 'Выберите поставщиков'
-          }
-      )
-  )
-  manufacturer = filters.ModelMultipleChoiceFilter(
-      field_name='manufacturer',
-      queryset=Manufacturer.objects.all(),
-      widget=forms.SelectMultiple(
-          attrs={
-              'class': 'form-select select2',
-              'data-placeholder': 'Выберите производителей'
-          }
-      )
-  )
-  available = filters.BooleanFilter(
-      field_name='stock',
-      widget=forms.Select(
-          attrs={
-              'class': 'form-select',
-          },
-          choices=[('', 'Любой'), ('true', 'В наличии'), ('false', 'Нет в наличии')]
-      ),
-      label='В наличии',
-      method='filter_available'
-  )
   class Meta:
     model = MainProduct
-    fields = ['search', 'anti_search', 'supplier', 'category', 'manufacturer', 'available']
+    fields = ['search']
+  def __init__(self, *args, **kwargs):
+    super().__init__(*args, **kwargs)
+    self.form.helper = FormHelper(self.form)
+    self.form.helper.form_id = 'mainproduct-filter'
+    self.form.helper.form_method = 'GET'
+    self.form.helper.attrs = {
+      'hx-get':reverse_lazy('mainproducts'),
+      'hx-target':'#mainproducts-table',
+      'hx-swap':'outerHTML',
+      'hx-trigger':'keyup',
+    }
+    self.form.helper.layout = Layout(
+        Field('search', label_class='font-bold text-lg'),
+        Submit('submit', 'Поиск', css_class='mt-4')
+    )
+
+
+  search = filters.CharFilter(
+    method='search_method',
+    label='Поиск',
+    widget=forms.TextInput(
+      attrs={'class': 'mt-2'}
+    )
+  )
+
   def _build_partial_query(self, value):
-    value = re.sub(r"[^\w\-\\\/]+", " ", value, flags=re.UNICODE)
-    terms = [bit for bit in value.split() if bit]
-    if not terms:
-      return None
-    query = SearchQuery('')
-    for term in terms:
-      query &= SearchQuery(f'{term}:*', search_type='raw', config='russian')
-    return query
+      value = re.sub(r"[^\w\-\\\/]+", " ", value, flags=re.UNICODE)
+      terms = [bit for bit in value.split() if bit]
+      if not terms:
+        return None
+      query = SearchQuery('')
+      for term in terms:
+        query &= SearchQuery(f'{term}:*', search_type='raw', config='russian')
+      return query
   def search_method(self, queryset, name, value):
     query = self._build_partial_query(value)
     if query is None:
       return queryset
     rank = SearchRank("search_vector", query)
     return queryset.annotate(rank=rank).filter(search_vector=query).order_by("-rank")
-  def anti_search_method(self, queryset, name, value):
-    query = self._build_partial_query(value)
-    if query is None:
-      return queryset
-    rank = SearchRank("search_vector", query)
-    anti_queryset = queryset.annotate(rank=rank).filter(search_vector=query)
-    return queryset.filter(~Q(id__in=anti_queryset))
-  def filter_available(self, queryset, name, value):
-    if value is True:
-      return queryset.filter(stock__gt=0)
-    elif value is False:
-      return queryset.filter(Q(stock=0)|Q(stock__isnull=True))
-    return queryset

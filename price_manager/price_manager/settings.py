@@ -46,7 +46,9 @@ INSTALLED_APPS = [
     'dal_select2',
     'django_htmx',
     'template_partials',
-    "widget_tweaks",
+    'widget_tweaks',
+    'crispy_bootstrap4',
+    'crispy_forms',
 
     "procrastinate.contrib.django",
 
@@ -217,3 +219,6 @@ LOGGING = {
         },
     },
 }
+
+CRISPY_ALLOWED_TEMPLATE_PACKS = 'bootstrap4'
+CRISPY_TEMPLATE_PACK = 'bootstrap4'
