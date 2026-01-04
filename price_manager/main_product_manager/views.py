@@ -35,7 +35,7 @@ from crispy_forms.utils import render_crispy_form
 # Импорты моделей, функций, форм, таблиц
 from .models import *
 from supplier_product_manager.models import SupplierProduct
-from supplier_manager.models import Discount
+from supplier_manager.models import Category
 from file_manager.models import FileModel
 from core.functions import *
 from .forms import *
@@ -62,32 +62,34 @@ class MainPage(FilterView):
         return ["mainproduct/partials/tables_bycat.html"]
       return super().get_template_names()
   def get_context_data(self, **kwargs) -> dict[str, Any]:
-      context = super().get_context_data(**kwargs)
-      ctx = {}
-      ctx.update(csrf(self.request))
-      queryset = context['object_list']
-      categories = Paginator(
-          Category.objects.filter(
-          category__in=queryset.prefetch_related('category').values_list('category__pk')
-        ).prefetch_related(
-          'mainproducts'
-        ).filter(
-          ~Q(mainproducts=None)
-        ).annotate(
-          mps_count=Count(F('mainproducts'))
-        ),
-          3
-      ).page(self.request.GET.get('page', 1))
-      context['categories'] =  categories
-      context['has_nulled'] = queryset.filter(category__isnull=True).exists()
-      context['nulled_mp_count'] = queryset.filter(category__isnull=True).count()
-      form_html = render_crispy_form(self.filterset.form, context=ctx)
-      context['rendered_form'] = form_html
-      self.queryset
-      return context
+    Category.objects.rebuild()
+    context = super().get_context_data(**kwargs)
+    ctx = {}
+    ctx.update(csrf(self.request))
+    queryset = context['object_list']
+    # categories = []
+    categories = Paginator(
+        Category.objects.filter(
+        pk__in=queryset.prefetch_related('category').values_list('category__pk')
+      ).prefetch_related(
+        'mainproducts'
+      ).filter(
+        ~Q(mainproducts=None)
+      ).annotate(
+        mps_count=Count(F('mainproducts'))
+      ),
+        10
+    ).page(self.request.GET.get('page', 1))
+    context['categories'] =  categories
+    context['has_nulled'] = queryset.filter(category__isnull=True).exists()
+    context['nulled_mp_count'] = queryset.filter(category__isnull=True).count()
+    form_html = render_crispy_form(self.filterset.form, context=ctx)
+    context['rendered_form'] = form_html
+    self.queryset
+    return context
   def render_to_response(self, context, **response_kwargs):
     response = super().render_to_response(context, **response_kwargs)
-    if self.request.htmx:
+    if self.request.htmx and self.request.GET.get('page', 1) == 1:
       response['Hx-Push'] = self.request.build_absolute_uri()
     return response
 

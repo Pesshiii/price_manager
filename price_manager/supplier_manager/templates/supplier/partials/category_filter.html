@@ -1,0 +1,15 @@
+{# custom_checkbox_field.html #}
+<div class="form-group">
+    <label class="control-label">{{ field.label }}</label>
+    <div class="checkbox-grid">
+        {% for checkbox in field %}
+            <div class="checkbox-col">
+                {{ checkbox.tag }}
+                <label for="{{ checkbox.id_for_label }}">
+                    <span class="checkbox-icon"></span>
+                    {{ checkbox.choice_label }}
+                </label>
+            </div>
+        {% endfor %}
+    </div>
+</div>

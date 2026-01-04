@@ -21,3 +21,4 @@ django-htmx>=1.27.0
 django-template-partials>=25.3
 django-widget-tweaks >=1.5
 crispy-bootstrap4>=2025.6
+django-mptt>=0.18.0

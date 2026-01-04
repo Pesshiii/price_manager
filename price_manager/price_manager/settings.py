@@ -49,6 +49,7 @@ INSTALLED_APPS = [
     'widget_tweaks',
     'crispy_bootstrap4',
     'crispy_forms',
+    'mptt',
 
     "procrastinate.contrib.django",
 

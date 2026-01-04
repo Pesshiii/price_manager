@@ -110,10 +110,13 @@ class ManufacturerDict(models.Model):
     return f'{self.name}({self.manufacturer.name})'
   
 
-class Category(models.Model):
-  parent = models.ForeignKey('self',
+from mptt.models import MPTTModel, TreeForeignKey
+
+class Category(MPTTModel):
+  parent = TreeForeignKey('self',
                              on_delete=models.PROTECT,
                              verbose_name='Подкатегория для',
+                             related_name='children',
                              null=True,
                              blank=True)
   name = models.CharField(verbose_name='Название',
@@ -125,4 +128,6 @@ class Category(models.Model):
       return self.name
   class Meta:
     constraints = [models.UniqueConstraint(fields=['parent', 'name'], name='parent_child_constraint')]
+  class MPTTMeta:
+      order_insertion_by = ['name']
     
