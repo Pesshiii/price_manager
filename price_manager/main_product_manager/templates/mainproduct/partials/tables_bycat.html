@@ -13,18 +13,16 @@
               {{ nulled_mp_count}}
             </span>
           </div>
-          <div 
+          <div
           hx-get="{% url "mainproduct-table-nocat"%}{% querystring %}"
           hx-trigger="load"
           hx-swap="outerHTML">
-              <div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
-                <h2 class="h5 mb-0">
-                  <span class="placeholder col-3"></span>
-                </h2>
-                <span class="badge text-bg-light placeholder col-3">
-                </span>
-              </div>
-            
+              <span class="placeholder col-12 placeholder-lg bg-light">
+              </span>
+              <span class="placeholder col-12 placeholder-lg bg-light">
+              </span>
+              <span class="placeholder col-12 placeholder-lg bg-light">
+              </span>
           </div>
         </div>
     {% endif %}
@@ -39,7 +37,7 @@
             class="table-contaier p-3 shadow-sm overflow-auto mt-4 border rounded">
         {% else %}
           <div class="table-contaier p-3 shadow-sm overflow-auto mt-4 border rounded">
-          {% endif %} 
+        {% endif %} 
           {% if category %}
             <div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
               <h2 class="h5 mb-0">
@@ -53,13 +51,12 @@
             hx-get="{% url "mainproduct-table-bycat" category_pk=category.pk %}{% querystring %}"
             hx-trigger="load"
             hx-swap="outerHTML">
-              <div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
-                <h2 class="h5 mb-0">
-                  <span class="placeholder col-3"></span>
-                </h2>
-                <span class="badge text-bg-light placeholder">
-                </span>
-              </div>
+              <span class="placeholder col-12 placeholder-lg bg-light">
+              </span>
+              <span class="placeholder col-12 placeholder-lg bg-light">
+              </span>
+              <span class="placeholder col-12 placeholder-lg bg-light">
+              </span>
             </div>
           {% endif %}
         </div>

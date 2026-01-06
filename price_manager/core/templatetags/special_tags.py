@@ -50,3 +50,11 @@ def price_type(name):
   if name in PRICE_TYPES.keys():
     return PRICE_TYPES[name]
   else: return 'Странная цена'
+
+@register.filter
+def values_list(queryset, value):
+  return map(str, queryset.values_list(value, flat=True))
+
+@register.filter
+def intersection(a,b):
+  return not set(a).intersection(set(b)) == set()

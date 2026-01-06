@@ -49,8 +49,6 @@ import pandas as pd
 import re
 import math
 
-
-  
 class MainPage(FilterView):
   model = MainProduct
   filterset_class = MainProductFilter
@@ -59,26 +57,23 @@ class MainPage(FilterView):
       if self.request.htmx:
         if not self.request.GET.get('page', 1) == 1:
           return ["mainproduct/partials/tables_bycat.html#category-table"]
-        return ["mainproduct/partials/tables_bycat.html"]
+        return ["mainproduct/list.html#list"]
       return super().get_template_names()
   def get_context_data(self, **kwargs) -> dict[str, Any]:
-    Category.objects.rebuild()
+    # Category.objects.rebuild()
     context = super().get_context_data(**kwargs)
     ctx = {}
     ctx.update(csrf(self.request))
     queryset = context['object_list']
-    # categories = []
     categories = Paginator(
         Category.objects.filter(
         pk__in=queryset.prefetch_related('category').values_list('category__pk')
       ).prefetch_related(
         'mainproducts'
-      ).filter(
-        ~Q(mainproducts=None)
       ).annotate(
         mps_count=Count(F('mainproducts'))
-      ),
-        10
+      ).filter(~Q(mps_count=0)),
+      5
     ).page(self.request.GET.get('page', 1))
     context['categories'] =  categories
     context['has_nulled'] = queryset.filter(category__isnull=True).exists()
@@ -107,7 +102,7 @@ class MainProductTableView(SingleTableView):
     self.category_pk = self.kwargs.get('category_pk', None)
     return super().get_table(**kwargs, request=self.request, prefix=f'{self.category_pk if self.category_pk else 0}-')
   def get_table_data(self):
-    qs = MainProductFilter(self.request.GET).qs
+    qs = MainProductFilter(self.request.GET).qs.prefetch_related('category')
     if not self.category_pk:
       return qs.filter(category__isnull=True)
     return qs.filter(category=Category.objects.get(pk=self.category_pk))
@@ -116,8 +111,7 @@ class MainProductTableView(SingleTableView):
       if self.category_pk:
         context["category"] = Category.objects.get(pk=self.category_pk)
       return context
-  
-  
+
 
 # Обработка продуктов главного прайса
 

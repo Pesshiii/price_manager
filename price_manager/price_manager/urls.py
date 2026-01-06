@@ -18,7 +18,7 @@ urlpatterns = [
 
     path('', mp_views.MainPage.as_view(), name='mainproducts'),
     path('mainproduct/table_bycat/<int:category_pk>', mp_views.MainProductTableView.as_view(), name='mainproduct-table-bycat'),
-    path('mainproduct/table_bycat/', mp_views.MainProductTableView.as_view(), name='mainproduct-table-nocat'),
+    path('mainproduct/table_nocat/', mp_views.MainProductTableView.as_view(), name='mainproduct-table-nocat'),
     
     path('instructions/', views.InstructionsView.as_view(), name='instructions'),
     
