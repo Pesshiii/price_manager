@@ -61,6 +61,7 @@ class MainPage(FilterView):
       return super().get_template_names()
   def get_context_data(self, **kwargs) -> dict[str, Any]:
     # Category.objects.rebuild()
+    # MainProduct.recalculate_search_vectors()
     context = super().get_context_data(**kwargs)
     ctx = {}
     ctx.update(csrf(self.request))

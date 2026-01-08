@@ -2,6 +2,7 @@ from django.db import models
 from django.contrib.postgres.search import SearchVectorField, SearchVector 
 from django.contrib.postgres.indexes import GinIndex
 from django.db.models import Value, OuterRef, Subquery, Q, F, Sum
+from django.db.models.functions import Concat
 from django.core.validators import MinValueValidator, MaxValueValidator
 from django.utils import timezone
 from supplier_manager.models import Supplier, Category, Manufacturer
@@ -102,14 +103,18 @@ class MainProduct(models.Model):
   def _build_search_text(self) -> str:
     """Собираем строку для поиска без join-ов."""
     parts = [
-        self.name or "",
-        getattr(self.category, "name", "") or "",
-        getattr(self.manufacturer, "name", "") or "",
-        self.article or "",
         self.sku or "",
+        self.article or "",
+        self.name or "",
+        ' '.join(self.category.get_ancestors(include_self=True).values_list('name', flat=True) if self.category else ""),
+        getattr(self.supplier, "name", ""),
+        getattr(self.manufacturer, "name", ""),
     ]
-    return " ".join(p for p in parts if p)
-
+    return " ".join(parts)
+  def recalculate_search_vectors():
+    mps = MainProduct.objects.all().prefetch_related('supplier', 'manufacturer', 'category')
+    print(list(map(lambda mp: setattr(mp, 'search_vector', SearchVector(Value(mp._build_search_text()), config='russian')), mps))[:5])
+    MainProduct.objects.bulk_update(mps, fields=['search_vector'])
   def rebuild_search_vector(self):
     """Обновляет search_vector без join-полей (через константу)."""
     text = self._build_search_text()
