@@ -60,8 +60,6 @@ class MainPage(FilterView):
         return ["mainproduct/partials/tables_bycat.html"]
       return super().get_template_names()
   def get_context_data(self, **kwargs) -> dict[str, Any]:
-    # Category.objects.rebuild()
-    # MainProduct.recalculate_search_vectors()
     context = super().get_context_data(**kwargs)
     ctx = {}
     ctx.update(csrf(self.request))
@@ -123,12 +121,14 @@ class MainProductTableView(SingleTableView):
 def sync_main_products(request, **kwargs):
   """Обновляет остатки и применяет наценки в MainProduct из SupplierProduct"""
 
-  # messages.info(request, f"Наценки обновлены у {update_pricetags()} товаров")
-  # messages.info(request, f"Цены обновлены у {update_prices()} товаров")
+  # Category.objects.rebuild()
+  # messages.info(request, f"Векторы поиска обновлены у {MainProduct.recalculate_search_vectors()} товаров")
+  messages.info(request, f"Наценки обновлены у {update_pricetags()} товаров")
+  messages.info(request, f"Цены обновлены у {update_prices()} товаров")
   messages.info(request, f"Остатки обновлены у {update_stocks()} товаров")
-  # update_logs()
+  update_logs()
 
-  return redirect('main')
+  return redirect('mainproducts')
 
 
 

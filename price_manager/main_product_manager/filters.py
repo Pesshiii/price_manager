@@ -7,7 +7,7 @@ from django.db.models import Q
 
 from django.urls import reverse_lazy
 from crispy_forms.helper import FormHelper
-from crispy_forms.layout import Submit, Layout, Field, Div
+from crispy_forms.layout import Submit, Layout, Field, Div, HTML
 from crispy_forms.utils import TEMPLATE_PACK
 
 import re
@@ -63,8 +63,9 @@ class MainProductFilter(FilterSet):
         Field('search', label_class='mt-2', css_class='mb-4'),
         Field('category', template='supplier/partials/category_filter_field.html'),
         Div(
-          Submit('submit', 'Поиск', css_class='mt-4 btn-md'),
-          css_class='d-flex justify-content-center btn-group'
+          Submit('action', 'Поиск', css_class='btn-primary btn-md'),
+          HTML(f'''<a href="{reverse_lazy('mainproducts-sync')}" class="btn btn-secondary btn-md">Обновить</a>'''),
+          css_class='d-flex justify-content-center btn-group mt-4'
         )
     )
     

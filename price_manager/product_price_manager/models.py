@@ -5,9 +5,10 @@ from supplier_product_manager.models import SupplierProduct, SP_PRICES
 from main_product_manager.models import MainProduct, MP_PRICES, update_logs
 from django.db.models import (F, ExpressionWrapper, 
                               fields, Func, 
-                              Value, Min,
+                              Value, Min, Max,
                               Q, DecimalField,
-                              OuterRef, Subquery, Prefetch)
+                              OuterRef, Subquery, Prefetch,
+                              Case, When)
 from django.db.models.functions import Ceil
 
 # Импорты сторонних библиотек
@@ -307,7 +308,7 @@ class PriceTag(models.Model):
       max_digits=20,
       default=0)
   fixed_price = models.DecimalField(
-      verbose_name='Фиксированная цена',
+      verbose_name='Фиксированная цена (тг)',
       decimal_places=2,
       max_digits=20,
       validators=[MinValueValidator(0)],
@@ -349,30 +350,42 @@ def update_pricetags():
 
 def update_prices():
   count = 0
+  # def get_newprice_qr(source, dest):
+  #   if source in SP_PRICES:
+      
+
   for dest in MP_PRICES:
     for source in PRICE_TYPES.keys():
       if not source: continue
       pts = PriceTag.objects.filter(source=source, dest=dest).select_related('mp')
-      # if source in SP_PRICES:
-      #   calc_qs = mps.filter(
-      #       pk=OuterRef("pk")
-      #     ).annotate(
-      #           _changed_price=ExpressionWrapper(
-      #                 Ceil(
-      #                   ExpressionWrapper(
-      #                     Max(F(f'supplier_products__{source}')) * F("supplier__currency__value")
-      #                     * (1 + (F("pricetag__markup")) / Decimal(100))
-      #                     + (F("pricetag__increase")),
-      #                     output_field=DecimalField()
-      #                 ),
-      #                 output_field=DecimalField(),
-      #               ), output_field=DecimalField())
-      #       ).values("_changed_price")[:1]
-      #   mps = mps.annotate(
-      #         changed_price=Subquery(calc_qs, output_field=DecimalField())
-      #     )
-    # mps = mps.filter(~Q(**{price_type:F('changed_price')}))
-    # setattr(mps, price_type, F('changed_price'))
-    # print(mps)
-    # count += MainProduct.objects.bulk_update(mps, [price_type, 'price_updated_at'])
+      if source in SP_PRICES:
+        sp_qs = MainProduct.objects.filter(pk=OuterRef('mp__pk')
+                  ).prefetch_related('supplier_products'
+                  ).select_related('supplier'
+                  ).select_related('supplier__currnecy'
+                  ).annotate(price=Min(f'supplier_products__{source}')*F('supplier__currency__value')
+                  ).values('price')[:1]
+        pts = pts.annotate(raw_price=Subquery(sp_qs))
+      elif source in MP_PRICES:
+        mp_qs = MainProduct.objects.filter(pk=OuterRef('mp__pk')
+                  ).values(source)[:1]
+        pts = pts.annotate(raw_price=Subquery(mp_qs))
+      if not source == 'fixed_price':
+        pts = pts.filter(Q(raw_price__isnull=False)|~Q(raw_price=0))
+        pts = pts.annotate(new_price=Ceil(ExpressionWrapper(
+                F('raw_price')*(1+F('markup')/100)+F('increase'),
+                output_field=DecimalField()
+        )))
+      else:
+        pts = pts.filter(Q(fixed_price__isnull=False)|~Q(fixed_price=0))
+        pts = pts.annotate(new_price=F('fixed_price'))
+      pts = pts.filter(
+                ~Q(**{f'mp__{dest}':F('new_price')})
+              )
+      pts_qs=pts.filter(pk__in=OuterRef('pricetags__pk')).values('new_price')[:1]
+      mp_ids=pts.values_list('mp__pk', flat=True)
+      mps = MainProduct.objects.filter(pk__in=mp_ids)
+      mps = mps.annotate(new_price=pts_qs)
+      setattr(mps, dest, F('new_price'))
+      count += MainProduct.objects.bulk_update(mps, fields=[dest, 'price_updated_at'])
   return count

@@ -113,8 +113,11 @@ class MainProduct(models.Model):
     return " ".join(parts)
   def recalculate_search_vectors():
     mps = MainProduct.objects.all().prefetch_related('supplier', 'manufacturer', 'category')
-    print(list(map(lambda mp: setattr(mp, 'search_vector', SearchVector(Value(mp._build_search_text()), config='russian')), mps))[:5])
-    MainProduct.objects.bulk_update(mps, fields=['search_vector'])
+    def build_searchvector(mp):
+      mp.search_vector=SearchVector(Value(mp._build_search_text()), config='russian')
+      return mp
+    mps = map(build_searchvector, mps)
+    return MainProduct.objects.bulk_update(mps, fields=['search_vector'])
   def rebuild_search_vector(self):
     """Обновляет search_vector без join-полей (через константу)."""
     text = self._build_search_text()
@@ -172,8 +175,8 @@ class MainProductLog(models.Model):
 
 def update_stocks():
   mps = MainProduct.objects.prefetch_related('supplier_products').annotate(new_stock=Sum('supplier_products__stock'))
-  # mps = mps.filter(~Q(stock=F('new_stock'))|Q(new_stock__isnull=False))
-  # setattr(mps, 'stock', F('new_stock'))
+  mps = mps.filter(Q(new_stock__isnull=False)).filter(~Q(stock=F('new_stock')))
+  mps.stock = F('new_stock')
   return mps.bulk_update(mps, fields=['stock', 'stock_updated_at'])
 
 def update_logs():
