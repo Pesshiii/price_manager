@@ -11,12 +11,13 @@ from django.views.generic import (View,
                                   UpdateView,
                                   DeleteView)
 from django.urls import reverse
-from typing import Dict
 from django_tables2 import SingleTableView, RequestConfig, SingleTableMixin
 from django_filters.views import FilterView
 from django.db.models import ExpressionWrapper, Q, BooleanField
 from django.contrib.postgres.search import SearchVector
 from django.db.models import Value
+
+from django_htmx.http import HttpResponseClientRefresh 
 
 # Импорты моделей, функций, форм, таблиц
 from file_manager.models import FileModel
@@ -28,6 +29,7 @@ from .tables import *
 from .filters import *
 from .tasks import upload_supplier_files
 
+from typing import Dict
 import pandas as pd
 import numpy as np
 from decimal import Decimal, InvalidOperation
@@ -437,9 +439,11 @@ class UploadSupplierFile(CreateView):
   form_class = UploadFileForm
   template_name = 'supplier_product/partials/uppload_file_partial.html'
   success_url = '/supplier'
+  valid=False
   def get_form(self):
     form = super().get_form(self.form_class)
-    form.fields['setting'].choices = [(setting.pk, setting.name) for setting in Setting.objects.filter(supplier=self.kwargs.get('pk'))]
+    form.fields['setting'].choices = [(None, 'Настройка не выбранна')]
+    form.fields['setting'].choices.extend([(setting.pk, setting.name) for setting in Setting.objects.filter(supplier=self.kwargs.get('pk'))])
     return form
   def get_context_data(self, **kwargs):
     context = super().get_context_data(**kwargs)
@@ -449,7 +453,12 @@ class UploadSupplierFile(CreateView):
     sfile = form.save()
     upload_supplier_files.defer(sfile_pk=sfile.pk)
     messages.info(self.request, f"Загрузка файла через настройку {sfile.setting.name}")
+    self.valid = True
     return super().form_valid(form)
-  
+  def render_to_response(self, context, **response_kwargs):
+    response = super().render_to_response(context, **response_kwargs)
+    if self.valid:
+      return HttpResponseClientRefresh
+    return response
   def get_success_url(self):
     return reverse('supplier-upload', kwargs={'pk':self.kwargs.get('pk')})

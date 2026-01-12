@@ -33,7 +33,7 @@
       <button class="nav-link active" id="products-tab" data-bs-toggle="tab" data-bs-target="#products" type="button" role="tab" aria-controls="products" aria-selected="true">Продукты</button>
     </li>
     <li class="nav-item" role="presentation">
-      <button class="nav-link" id="pricemanagers-tab" data-bs-toggle="tab" data-bs-target="#pricemanagers" type="button" role="tab" aria-controls="pricemanagers" aria-selected="false">Наценки</button>
+      <button class="nav-link" id="pricemanagers-tab" data-bs-toggle="tab" data-bs-target="#pricemanagers" type="button" role="tab" aria-controls="pricemanagers" aria-selected="false" >Наценки</button>
     </li>
   </ul>
   <div class="tab-content" id="funcTabsContent">
@@ -55,4 +55,40 @@
 {% endblock %}
 
 {% block script %}
+<script>
+function activateTabFromUrlHash() {
+    // Check if a URL hash exists (e.g., #profile)
+    if (window.location.hash) {
+        // Get the hash, e.g., "#profile"
+        const hash = window.location.hash;
+
+        // Find the corresponding tab link using the href attribute
+        const triggerEl = document.querySelector(`ul.nav-tabs button[data-bs-target="${hash}"]`);
+
+        // If the tab link exists, activate it
+        if (triggerEl) {
+            // For Bootstrap 5, use the Tab API to show the tab
+            // (Assumes Bootstrap JS is loaded and accessible via 'bootstrap')
+            if (typeof bootstrap !== 'undefined') {
+                const tab = new bootstrap.Tab(triggerEl);
+                tab.show();
+            } else {
+                // For vanilla JS/older frameworks, you might manually
+                // add an 'active' class and ensure content is visible.
+                // The exact implementation depends on your specific library.
+                triggerEl.click(); // A common simple approach for standard HTML/jQuery tabs
+            }
+        }
+    }
+}
+
+// Call the function when the page loads
+window.addEventListener('DOMContentLoaded', activateTabFromUrlHash);
+
+document.querySelectorAll('ul.nav-tabs button[data-bs-toggle="tab"]').forEach(tabEl => {
+    tabEl.addEventListener('shown.bs.tab', event => {
+        history.pushState(null, '', event.target.getAttribute('data-bs-target'));
+    });
+});
+</script>
 {% endblock %}
