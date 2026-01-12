@@ -126,6 +126,7 @@ class MainProduct(models.Model):
     self.rebuild_search_vector()
   class Meta:
     verbose_name = 'Главный продукт'
+    ordering = ['article', 'name']
     constraints = [
       models.UniqueConstraint(
         fields=['supplier', 'article', 'name'],

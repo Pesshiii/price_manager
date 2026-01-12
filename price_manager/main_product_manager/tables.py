@@ -20,11 +20,13 @@ class MainProductTable(tables.Table):
                             empty_values=())
   def __init__(self, *args, **kwargs):
     self.request = kwargs.pop('request')
+    self.url = kwargs.pop('url', None)
+    if not self.url:
+      self.url = self.request.path_info
     if hasattr(kwargs, 'data'):
       kwargs['data'] = kwargs['data'].prefetch_related('supplier', 'category', 'manufacturer')
     super().__init__(*args, **kwargs)
 
-    
   class Meta:
     model = MainProduct
     fields = ['actions', 'article', 'supplier', 'name', 'manufacturer','prime_cost', 'stock', 'stock_msg']

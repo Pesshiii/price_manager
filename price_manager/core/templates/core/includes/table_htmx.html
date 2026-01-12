@@ -10,7 +10,8 @@
   {% for column in table.columns %}
   <th {{ column.attrs.th.as_html }} scope="col"
       {% if column.orderable %}
-      hx-get="{% querystring table.prefixed_order_by_field=column.order_by_alias.next %}"
+      hx-get="{{table.url}}{% querystring table.prefixed_order_by_field=column.order_by_alias.next %}"
+      hx-push-url="{% querystring table.prefixed_order_by_field=column.order_by_alias.next %}"
       hx-trigger="click"
       hx-target="div.table-container"
       hx-swap="outerHTML"
@@ -30,7 +31,8 @@
   <div class="join">
     <a class="join-item btn"
        {% if table.page.has_previous %}
-       hx-get="{{ request.path_info }}{% querystring table.prefixed_page_field=table.page.previous_page_number %}"
+       hx-get="{{table.url}}{% querystring table.prefixed_page_field=table.page.previous_page_number %}"
+       hx-push-url="{% querystring table.prefixed_page_field=table.page.previous_page_number %}"
        hx-trigger="click"
        hx-target="div.table-container"
        hx-swap="outerHTML"
@@ -46,7 +48,8 @@
     </a>
     <a class="join-item btn"
        {% if table.page.has_next %}
-       hx-get="{{ request.path_info }}{% querystring table.prefixed_page_field=table.page.next_page_number %}"
+       hx-get="{{table.url}}{% querystring table.prefixed_page_field=table.page.next_page_number %}"
+       hx-push-url="{% querystring table.prefixed_page_field=table.page.next_page_number %}"
        hx-trigger="click"
        hx-target="div.table-container"
        hx-swap="outerHTML"

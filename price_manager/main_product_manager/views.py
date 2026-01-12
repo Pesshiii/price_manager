@@ -57,7 +57,7 @@ class MainPage(FilterView):
       if self.request.htmx:
         if not self.request.GET.get('page', 1) == 1:
           return ["mainproduct/partials/tables_bycat.html#category-table"]
-        return ["mainproduct/list.html#list"]
+        return ["mainproduct/partials/tables_bycat.html"]
       return super().get_template_names()
   def get_context_data(self, **kwargs) -> dict[str, Any]:
     # Category.objects.rebuild()
@@ -101,7 +101,11 @@ class MainProductTableView(SingleTableView):
     return super().get(request, *args, **kwargs)
   def get_table(self, **kwargs):
     self.category_pk = self.kwargs.get('category_pk', None)
-    return super().get_table(**kwargs, request=self.request, prefix=f'{self.category_pk if self.category_pk else 0}-')
+    if self.category_pk:
+      url = reverse('mainproduct-table-bycat',kwargs={'category_pk': self.category_pk})
+    else:
+      url = reverse('mainproduct-table-nocat')
+    return super().get_table(**kwargs, request=self.request, url=url, prefix=f'{self.category_pk if self.category_pk else 0}-')
   def get_table_data(self):
     qs = MainProductFilter(self.request.GET).qs.prefetch_related('category')
     if not self.category_pk:
