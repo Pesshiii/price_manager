@@ -58,6 +58,7 @@ class Supplier(models.Model):
                                     default="Нет в наличии")
   class Meta:
     verbose_name = 'Поставщик'
+    ordering = ['name']
   def __str__(self):
     return self.name
   

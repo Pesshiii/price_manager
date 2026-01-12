@@ -4,6 +4,7 @@ from supplier_product_manager.tables import SupplierProductPriceManagerTable
 from django.shortcuts import (render,
                               redirect,
                               get_object_or_404)
+from django.core.paginator import Paginator
 from django.utils import timezone
 from django.template.loader import render_to_string
 from django.contrib import messages
@@ -35,6 +36,8 @@ from .forms import *
 from .tables import *
 from .filters import *
 
+from datetime import timedelta
+
 
 
 class CategoryAutocomplete(autocomplete.Select2QuerySetView):
@@ -50,58 +53,32 @@ class CategoryAutocomplete(autocomplete.Select2QuerySetView):
 
 # Обработка поставщика
 
-class SupplierList(ListView):
+class SupplierList(TemplateView):
   '''Список поставщиков на <<supplier/>>'''
-  model = Supplier
   template_name = 'supplier/list.html'
-  context_object_name = 'suppliers'
-  def get_queryset(self):
-    queryset = super().get_queryset().prefetch_related('main_products')
+  def get_context_data(self, **kwargs) -> dict[str, Any]:
     now = timezone.now()
-    queryset = queryset.annotate(
-      time_delta=ExpressionWrapper(
-        ExtractDay(Greatest(now - F('stock_updated_at'), now - F('price_updated_at'))),
-        DurationField()
-        ),
-      )
-    stock_rate = [When(stock_update_rate=text, then=val) for text, val in TIME_FREQ.items()]
-    price_rate = [When(price_update_rate=text, then=val) for text, val in TIME_FREQ.items()]
-    queryset = queryset.annotate(stock_rate_conv=Case(*stock_rate, default=None))
-    queryset = queryset.annotate(price_rate_conv=Case(*price_rate, default=None))
-    queryset = queryset.annotate(
-      danger=ExpressionWrapper(
-        Case(
-          When(time_delta__gte=F('stock_rate_conv'), then=True),
-          When(time_delta__gte=F('price_rate_conv'), then=True),
-          default=False),
-        output_field=BooleanField()
-        )
-      )
-    queryset = queryset.annotate(total=Count('main_products'))
-    queryset = queryset.annotate(
-      basic_price=Count(
-        'main_products', 
-        filter=Q(main_products__basic_price__isnull=True)|Q(main_products__basic_price=0)
-        ))
-    queryset = queryset.annotate(
-      m_price=Count(
-        'main_products', 
-        filter=Q(main_products__m_price__isnull=True)|Q(main_products__m_price=0)
-        ))
-    queryset = queryset.annotate(
-      wholesale_price=Count(
-        'main_products', 
-        filter=Q(main_products__wholesale_price__isnull=True)|Q(main_products__wholesale_price=0)
-        ))
-    queryset = queryset.annotate(
-      prime_cost=Count(
-        'main_products', 
-        filter=Q(main_products__prime_cost__isnull=True)|Q(main_products__prime_cost=0)
-        ))
-    queryset = queryset.order_by('name')
+    context = super().get_context_data(**kwargs)
+    def price_filter(price): 
+      return Q(**{f'{price}__isnull':True})|Q(**{f'{price}':0})
+    # queryset = Paginator(Supplier.objects.all(), 5).page(1).object_list.prefetch_related('main_products')
+    queryset = Supplier.objects.all()
+    context["suppliers"] = list(
+       map(lambda obj: {
+          'pk': obj.pk,
+          'name':obj.name,
+          'danger':  obj.stock_updated_at and timedelta(weeks=TIME_FREQ[obj.stock_update_rate]) <= now - obj.stock_updated_at or
+                     obj.price_updated_at and  timedelta(weeks=TIME_FREQ[obj.price_update_rate]) <= now - obj.price_updated_at,
+          'total': obj.main_products.count(),
+          'price_updated_at':obj.price_updated_at if obj.price_updated_at else 'Отсутствует',
+          'stock_updated_at':obj.stock_updated_at if obj.stock_updated_at else 'Отсутствует',
+          'basic_price': obj.main_products.filter(price_filter('basic_price')).count(),
+          'wholesale_price': obj.main_products.filter(price_filter('wholesale_price')).count(),
+          'm_price': obj.main_products.filter(price_filter('m_price')).count(),
+          'prime_cost': obj.main_products.filter(price_filter('prime_cost')).count(),
+        }, queryset))
+    return context
 
-    return queryset
-  
 
 
 class SupplierCreate(CreateView):
