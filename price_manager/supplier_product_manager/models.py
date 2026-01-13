@@ -121,6 +121,9 @@ class Dict(models.Model):
 
 class SupplierFile(models.Model):
   setting = models.ForeignKey(Setting,
+                              null=True,
+                              blank=True,
+                              default=(None, "Новая настройка"),
                               verbose_name="Настройка",
                               related_name="supplier_file",
                               on_delete=models.CASCADE)

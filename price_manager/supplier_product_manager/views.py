@@ -1,23 +1,23 @@
 # Импорты из django
+from django.contrib import messages
+from django.contrib.postgres.search import SearchVector
+from django.db.models import ExpressionWrapper, Q, BooleanField, Value
 from django.shortcuts import (render,
                               redirect,
                               get_object_or_404)
-from django.utils import timezone
 from django.template.loader import render_to_string
-from django.contrib import messages
+from django.utils import timezone
+from django.urls import reverse
 from django.views.generic import (View,
                                   DetailView,
                                   CreateView,
                                   UpdateView,
                                   DeleteView)
-from django.urls import reverse
+
+
 from django_tables2 import SingleTableView, RequestConfig, SingleTableMixin
 from django_filters.views import FilterView
-from django.db.models import ExpressionWrapper, Q, BooleanField
-from django.contrib.postgres.search import SearchVector
-from django.db.models import Value
-
-from django_htmx.http import HttpResponseClientRefresh 
+from django_htmx.http import HttpResponseClientRedirect, HttpResponseClientRefresh 
 
 # Импорты моделей, функций, форм, таблиц
 from file_manager.models import FileModel
@@ -442,7 +442,7 @@ class UploadSupplierFile(CreateView):
   valid=False
   def get_form(self):
     form = super().get_form(self.form_class)
-    form.fields['setting'].choices = [(None, 'Настройка не выбранна')]
+    form.fields['setting'].choices = [(None, 'Новая настройка')]
     form.fields['setting'].choices.extend([(setting.pk, setting.name) for setting in Setting.objects.filter(supplier=self.kwargs.get('pk'))])
     return form
   def get_context_data(self, **kwargs):
@@ -450,6 +450,12 @@ class UploadSupplierFile(CreateView):
     context["supplier"] = Supplier.objects.get(pk=self.kwargs.get('pk'))
     return context
   def form_valid(self, form):
+    instance = form.instance
+    if not instance.setting:
+      fm = FileModel(file=instance.file)
+      fm.save()
+      redirect_url = reverse('setting-create', kwargs={'id':Supplier.objects.get(pk=self.kwargs.get('pk')).pk, 'f_id':fm.pk}) 
+      return HttpResponseClientRedirect(redirect_url)
     sfile = form.save()
     upload_supplier_files.defer(sfile_pk=sfile.pk)
     messages.info(self.request, f"Загрузка файла через настройку {sfile.setting.name}")
