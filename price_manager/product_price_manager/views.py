@@ -47,10 +47,21 @@ import re
 import math
 
 class PriceManagerList(SingleTableView):
-  '''Отображение наценок <</price_manager/>>'''
+  '''Отображение наценок << /supplier/pricemanagers/<int:pk> >>'''
   model = PriceManager
   table_class = PriceManagerListTable
-  template_name = 'price_manager/list.html'
+  template_name = 'price_manager/partials/table.html'
+  def get(self, request, *args, **kwargs):
+    if self.request.htmx:
+      self.template_name = 'price_manager/partials/table.html#table'
+    return super().get(request, *args, **kwargs)
+  def get_queryset(self):
+    qs = super().get_queryset()
+    pk = self.kwargs.get('pk', None)
+    if pk:
+      return qs.filter(supplier=pk)
+    return qs
+  
 
 
 class PriceManagerCreate(CreateView):
@@ -95,20 +106,23 @@ class PriceManagerCreate(CreateView):
 
 
 class PriceManagerUpdate(SingleTableMixin, UpdateView):
-  '''Обновление Наценки <<price-manager/<int:id>/>>'''
+  '''Обновление Наценки <<price-manager/<int:pk>/>>'''
   model = PriceManager
   form_class = PriceManagerForm
-  template_name = 'price_manager/partials/create.html'
+  template_name = 'price_manager/partials/update.html'
+  def get(self, request, *args, **kwargs):
+    self.instance = PriceManager.objects.get(pk=self.kwargs.get('pk', None))
+    return super().get(request, *args, **kwargs)
   def get_success_url(self):
-    return resolve_url('pricemanager-create', self.kwargs.get('pk', None))
-  def get_context_data(self, **kwargs) -> dict[str, Any]:
-    context = super().get_context_data(**kwargs)
-    context['supplier'] = Supplier.objects.get(pk=self.kwargs.get('pk'))
-    return context
+    return resolve_url('pricemanager-update', self.kwargs.get('pk', None))
   def form_invalid(self, form):
     messages.error(self.request, 'Ошибка')
     response = super().form_invalid(form)
     return response
+  def get_context_data(self, **kwargs) -> dict[str, Any]:
+      context = super().get_context_data(**kwargs)
+      context["form"].initial['price_fixed'] = self.instance.source=='fixed_price'
+      return context
   def form_valid(self, form):
     cd = form.cleaned_data
     if cd['price_fixed'] and cd['fixed_price'] == 0:
@@ -132,6 +146,7 @@ class PriceManagerUpdate(SingleTableMixin, UpdateView):
     instance.save()
     messages.success(self.request, 'Менеджер добавлен')
     return HttpResponseClientRefresh()
+  
 
 
 class PriceManagerDetail(DetailView):

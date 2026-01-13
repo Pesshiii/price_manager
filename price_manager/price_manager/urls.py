@@ -30,6 +30,7 @@ urlpatterns = [
     path('supplier/create/', sm_views.SupplierCreate.as_view(), name='supplier-create'),
     path('supplier/<int:id>/setting/create/<int:f_id>/', spm_views.SettingCreate.as_view(), name='setting-create'),
     path('supplier/<int:pk>/upload', spm_views.UploadSupplierFile.as_view(), name='supplier-upload'),
+    path('supplier/<int:pk>/pricemanagers', ppm_views.PriceManagerList.as_view(), name='pricemanagers'),
 
     path('setting/<int:id>/', spm_views.SettingDetail.as_view(), name='setting-detail'),
     path('setting/<int:id>/delete', spm_views.SettingDelete.as_view(), name='setting-delete'),
@@ -42,7 +43,7 @@ urlpatterns = [
     path('currency/<int:id>/update', sm_views.CurrencyUpdate.as_view(), name='currency-update'),
 
     path('price-manager/', ppm_views.PriceManagerList.as_view(), name='price-manager'),
-    path('price-manager/<int:id>/', ppm_views.PriceManagerUpdate.as_view(), name='price-manager-update'),
+    path('pricemanager/<int:pk>/', ppm_views.PriceManagerUpdate.as_view(), name='pricemanager-update'),
     path('price-manager/create-for/<int:pk>', ppm_views.PriceManagerCreate.as_view(), name='pricemanager-create'),
     path('price-manager/<int:id>/delete', ppm_views.PriceManagerDelete.as_view(), name='price-manager-delete'),
 

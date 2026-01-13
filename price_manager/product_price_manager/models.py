@@ -108,6 +108,8 @@ class PriceManager(models.Model):
       decimal_places=2,
       max_digits=20,
       default=0)
+  class Meta:
+    ordering = ['dest', 'source']
   def __str__(self):
     return self.name
   def get_fitting_mps(self):

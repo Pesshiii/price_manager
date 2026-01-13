@@ -1,20 +1,12 @@
 
-  {% for pm in pricemanagers %}
-    <div class="container mt-4">
-      <h3>{{pm.name}}</h3>
-      {% if pm.source == 'fixed_price' %}
-        <p>{{pm.dest|price_type}}(Фиксированная): {{pm.fixed_price}}</p>
-      {% else %}
-        <p>{{pm.source|price_type}}-->{{pm.dest|price_type}}:  {{pm.markup|percent_added}}% + {{pm.increase}}</p>
-        {% if pm.price_from and pm.price_to %}
-          <p>Диапозон: {{pm.price_from}}-{{pm.price_to}}</p>
-        {% elif pm.price_from %}
-          <p>Диапозон: Не менее {{pm.price_from}}</p>
-        {% elif pm.price_to %}
-          <p>Диапозон: Не более {{pm.price_to}}</p>
-        {% else %}
-          <p>Диапозон: Весь</p>
-        {% endif %}
-      {% endif %}
-    </div>
-  {% endfor %}
+<div
+hx-get="{% url "pricemanagers" pk=supplier.pk%}"
+hx-trigger="load"
+hx-swap="outerHTML">
+    <span class="placeholder col-12 placeholder-lg bg-light">
+    </span>
+    <span class="placeholder col-12 placeholder-lg bg-light">
+    </span>
+    <span class="placeholder col-12 placeholder-lg bg-light">
+    </span>
+</div>
