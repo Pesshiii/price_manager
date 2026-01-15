@@ -140,7 +140,6 @@ class PriceManagerUpdate(SingleTableMixin, UpdateView):
         form.add_error(field=None, error='Неверный диапозон цены')
         return self.form_invalid(form)
     instance = form.save(commit=False)
-    instance.supplier = Supplier.objects.get(pk=self.kwargs.get('pk'))
     if cd['price_fixed']:
       instance.source = 'fixed_price'
     instance.save()
@@ -162,72 +161,84 @@ class PriceManagerDelete(DeleteView):
   pk_url_kwarg = 'id'
   success_url = '/price-manager/'
 
-
-class CreateSpecialPrice(CreateView):
-  model = SpecialPrice
-  fields = '__all__'
-  template_name = 'price_manager/partials/create.html'
-  def get_success_url(self):
-    return reverse('mainproduct-detail', kwargs={'pk':self.kwargs.get('pk', None)})
-  def get(self, request, *args, **kwargs):
-    if not self.request.htmx:
-      return redirect(reverse('mainproduct-info', kwargs=self.kwargs))
-    return super().get(request, *args, **kwargs)
-  def form_valid(self, form):
-    if form.cleaned_data['source'] is None:
-      if form.cleaned_data['fixed_price'] is None:
-        messages.error(self.request, 'Для фиксированной цены необходимо указать значение фиксированной цены')
-        return self.form_invalid(form)
-    elif form.cleaned_data['source'] == form.cleaned_data['dest']:
-      messages.error(self.request, 'Цена не может считаться от себя же')
-      return self.form_invalid(form)
-    if not form.cleaned_data['dest']:
-      messages.error(self.request, 'Если указана исходная цена, то необходимо указать целевую цену')
-      return self.form_invalid(form)
-    if self.kwargs.get('pk', None):
-      obj = form.save()
-      MainProduct.objects.get(id=self.kwargs.get('pk')).special_prices.add(obj.id)
-      messages.success(self.request, 'Наценка сохранена')
-    else:
-      messages.error(self.request, 'Главный товар неопознан')
-    return super().form_valid(form)
-  
-  
-
-class SpecialPriceList(TemplateView):
+class PriceTagList(TemplateView):
   '''Отображение наценок <</price_manager/>>'''
-  template_name = 'price_manager/partials/list.html'
+  template_name = 'price_manager/partials/pricetag_list.html'
   def get_context_data(self, **kwargs):
     context = super().get_context_data(**kwargs)
     context['mainproduct'] = MainProduct.objects.get(pk=self.kwargs.get('pk',None))
-    context['specialprices'] = SpecialPrice.objects.filter(main_products=self.kwargs.get('pk',None))
+    context['pricetags'] = PriceTag.objects.filter(mp=self.kwargs.get('pk',None))
     return context
 
-class UpdateSpecialPrice(UpdateView):
-  model = SpecialPrice
-  fields = '__all__'
-  template_name = 'price_manager/partials/update.html'
+class PriceTagCreate(CreateView):
+  model = PriceTag
+  form_class = PriceTagForm
+  template_name = 'price_manager/partials/pricetag_create.html'
   def get_success_url(self):
-    return reverse('mainproduct-detail', kwargs={'pk':self.kwargs.get('pk', None)})
-  def get(self, request, *args, **kwargs):
-    if not self.request.htmx:
-      return redirect(reverse('mainproduct-info', kwargs=self.kwargs))
-    return super().get(request, *args, **kwargs)
+    return resolve_url('mainproduct-detail', self.kwargs.get('pk', None))
+  def get_context_data(self, **kwargs) -> dict[str, Any]:
+    context = super().get_context_data(**kwargs)
+    context['mainproduct'] = MainProduct.objects.get(pk=self.kwargs.get('pk'))
+    return context
+  def form_invalid(self, form):
+    messages.error(self.request, 'Ошибка')
+    response = super().form_invalid(form)
+    return response
   def form_valid(self, form):
-    if form.cleaned_data['source'] is None:
-      if form.cleaned_data['fixed_price'] is None:
-        messages.error(self.request, 'Для фиксированной цены необходимо указать значение фиксированной цены')
+    cd = form.cleaned_data
+    if cd['price_fixed'] and cd['fixed_price'] == 0:
+      form.add_error(field=None, error='Не указана фиксированная цена')
+      return self.form_invalid(form)
+    if not cd['price_fixed']:
+      if not cd['source']:
+        form.add_error(field='source', error='Поле от какой цены считать должно быть указано')
         return self.form_invalid(form)
-    elif form.cleaned_data['source'] == form.cleaned_data['dest']:
-      messages.error(self.request, 'Цена не может считаться от себя же')
+      if cd['source'] == cd['dest']:
+        form.add_error(field=None, error='Поля от какой цены считать и какую цену считать совпадают')
+        return self.form_invalid(form)
+    instance = form.save(commit=False)
+    instance.mp = MainProduct.objects.get(pk=self.kwargs.get('pk'))
+    if cd['price_fixed']:
+      instance.source = 'fixed_price'
+    instance.save()
+    messages.success(self.request, 'Менеджер добавлен')
+    return HttpResponseClientRefresh()
+  
+  
+
+
+class PriceTagUpdate(UpdateView):
+  model = PriceTag
+  form_class = PriceTagForm
+  template_name = 'price_manager/partials/pricetag_update.html'
+  def get(self, request, *args, **kwargs):
+    self.instance = PriceTag.objects.get(pk=self.kwargs.get('pk', None))
+    return super().get(request, *args, **kwargs)
+  def get_success_url(self):
+    return resolve_url('mainproduct-detail', PriceTag.objects.get(pk=self.kwargs.get('pk', None)).mp.pk)
+  def form_invalid(self, form):
+    messages.error(self.request, 'Ошибка')
+    response = super().form_invalid(form)
+    return response
+  def get_context_data(self, **kwargs) -> dict[str, Any]:
+      context = super().get_context_data(**kwargs)
+      context["form"].initial['price_fixed'] = self.instance.source=='fixed_price'
+      return context
+  def form_valid(self, form):
+    cd = form.cleaned_data
+    if cd['price_fixed'] and cd['fixed_price'] == 0:
+      form.add_error(field=None, error='Не указана фиксированная цена')
       return self.form_invalid(form)
-    if not form.cleaned_data['dest']:
-      messages.error(self.request, 'Если указана исходная цена, то необходимо указать целевую цену')
-      return self.form_invalid(form)
-    if self.kwargs.get('pk', None):
-      obj = form.save()
-      MainProduct.objects.get(id=self.kwargs.get('pk')).special_prices.add(obj.id)
-      messages.success(self.request, 'Наценка сохранена')
-    else:
-      messages.error(self.request, 'Главный товар неопознан')
-    return super().form_valid(form)
+    if not cd['price_fixed']:
+      if not cd['source']:
+        form.add_error(field='source', error='Поле от какой цены считать должно быть указано')
+        return self.form_invalid(form)
+      if cd['source'] == cd['dest']:
+        form.add_error(field=None, error='Поля от какой цены считать и какую цену считать совпадают')
+        return self.form_invalid(form)
+    instance = form.save(commit=False)
+    if cd['price_fixed']:
+      instance.source = 'fixed_price'
+    instance.save()
+    messages.success(self.request, 'Менеджер добавлен')
+    return HttpResponseClientRefresh()

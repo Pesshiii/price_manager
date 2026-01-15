@@ -46,6 +46,9 @@ urlpatterns = [
     path('pricemanager/<int:pk>/', ppm_views.PriceManagerUpdate.as_view(), name='pricemanager-update'),
     path('price-manager/create-for/<int:pk>', ppm_views.PriceManagerCreate.as_view(), name='pricemanager-create'),
     path('price-manager/<int:id>/delete', ppm_views.PriceManagerDelete.as_view(), name='price-manager-delete'),
+    
+    path('pricetag/create-for/<int:pk>', ppm_views.PriceTagCreate.as_view(), name='pricetag-create'),
+    path('pricetag/<int:pk>/update', ppm_views.PriceTagUpdate.as_view(), name='pricetag-update'),
 
     path('supplier-product/<int:id>/delete/', spm_views.delete_supplier_product, name='supplier-product-delete'),
 
@@ -54,6 +57,7 @@ urlpatterns = [
     path('mainproduct/<int:pk>/info', mp_views.MainProductInfo.as_view(), name='mainproduct-info'),
     path('mainproduct/<int:pk>/update', mp_views.MainProductUpdate.as_view(), name='mainproduct-update'),
     path('mainproduct/<int:pk>/detail', mp_views.MainProductDetail.as_view(), name='mainproduct-detail'),
+    path('mainproduct/<int:pk>/pricetags', ppm_views.PriceTagList.as_view(), name='pricetag-list'),
     path('mainproduct/<int:pk>/logs', mp_views.MainProductLogList.as_view(), name='mainproductlog-list'),
 
 

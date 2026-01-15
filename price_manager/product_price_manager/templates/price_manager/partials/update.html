@@ -1,6 +1,6 @@
 
 <div class="form-control p-5">
-      <h1>Новый менеджер наценок</h1>
+      <h1>Обновление менеджера наценок</h1>
       <form method="post"
                   hx-post="{% url "pricemanager-update" pricemanager.pk%}"
                   hx-target="#modal-container .modal-content"
@@ -18,13 +18,31 @@
                 {{form.has_rrp|add_label_class:"form-lable mb-1 mt-4"}}
                 {% render_field form.has_rrp class="form-select mb-4"%}
               </div>
-              <div class="row gap-4 p-4">
-                <div class="col-5 border rounded">
+              <div class="row gap-3">
+                <div class="col-3">
+                  {{form.date_from|add_label_class:"form-lable mb-1 mt-4"}}
+                  {% render_field form.date_from class="form-control mb-4" type="date"%}
+                </div>
+                <div class="col-3">
+                  {{form.date_to|add_label_class:"form-lable mb-1 mt-4"}}
+                  {% render_field form.date_to class="form-control mb-4" type="date"%}
+                </div>
+                <div class="col-5">
+                  <div class="row">
+                    <div>
+                      {{form.dest|add_label_class:"form-lable mb-1 mt-4"}}
+                      {% render_field form.dest class="form-select mb-4"%}
+                    </div>
+                  </div>
+                </div>
+              </div>
+              <div class="row p-3">
+                <div class="border rounded">
                   <div class="form-check form-check-reverse form-check-inline form-switch mt-4">
                     {{form.price_fixed|add_label_class:"form-label"}}
                     {% render_field form.price_fixed class="form-check-input fs-4" role="switch" data-bs-toggle="collapse" data-bs-target=".setPrice" aria-controls="setPrice1 setPrice2"%}
                   </div>
-                  <div class="row collapse setPrice" id="setPrice1">
+                  <div class="row {% if not form.price_fixed.value %}collapse {% else %} show {% endif %} setPrice" id="setPrice1">
                     <div class="row">
                       <div>
                         {{form.fixed_price|add_label_class:"form-lable mb-1 mt-4"}}
@@ -32,7 +50,7 @@
                       </div>
                     </div>
                   </div>
-                  <div class="row show setPrice" id="setPrice2">
+                  <div class="row {% if form.price_fixed.value %}collapse {% else %} show {% endif %} setPrice" id="setPrice2">
                     <div class="row">
                       <div class="col-6">
                         {{form.price_from|add_label_class:"form-lable mb-1 mt-4"}}
@@ -58,14 +76,6 @@
                         {{form.increase|add_label_class:"form-lable mb-1"}}
                         {% render_field form.increase class="form-control mb-4"%}
                       </div>
-                    </div>
-                  </div>
-                </div>
-                <div class="col-5 border rounded">
-                  <div class="row">
-                    <div>
-                      {{form.dest|add_label_class:"form-lable mb-1 mt-4"}}
-                      {% render_field form.dest class="form-select mb-4"%}
                     </div>
                   </div>
                 </div>

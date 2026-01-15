@@ -57,6 +57,16 @@ class PriceManager(models.Model):
                              choices=[(None, 'Без разницы'),(True,'Да'),(False,'Нет')],
                              null=True,
                              blank=True)
+  date_from = models.DateTimeField(
+    verbose_name='Дата начала',
+    null=True,
+    blank=True
+  )
+  date_to = models.DateTimeField(
+    verbose_name='Дата окончания',
+    null=True,
+    blank=True
+  )
   source = models.CharField(verbose_name='От какой цены считать',
                                  choices=[
                                   (None, 'Не указано'),
@@ -276,7 +286,18 @@ class PriceTag(models.Model):
   p_manager = models.ForeignKey(verbose_name="Менеджер наценок",
                                 to=PriceManager,
                                 related_name='pricetags',
-                                on_delete=models.CASCADE)
+                                on_delete=models.CASCADE,
+                                null=True)
+  date_from = models.DateTimeField(
+    verbose_name='Дата начала',
+    null=True,
+    blank=True
+  )
+  date_to = models.DateTimeField(
+    verbose_name='Дата окончания',
+    null=True,
+    blank=True
+  )
   source = models.CharField(verbose_name='От какой цены считать',
                                  choices=[
                                   (None, 'Фиксированная цена'),
@@ -328,8 +349,12 @@ class PriceTag(models.Model):
     verbose_name_plural = ("Наценки")
 
   def __str__(self):
-    return self.name
-  
+    if not self.source == 'fixed_price':
+      return f'{PRICE_TYPES[self.source]} -> {PRICE_TYPES[self.dest]} ({(1+self.markup/100)*100}% + {self.increase} тг.)'
+    else:
+      return f'{PRICE_TYPES[self.dest]}: {self.fixed_price}'
+
+
 def update_pricetags():
   count = 0
   for pm in PriceManager.objects.all().prefetch_related('pricetags'):

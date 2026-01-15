@@ -2,7 +2,7 @@
 <div class="form-control p-5">
       <h1>Новый менеджер наценок</h1>
       <form method="post"
-                  hx-post="{% url "pricemanager-create" supplier.pk%}"
+                  hx-post="{% url "pricetag-create" mainproduct.pk%}"
                   hx-target="#modal-container .modal-content"
                   enctype="multipart/form-data">
             {% csrf_token %}
@@ -10,10 +10,6 @@
               {{ form.errors }}
             </div>
             <div class="row">
-              <div>
-                {{form.name|add_label_class:"form-lable mb-1 mt-4"}}
-                {% render_field form.name class="form-control mb-4"%}
-              </div>
               <div>
                 {{form.has_rrp|add_label_class:"form-lable mb-1 mt-4"}}
                 {% render_field form.has_rrp class="form-select mb-4"%}
@@ -51,16 +47,6 @@
                     </div>
                   </div>
                   <div class="row {% if form.price_fixed.value %}collapse {% else %} show {% endif %} setPrice" id="setPrice2">
-                    <div class="row">
-                      <div class="col-6">
-                        {{form.price_from|add_label_class:"form-lable mb-1 mt-4"}}
-                        {% render_field form.price_from class="form-control mb-4"%}
-                      </div>
-                      <div class="col-6">
-                        {{form.price_to|add_label_class:"form-lable mb-1 mt-4"}}
-                        {% render_field form.price_to class="form-control mb-4"%}
-                      </div>
-                    </div>
                     <div class="row">
                       <div>
                         {{form.source|add_label_class:"form-lable mb-1"}}
