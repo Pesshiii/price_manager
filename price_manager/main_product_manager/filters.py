@@ -8,7 +8,6 @@ from django.db.models import Q
 from django.urls import reverse_lazy
 from crispy_forms.helper import FormHelper
 from crispy_forms.layout import Submit, Layout, Field, Div, HTML
-from crispy_forms.utils import TEMPLATE_PACK
 
 import re
 

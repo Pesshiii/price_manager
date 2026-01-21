@@ -11,10 +11,17 @@
       {{supplier.name}}
     </h1>
     <div class="container">
-      <a class="btn btn-lg btn-secondary" href="settings" role="button">
+      <button type="button"
+              class="btn btn-lg btn-success"
+              title="Загрузка"
+              data-bs-toggle="modal"
+              data-bs-target="#modal-container"
+              hx-get="{% url 'supplier-upload' supplier.pk %}"
+              hx-target="#modal-container .modal-content"
+              hx-swap="innerHTML">
         <i class="bi bi-upload"></i>
-        <span>Импорт продуктов</span>
-      </a>
+        <span>Загрузить файл</span>
+      </button>
       <button type="button"
               class="btn btn-lg btn-primary"
               title="Загрузка"
@@ -36,6 +43,9 @@
       <li class="nav-item" role="presentation">
         <button class="nav-link" id="pricemanagers-tab" data-bs-toggle="tab" data-bs-target="#pricemanagers" type="button" role="tab" aria-controls="pricemanagers" aria-selected="false" >Наценки</button>
       </li>
+      <li class="nav-item" role="presentation">
+        <button class="nav-link" id="settings-tab" data-bs-toggle="tab" data-bs-target="#settings" type="button" role="tab" aria-controls="settings" aria-selected="false" >Наценки</button>
+      </li>
     </ul>
     <div class="tab-content" id="funcTabsContent">
       <div class="tab-pane show active" id="products" role="tabpanel" aria-labelledby="products-tab">
@@ -43,6 +53,9 @@
       </div>
       <div class="tab-pane" id="pricemanagers" role="tabpanel" aria-labelledby="pricemanagers-tab">
         {% include "supplier/partials/detail_pricemanagers_table_partial.html" %}
+      </div>
+      <div class="tab-pane" id="settings" role="tabpanel" aria-labelledby="settings-tab">
+        {% include "supplier/partials/detail_settings_table_partial.html" %}
       </div>
     </div>
   </div>

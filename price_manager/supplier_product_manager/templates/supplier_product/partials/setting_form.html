@@ -1,0 +1,28 @@
+<div class="row">
+  <div class="p-3 col-6">
+    {% partialdef form inline %}
+      {% load crispy_forms_tags %}
+      {%crispy form%}
+    {% endpartialdef %}
+  </div>
+</div>
+<div class="row overflow-auto">
+  <table class="table table-bordered table-hover">
+    <thead>
+      {% for header, header_form in column_headers %}
+        <th>{{header}}<br>{{header_form}}</th>
+      {% endfor %}
+    </thead>
+    <tbody>
+      <tr 
+        hx-get="{% url "setting-table" pk=setting.pk%}{% querystring page=1 %}"
+        hx-trigger="load"
+        hx-swap="outerHTML">
+          {% for header in column_headers %}
+          <td>
+          </td>
+          {% endfor %}
+      </tr>
+    </tbody>
+  </table>
+</div>

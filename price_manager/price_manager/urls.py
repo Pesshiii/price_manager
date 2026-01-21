@@ -21,20 +21,28 @@ urlpatterns = [
     path('mainproduct/table_nocat/', mp_views.MainProductTableView.as_view(), name='mainproduct-table-nocat'),
     
     path('instructions/', views.InstructionsView.as_view(), name='instructions'),
+
+    # SUPPLIER WORKFRAME
     
     path('supplier/', sm_views.SupplierList.as_view(), name='supplier'),
-    path('supplier/<int:pk>/', spm_views.SupplierDetail.as_view(), name='supplier-detail'),
+
+    path('supplier/create/', sm_views.SupplierCreate.as_view(), name='supplier-create'),
     path('supplier/<int:id>/update', sm_views.SupplierUpdate.as_view(), name='supplier-update'),
     path('supplier/<int:id>/delete/', sm_views.SupplierDelete.as_view(), name='supplier-delete'),
-    path('supplier/<int:id>/settings/', spm_views.SupplierSettingList.as_view(), name='supplier-settings'),
-    path('supplier/create/', sm_views.SupplierCreate.as_view(), name='supplier-create'),
-    path('supplier/<int:id>/setting/create/<int:f_id>/', spm_views.SettingCreate.as_view(), name='setting-create'),
-    path('supplier/<int:pk>/upload', spm_views.UploadSupplierFile.as_view(), name='supplier-upload'),
+
+    path('supplier/<int:pk>/', spm_views.SupplierDetail.as_view(), name='supplier-detail'),
     path('supplier/<int:pk>/pricemanagers', ppm_views.PriceManagerList.as_view(), name='pricemanagers'),
 
-    path('setting/<int:id>/', spm_views.SettingDetail.as_view(), name='setting-detail'),
-    path('setting/<int:id>/delete', spm_views.SettingDelete.as_view(), name='setting-delete'),
-    path('setting/<int:id>/upload/<int:f_id>/', spm_views.SettingUpdate.as_view(), name='setting-update'),
+    path('supplier/<int:pk>/upload', spm_views.UploadSupplierFile.as_view(), name='supplier-upload'),
+
+    path('setting/<int:pk>/', spm_views.SettingDetail.as_view(), name='setting-detail'),
+
+    path('setting/<int:pk>/table', spm_views.XMLTableView.as_view(), name='setting-table'),
+
+    # path('setting/<int:id>/delete', spm_views.SettingDelete.as_view(), name='setting-delete'),
+    # path('setting/<int:id>/upload/<int:f_id>/', spm_views.SettingUpdate.as_view(), name='setting-update'),
+
+    ##################################################################################################
 
     path('category/autocomplete',sm_views.CategoryAutocomplete.as_view(),name='category-autocomplete'),
     
@@ -74,4 +82,5 @@ urlpatterns = [
 
 
     path("toasts/", views.toast_messages, name="toast-messages"),
+
 ] + static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)

@@ -1,0 +1,20 @@
+{% for item in items %}
+  {% if item %}
+    <tr>
+      {% for value in item %}
+        <td>{{value}}</td>
+      {% endfor %}
+    </tr>
+  {% endif %}
+  {% if forloop.last and items.has_next %}
+    <tr 
+    hx-get="{% url "setting-table" pk=pk %}{% querystring page=page|add:1 %}"
+    hx-trigger="revealed"
+    hx-swap="outerHTML">
+      {% for column in columns %}
+      <td>
+      </td>
+      {% endfor %}
+    </tr>
+  {% endif %}
+{% endfor %}

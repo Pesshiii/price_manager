@@ -10,8 +10,8 @@ from .forms import *
 
 
 class PriceManagerListTable(tables.Table):
-  value = tables.Column(verbose_name='Ценовая зона', empty_values=())
-  range = tables.Column(verbose_name='Итоговая цена', empty_values=())
+  range = tables.Column(verbose_name='Ценовая зона', empty_values=())
+  value = tables.Column(verbose_name='Итоговая цена', empty_values=())
   class Meta:
     model = PriceManager
     fields = ['name', 'source', 'dest', 'has_rrp', 'range', 'value']
