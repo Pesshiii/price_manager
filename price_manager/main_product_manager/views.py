@@ -121,8 +121,8 @@ class MainProductTableView(SingleTableView):
 def sync_main_products(request, **kwargs):
   """Обновляет остатки и применяет наценки в MainProduct из SupplierProduct"""
 
-  # Category.objects.rebuild()
-  # messages.info(request, f"Векторы поиска обновлены у {MainProduct.recalculate_search_vectors()} товаров")
+  Category.objects.rebuild()
+  messages.info(request, f"Векторы поиска обновлены у {MainProduct.recalculate_search_vectors()} товаров")
   messages.info(request, f"Наценки обновлены у {update_pricetags()} товаров")
   messages.info(request, f"Цены обновлены у {update_prices()} товаров")
   messages.info(request, f"Остатки обновлены у {update_stocks()} товаров")
@@ -168,7 +168,7 @@ class MainProductUpdate(UpdateView):
       return redirect(reverse('mainproduct-detail', kwargs=self.kwargs))
     else:
       return redirect(reverse('mainproduct-update', kwargs=self.kwargs))
-    
+
 class MainProductLogList(SingleTableView):
   model = MainProductLog
   table_class = MainProductLogTable

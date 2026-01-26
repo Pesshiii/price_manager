@@ -9,7 +9,7 @@ import logging
 import re
 
 from .models import (SupplierFile, SupplierProduct,
-                     Setting, Link, Dict,
+                     Setting, Link, DictItem,
                      SP_FKS, SP_INTEGERS, SP_NUMBERS, SP_PRICES, LINKS)
 from supplier_manager.models import Category, Manufacturer
 from main_product_manager.models import MainProduct

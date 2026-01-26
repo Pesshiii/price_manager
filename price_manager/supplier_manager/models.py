@@ -1,4 +1,5 @@
 from django.db import models
+from mptt.models import MPTTModel, TreeForeignKey
 
 TIME_FREQ = {'Каждый день': 1,
              'Каждую неделю': 7,
@@ -110,8 +111,6 @@ class ManufacturerDict(models.Model):
   def __str__(self):
     return f'{self.name}({self.manufacturer.name})'
   
-
-from mptt.models import MPTTModel, TreeForeignKey
 
 class Category(MPTTModel):
   parent = TreeForeignKey('self',

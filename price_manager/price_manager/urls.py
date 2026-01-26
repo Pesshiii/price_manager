@@ -26,18 +26,20 @@ urlpatterns = [
     
     path('supplier/', sm_views.SupplierList.as_view(), name='supplier'),
 
-    path('supplier/create/', sm_views.SupplierCreate.as_view(), name='supplier-create'),
     path('supplier/<int:id>/update', sm_views.SupplierUpdate.as_view(), name='supplier-update'),
     path('supplier/<int:id>/delete/', sm_views.SupplierDelete.as_view(), name='supplier-delete'),
 
+    path('supplier/create/', sm_views.SupplierCreate.as_view(), name='supplier-create'),
     path('supplier/<int:pk>/', spm_views.SupplierDetail.as_view(), name='supplier-detail'),
-    path('supplier/<int:pk>/pricemanagers', ppm_views.PriceManagerList.as_view(), name='pricemanagers'),
 
     path('supplier/<int:pk>/upload', spm_views.UploadSupplierFile.as_view(), name='supplier-upload'),
 
-    path('setting/<int:pk>/', spm_views.SettingDetail.as_view(), name='setting-detail'),
-
+    path('supplier/<int:pk>/settings/', spm_views.SettingList.as_view(), name='settings'),
+    path('setting/<int:pk>/', spm_views.SettingUpdate.as_view(), name='setting-update'),
     path('setting/<int:pk>/table', spm_views.XMLTableView.as_view(), name='setting-table'),
+
+    path('supplier/<int:pk>/pricemanagers/', ppm_views.PriceManagerList.as_view(), name='pricemanagers'),
+    path('pricemanager/<int:pk>/', ppm_views.PriceManagerUpdate.as_view(), name='pricemanager-update'),
 
     # path('setting/<int:id>/delete', spm_views.SettingDelete.as_view(), name='setting-delete'),
     # path('setting/<int:id>/upload/<int:f_id>/', spm_views.SettingUpdate.as_view(), name='setting-update'),
@@ -51,7 +53,6 @@ urlpatterns = [
     path('currency/<int:id>/update', sm_views.CurrencyUpdate.as_view(), name='currency-update'),
 
     path('price-manager/', ppm_views.PriceManagerList.as_view(), name='price-manager'),
-    path('pricemanager/<int:pk>/', ppm_views.PriceManagerUpdate.as_view(), name='pricemanager-update'),
     path('price-manager/create-for/<int:pk>', ppm_views.PriceManagerCreate.as_view(), name='pricemanager-create'),
     path('price-manager/<int:id>/delete', ppm_views.PriceManagerDelete.as_view(), name='price-manager-delete'),
     

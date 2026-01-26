@@ -11,21 +11,29 @@ from core.functions import get_field_details
 import pandas as pd
 
 class SettingListTable(tables.Table):
-  '''Таблица отображаемая на странице Поставщик/Настройки'''
-  actions = tables.TemplateColumn(
-    template_name='supplier/setting/actions.html',
-    orderable=False,
-    verbose_name='Действия',
-    attrs = {'td': {'class': 'text-right'}}
-  )
-  name = tables.LinkColumn('upload', args=['setting-update', tables.A('pk')])
   class Meta:
     model = Setting
-    fields = [field for field in get_field_details(model).keys()]
-    template_name = 'django_tables2/bootstrap5.html'
+    fields = ['name']
+    template_name = 'core/includes/table_htmx.html'
     attrs = {
       'class': 'table table-auto table-stripped table-hover clickable-rows'
       }
+  def render_name(self, record):
+    return format_html("""
+      <a
+        title="Обновить"
+        class="btn btn-sm btn-primary"
+        data-bs-toggle="modal"
+        data-bs-target="#modal-container"
+        hx-get="{}"
+        hx-target="#modal-container .modal-content"
+        hx-swap="innerHTML">
+        <i class="bi bi-pencil-square"></i>
+      </a>
+        <span>{}</span>
+      """, reverse('setting-update', kwargs={'pk':record.pk}), record.name)
+  
+
 
 class SupplierProductListTable(tables.Table):
   '''Таблица отображаемая на странице Постащик:имя'''

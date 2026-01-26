@@ -4,6 +4,8 @@ from django.core.validators import FileExtensionValidator
 
 from main_product_manager.models import MainProduct
 from supplier_manager.models import Supplier, Discount, Manufacturer, Category
+
+from decimal import Decimal
   
 SP_TABLE_FIELDS = ['discounts', 'category','article', 'name', 'supplier_price', 'rrp']
 SP_CHARS = ['article', 'name']
@@ -32,14 +34,6 @@ class SupplierProduct(models.Model):
   name = models.CharField(verbose_name='Название',
                           null=False,
                           blank=False)
-  category = models.ForeignKey(Category,
-                               on_delete=models.SET_NULL,
-                               verbose_name='Категория',
-                               null=True,
-                               blank=True,)
-  discounts = models.ManyToManyField(Discount,
-                               verbose_name='Группа скидок',
-                               related_name='products')
   manufacturer = models.ForeignKey(Manufacturer,
                                    verbose_name='Производитель',
                                    related_name='supplier_product',
@@ -75,9 +69,6 @@ class SupplierProduct(models.Model):
 LINKS = {'': 'Не включать',
          'article': 'Артикул поставщика',
          'name': 'Название',
-         'category': 'Категория',
-         'discounts': 'Группа скидок',
-         'manufacturer': 'Производитель',
          'stock': 'Остаток',
          'supplier_price': 'Цена поставщика в валюте поставщика',
          'rrp': 'РРЦ в валюте поставщика',
@@ -110,26 +101,32 @@ class Link(models.Model):
   class Meta:
     constraints = [models.UniqueConstraint(fields=['setting', 'key'], name='product-field-constraint')]
 
-class Dict(models.Model):
+class DictItem(models.Model):
   link = models.ForeignKey(Link,
                            on_delete=models.CASCADE,
                            verbose_name='Столбец',
+                           related_name='dicts',
                            blank=True,
                            null=True)
   key = models.CharField(verbose_name='Если')
   value = models.CharField(verbose_name='То')
+  class Meta:
+    constraints = [models.UniqueConstraint(fields=['link', 'key', 'value'], name='link-dict-constraint')]
+
+def setting_dir(instance, filename):
+  return f'setting_{instance.setting.name}/{filename}'
 
 class SupplierFile(models.Model):
   setting = models.ForeignKey(Setting,
                               null=True,
                               blank=True,
-                              default=(None, "Новая настройка"),
                               verbose_name="Настройка",
-                              related_name="supplier_file",
+                              related_name="supplier_files",
                               on_delete=models.CASCADE)
   file = models.FileField(verbose_name='Файл',
-                         validators=[FileExtensionValidator(allowed_extensions=['xls', 'xlsx', 'xlsm'])],
-                         null=False)
+                          upload_to=setting_dir,
+                          validators=[FileExtensionValidator(allowed_extensions=['xls', 'xlsx', 'xlsm'])],
+                          null=False)
   status = models.IntegerField(verbose_name="Статус загрузки",
                                choices=[
                                  (0, 'Не загружен'),

@@ -44,7 +44,7 @@
         <button class="nav-link" id="pricemanagers-tab" data-bs-toggle="tab" data-bs-target="#pricemanagers" type="button" role="tab" aria-controls="pricemanagers" aria-selected="false" >Наценки</button>
       </li>
       <li class="nav-item" role="presentation">
-        <button class="nav-link" id="settings-tab" data-bs-toggle="tab" data-bs-target="#settings" type="button" role="tab" aria-controls="settings" aria-selected="false" >Наценки</button>
+        <button class="nav-link" id="settings-tab" data-bs-toggle="tab" data-bs-target="#settings" type="button" role="tab" aria-controls="settings" aria-selected="false" >Настройки</button>
       </li>
     </ul>
     <div class="tab-content" id="funcTabsContent">
@@ -68,6 +68,20 @@
     </div>
 </div>
 {% endblock %}
+
+
+
+{% block style %}
+.scrollbar-top {
+  overflow-x: auto; /* Adds the horizontal scrollbar */
+  transform: rotateX(180deg); /* Flips the container upside down */
+}
+
+.scrollbar-top table {
+  transform: rotateX(180deg); /* Flips the table content back upright */
+  /* Ensure the table is wide enough to cause overflow, e.g., min-width: 1500px; */
+}
+{% endblock style %}
 
 {% block script %}
 <script>

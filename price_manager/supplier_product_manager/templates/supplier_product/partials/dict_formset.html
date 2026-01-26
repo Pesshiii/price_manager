@@ -1,0 +1,28 @@
+{% load crispy_forms_tags %}
+{% comment %} solution from: https://medium.com/@hsadeveloper/django-add-and-remove-dynamic-forms-using-formsets-e019a30dffbe {% endcomment %}
+{{ formset.management_form }}
+{% for form in formset %}
+  <div class="row item mb-4" id="form_num0">
+    <div class="form-group col-5">
+      {{ form.key|as_crispy_field }}
+    </div>
+    <div class="form-group col-5">
+      {{ form.value|as_crispy_field }}
+    </div>
+    {% with index=forloop.counter0 %}
+      <div class="form-group col-2">
+        <button type="button" class="btn btn-danger"  id="del-form-{{index}}" onclick="deleteForm({{index}})">
+          <i class="bi bi-trash3"></i>
+        </button>
+      </div>
+    {% endwith %}
+  </div>
+{% endfor %}
+<div class="row">
+  <div class="form-group col-2">
+    <button type="button" class="btn btn-success"
+    id="add" onclick="cloneMore()">
+      <i class="bi bi-plus"></i>
+    </button>
+  </div>
+</div>
