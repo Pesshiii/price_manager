@@ -18,7 +18,7 @@ from django.contrib.auth.mixins import LoginRequiredMixin
 from django.urls import reverse
 from typing import Optional, Any, Dict, Iterable
 from collections import defaultdict, OrderedDict
-from django.db.models import Count, Prefetch, F, Q, Value, Max, Subquery, OuterRef, IntegerField, ExpressionWrapper
+from django.db.models import Count, Prefetch, F, Q, Value, Max, Subquery, OuterRef, IntegerField, ExpressionWrapper, DateTimeField
 from django.contrib.postgres.search import SearchVector
 # Импорты из сторонних приложений
 from django_tables2 import SingleTableView, RequestConfig, SingleTableMixin
@@ -280,7 +280,7 @@ def sync_main_products(request, **kwargs):
     .annotate(
         _sua=ExpressionWrapper(
             F('supplier__stock_updated_at'),
-            output_field=IntegerField(),
+            output_field=DateTimeField(),
         )
     )
     .values("_sua")[:1]
@@ -288,7 +288,7 @@ def sync_main_products(request, **kwargs):
   
   
   mps = mps.annotate(
-        sua=Subquery(calc_qs, output_field=IntegerField())
+        sua=Subquery(calc_qs, output_field=DateTimeField())
     )
 
   updated = mps.update(
