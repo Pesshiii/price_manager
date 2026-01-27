@@ -279,8 +279,9 @@ def load_setting(pk):
       lambda row: MainProduct(
         supplier=setting.supplier,
         article=row.article,
-        **{'manufacturer': row['manufacturer'] if 'manufacturer' in df.columns else None}
-      ) if not MainProduct.objects.filter(supplier=setting.supplier, article=row.article).exists() else None, df.itertuples(index=False))
+        **{'manufacturer': row.manufacturer if 'manufacturer' in df.columns else None}
+      ) if not MainProduct.objects.filter(supplier=setting.supplier, article=row.article).exists() else None, 
+      df.itertuples(index=False))
     mps = MainProduct.objects.bulk_create(
       [_ for _ in mp_model_instances if _],
       # При дальнейшей работе следует убрать: непредсказуемые результаты
