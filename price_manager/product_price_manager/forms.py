@@ -1,4 +1,5 @@
 from django import forms
+from supplier_manager.models import Discount
 from .models import PriceManager, PriceTag
 
 
@@ -19,7 +20,7 @@ class PriceManagerForm(forms.ModelForm):
     model = PriceManager
     fields = (
       'name',
-      'has_rrp',
+      'has_rrp', 'discounts',
       'date_from', 'date_to',
       'price_from', 'price_to',
       'source', 'dest',

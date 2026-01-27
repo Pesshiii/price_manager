@@ -100,6 +100,10 @@ class PriceManagerCreate(CreateView):
     if cd['price_fixed']:
       instance.source = 'fixed_price'
     instance.save()
+    for discount in instance.discounts.filter(~Q(pk__in=cd['discounts'])):
+      instance.discounts.remove(discount)
+    for discount in cd['discounts']:
+      instance.discounts.add(discount)
     messages.success(self.request, 'Менеджер добавлен')
     return HttpResponseClientRefresh()
   
@@ -110,19 +114,24 @@ class PriceManagerUpdate(SingleTableMixin, UpdateView):
   model = PriceManager
   form_class = PriceManagerForm
   template_name = 'price_manager/partials/update.html'
-  def get(self, request, *args, **kwargs):
+  def dispatch(self, request, *args, **kwargs):
     self.instance = PriceManager.objects.get(pk=self.kwargs.get('pk', None))
-    return super().get(request, *args, **kwargs)
+    return super().dispatch(request, *args, **kwargs)
   def get_success_url(self):
     return resolve_url('pricemanager-update', self.kwargs.get('pk', None))
   def form_invalid(self, form):
-    messages.error(self.request, 'Ошибка')
     response = super().form_invalid(form)
     return response
+  def post(self, request, *args, **kwargs):
+    if request.POST.get('delete', None) == 'true':
+      self.instance.delete()
+      return HttpResponseClientRefresh()
+    return super().post(request, *args, **kwargs)
   def get_context_data(self, **kwargs) -> dict[str, Any]:
-      context = super().get_context_data(**kwargs)
-      context["form"].initial['price_fixed'] = self.instance.source=='fixed_price'
-      return context
+    context = super().get_context_data(**kwargs)
+    context['form'].initial['price_fixed'] = self.instance.source=='fixed_price'
+    context['form'].fields['price_fixed'].queryset = self.instance.supplier.discounts
+    return context
   def form_valid(self, form):
     cd = form.cleaned_data
     if cd['price_fixed'] and cd['fixed_price'] == 0:
@@ -143,7 +152,11 @@ class PriceManagerUpdate(SingleTableMixin, UpdateView):
     if cd['price_fixed']:
       instance.source = 'fixed_price'
     instance.save()
-    messages.success(self.request, 'Менеджер добавлен')
+    for discount in instance.discounts.filter(~Q(pk__in=cd['discounts'])):
+      instance.discounts.remove(discount)
+    for discount in cd['discounts']:
+      instance.discounts.add(discount)
+    messages.success(self.request, 'Обновления менеджера сохранены')
     return HttpResponseClientRefresh()
   
 

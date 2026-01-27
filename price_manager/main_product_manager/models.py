@@ -50,32 +50,32 @@ class MainProduct(models.Model):
       verbose_name='Вес',
       decimal_places=1,
       max_digits=8,
-      default=0)
+      null=True)
   prime_cost = models.DecimalField(
       verbose_name='Себестоимость',
       decimal_places=2,
       max_digits=20,
-      default=0)
+      null=True)
   wholesale_price = models.DecimalField(
       verbose_name='Оптовая цена',
       decimal_places=2,
       max_digits=20,
-      default=0)
+      null=True)
   basic_price = models.DecimalField(
       verbose_name='Базовая цена',
       decimal_places=2,
       max_digits=20,
-      default=0)
+      null=True)
   m_price = models.DecimalField(
       verbose_name='Цена ИМ',
       decimal_places=2,
       max_digits=20,
-      default=0)
+      null=True)
   wholesale_price_extra = models.DecimalField(
       verbose_name='Оптовая цена доп.',
       decimal_places=2,
       max_digits=20,
-      default=0)
+      null=True)
   length = models.DecimalField(verbose_name='Длина',
                                max_digits=10,
                                decimal_places=2,
@@ -194,7 +194,7 @@ def update_logs():
           f'latest_log_{price_type}':Subquery(latest_log_price_subquery)
       }
     )
-    mps = mps.filter(~Q(**{price_type:F(f'latest_log_{price_type}')}))
+    mps = mps.filter(~Q(**{price_type:F(f'latest_log_{price_type}')})|Q(**{f'latest_log_{price_type}__isnull':True}))
     mpls = map(lambda item: MainProductLog(price_type=item[0], main_product=item[1], price=getattr(item[1], price_type)), zip([price_type] * mps.count(), mps.all()))
     mpls = MainProductLog.objects.bulk_create(mpls)
     updated_logs += len(mpls)
@@ -212,7 +212,7 @@ def update_logs():
         f'latest_log_stock':Subquery(latest_log_stock_subquery)
     }
   )
-  mps = mps.filter(~Q(**{'stock':F('latest_log_stock')}))
+  mps = mps.filter(~Q(**{'stock':F('latest_log_stock')})|Q(**{f'latest_log_stock__isnull':True}))
   mpls = map(lambda mp: MainProductLog(main_product=mp, stock=mp.stock),  mps)
   mpls = MainProductLog.objects.bulk_create(mpls)
   updated_logs += len(mpls)

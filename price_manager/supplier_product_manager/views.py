@@ -55,13 +55,14 @@ class SupplierDetail(SingleTableMixin, FilterView):
   template_name = 'supplier/detail.html'
   def get(self, request, *args, **kwargs):
     self.supplier = Supplier.objects.get(pk=self.kwargs.get('pk', None))
+    # for setting in self.supplier.settings.all():
+    #   setting.delete()
     return super().get(request, *args, **kwargs)
   def get_table_data(self):
     return super().get_table_data().filter(supplier=self.supplier)
   def get_context_data(self, **kwargs):
     context = super().get_context_data(**kwargs)
     context['supplier'] = self.supplier
-    # to do: оптимизировать таблицу
     pms = PriceManager.objects.filter(supplier=self.supplier).annotate(
     is_published=ExpressionWrapper(
       Q(fixed_price__isnull=False)|~Q(fixed_price=0),
@@ -95,7 +96,8 @@ class UploadSupplierFile(CreateView):
       created = False
       while not created:
         try:
-          setting = Setting.objects.create(name = os.path.splitext(instance.file.name)[0] + f'({number})' if not number == 0 else '', supplier = Supplier.objects.get(pk=self.kwargs.get('pk')))
+          anti_copy = f'({number})' if not number == 0 else ''
+          setting = Setting.objects.create(name = os.path.splitext(os.path.basename(instance.file.path))[0] + anti_copy, supplier = Supplier.objects.get(pk=self.kwargs.get('pk')))
           created = True
         except:
           number += 1
@@ -106,20 +108,26 @@ class UploadSupplierFile(CreateView):
       supplier_file.file.delete()
       supplier_file.delete()
     if not os.path.splitext(instance.file.name)[1] == '.csv':
+      print('1:', timezone.now())
       excel_document = pd.ExcelFile(instance.file, engine='calamine')
+      print('2:', timezone.now())
       for sheet_name in excel_document.sheet_names:
-        df = excel_document.parse(sheet_name).dropna(axis=0, how='all').dropna(axis=1,how='all')
+        print('3:', timezone.now())
+        df = excel_document.parse(sheet_name, engine='calamine').dropna(axis=0, how='all').dropna(axis=1,how='all')
         csv_buffer = io.StringIO()
+        print('4:', timezone.now())
         df.to_csv(csv_buffer, index=False, encoding='utf-8')
         csv_content = csv_buffer.getvalue()
         csv_file = ContentFile(csv_content.encode('utf-8'))
         sf = SupplierFile.objects.create(setting=setting)
+        print('5:', timezone.now())
         sf.file.save(sheet_name + '.csv', csv_file)
+        print('6:', timezone.now())
         sfs.append(sf)
       setting.sheet_name = os.path.splitext(sfs[0].file.name)[0]
       setting.save()
     if not instance.setting:
-      redirect_url = reverse('setting-update', kwargs={'pk':setting.pk}) 
+      redirect_url = reverse('supplier-detail', kwargs={'pk':setting.supplier.pk}) + '#setting'
       return HttpResponseClientRedirect(redirect_url)
     messages.info(self.request, f"Загрузка файла через настройку {setting.name}")
     messages.info(self.request, f"загружено {len(load_setting(setting.pk))} файлов")
@@ -165,6 +173,13 @@ class SettingUpdate(UpdateView):
     setting = Setting.objects.get(pk=pk)
     post = self.request.POST
     df = get_df(pk)
+    
+    if post.get('action', None) == 'delete':
+      for mfile in setting.supplier_files.all():
+        mfile.file.delete()
+        mfile.delete()
+      setting.delete()
+      return HttpResponseClientRefresh()
 
     if not setting.name == form.cleaned_data['name']:
       os.makedirs(settings.MEDIA_ROOT / f'''setting_{form.cleaned_data['name']}''', exist_ok=True)
@@ -204,13 +219,13 @@ class SettingUpdate(UpdateView):
           if item['key'] == '': continue
           DictItem.objects.get_or_create(link=mlink, key=item['key'], value=item['value'])
     if post.get('action') and post.get('action') == 'upload':
-      messages.info(self.request, f'Обработано {len(load_setting(pk))} товаров')
+      products = load_setting(pk)
+      messages.info(self.request, f'Обработано {len(products[0])} товаров. Добавлено {len(products[1])} товаров главного прайса')
     return self.form_invalid(form)
   def get_context_data(self, **kwargs) -> dict[str, Any]:
     context = super().get_context_data(**kwargs)
     pk = self.kwargs.get('pk')
     post = self.request.POST
-    
     context['links'] = get_indicts(post, pk)
     context["link_formset"] = get_linkformset(post, pk)
     return context
@@ -234,26 +249,48 @@ def load_setting(pk):
     if link.key in df.columns and link.key in SP_NUMBERS:
       df[link.key] = pd.to_numeric(df[link.key], errors='coerce')
   df = df.dropna(subset=[link.key for link in links if not link.key=='article' and not link.key == 'name' and link.key in df.columns], how='all')
+  if 'manufacturer' in df.columns:
+    df['manufacturer'] = df['manufacturer'].apply(lambda s: Manufacturer.objects.get_or_create(name=s)[0])
+  if 'discount' in df.columns:
+    df['discount'] = df['discount'].apply(lambda s: Discount.objects.get_or_create(supplier=setting.supplier, name=s)[0])
   df = df.replace({pd.NA: None, float('nan'): None})
   if 'name' in df.columns:
     df = df.dropna(subset=['name'])
-    model_instances = map(
+    sp_model_instances = map(
       lambda row: SupplierProduct(
         supplier=setting.supplier,
         article=row.article,
         name=row.name,
         **{
-          link.key: Decimal(str(getattr(row, link.key)))
+          link.key: Decimal(str(getattr(row, link.key))) if link.key in SP_NUMBERS else getattr(row, link.key)
           for link in links 
           if not link.key=='article' and not link.key == 'name' and link.key in df.columns
           and getattr(row, link.key)
         }
       ), df.itertuples(index=False))
-    return SupplierProduct.objects.bulk_create(
-      model_instances, 
+    sp_update_fields = [link.key for link in links if not link.key=='article' and not link.key == 'name' and link.key in df.columns]
+    sp_update_fields.append('updated_at')
+    sps = SupplierProduct.objects.bulk_create(
+      sp_model_instances, 
       update_conflicts=True, 
-      update_fields=[link.key for link in links if not link.key=='article' and not link.key == 'name' and link.key in df.columns],
+      update_fields=sp_update_fields,
       unique_fields=['supplier', 'article', 'name'])
+    mp_model_instances = map(
+      lambda row: MainProduct(
+        supplier=setting.supplier,
+        article=row.article,
+        **{'manufacturer': df['manufacturer'] if 'manufacturer' in df.columns else None}
+      ) if not MainProduct.objects.filter(supplier=setting.supplier, article=row.article).exists() else None, df.itertuples(index=False))
+    mps = MainProduct.objects.bulk_create(
+      [_ for _ in mp_model_instances if _],
+      # При дальнейшей работе следует убрать: непредсказуемые результаты
+      ignore_conflicts=True,
+
+      unique_fields=['supplier', 'article']
+    )
+    return (sps, mps)
+    
+    
 
 
 class SettingList(SingleTableView):

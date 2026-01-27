@@ -1,6 +1,6 @@
 from django.db import models
 from django.core.validators import (MinValueValidator, MaxValueValidator)
-from supplier_manager.models import Supplier
+from supplier_manager.models import Supplier, Discount
 from supplier_product_manager.models import SupplierProduct, SP_PRICES
 from main_product_manager.models import MainProduct, MP_PRICES, update_logs
 from django.db.models import (F, ExpressionWrapper, 
@@ -57,6 +57,13 @@ class PriceManager(models.Model):
                              choices=[(None, 'Без разницы'),(True,'Да'),(False,'Нет')],
                              null=True,
                              blank=True)
+  discounts = models.ManyToManyField(
+    Discount,
+    related_name='pricemanagers',
+    verbose_name='Группы скидок',
+    null=True,
+    blank=True
+  )
   date_from = models.DateTimeField(
     verbose_name='Дата начала',
     null=True,
@@ -146,7 +153,7 @@ class PriceManager(models.Model):
       if price_manager.has_rrp:
         products = products.filter(rrp__gt=0)
       else:
-        products = products.filter(rrp=0)
+        products = products.filter(Q(rrp=0)|Q(rrp__isnull=True))
 
 
     if price_manager.source in SP_PRICES:
@@ -154,6 +161,8 @@ class PriceManager(models.Model):
         price_manager.price_from,
         price_manager.price_to,
         price_manager.source))
+      if price_manager.discounts.exists():
+        products = products.filter(discount__in=price_manager.discounts)
     elif price_manager.source in MP_PRICES:
       products = products.filter(get_price_querry(
         price_manager.price_from,
@@ -379,8 +388,9 @@ def update_prices():
   count = 0
   # def get_newprice_qr(source, dest):
   #   if source in SP_PRICES:
-      
-
+  
+  SupplierProduct.objects.filter(*[Q(**{dest: 0}) for dest in SP_PRICES]).update(**{dest: None for dest in SP_PRICES})
+  MainProduct.objects.filter(*[Q(**{dest: 0}) for dest in MP_PRICES]).update(**{dest: None for dest in MP_PRICES})
   for dest in MP_PRICES:
     for source in PRICE_TYPES.keys():
       if not source: continue

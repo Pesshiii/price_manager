@@ -11,28 +11,6 @@ from crispy_forms.layout import Submit, Layout, Field, Div, HTML, Button
 import os
 import pandas as pd
 
-# class DictFormSetHelper(FormHelper):
-#   def __init__(self, *args, **kwargs):
-#     pk = kwargs.pop('pk', None)
-#     link = kwargs.pop('link', None)
-#     if not pk or not link: return
-#     super().__init__(*args, **kwargs)
-#     self.form_tag = False
-#     self.layout = Layout( 
-#       Div(
-#         Div(
-#           Field('key', css_class="form-control"),
-#           css_class="col-4"
-#         ),
-#         Div(
-#           Field('value', css_class="form-control"),
-#           css_class="col-4"
-#         ),
-#         HTML(f'''<button onclick="submit" class="btn btn-danger col-1" name="action" value="delete-{self.}"><i class="bi bi-trash-fill"></i></button>'''),
-#         css_class="row gap-1 mb-4"
-#       )
-#     )
-
 def get_df(pk):
   file = None
   setting = Setting.objects.get(pk=pk)
@@ -47,7 +25,6 @@ def get_df(pk):
   df = pd.read_csv(file)
   file.close()
   return df
-
 
 class DictForm(forms.Form):
   def __init__(self, *args, **kwargs):
@@ -139,9 +116,16 @@ class SettingForm(forms.ModelForm):
       Field('name', css_class="form-control mb-4"),
       Field('sheet_name', css_class="form-select mb-4"),
       Div(
-        HTML(f'''<button onclick="submit" class="btn btn-primary" name="action" value="apply">Применить</button>'''),
-        HTML(f'''<button onclick="submit" class="btn btn-secondary" name="action" value="upload">Загрузить</button>'''),
-        css_class='input-group'
+        Div(
+          Div(
+            HTML(f'''<button onclick="submit" class="btn btn-primary" name="action" value="apply">Применить</button>'''),
+            HTML(f'''<button onclick="submit" class="btn btn-secondary" name="action" value="upload">Загрузить</button>'''),
+            css_class='input-group'
+          ),
+          css_class='col-6'
+        ),
+        HTML(f'''<button onclick="submit" class="btn btn-danger ms-auto col-3" name="action" value="delete">Удалить<i class="bi bi-trash-fill"></i></button>'''),
+        css_class='row'
       )
     )
 

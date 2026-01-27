@@ -10,13 +10,17 @@
               {{ form.errors }}
             </div>
             <div class="row">
-              <div>
+              <div class="row">
                 {{form.name|add_label_class:"form-lable mb-1 mt-4"}}
                 {% render_field form.name class="form-control mb-4"%}
               </div>
-              <div>
+              <div class="row">
                 {{form.has_rrp|add_label_class:"form-lable mb-1 mt-4"}}
                 {% render_field form.has_rrp class="form-select mb-4"%}
+              </div>
+              <div class="row">
+                {{form.discounts|add_label_class:"form-lable mb-1 mt-4"}}
+                {% render_field form.discounts class="form-select mb-4" multiple="multiple"%}
               </div>
               <div class="row gap-3">
                 <div class="col-3">
@@ -81,10 +85,21 @@
                 </div>
               </div>
             </div>
-            <button 
-            class="btn btn-primary mt-4" 
-            type="submit">
-                  Добавить
-            </button>
+            <div class="row">
+              <div class=" col-5">
+                <button 
+                class="btn btn-primary" 
+                type="submit">
+                      Сохранить
+                </button>
+                <button 
+                class="btn btn-danger " 
+                name="delete"
+                value="true"
+                type="submit">
+                  Удалить
+                </button>
+              </div>
+            </div>
       </form>
 </div>

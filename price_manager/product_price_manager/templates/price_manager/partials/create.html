@@ -10,13 +10,17 @@
               {{ form.errors }}
             </div>
             <div class="row">
-              <div>
+              <div class="row">
                 {{form.name|add_label_class:"form-lable mb-1 mt-4"}}
                 {% render_field form.name class="form-control mb-4"%}
               </div>
-              <div>
+              <div class="row">
                 {{form.has_rrp|add_label_class:"form-lable mb-1 mt-4"}}
                 {% render_field form.has_rrp class="form-select mb-4"%}
+              </div>
+              <div class="row">
+                {{form.discounts|add_label_class:"form-lable mb-1 mt-4"}}
+                {% render_field form.discounts class="form-select mb-4" multiple="multiple"%}
               </div>
               <div class="row gap-3">
                 <div class="col-3">

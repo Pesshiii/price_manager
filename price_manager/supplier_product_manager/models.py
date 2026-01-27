@@ -7,7 +7,7 @@ from supplier_manager.models import Supplier, Discount, Manufacturer, Category
 
 from decimal import Decimal
   
-SP_TABLE_FIELDS = ['discounts', 'category','article', 'name', 'supplier_price', 'rrp']
+SP_TABLE_FIELDS = ['article', 'name', 'manufacturer', 'supplier_price', 'rrp', 'discount', ]
 SP_CHARS = ['article', 'name']
 SP_FKS = ['main_product', 'category', 'supplier', 'manufacturer', 'discounts']
 SP_PRICES = ['supplier_price', 'rrp']
@@ -36,22 +36,28 @@ class SupplierProduct(models.Model):
                           blank=False)
   manufacturer = models.ForeignKey(Manufacturer,
                                    verbose_name='Производитель',
-                                   related_name='supplier_product',
+                                   related_name='supplier_products',
                                    on_delete=models.SET_NULL,
                                    null=True,
                                    blank=True)
+  discount = models.ForeignKey(Discount,
+                                verbose_name='Группа скидок',
+                                related_name='supplier_products',
+                                on_delete=models.SET_NULL,
+                                null=True,
+                                blank=True)
   stock = models.PositiveIntegerField(verbose_name='Остаток',
-                              default=0)
+      null=True)
   supplier_price = models.DecimalField(
       verbose_name='Цена поставщика в валюте поставщика',
       decimal_places=2,
       max_digits=20,
-      default=0)
+      null=True)
   rrp = models.DecimalField(
       verbose_name='РРЦ в валюте поставщика',
       decimal_places=2,
       max_digits=20,
-      default=0)
+      null=True)
   updated_at = models.DateTimeField(verbose_name='Последнее обновление',
                                     auto_now=True)
   
@@ -69,6 +75,8 @@ class SupplierProduct(models.Model):
 LINKS = {'': 'Не включать',
          'article': 'Артикул поставщика',
          'name': 'Название',
+         'manufacturer': 'Производитель',
+         'discount': 'Группа скидок',
          'stock': 'Остаток',
          'supplier_price': 'Цена поставщика в валюте поставщика',
          'rrp': 'РРЦ в валюте поставщика',
@@ -76,8 +84,10 @@ LINKS = {'': 'Не включать',
 
 class Setting(models.Model):
   name = models.CharField(verbose_name='Название',
-                          unique=False)
+                          unique=False,
+                          null=False)
   supplier = models.ForeignKey(Supplier,
+                               related_name='settings',
                               on_delete=models.CASCADE,
                               blank=False)
   sheet_name = models.CharField(verbose_name='Название листа')
@@ -114,7 +124,7 @@ class DictItem(models.Model):
     constraints = [models.UniqueConstraint(fields=['link', 'key', 'value'], name='link-dict-constraint')]
 
 def setting_dir(instance, filename):
-  return f'setting_{instance.setting.name}/{filename}'
+  return f'setting_{instance.setting.supplier.pk}_{instance.setting.name}/{filename}'
 
 class SupplierFile(models.Model):
   setting = models.ForeignKey(Setting,
