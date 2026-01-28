@@ -61,7 +61,6 @@ class PriceManager(models.Model):
     Discount,
     related_name='pricemanagers',
     verbose_name='Группы скидок',
-    null=True,
     blank=True
   )
   date_from = models.DateTimeField(

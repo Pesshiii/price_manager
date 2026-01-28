@@ -180,4 +180,3 @@ class MainProductLogList(SingleTableView):
       return redirect(reverse('mainproduct-info', kwargs=self.kwargs))
     return super().get(request, *args, **kwargs)
   
-# class CreatePriceManager(FormView):

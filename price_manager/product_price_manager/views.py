@@ -74,6 +74,7 @@ class PriceManagerCreate(CreateView):
   def get_context_data(self, **kwargs) -> dict[str, Any]:
     context = super().get_context_data(**kwargs)
     context['supplier'] = Supplier.objects.get(pk=self.kwargs.get('pk'))
+    context['form'].fields['price_fixed'].queryset = Supplier.objects.get(pk=self.kwargs.get('pk', None)).discounts
     return context
   def form_invalid(self, form):
     messages.error(self.request, 'Ошибка')

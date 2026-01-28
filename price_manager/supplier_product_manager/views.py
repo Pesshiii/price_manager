@@ -129,9 +129,8 @@ class UploadSupplierFile(CreateView):
     if not instance.setting:
       redirect_url = reverse('supplier-detail', kwargs={'pk':setting.supplier.pk}) + '#setting'
       return HttpResponseClientRedirect(redirect_url)
-    messages.info(self.request, f"Загрузка файла через настройку {setting.name}")
-    messages.info(self.request, f"загружено {len(load_setting(setting.pk))} файлов")
     self.valid = True
+    messages.info(self.request, f"Загрузка файла через настройку {setting.name}. Загружено {len(load_setting(setting.pk))} файлов")
     return super().form_valid(form)
   def render_to_response(self, context, **response_kwargs):
     response = super().render_to_response(context, **response_kwargs)
