@@ -15,7 +15,17 @@
     rel="stylesheet" 
     href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.1/font/bootstrap-icons.css"/>
     <style>
-        {% block style %} {% endblock %}
+      
+      .scrollbar-top {
+        overflow-x: auto; /* Adds the horizontal scrollbar */
+        transform: rotateX(180deg); /* Flips the container upside down */
+      }
+
+      .scrollbar-top table {
+        transform: rotateX(180deg); /* Flips the table content back upright */
+        /* Ensure the table is wide enough to cause overflow, e.g., min-width: 1500px; */
+      }
+      {% block style %} {% endblock %}
     </style>
 </head>
 <body  hx-headers='{"X-CSRFToken": "{{ csrf_token }}"}'>

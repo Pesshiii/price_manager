@@ -11,18 +11,21 @@ from crispy_forms.layout import Submit, Layout, Field, Div, HTML, Button
 import os
 import pandas as pd
 
-def get_df(pk):
+def get_df_sheet_names(pk):
+  file = None
+  file = SupplierFile.objects.filter(setting=pk).first().file
+  if not file: return None
+  columns = pd.ExcelFile(file, engine='calamine').sheet_names
+  file.close()
+  return columns
+
+def get_df(pk, nrows: int | None = 100):
   file = None
   setting = Setting.objects.get(pk=pk)
 
-  for sf in SupplierFile.objects.filter(setting=pk):
-    if os.path.splitext(os.path.basename(sf.file.path))[0] == setting.sheet_name:
-      file=sf.file
-
-  if not file and SupplierFile.objects.filter(setting=pk).exists():
-    file = SupplierFile.objects.filter(setting=pk).first().file
-  elif not file: return None
-  df = pd.read_csv(file)
+  file = SupplierFile.objects.filter(setting=pk).first().file
+  if not file: return None
+  df = pd.read_excel(file, engine='calamine', sheet_name=setting.sheet_name, nrows=nrows, index_col=None).dropna(axis=0, how='all').dropna(axis=1, how='all')
   file.close()
   return df
 
@@ -155,11 +158,15 @@ LinkFormset = forms.formset_factory(
 
 def get_linkformset(post, pk):
   df = get_df(pk)
+  setting = Setting.objects.get(pk=pk)
   return LinkFormset(
       post if post else None, 
       initial=[
           {
-            'key': Link.objects.get_or_create(setting=pk, value=column)[0].key if Link.objects.filter(setting=pk, value=column).exists() else None
+            'key': 
+            Link.objects.filter(setting=setting, value=column).first().key 
+            if Link.objects.filter(setting=setting, value=column).exists()
+            else None
           }
 
           for column in df.columns

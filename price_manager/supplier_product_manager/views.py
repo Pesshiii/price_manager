@@ -34,7 +34,6 @@ from .models import DictItem
 from .forms import *
 from .tables import *
 from .filters import *
-from .tasks import upload_supplier_files
 
 import io, os
 from typing import Dict, Any
@@ -90,66 +89,51 @@ class UploadSupplierFile(CreateView):
     return context
   def form_valid(self, form):
     instance = form.save(commit=False)
-    sfs = []
     if not instance.setting:
       number = 0
       created = False
       while not created:
         try:
           anti_copy = f'({number})' if not number == 0 else ''
-          setting = Setting.objects.create(name = os.path.splitext(os.path.basename(instance.file.path))[0] + anti_copy, supplier = Supplier.objects.get(pk=self.kwargs.get('pk')))
+          setting = Setting.objects.create(
+            name = os.path.splitext(os.path.basename(instance.file.path))[0] + anti_copy, 
+            supplier = Supplier.objects.get(pk=self.kwargs.get('pk')))
+          setting.sheet_name = pd.ExcelFile(instance.file, engine='calamine').sheet_names[0]
+          setting.save()
           created = True
+          instance.setting = setting
+          messages.info(self.request, f"Новая настройка создана: {setting.name}")
         except:
           number += 1
           created = False
-    else:
-      setting = instance.setting
-    for supplier_file in setting.supplier_files.all():
+    if not instance.setting.sheet_name in pd.ExcelFile(instance.file, engine='calamine').sheet_names:
+      messages.error(self.request, f'Нет листа {setting.sheet_name}')
+      return self.form_invalid(form)
+    for supplier_file in instance.setting.supplier_files.all():
       supplier_file.file.delete()
       supplier_file.delete()
-    if not os.path.splitext(instance.file.name)[1] == '.csv':
-      print('1:', timezone.now())
-      excel_document = pd.ExcelFile(instance.file, engine='calamine')
-      print('2:', timezone.now())
-      for sheet_name in excel_document.sheet_names:
-        print('3:', timezone.now())
-        df = excel_document.parse(sheet_name, engine='calamine').dropna(axis=0, how='all').dropna(axis=1,how='all')
-        csv_buffer = io.StringIO()
-        print('4:', timezone.now())
-        df.to_csv(csv_buffer, index=False, encoding='utf-8')
-        csv_content = csv_buffer.getvalue()
-        csv_file = ContentFile(csv_content.encode('utf-8'))
-        sf = SupplierFile.objects.create(setting=setting)
-        print('5:', timezone.now())
-        sf.file.save(sheet_name + '.csv', csv_file)
-        print('6:', timezone.now())
-        sfs.append(sf)
-      setting.sheet_name = os.path.splitext(sfs[0].file.name)[0]
-      setting.save()
-    if not instance.setting:
-      redirect_url = reverse('supplier-detail', kwargs={'pk':setting.supplier.pk}) + '#setting'
-      return HttpResponseClientRedirect(redirect_url)
-    self.valid = True
-    messages.info(self.request, f"Загрузка файла через настройку {setting.name}. Загружено {len(load_setting(setting.pk))} файлов")
-    return super().form_valid(form)
-  def render_to_response(self, context, **response_kwargs):
-    response = super().render_to_response(context, **response_kwargs)
-    if self.valid:
-      return HttpResponseClientRefresh
-    return response
+    instance.save()
+    if instance.setting.is_bound():
+      products = load_setting(instance.setting.pk)
+      messages.info(self.request, f"Загрузка файла через настройку {instance.setting.name}. Обработано {len(products[0])} товаров. Добавлено {len(products[1])} товаров главного прайса")
+      return HttpResponseClientRefresh()
+    else: 
+      return redirect(reverse('setting-update', kwargs={'pk': instance.setting.pk}))
+
   def get_success_url(self):
     return reverse('supplier-upload', kwargs={'pk':self.kwargs.get('pk')})
   
 class XMLTableView(TemplateView):
   template_name = 'supplier_product/partials/csv_table.html'
   def get_context_data(self, **kwargs) -> dict[str, Any]:
+      pk = self.kwargs.get('pk')
       context = super().get_context_data(**kwargs)
       df = get_df(self.kwargs.get('pk')).fillna('')
       page = int(self.request.GET.get('page', 1))
       items = Paginator(df.to_records(index=False), per_page=5).page(page)
-      context['pk'] = self.kwargs.get('pk')
+      context['pk'] = pk
       context['items'] = items
-      context['columns'] = df.columns
+      context['columns'] = get_df_sheet_names(pk=pk)
       context["page"] = page
       return context
   
@@ -163,7 +147,7 @@ class SettingUpdate(UpdateView):
     return kwargs
   def get_form(self):
     form = super().get_form(self.form_class)
-    form.fields['sheet_name'].choices = [(os.path.splitext(os.path.basename(sf.file.path))[0] , os.path.splitext(os.path.basename(sf.file.path))[0]) for sf in SupplierFile.objects.filter(setting=self.kwargs.get('pk'))]
+    form.fields['sheet_name'].choices = [(sheet_name, sheet_name) for sheet_name in get_df_sheet_names(self.kwargs.get('pk'))]
     return form
   def get_success_url(self):
     return reverse('setting-update', kwargs={'pk': self.kwargs.get('pk')})
@@ -171,8 +155,7 @@ class SettingUpdate(UpdateView):
     pk = self.kwargs.get('pk')
     setting = Setting.objects.get(pk=pk)
     post = self.request.POST
-    df = get_df(pk)
-    
+
     if post.get('action', None) == 'delete':
       for mfile in setting.supplier_files.all():
         mfile.file.delete()
@@ -180,33 +163,29 @@ class SettingUpdate(UpdateView):
       setting.delete()
       return HttpResponseClientRefresh()
 
-    if not setting.name == form.cleaned_data['name']:
-      os.makedirs(settings.MEDIA_ROOT / f'''setting_{form.cleaned_data['name']}''', exist_ok=True)
-      for mfile in setting.supplier_files.all():
-        rel_path = f'''setting_{form.cleaned_data['name']}\\{os.path.basename(mfile.file.path)}'''
-        full_path = settings.MEDIA_ROOT / rel_path
-        os.rename(mfile.file.path, full_path)
-        mfile.file.name = rel_path
-        mfile.save()
-      setting.name = form.cleaned_data['name']
-      setting.save()
+    df = get_df(pk)
+
     if not setting.sheet_name == form.cleaned_data['sheet_name']:
       setting.sheet_name = form.cleaned_data['sheet_name']
       setting.save()
     
     link_formset = get_linkformset(post, pk)
     indicts = get_indicts(post, pk)
-
-    if not link_formset.is_valid(): return self.form_invalid(form)
-
+    if not link_formset.is_valid() :
+      messages.error(self.request, f'Неоднозначная связь: Столбец\\знаение')
+      return self.form_invalid(form)
+    keys = [item['key'] for item in link_formset.cleaned_data if not item['key']=='']
+    if not len(set(keys)) == len(keys):
+      messages.error(self.request, f'Неоднозначная связь: Столбец\\знаение')
+      return self.form_invalid(form)
+    
     for i in range(len(link_formset.cleaned_data)):
       link = None
-
-      if not link_formset.cleaned_data[i]['key']: continue
-      link = Link.objects.get(setting=pk, key=link_formset.cleaned_data[i]['key'])
-
-      if indicts[link_formset.cleaned_data[i]['key']]['initial'].is_valid():
-        link.initial = indicts[link_formset.cleaned_data[i]['key']]['initial'].cleaned_data['initial']
+      key = link_formset.cleaned_data[i]['key']
+      if not key or key=='' : continue
+      link = Link.objects.get_or_create(setting=setting, key=key)[0]
+      if indicts[key]['initial'].is_valid():
+        link.initial = indicts[key]['initial'].cleaned_data['initial']
       link.value = df.columns[i]
       link.save()
     for link, value in LINKS.items():
@@ -233,7 +212,7 @@ class SettingUpdate(UpdateView):
 def load_setting(pk):
   setting = Setting.objects.get(pk=pk)
   links = Link.objects.filter(setting=setting)
-  df = get_df(pk)
+  df = get_df(pk, nrows=None)
   for link in links:
     if link.value == '': continue
     df[link.value] = df[link.value].fillna(link.initial)
@@ -288,6 +267,12 @@ def load_setting(pk):
 
       unique_fields=['supplier', 'article']
     )
+    
+    if 'stock' in df.columns:
+      setting.supplier.stock_updated_at = timezone.now()
+    if not set(SP_PRICES).intersection(set(df.columns)) == set():
+      setting.supplier.price_updated_at = timezone.now()
+    setting.supplier.save()
     return (sps, mps)
     
     

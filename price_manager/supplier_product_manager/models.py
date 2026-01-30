@@ -101,15 +101,18 @@ class Setting(models.Model):
     constraints = [models.UniqueConstraint(fields=['name', 'supplier'], name='name_supplier_constraint')]
   def __str__(self):
     return self.name
+  def is_bound(self) -> bool:
+    return self.links.filter(key='article').exists() and self.links.filter(key='name').exists()
 
 class Link(models.Model):
   setting = models.ForeignKey(Setting,
-                              on_delete=models.CASCADE)
+                              on_delete=models.CASCADE,
+                              related_name='links')
   initial = models.CharField(null=True)
   key = models.CharField(choices=LINKS)
   value = models.CharField()
   class Meta:
-    constraints = [models.UniqueConstraint(fields=['setting', 'key'], name='product-field-constraint')]
+    constraints = [models.UniqueConstraint(fields=['setting', 'key'], name='link-field-constraint')]
 
 class DictItem(models.Model):
   link = models.ForeignKey(Link,

@@ -60,28 +60,22 @@
     </div>
   </div>
 </div>
-<div id="modal-container" class="modal modal-xl" tabindex="-1" aria-labelledby="modalLabel" aria-hidden="true">
+<div id="modal-container" class="modal modal-xl fade" tabindex="-1" aria-labelledby="modalLabel" aria-hidden="true">
     <div class="modal-dialog">
         <div class="modal-content">
-
+          <div class="container d-flex justify-content-center mb-4 mt-4">
+            <div class="spinner-grow" role="status">
+            </div>
+            <div class="spinner-grow" role="status">
+            </div>
+            <div class="spinner-grow" role="status">
+            </div>
+          </div>
         </div>
     </div>
 </div>
 {% endblock %}
 
-
-
-{% block style %}
-.scrollbar-top {
-  overflow-x: auto; /* Adds the horizontal scrollbar */
-  transform: rotateX(180deg); /* Flips the container upside down */
-}
-
-.scrollbar-top table {
-  transform: rotateX(180deg); /* Flips the table content back upright */
-  /* Ensure the table is wide enough to cause overflow, e.g., min-width: 1500px; */
-}
-{% endblock style %}
 
 {% block script %}
 <script>

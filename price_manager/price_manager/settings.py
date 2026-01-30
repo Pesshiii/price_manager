@@ -51,8 +51,6 @@ INSTALLED_APPS = [
     'crispy_forms',
     'mptt',
 
-    "procrastinate.contrib.django",
-
     'core',
     'file_manager',
     'supplier_product_manager',
@@ -205,21 +203,9 @@ LOGGING = {
             "format": "%(asctime)s %(levelname)-7s %(name)s %(message)s"
         },
     },
-    "handlers": {
-        "procrastinate": {
-            "level": "INFO",
-            "class": "logging.StreamHandler",
-            "formatter": "procrastinate",
-        },
-    },
-    "loggers": {
-        "procrastinate": {
-            "handlers": ["procrastinate"],
-            "level": "INFO",
-            "propagate": False,
-        },
-    },
 }
+
+# TAGS FOR CRISPY FORMS
 
 CRISPY_ALLOWED_TEMPLATE_PACKS = 'bootstrap4'
 CRISPY_TEMPLATE_PACK = 'bootstrap4'
