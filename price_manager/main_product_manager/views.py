@@ -27,7 +27,7 @@ from django.core.paginator import Paginator
 from django.http import HttpResponse
 
 from dal import autocomplete
-from django_htmx.http import retarget
+from django_htmx.http import HttpResponseClientRedirect, HttpResponseClientRefresh, retarget
 from django.template.context_processors import csrf
 from crispy_forms.utils import render_crispy_form
 
@@ -120,15 +120,14 @@ class MainProductTableView(SingleTableView):
 
 def sync_main_products(request, **kwargs):
   """Обновляет остатки и применяет наценки в MainProduct из SupplierProduct"""
-
-  Category.objects.rebuild()
-  messages.info(request, f"Векторы поиска обновлены у {MainProduct.recalculate_search_vectors()} товаров")
+  # Category.objects.rebuild()
+  # messages.info(request, f"Векторы поиска обновлены у {MainProduct.recalculate_search_vectors()} товаров")
   messages.info(request, f"Наценки обновлены у {update_pricetags()} товаров")
   messages.info(request, f"Цены обновлены у {update_prices()} товаров")
   messages.info(request, f"Остатки обновлены у {update_stocks()} товаров")
   update_logs()
 
-  return redirect('mainproducts')
+  return HttpResponseClientRedirect(reverse('mainproducts'))
 
 
 

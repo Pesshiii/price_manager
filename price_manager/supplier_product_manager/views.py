@@ -114,7 +114,7 @@ class UploadSupplierFile(CreateView):
     if instance.setting.is_bound():
       return redirect(reverse('setting-upload', kwargs={'pk': instance.setting.pk, 'state':0}))
     else: 
-      return redirect(reverse('setting-update', kwargs={'pk': instance.setting.pk, 'state':0}))
+      return redirect(reverse('setting-update', kwargs={'pk': instance.setting.pk}))
 
   def get_success_url(self):
     return reverse('supplier-upload', kwargs={'pk':self.kwargs.get('pk')})
@@ -128,7 +128,7 @@ def setting_upload(request, pk, state):
     messages.info(request, f"Загрузка файла через настройку {setting.name}. Обработано {len(products[0])} товаров. Добавлено {len(products[1])} товаров главного прайса")
   else:
     messages.error(request, f'Не указано поле артикула и\\или наименования')
-  return render(request, 'supplier_product/partials/load_partial.html', {'pk':pk, 'state': 1})
+  return redirect('setting-update', pk=setting.pk)
 
 class XMLTableView(TemplateView):
   template_name = 'supplier_product/partials/csv_table.html'

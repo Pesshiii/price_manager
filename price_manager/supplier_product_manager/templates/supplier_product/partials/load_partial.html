@@ -1,11 +1,7 @@
 
 <div
   class="container d-flex justify-content-center mb-4 mt-4"
-  {% if state == 1 %}
-  hx-get="{% url 'setting-update' pk %}"
-  {% else %}
   hx-get="{% url 'setting-upload' pk 1%}"
-  {% endif %}
   hx-trigger="load"
   hx-target="#modal-container .modal-content"
   hx-swap="innerHTML"

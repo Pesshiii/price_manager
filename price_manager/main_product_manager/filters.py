@@ -62,8 +62,18 @@ class MainProductFilter(FilterSet):
         Field('search', label_class='mt-2', css_class='mb-4'),
         Field('category', template='supplier/partials/category_filter_field.html'),
         Div(
-          Submit('action', 'Поиск', css_class='btn-primary btn-md'),
-          HTML(f'''<a href="{reverse_lazy('mainproducts-sync')}" class="btn btn-secondary btn-md">Обновить</a>'''),
+          Submit('action', 'Поиск', css_class='btn btn-primary  btn-lg'),
+          HTML('''
+              <button type="button"
+                      class="btn btn-lg btn-secondary"
+                      title="Загрузка"
+                      data-bs-toggle="modal"
+                      data-bs-target="#modal-container"
+                      hx-get="{% url 'mainproducts-sync'%}"
+                      hx-target="#modal-container .modal-content"
+                      hx-swap="innerHTML">
+                <span>Обновить</span>
+              </button>'''),
           css_class='d-flex justify-content-center btn-group mt-4'
         )
     )
