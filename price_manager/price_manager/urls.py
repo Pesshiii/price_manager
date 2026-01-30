@@ -37,6 +37,7 @@ urlpatterns = [
     path('supplier/<int:pk>/settings/', spm_views.SettingList.as_view(), name='settings'),
     path('setting/<int:pk>/', spm_views.SettingUpdate.as_view(), name='setting-update'),
     path('setting/<int:pk>/table', spm_views.XMLTableView.as_view(), name='setting-table'),
+    path('setting/<int:pk>/upload/<int:state>', spm_views.setting_upload, name='setting-upload'),
 
     path('supplier/<int:pk>/pricemanagers/', ppm_views.PriceManagerList.as_view(), name='pricemanagers'),
     path('pricemanager/<int:pk>/', ppm_views.PriceManagerUpdate.as_view(), name='pricemanager-update'),

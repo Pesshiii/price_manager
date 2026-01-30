@@ -54,8 +54,6 @@ class SupplierDetail(SingleTableMixin, FilterView):
   template_name = 'supplier/detail.html'
   def get(self, request, *args, **kwargs):
     self.supplier = Supplier.objects.get(pk=self.kwargs.get('pk', None))
-    # for setting in self.supplier.settings.all():
-    #   setting.delete()
     return super().get(request, *args, **kwargs)
   def get_table_data(self):
     return super().get_table_data().filter(supplier=self.supplier)
@@ -114,15 +112,24 @@ class UploadSupplierFile(CreateView):
       supplier_file.delete()
     instance.save()
     if instance.setting.is_bound():
-      products = load_setting(instance.setting.pk)
-      messages.info(self.request, f"Загрузка файла через настройку {instance.setting.name}. Обработано {len(products[0])} товаров. Добавлено {len(products[1])} товаров главного прайса")
-      return HttpResponseClientRefresh()
+      return redirect(reverse('setting-upload', kwargs={'pk': instance.setting.pk, 'state':0}))
     else: 
-      return redirect(reverse('setting-update', kwargs={'pk': instance.setting.pk}))
+      return redirect(reverse('setting-update', kwargs={'pk': instance.setting.pk, 'state':0}))
 
   def get_success_url(self):
     return reverse('supplier-upload', kwargs={'pk':self.kwargs.get('pk')})
   
+def setting_upload(request, pk, state):
+  setting = Setting.objects.get(pk=pk)
+  if state == 0:
+    return render(request, 'supplier_product/partials/load_partial.html', {'pk':pk, 'state':0})
+  if setting.is_bound():
+    products = load_setting(pk)
+    messages.info(request, f"Загрузка файла через настройку {setting.name}. Обработано {len(products[0])} товаров. Добавлено {len(products[1])} товаров главного прайса")
+  else:
+    messages.error(request, f'Не указано поле артикула и\\или наименования')
+  return render(request, 'supplier_product/partials/load_partial.html', {'pk':pk, 'state': 1})
+
 class XMLTableView(TemplateView):
   template_name = 'supplier_product/partials/csv_table.html'
   def get_context_data(self, **kwargs) -> dict[str, Any]:
@@ -197,8 +204,7 @@ class SettingUpdate(UpdateView):
           if item['key'] == '': continue
           DictItem.objects.get_or_create(link=mlink, key=item['key'], value=item['value'])
     if post.get('action') and post.get('action') == 'upload':
-      products = load_setting(pk)
-      messages.info(self.request, f'Обработано {len(products[0])} товаров. Добавлено {len(products[1])} товаров главного прайса')
+      return redirect(reverse('setting-upload', kwargs={'pk': setting.pk, 'state':0}))
     return self.form_invalid(form)
   def get_context_data(self, **kwargs) -> dict[str, Any]:
     context = super().get_context_data(**kwargs)
