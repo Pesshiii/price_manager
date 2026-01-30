@@ -215,7 +215,8 @@ def load_setting(pk):
   df = get_df(pk, nrows=None)
   for link in links:
     if link.value == '': continue
-    df[link.value] = df[link.value].fillna(link.initial)
+    if link.initial:
+      df[link.value] = df[link.value].fillna(link.initial)
     for dict in link.dicts.all():
       df[link.value] = df[link.value].replace(dict.key, dict.value)
     df = df.rename(columns={link.value : link.key})

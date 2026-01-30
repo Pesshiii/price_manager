@@ -1,5 +1,5 @@
 from django.contrib import admin
-from .models import SupplierProduct, SupplierFile
+from .models import SupplierProduct, SupplierFile, Setting
 
 
 @admin.register(SupplierProduct)
@@ -15,3 +15,9 @@ class SupplierProductAdmin(admin.ModelAdmin):
 class SupplierFileAdmin(admin.ModelAdmin):
     # показываем все поля модели
     list_display = ['pk', 'setting', 'status', 'logs']
+
+
+@admin.register(Setting)
+class SupplierFileAdmin(admin.ModelAdmin):
+    # показываем все поля модели
+    list_display = ['pk', 'name']
