@@ -70,7 +70,7 @@ class SupplierProductListTable(tables.Table):
     ]
     template_name = 'django_tables2/bootstrap5.html'
     attrs = {
-      'class': 'table table-auto table-stripped table-hover clickable-rows'
+      'class': 'table table-auto table-stripped table-hover clickable-rows table-sm supplier-products-table'
       }
     
 class LinkListTable(tables.Table):

@@ -100,4 +100,26 @@
 {% endblock %}
 
 {% block script %}
+<style>
+  .supplier-products-table th {
+    white-space: normal;
+    font-size: 0.85rem;
+    vertical-align: bottom;
+  }
+
+  .supplier-products-table td {
+    white-space: nowrap;
+    vertical-align: top;
+  }
+
+  .supplier-products-table td:nth-child(4) {
+    white-space: normal;
+    min-width: 220px;
+  }
+
+  .supplier-products-table td:nth-last-child(1),
+  .supplier-products-table th:nth-last-child(1) {
+    white-space: nowrap;
+  }
+</style>
 {% endblock %}
