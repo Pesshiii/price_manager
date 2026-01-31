@@ -58,9 +58,68 @@
         <div class="col-lg-8 col-xl-9 mb-5">
           {% load export_url from django_tables2 %}
 
-          <div class="table-responsive card p-3 shadow-sm overflow-visible">
+          <div class="card p-3 shadow-sm">
+            <div class="d-flex flex-wrap align-items-center justify-content-between gap-2 mb-3">
+              <div>
+                <h5 class="mb-1">Товары поставщика</h5>
+                <p class="text-muted mb-0 small">Настройте видимость столбцов, чтобы таблица помещалась по ширине.</p>
+              </div>
+              <div class="dropdown">
+                <button class="btn btn-outline-secondary btn-sm dropdown-toggle" type="button" data-bs-toggle="dropdown" aria-expanded="false">
+                  Столбцы
+                </button>
+                <div class="dropdown-menu dropdown-menu-end p-3 supplier-columns-menu">
+                  <div class="form-check">
+                    <input class="form-check-input column-toggle" type="checkbox" value="discounts" id="col-discounts" checked>
+                    <label class="form-check-label" for="col-discounts">Группа скидок</label>
+                  </div>
+                  <div class="form-check">
+                    <input class="form-check-input column-toggle" type="checkbox" value="article" id="col-article" checked>
+                    <label class="form-check-label" for="col-article">Артикул</label>
+                  </div>
+                  <div class="form-check">
+                    <input class="form-check-input column-toggle" type="checkbox" value="name" id="col-name" checked>
+                    <label class="form-check-label" for="col-name">Название</label>
+                  </div>
+                  <div class="form-check">
+                    <input class="form-check-input column-toggle" type="checkbox" value="supplier_price" id="col-supplier-price" checked>
+                    <label class="form-check-label" for="col-supplier-price">Цена поставщика</label>
+                  </div>
+                  <div class="form-check">
+                    <input class="form-check-input column-toggle" type="checkbox" value="rrp" id="col-rrp" checked>
+                    <label class="form-check-label" for="col-rrp">РРЦ</label>
+                  </div>
+                  <hr class="my-2">
+                  <div class="form-check">
+                    <input class="form-check-input column-toggle" type="checkbox" value="main_basic_price" id="col-main-basic" checked>
+                    <label class="form-check-label" for="col-main-basic">Базовая (главный прайс)</label>
+                  </div>
+                  <div class="form-check">
+                    <input class="form-check-input column-toggle" type="checkbox" value="main_m_price" id="col-main-m" checked>
+                    <label class="form-check-label" for="col-main-m">Цена ИМ (главный прайс)</label>
+                  </div>
+                  <div class="form-check">
+                    <input class="form-check-input column-toggle" type="checkbox" value="main_wholesale_price" id="col-main-wholesale" checked>
+                    <label class="form-check-label" for="col-main-wholesale">Опт (главный прайс)</label>
+                  </div>
+                  <div class="form-check">
+                    <input class="form-check-input column-toggle" type="checkbox" value="main_wholesale_price_extra" id="col-main-wholesale-extra" checked>
+                    <label class="form-check-label" for="col-main-wholesale-extra">Опт 1 (главный прайс)</label>
+                  </div>
+                  <div class="form-check">
+                    <input class="form-check-input column-toggle" type="checkbox" value="actions" id="col-actions" checked>
+                    <label class="form-check-label" for="col-actions">Действия</label>
+                  </div>
+                  <div class="mt-2">
+                    <button class="btn btn-link btn-sm p-0 text-decoration-none reset-columns" type="button">Сбросить</button>
+                  </div>
+                </div>
+              </div>
+            </div>
+            <div class="table-responsive supplier-table-wrap">
             {% load django_tables2 %}
             {% render_table table %}
+            </div>
           </div>
         </div>
       </div>
@@ -112,7 +171,7 @@
     vertical-align: top;
   }
 
-  .supplier-products-table td:nth-child(4) {
+  .supplier-products-table td[data-col="name"] {
     white-space: normal;
     min-width: 220px;
   }
@@ -121,5 +180,69 @@
   .supplier-products-table th:nth-last-child(1) {
     white-space: nowrap;
   }
+
+  .supplier-table-wrap {
+    overflow-x: auto;
+  }
+
+  .supplier-columns-menu {
+    min-width: 260px;
+  }
 </style>
+<script>
+  (function () {
+    const supplierId = '{{ supplier.id }}';
+    const storageKey = `supplier-columns-${supplierId}`;
+    const toggles = document.querySelectorAll('.column-toggle');
+    const resetBtn = document.querySelector('.reset-columns');
+
+    const applyVisibility = (column, visible) => {
+      document.querySelectorAll(`[data-col="${column}"]`).forEach((cell) => {
+        cell.classList.toggle('d-none', !visible);
+      });
+    };
+
+    const loadState = () => {
+      try {
+        const raw = localStorage.getItem(storageKey);
+        return raw ? JSON.parse(raw) : null;
+      } catch (err) {
+        return null;
+      }
+    };
+
+    const saveState = (state) => {
+      localStorage.setItem(storageKey, JSON.stringify(state));
+    };
+
+    const state = loadState();
+    if (state) {
+      toggles.forEach((toggle) => {
+        if (Object.prototype.hasOwnProperty.call(state, toggle.value)) {
+          toggle.checked = state[toggle.value];
+          applyVisibility(toggle.value, toggle.checked);
+        }
+      });
+    }
+
+    toggles.forEach((toggle) => {
+      toggle.addEventListener('change', () => {
+        applyVisibility(toggle.value, toggle.checked);
+        const nextState = loadState() || {};
+        nextState[toggle.value] = toggle.checked;
+        saveState(nextState);
+      });
+    });
+
+    if (resetBtn) {
+      resetBtn.addEventListener('click', () => {
+        toggles.forEach((toggle) => {
+          toggle.checked = true;
+          applyVisibility(toggle.value, true);
+        });
+        localStorage.removeItem(storageKey);
+      });
+    }
+  })();
+</script>
 {% endblock %}
