@@ -8,6 +8,6 @@
 <form action="" method="POST">
   {% csrf_token %}
   <button type="submit" class="btn btn-primary"> Да</button>
-  <button onclick="window.location.href=''" class="btn btn-secondary">Отмена</a>
+  <button type="button" onclick="window.location.href='{% url 'supplier' %}'" class="btn btn-secondary">Отмена</a>
 </form>
 {% endblock %}

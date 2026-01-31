@@ -138,16 +138,44 @@ class MainProductResource(resources.ModelResource):
         report_skipped = True
 
     def dehydrate_supplier_prices(self, mainproduct):
-        """Format all supplier prices for this main product"""
-        supplier_product = mainproduct.supplier_product.all()
-        if not supplier_product:
-            return "No suppliers"
-        
+        """
+        Format all supplier prices for this main product.
+        Поддерживает разные варианты названий связи.
+        """
+
+        # 1) FK-вариант (если связь одиночная)
+        sp_fk = getattr(mainproduct, "supplier_product", None)
+        if sp_fk is not None and not hasattr(sp_fk, "all"):
+            sp_list = [sp_fk] if sp_fk else []
+
+        else:
+            # 2) ManyToMany / reverse FK варианты (если связь множественная)
+            rel = (
+                    getattr(mainproduct, "supplier_products", None) or
+                    getattr(mainproduct, "supplier_product", None) or
+                    getattr(mainproduct, "supplierpricerow_set", None) or
+                    getattr(mainproduct, "supplierproduct_set", None)
+            )
+
+            if rel is None:
+                return ""
+
+            sp_list = list(rel.all())
+
+        if not sp_list:
+            return ""
+
         price_list = []
-        for sp in supplier_product:
-            price_list.append(f"{sp.supplier.name}: {sp.supplier_price}({sp.rrp}) {sp.supplier.currency}")
-        
-        return " | ".join(price_list)
+        for sp in sp_list:
+            supplier_name = getattr(getattr(sp, "supplier", None), "name", "") or ""
+            supplier_price = getattr(sp, "supplier_price", "") or ""
+            rrp = getattr(sp, "rrp", "") or ""
+            currency = getattr(getattr(getattr(sp, "supplier", None), "currency", None), "name", "") or getattr(
+                getattr(sp, "supplier", None), "currency", "") or ""
+
+            price_list.append(f"{supplier_name}: {supplier_price}({rrp}) {currency}".strip())
+
+        return " | ".join([p for p in price_list if p])
 
     def get_import_fields(self, selected_fields=None):
         """Ограничить набор импортируемых полей"""

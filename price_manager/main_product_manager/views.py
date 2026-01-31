@@ -15,33 +15,27 @@ from django.views.generic import (View,
                                   FormView,
                                   TemplateView)
 from django.contrib.auth.mixins import LoginRequiredMixin
-from django.urls import reverse, reverse_lazy
+from django.urls import reverse
 from typing import Optional, Any, Dict, Iterable
 from collections import defaultdict, OrderedDict
-from django.db.models import Count, Prefetch, F, Q, Value, Max, Subquery, OuterRef, IntegerField, ExpressionWrapper
+from django.db.models import Count, Prefetch, F, Q, Value, Max, Subquery, OuterRef, IntegerField, ExpressionWrapper, DateTimeField
 from django.contrib.postgres.search import SearchVector
 # Импорты из сторонних приложений
 from django_tables2 import SingleTableView, RequestConfig, SingleTableMixin
 from django_filters.views import FilterView, FilterMixin
-from django.core.paginator import Paginator
-from django.http import HttpResponse
-
 from dal import autocomplete
-from django_htmx.http import HttpResponseClientRedirect, HttpResponseClientRefresh, retarget
-from django.template.context_processors import csrf
-from crispy_forms.utils import render_crispy_form
-
+from django_htmx.http import retarget
 
 # Импорты моделей, функций, форм, таблиц
 from .models import *
 from supplier_product_manager.models import SupplierProduct
-from supplier_manager.models import Category
+from supplier_manager.models import Discount
 from file_manager.models import FileModel
 from core.functions import *
 from .forms import *
 from .tables import *
 from .filters import *
-from product_price_manager.views import update_prices, update_pricetags
+from product_price_manager.views import update_prices
 
 # Импорты сторонних библиотек
 from decimal import Decimal, InvalidOperation
@@ -49,85 +43,269 @@ import pandas as pd
 import re
 import math
 
-class MainPage(FilterView):
+
+def build_category_tree(categories):
+  children_map = defaultdict(list)
+  for category in categories:
+    children_map[category.parent_id].append(category)
+  for siblings in children_map.values():
+    siblings.sort(key=lambda item: item.name.lower())
+  def build_nodes(parent_id):
+    nodes = []
+    for category in children_map.get(parent_id, []):
+      nodes.append({
+          'category': category,
+          'children': build_nodes(category.id)
+      })
+    return nodes
+  return build_nodes(None)
+
+
+def _collect_int_values(values):
+  result = set()
+  for value in values:
+    try:
+      result.add(int(value))
+    except (TypeError, ValueError):
+      continue
+  return result
+
+
+def _expand_category_ids_with_ancestors(category_ids):
+  expanded_ids = set(category_ids)
+  to_process = {category_id for category_id in expanded_ids if category_id is not None}
+  while to_process:
+    parents = set(
+        Category.objects
+        .filter(id__in=to_process)
+        .values_list('parent_id', flat=True)
+    )
+    parents.discard(None)
+    new_ids = parents - expanded_ids
+    if not new_ids:
+      break
+    expanded_ids.update(new_ids)
+    to_process = new_ids
+  expanded_ids.discard(None)
+  return expanded_ids
+
+
+def _get_search_filtered_queryset(request):
+  filter_data = request.GET.copy()
+  for field in ('category', 'supplier', 'manufacturer'):
+    filter_data.pop(field, None)
+  filter_data.pop('page', None)
+  filterset = MainProductFilter(data=filter_data, queryset=MainProduct.objects.all())
+  return filterset.qs
+
+
+def get_main_filter_context(request):
+  filterset = MainProductFilter(data=request.GET or None, queryset=MainProduct.objects.all())
+  filter_form = filterset.form
+
+  queryset = _get_search_filtered_queryset(request)
+
+  selected_supplier_ids = _collect_int_values(request.GET.getlist('supplier'))
+  selected_manufacturer_ids = _collect_int_values(request.GET.getlist('manufacturer'))
+  selected_category_ids = _collect_int_values(request.GET.getlist('category'))
+
+  supplier_ids = set(queryset.values_list('supplier_id', flat=True))
+  supplier_ids.discard(None)
+  supplier_ids.update(selected_supplier_ids)
+
+  manufacturer_ids = set(queryset.values_list('manufacturer_id', flat=True))
+  manufacturer_ids.discard(None)
+  manufacturer_ids.update(selected_manufacturer_ids)
+
+  category_ids = set(queryset.values_list('category_id', flat=True))
+  category_ids.discard(None)
+  category_ids.update(selected_category_ids)
+  category_ids = _expand_category_ids_with_ancestors(category_ids)
+
+  supplier_queryset = Supplier.objects.filter(id__in=supplier_ids).order_by('name') if supplier_ids else Supplier.objects.none()
+  manufacturer_queryset = Manufacturer.objects.filter(id__in=manufacturer_ids).order_by('name') if manufacturer_ids else Manufacturer.objects.none()
+  category_queryset = Category.objects.filter(id__in=category_ids).select_related('parent') if category_ids else Category.objects.none()
+
+  filter_form.fields['supplier'].queryset = supplier_queryset
+  filter_form.fields['manufacturer'].queryset = manufacturer_queryset
+  filter_form.fields['category'].queryset = category_queryset
+
+  available_suppliers = list(supplier_queryset)
+  available_manufacturers = list(manufacturer_queryset)
+
+  selected_categories = {str(value) for value in request.GET.getlist('category') if value}
+
+  category_tree = build_category_tree(list(category_queryset))
+
+  return {
+      'filter_form': filter_form,
+      'category_tree': category_tree,
+      'selected_categories': selected_categories,
+      'available_suppliers': available_suppliers,
+      'available_manufacturers': available_manufacturers,
+  }
+
+
+class MainPage(SingleTableMixin, FilterView):
   model = MainProduct
   filterset_class = MainProductFilter
-  template_name = 'mainproduct/list.html'
-  def get_template_names(self) -> list[str]:
-      if self.request.htmx:
-        if not self.request.GET.get('page', 1) == 1:
-          return ["mainproduct/partials/tables_bycat.html#category-table"]
-        return ["mainproduct/partials/tables_bycat.html"]
-      return super().get_template_names()
-  def get_context_data(self, **kwargs) -> dict[str, Any]:
-    context = super().get_context_data(**kwargs)
-    ctx = {}
-    ctx.update(csrf(self.request))
-    queryset = context['object_list']
-    categories = Paginator(
-        Category.objects.filter(
-        pk__in=queryset.prefetch_related('category').values_list('category__pk')
-      ).prefetch_related(
-        'mainproducts'
-      ).annotate(
-        mps_count=Count(F('mainproducts'))
-      ).filter(~Q(mps_count=0)),
-      5
-    ).page(self.request.GET.get('page', 1))
-    context['categories'] =  categories
-    context['has_nulled'] = queryset.filter(category__isnull=True).exists()
-    context['nulled_mp_count'] = queryset.filter(category__isnull=True).count()
-    form_html = render_crispy_form(self.filterset.form, context=ctx)
-    context['rendered_form'] = form_html
-    self.queryset
-    return context
-  def render_to_response(self, context, **response_kwargs):
-    response = super().render_to_response(context, **response_kwargs)
-    if self.request.htmx and self.request.GET.get('page', 1) == 1:
-      response['Hx-Push'] = self.request.build_absolute_uri()
-    return response
+  table_class = MainProductListTable
+  template_name = 'main/main.html'
+  table_pagination = False
 
-
-class MainProductTableView(SingleTableView):
-  table_class=MainProductTable
-  template_name='mainproduct/partials/table.html'
-  model = MainProduct
-  paginate_by = 10
-  def get(self, request, *args, **kwargs):
-    if not self.request.htmx:
-      return redirect(reverse_lazy('mainproducts'))
-    return super().get(request, *args, **kwargs)
   def get_table(self, **kwargs):
-    self.category_pk = self.kwargs.get('category_pk', None)
-    if self.category_pk:
-      url = reverse('mainproduct-table-bycat',kwargs={'category_pk': self.category_pk})
-    else:
-      url = reverse('mainproduct-table-nocat')
-    return super().get_table(**kwargs, request=self.request, url=url, prefix=f'{self.category_pk if self.category_pk else 0}-')
-  def get_table_data(self):
-    qs = MainProductFilter(self.request.GET).qs.prefetch_related('category')
-    if not self.category_pk:
-      return qs.filter(category__isnull=True)
-    return qs.filter(category=Category.objects.get(pk=self.category_pk))
-  def get_context_data(self, **kwargs) -> dict[str, Any]:
-      context = super().get_context_data(**kwargs)
-      if self.category_pk:
-        context["category"] = Category.objects.get(pk=self.category_pk)
-      return context
+    return super().get_table(**kwargs, request=self.request)
+
+  def get_context_data(self, **kwargs):
+    context = super().get_context_data(**kwargs)
+    filter_context = get_main_filter_context(self.request)
+    context.update(filter_context)
+
+    filterset = context.get('filter')
+    category_tables = []
+
+    if filterset is not None:
+      filtered_records = filterset.qs.select_related('category')
+
+      if len(filtered_records) > 10000:
+        category_table = self.table_class(filtered_records, request=self.request)
+        RequestConfig(self.request).configure(category_table)
+        category_tables.append({
+            'category': Category.objects.none(),
+            'table': category_table,
+        })
+      else:
+        grouped_records = OrderedDict()
+        grouped_records[None] = {
+                  'category': Category.objects.none(),
+                  'records': list(filtered_records.filter(category__isnull=True))
+              }
+        for category in Category.objects.all():
+          if not list(filtered_records.filter(category=category)) == []:
+            grouped_records[category.pk] = {
+                  'category': category,
+                  'records': list(filtered_records.filter(category=category))
+              }
+        sorted_groups = sorted(
+            grouped_records.values(),
+            key=lambda item: (
+                item['category'] is None,
+                (item['category'].name.lower() if item['category'] else ''),
+            )
+        )
+
+        for group in sorted_groups:
+          category_table = self.table_class(group['records'], request=self.request)
+          RequestConfig(self.request, paginate=False).configure(category_table)
+          category_tables.append({
+              'category': group['category'],
+              'table': category_table,
+          })
+
+    context['category_tables'] = category_tables
+
+    filter_form = filter_context['filter_form']
+    dynamic_url = reverse('main-filter-options')
+    hx_attrs = {
+        'hx-get': dynamic_url,
+        'hx-target': '#filters-update-sink',
+        'hx-include': '#main-filter-form',
+    }
+
+    search_field = filter_form.fields['search']
+    search_field.widget.attrs.update({
+        **hx_attrs,
+        'hx-trigger': 'keyup changed delay:500ms',
+        'autocomplete': 'off',
+    })
+
+    anti_search_field = filter_form.fields['anti_search']
+    anti_search_field.widget.attrs.update({
+        **hx_attrs,
+        'hx-trigger': 'keyup changed delay:500ms',
+        'autocomplete': 'off',
+    })
+
+    if 'available' in filter_form.fields:
+      filter_form.fields['available'].widget.attrs.update({
+          **hx_attrs,
+          'hx-trigger': 'change',
+      })
+
+    context['table_update_url'] = reverse('main-table')
+    return context
 
 
+class MainFilterOptionsView(View):
+  template_name = 'main/includes/dynamic_filters.html'
+
+  def get(self, request, *args, **kwargs):
+    context = get_main_filter_context(request)
+    return render(request, self.template_name, context)
+
+
+class MainTableView(MainPage):
+  template_name = 'main/includes/table.html'
+
+  
 # Обработка продуктов главного прайса
 
 def sync_main_products(request, **kwargs):
   """Обновляет остатки и применяет наценки в MainProduct из SupplierProduct"""
-  # Category.objects.rebuild()
-  # messages.info(request, f"Векторы поиска обновлены у {MainProduct.recalculate_search_vectors()} товаров")
-  messages.info(request, f"Наценки обновлены у {update_pricetags()} товаров")
-  messages.info(request, f"Цены обновлены у {update_prices()} товаров")
-  messages.info(request, f"Остатки обновлены у {update_stocks()} товаров")
-  update_logs()
+  supplier_products = SupplierProduct.objects.select_related('main_product', 'supplier').filter(main_product__isnull=False)
 
-  return HttpResponseClientRedirect(reverse('mainproducts'))
+  supplier_products = supplier_products.filter(
+      ~Q(main_product__stock=F('stock')))
+  
+  mps = MainProduct.objects.filter(id__in=supplier_products.values_list('main_product_id', flat=True))
+
+  calc_qs = (
+    mps.filter(pk=OuterRef("pk"))
+    .annotate(
+        _changed_stock=ExpressionWrapper(
+            Max(F('supplier_products__stock')),
+            output_field=IntegerField(),
+        )
+    )
+    .values("_changed_stock")[:1]
+  )
+  
+  mps = mps.annotate(
+        changed_stock=Subquery(calc_qs, output_field=IntegerField())
+    )
+  
+  
+  calc_qs = (
+    mps.filter(pk=OuterRef("pk"))
+    .annotate(
+        _sua=ExpressionWrapper(
+            F('supplier__stock_updated_at'),
+            output_field=DateTimeField(),
+        )
+    )
+    .values("_sua")[:1]
+  )
+  
+  
+  mps = mps.annotate(
+        sua=Subquery(calc_qs, output_field=DateTimeField())
+    )
+
+  updated = mps.update(
+      stock=F('changed_stock'),
+      stock_updated_at=F('sua'),
+      )
+  
+  
+
+  MainProductLog.objects.bulk_create((MainProductLog(
+      main_product=mp,
+      stock=mp.stock,
+    ) for mp in mps))
+  messages.success(request, f"Остатки обновлены у {updated} товаров")
+
+  update_prices(request)
+  return redirect('main')
 
 
 
@@ -167,7 +345,7 @@ class MainProductUpdate(UpdateView):
       return redirect(reverse('mainproduct-detail', kwargs=self.kwargs))
     else:
       return redirect(reverse('mainproduct-update', kwargs=self.kwargs))
-
+    
 class MainProductLogList(SingleTableView):
   model = MainProductLog
   table_class = MainProductLogTable
@@ -178,4 +356,3 @@ class MainProductLogList(SingleTableView):
     if not self.request.htmx:
       return redirect(reverse('mainproduct-info', kwargs=self.kwargs))
     return super().get(request, *args, **kwargs)
-  

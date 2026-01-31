@@ -5,5 +5,5 @@ from django.core.validators import FileExtensionValidator
 
 class FileModel(models.Model):
   file = models.FileField(verbose_name='Файл',
-                         validators=[FileExtensionValidator(allowed_extensions=['xls', 'xlsx', 'xlsm', 'csv'])],
+                         validators=[FileExtensionValidator(allowed_extensions=['xls', 'xlsx', 'xlsm'])],
                          null=False)

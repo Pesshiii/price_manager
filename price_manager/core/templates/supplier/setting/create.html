@@ -4,6 +4,20 @@
 Новый поставщик
 {% endblock %}
 
+{% block style %}
+  .table-scroll-top {
+    overflow-x: auto;
+    overflow-y: hidden;
+    margin-bottom: .5rem;
+  }
+  .table-scroll-top > div {
+    height: 1px;        /* «заглушка», которая задаёт ширину */
+  }
+  .table-scroll {
+    overflow-x: auto;
+  }
+{% endblock %}
+
 {% block body %}
   <div class="container">
     <h1>Новая настройка</h1>
@@ -11,47 +25,69 @@
   <form method="post">
     {% csrf_token %}
     {% load django_tables2 %}
-    <div class="form-control d-flex">
-      <div class="container">
-        {{form.as_p}}
-      </div>
-      {% load special_tags %}
-      <div class="accordion accordion-flush w-75" id="accordion">
-        {{initial_formset.management_form}}
-        {% for key, value in dict_forms %}
-        <div class="accordion-item">
-          <h2 class="accordion-header">
-            <button class="accordion-button collapsed" type="button" data-bs-toggle="collapse" data-bs-target="#flush-collapse{{key}}" aria-expanded="false" aria-controls="flush-collapse{{key}}">
-              {{LINKS|get_item:key}}
-            </button>
-          </h2>
-          <div id="flush-collapse{{key}}" class="accordion-collapse collapse" data-bs-parent="#accordion">
-            <div class="accordion-body">
-                {% with initial_form=initial_forms|get_item:key %}
-                {{initial_form.as_table}}
-                {% endwith %}
-                {{value.management_form}}
-                {% with dict_table=tables|get_item:key %}
-                {% render_table dict_table %}
-                {% endwith %}
-                <div class="text-center">
-                  <button class="btn" type="submit" name="{{key}}_action" value="add"><i class="bi bi-plus-lg bg-success-subtle"></i></button>
-                </div>
+    <div class="container-fluid">
+      <div class="row">
+        <div class="card col-md-8">
+          <div class="row container mt-4">
+            {% for item in form %}
+            <label>{{item.label}}</label>
+            <div class="mb-r">
+              {{ item}}
+            </div>
+            {% endfor %}
+            <div class="container mt-4 mb-4">
+              <button type="submit" class="btn btn-primary" value="apply" name="submit-btn">Применить</button>
+              <button type="submit" class="btn btn-secondary" value="save" name="submit-btn">Сохранить</button>
+            </div>
+          </div>
+          <div class="row p-3">
+          <div class="table-scroll-top"><div></div></div>
+            <div class="table-responsive table-scroll">
+              {% render_table table %}
             </div>
           </div>
         </div>
-        {% endfor %}
+        <div class="col-md-4 accordion" id="accordionDict">
+          {% for dict in dict_tables %}
+          {{dict}}
+          {% endfor %}
+        </div>
       </div>
     </div>
-      <button type="submit" name="submit-btn" value="apply">Применить</button>
-      <button type="submit" name="submit-btn" value="save">Сохранить</button>
-      <div class="container table-responsive">
-        {{ link_factory.management_form }}
-        {% render_table table %}
-      </div>
   </form>
 {% endblock %}
 
 {% block script %}
+<style>
+  .table-scroll-top {
+    overflow-x: auto;
+    overflow-y: hidden;
+    margin-bottom: .5rem;
+  }
+  .table-scroll-top > div {
+    height: 1px;        /* «заглушка», которая задаёт ширину */
+  }
+  .table-scroll {
+    overflow-x: auto;
+  }
+</style>
+<script>
+document.addEventListener('DOMContentLoaded', function () {
+  const topScroll = document.querySelector('.table-scroll-top');
+  const tableScroll = document.querySelector('.table-scroll');
+  if (!topScroll || !tableScroll) return;
 
+  const spacer = topScroll.firstElementChild;
+  const syncWidth = () => spacer.style.width = tableScroll.scrollWidth + 'px';
+  syncWidth();
+  window.addEventListener('resize', syncWidth);
+
+  topScroll.addEventListener('scroll', () => {
+    tableScroll.scrollLeft = topScroll.scrollLeft;
+  });
+  tableScroll.addEventListener('scroll', () => {
+    topScroll.scrollLeft = tableScroll.scrollLeft;
+  });
+});
+</script>
 {% endblock %}

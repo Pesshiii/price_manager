@@ -4,6 +4,17 @@
 Поставщики
 {% endblock %}
 
+{% block style %}
+  .status-indicator {
+      width: 10px;
+      height: 10px;
+      border-radius: 50%;
+      display: inline-block;
+      margin-right: 6px;
+  }
+
+{% endblock %}
+
 {% block body %}
   <button onclick="window.location.href='/supplier/create/'">Добавить</button>
   {% load django_tables2 %}

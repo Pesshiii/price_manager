@@ -11,29 +11,21 @@ from core.functions import get_field_details
 import pandas as pd
 
 class SettingListTable(tables.Table):
+  '''Таблица отображаемая на странице Поставщик/Настройки'''
+  actions = tables.TemplateColumn(
+    template_name='supplier/setting/actions.html',
+    orderable=False,
+    verbose_name='Действия',
+    attrs = {'td': {'class': 'text-right'}}
+  )
+  name = tables.LinkColumn('upload', args=['setting-update', tables.A('pk')])
   class Meta:
     model = Setting
-    fields = ['name']
-    template_name = 'core/includes/table_htmx.html'
+    fields = [field for field in get_field_details(model).keys()]
+    template_name = 'django_tables2/bootstrap5.html'
     attrs = {
       'class': 'table table-auto table-stripped table-hover clickable-rows'
       }
-  def render_name(self, record):
-    return format_html("""
-      <a
-        title="Обновить"
-        class="btn btn-sm btn-primary"
-        data-bs-toggle="modal"
-        data-bs-target="#modal-container"
-        hx-get="{}"
-        hx-target="#modal-container .modal-content"
-        hx-swap="innerHTML">
-        <i class="bi bi-pencil-square"></i>
-      </a>
-        <span>{}</span>
-      """, reverse('setting-update', kwargs={'pk':record.pk}), record.name)
-  
-
 
 class SupplierProductListTable(tables.Table):
   '''Таблица отображаемая на странице Постащик:имя'''
@@ -60,6 +52,62 @@ class LinkListTable(tables.Table):
     attrs = {
       'class': 'table table-auto table-stripped table-hover clickable-rows'
       }
+
+
+class HTMLColumn(tables.Column):
+  def render_header(self, bound_column, **kwargs):
+    return mark_safe(str(bound_column.header))
+
+def get_link_create_table():
+  class LinkCreateTable(tables.Table):
+    """Таблица с выбиралками на хэдэрах для создания Настроек"""
+    class Meta:
+      template_name = 'django_tables2/bootstrap5.html'
+      attrs = {'class': 'table table-auto table-striped table-bordered'}
+    def __init__(self, *args, **kwargs):
+      # Remove dataframe from kwargs to avoid passing it to parent
+      columns = kwargs.pop('columns', None)
+      # Initialize columns based on DataFrame columns
+      links = kwargs.pop('links', {})
+      for i in range(len(columns)):
+        if columns[i] in links:
+          initial = {'key': links[columns[i]], 'value': columns[i]}
+        else:
+          initial = {'key':'', 'value':columns[i]}
+        self.base_columns[columns[i]] = HTMLColumn(
+          verbose_name=format_html('''
+              <div class="header-content">
+                  <div class="header-title">
+                    <span>{}</span>
+                    <div class="header-widget">
+                        {}
+                    </div>
+                  </div>
+              </div>''', 
+              columns[i],
+              LinkForm(initial=initial, 
+                        prefix=f'link-form-{i}').as_p()),
+          orderable=False
+        )
+      super().__init__(*args, **kwargs)
+  return LinkCreateTable
+
+
+def get_upload_list_table():
+  """Предварительное отображение загружаемых данных"""
+  class UploadListTable(tables.Table):
+    class Meta:
+      template_name = 'django_tables2/bootstrap5.html'
+      attrs = {'class': 'table table-auto table-striped table-bordered'}
+    def __init__(self, *args, **kwargs):
+      # Remove dataframe from kwargs to avoid passing it to parent
+      links = dict(kwargs.pop('links', None))
+      # Initialize columns based on DataFrame columns
+      if links is not None:
+        for column, field in links.items():
+          self.base_columns[column] = tables.Column(verbose_name=f'{column}/{field}')
+      super().__init__(*args, **kwargs)
+  return UploadListTable
 
 
 

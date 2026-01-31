@@ -4,10 +4,6 @@ from django.conf import settings
 from django.contrib.auth.views import redirect_to_login
 from django.shortcuts import resolve_url
 from django.urls import NoReverseMatch
-from django.http import HttpResponse
-from django_htmx.http import reswap, trigger_client_event
-from django.contrib import messages
-
 
 
 class LoginRequiredMiddleware:
@@ -74,23 +70,3 @@ class LoginRequiredMiddleware:
         if not path.startswith("/"):
             path = "/" + path
         return path
-
-
-
-def toaster_middleware(get_response):
-    """
-    Solution for dynamic toasters in django by:
-        Josh Karamuth(https://github.com/confuzeus)
-    For more information check out his blog:
-        https://joshkaramuth.com/blog/django-messages-toast-htmx/
-    """
-    def middleware(request):
-        response = get_response(request)
-
-        storage = messages.get_messages(request)
-        if len(storage) > 0:
-            response = trigger_client_event(response, "toasts:fetch", after="settle")
-
-        return response
-
-    return middleware

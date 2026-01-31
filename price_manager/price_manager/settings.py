@@ -25,7 +25,7 @@ SECRET_KEY = 'django-insecure-q_sht-smtwbq$s_j8*f!u#z-)fmfne5^uk8x9edm_z6j=z^5qo
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = True
 
-ALLOWED_HOSTS = ["127.0.0.1", "localhost", "192.168.0.119"]
+ALLOWED_HOSTS = ["127.0.0.1", "localhost", "192.168.0.118", "192.168.0.144"]
 
 
 # Application definition
@@ -38,10 +38,19 @@ INSTALLED_APPS = [
     'django.contrib.messages',
     'django.contrib.staticfiles',
     'django.contrib.postgres',
-    'core',
     'django_tables2',
     'import_export',
     'django_filters',
+    'dal',
+    'dal_select2',
+    'core',
+    'file_manager',
+    'supplier_product_manager',
+    'product_price_manager',
+    'main_product_manager',
+    'supplier_manager',
+    'django_htmx',
+    'template_partials',
 ]
 
 MIDDLEWARE = [
@@ -50,8 +59,10 @@ MIDDLEWARE = [
     'django.middleware.common.CommonMiddleware',
     'django.middleware.csrf.CsrfViewMiddleware',
     'django.contrib.auth.middleware.AuthenticationMiddleware',
+    'core.middleware.LoginRequiredMiddleware',
     'django.contrib.messages.middleware.MessageMiddleware',
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
+    "django_htmx.middleware.HtmxMiddleware",
 ]
 
 ROOT_URLCONF = 'price_manager.urls'
@@ -61,9 +72,12 @@ TEMPLATES = [
         'BACKEND': 'django.template.backends.django.DjangoTemplates',
         'DIRS': [
           'core/templates',
+          'main_product_manager/templates',
+          'product_price_manager/templates',
         ],
         'APP_DIRS': True,
         'OPTIONS': {
+            "builtins": ["template_partials.templatetags.partials"],
             'context_processors': [
                 'django.template.context_processors.request',
                 'django.contrib.auth.context_processors.auth',
@@ -83,13 +97,6 @@ MEDIA_URL = '/media/'
 # https://docs.djangoproject.com/en/5.2/ref/settings/#databases
 
 DATABASES = {
-    # 'default': {
-    #     'ENGINE': 'django.db.backends.sqlite3',
-    #     'NAME': BASE_DIR / 'db.sqlite3',
-    #     "OPTIONS": {
-    #         "transaction_mode": "IMMEDIATE",   # ADDED FOR SQLITE DB   /
-    #     },                                     # TRY REMOVE ON OTHER DB/
-    # }
     'default': {
         'ENGINE': 'django.db.backends.postgresql',
         'NAME': 'price_manager',
@@ -100,7 +107,7 @@ DATABASES = {
     }
 }
 
-DATA_UPLOAD_MAX_NUMBER_FIELDS = 20000
+DATA_UPLOAD_MAX_NUMBER_FIELDS = 50000
 
 
 # Password validation
@@ -125,9 +132,9 @@ AUTH_PASSWORD_VALIDATORS = [
 # Internationalization
 # https://docs.djangoproject.com/en/5.2/topics/i18n/
 
-LANGUAGE_CODE = 'en-us'
+LANGUAGE_CODE = 'ru'
 
-TIME_ZONE = 'UTC'
+TIME_ZONE = 'Asia/Almaty'
 
 USE_I18N = True
 
@@ -138,6 +145,10 @@ USE_TZ = True
 # https://docs.djangoproject.com/en/5.2/howto/static-files/
 
 STATIC_URL = 'static/'
+
+STATICFILES_DIRS = [
+  BASE_DIR / 'static'
+]
 
 # Default primary key field type
 # https://docs.djangoproject.com/en/5.2/ref/settings/#default-auto-field
@@ -155,3 +166,17 @@ MESSAGE_TAGS = {
     messages.WARNING: 'alert-warning',
     messages.ERROR: 'alert-danger',
 }
+
+LOGIN_URL = 'login'
+LOGIN_REDIRECT_URL = 'main'
+LOGOUT_REDIRECT_URL = 'login'
+LOGIN_EXEMPT_URLS = (
+    'login',
+    'logout',
+    'admin:login',
+    'admin:logout',
+    'admin:password_reset',
+    'admin:password_reset_done',
+    'admin:password_reset_confirm',
+    'admin:password_reset_complete',
+)

@@ -1,5 +1,4 @@
 from django.db import models
-from mptt.models import MPTTModel, TreeForeignKey
 
 TIME_FREQ = {'Каждый день': 1,
              'Каждую неделю': 7,
@@ -53,13 +52,8 @@ class Supplier(models.Model):
                                        choices=[(_, _) for _ in TIME_FREQ.keys()])
   stock_update_rate = models.CharField(verbose_name='Частота обновления остатков',
                                        choices=[(_, _) for _ in TIME_FREQ.keys()])
-  msg_available = models.CharField(verbose_name="Сообщение при наличии",
-                                   default="Есть в наличии")
-  msg_navailable = models.CharField(verbose_name="Сообщение при отсутствии",
-                                    default="Нет в наличии")
   class Meta:
     verbose_name = 'Поставщик'
-    ordering = ['name']
   def __str__(self):
     return self.name
   
@@ -112,11 +106,10 @@ class ManufacturerDict(models.Model):
     return f'{self.name}({self.manufacturer.name})'
   
 
-class Category(MPTTModel):
-  parent = TreeForeignKey('self',
+class Category(models.Model):
+  parent = models.ForeignKey('self',
                              on_delete=models.PROTECT,
                              verbose_name='Подкатегория для',
-                             related_name='children',
                              null=True,
                              blank=True)
   name = models.CharField(verbose_name='Название',
@@ -128,6 +121,4 @@ class Category(MPTTModel):
       return self.name
   class Meta:
     constraints = [models.UniqueConstraint(fields=['parent', 'name'], name='parent_child_constraint')]
-  class MPTTMeta:
-      order_insertion_by = ['name']
     

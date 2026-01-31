@@ -4,7 +4,6 @@ from supplier_product_manager.tables import SupplierProductPriceManagerTable
 from django.shortcuts import (render,
                               redirect,
                               get_object_or_404)
-from django.core.paginator import Paginator
 from django.utils import timezone
 from django.template.loader import render_to_string
 from django.contrib import messages
@@ -24,8 +23,7 @@ from collections import defaultdict, OrderedDict
 from django.db.models import Count, Prefetch
 from django_tables2 import SingleTableView, RequestConfig, SingleTableMixin
 from dal import autocomplete
-from django.db.models import Q, F, ExpressionWrapper, BooleanField, DurationField, Value, Case, When
-from django.db.models.functions import Greatest, ExtractDay
+from django.db.models import Q
 
 # Импорты моделей, функций, форм, таблиц
 from .models import *
@@ -35,8 +33,6 @@ from main_product_manager.models import MainProduct, MP_PRICES
 from .forms import *
 from .tables import *
 from .filters import *
-
-from datetime import timedelta
 
 
 
@@ -53,38 +49,17 @@ class CategoryAutocomplete(autocomplete.Select2QuerySetView):
 
 # Обработка поставщика
 
-class SupplierList(TemplateView):
+class SupplierList(SingleTableView):
   '''Список поставщиков на <<supplier/>>'''
+  model = Supplier
+  table_class = SupplierListTable
   template_name = 'supplier/list.html'
-  def get_context_data(self, **kwargs) -> dict[str, Any]:
-    now = timezone.now()
-    context = super().get_context_data(**kwargs)
-    def price_filter(price): 
-      return Q(**{f'{price}__isnull':True})|Q(**{f'{price}':0})
-    # queryset = Paginator(Supplier.objects.all(), 5).page(1).object_list.prefetch_related('main_products')
-    queryset = Supplier.objects.all()
-    context["suppliers"] = list(
-       map(lambda obj: {
-          'pk': obj.pk,
-          'name':obj.name,
-          'danger':  obj.stock_updated_at and timedelta(weeks=TIME_FREQ[obj.stock_update_rate]) <= now - obj.stock_updated_at or
-                     obj.price_updated_at and  timedelta(weeks=TIME_FREQ[obj.price_update_rate]) <= now - obj.price_updated_at,
-          'total': obj.main_products.count(),
-          'price_updated_at':obj.price_updated_at if obj.price_updated_at else 'Отсутствует',
-          'stock_updated_at':obj.stock_updated_at if obj.stock_updated_at else 'Отсутствует',
-          'basic_price': obj.main_products.filter(price_filter('basic_price')).count(),
-          'wholesale_price': obj.main_products.filter(price_filter('wholesale_price')).count(),
-          'm_price': obj.main_products.filter(price_filter('m_price')).count(),
-          'prime_cost': obj.main_products.filter(price_filter('prime_cost')).count(),
-        }, queryset))
-    return context
-
 
 
 class SupplierCreate(CreateView):
   '''Таблица создания Поставщиков <<supplier/create/>>'''
   model = Supplier
-  form_class=SupplierForm
+  fields = SUPPLIER_SPECIFIABLE_FIELDS
   success_url = '/supplier'
   template_name = 'supplier/create.html'
 
