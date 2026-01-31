@@ -6,8 +6,11 @@
 
 {% block body %}
 <div class="container-fluid mt-4 mb-5">
-  <h1 class="mb-4">Новая наценка</h1>
-  <div class="container">
+  <div class="d-flex flex-wrap align-items-center justify-content-between gap-3 mb-4">
+    <div>
+      <h1 class="mb-1">Новая наценка</h1>
+      <p class="text-muted mb-0">Создайте правило расчёта цен для выбранного поставщика.</p>
+    </div>
     <a href="{% url 'price-manager'%}" class="btn btn-secondary">
       <i class="bi bi-arrow-left"></i> Все наценки
     </a>
@@ -17,10 +20,36 @@
     <div class="col-md-3">
       <form method="post" class="card p-3 shadow-sm">
         {% csrf_token %}
-        <h5 class="mb-3">Фильтры</h5>
+        <h5 class="mb-3">Параметры наценки</h5>
+        {% if form.non_field_errors %}
+          <div class="alert alert-danger">{{ form.non_field_errors }}</div>
+        {% endif %}
 
         <!-- Поиск по всем полям -->
-        {{form}}
+        {% for field in form %}
+          <div class="mb-3">
+            <label class="form-label" for="{{ field.id_for_label }}">{{ field.label }}</label>
+            {{ field }}
+            {% if field.help_text %}
+              <div class="form-text">{{ field.help_text }}</div>
+            {% endif %}
+            {% if field.name == 'price_from' %}
+              <div class="form-text">Диапазон действует на цену-источник. Оставьте пустым для «от нуля».</div>
+            {% endif %}
+            {% if field.name == 'price_to' %}
+              <div class="form-text">Оставьте пустым, если правило без верхней границы.</div>
+            {% endif %}
+            {% if field.name == 'markup' %}
+              <div class="form-text">Процентная наценка, отрицательное значение = скидка.</div>
+            {% endif %}
+            {% if field.name == 'increase' %}
+              <div class="form-text">Фиксированная надбавка добавляется после процента.</div>
+            {% endif %}
+            {% if field.errors %}
+              <div class="text-danger small mt-1">{{ field.errors }}</div>
+            {% endif %}
+          </div>
+        {% endfor %}
 
         <!-- Кнопки -->
         <div class=" d-flex gap-2 mt-5">
@@ -39,6 +68,12 @@
       {% load export_url from django_tables2 %}
 
       <div class="table-responsive card p-3 shadow-sm overflow-visible">
+        <div class="d-flex flex-wrap align-items-center justify-content-between gap-2 mb-3">
+          <div>
+            <h5 class="mb-1">Предпросмотр товаров</h5>
+            <p class="text-muted mb-0 small">Проверьте, какие товары попадут под правило.</p>
+          </div>
+        </div>
         {% load django_tables2 %}
         {% render_table table %}
       </div>
