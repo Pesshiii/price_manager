@@ -1,0 +1,12 @@
+{% extends 'base.html' %}
+
+{% block title %}
+Поставщики
+{% endblock %}
+
+{% block body %}
+  <button class="btn btn-primary" onclick="window.location.href='/supplier/create/'">Добавить</button>
+  <div class="container">
+  {% include "supplier/partials/list_table_partial.html" %}
+  </div>
+{% endblock %}

@@ -1,0 +1,390 @@
+{% extends 'base.html' %}
+
+{% block title %}
+Главная страница
+{% endblock %}
+
+{% block style %}
+  .hover-wrapper {
+      position: relative;
+      cursor: pointer;
+    }
+    .hover-card {
+      position: absolute;
+      top: 50%;            /* drop below the cell text  */
+      left: 100%;
+      z-index: 9;        /* above table borders       */
+      display: none;
+      width: 240px;
+    }
+    .hover-wrapper:hover .hover-card,
+    .hover-wrapper:focus .hover-card {
+      display: block;
+    }
+
+    .main-page-layout {
+      padding-left: 260px;
+    }
+
+    .filter-panel {
+      position: fixed;
+      top: 96px;
+      left: 32px;
+      width: 320px;
+      max-height: calc(100vh - 128px);
+      overflow-y: auto;
+      z-index: 1030;
+    }
+
+    .filter-panel form {
+      padding-bottom: 1rem;
+    }
+
+    .filter-panel .form-group + .form-group {
+      margin-top: 1rem;
+    }
+
+    .table-area {
+      margin-top: 2rem;
+    }
+
+    @media (max-width: 991.98px) {
+      .main-page-layout {
+        padding-right: 0;
+      }
+
+      .filter-panel {
+        position: static;
+        width: 100%;
+        max-height: none;
+        margin-top: 1.5rem;
+        right: auto;
+      }
+
+      .table-area {
+        margin-top: 1.5rem;
+      }
+    }
+{% endblock %}
+
+{% block body %}
+<div id="mainproduct-block">
+  <div class="container-fluid main-page-layout">
+    {% include 'main/includes/table.html' %}
+  </div>
+
+  <div class="filter-panel card shadow-sm mt-4">
+    <div class="card-body">
+      <h2 class="h4">Фильтры</h2>
+      <form method="get" class="form" id="main-filter-form">
+        {{ filter_form.media }}
+
+        <div id="filters-update-sink" class="d-none"></div>
+
+        <div class="form-group mt-3">
+          <label for="{{ filter_form.search.id_for_label }}">{{ filter_form.search.label }}</label>
+          {{ filter_form.search }}
+        </div>
+
+        <div class="form-group mt-3">
+          <label for="{{ filter_form.anti_search.id_for_label }}">{{ filter_form.anti_search.label }}</label>
+          {{ filter_form.anti_search }}
+        </div>
+
+
+        {% if filter_form.available %}
+        <div class="form-group mt-3">
+          <label for="{{ filter_form.available.id_for_label }}">{{ filter_form.available.label }}</label>
+          {{ filter_form.available }}
+        </div>
+        {% endif %}
+        
+        {% include 'main/includes/filter_field.html' with field=filter_form.category container_id='category-filter-container' collapse_id='category-filter-collapse' is_category=True category_tree=category_tree selected_categories=selected_categories available_options=None collapsible=False %}
+        
+        {% include 'main/includes/filter_field.html' with field=filter_form.manufacturer container_id='manufacturer-filter-container' collapse_id='manufacturer-filter-collapse' available_options=available_manufacturers available_options_label='Доступные производители' collapsible=False %}
+        
+        {% include 'main/includes/filter_field.html' with field=filter_form.supplier container_id='supplier-filter-container' collapse_id='supplier-filter-collapse' available_options=available_suppliers available_options_label='Доступные поставщики' collapsible=False %}
+
+
+
+        <div class="mt-4 d-flex gap-2">
+            <button type="submit" class="btn btn-primary flex-grow-1">
+              🔍 Искать
+            </button>
+            <a href="{% url 'main-product-sync'%}" class="btn btn-success">
+              <i class="bi bi-recycle"></i> Обновить
+            </a>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block script %}
+<script>
+  document.body.addEventListener('htmx:configRequest', (evt) => {
+    evt.detail.headers['X-CSRFToken'] = '{{ csrf_token }}';
+  });
+
+  const enhanceSelect = (selector) => {
+    const element = window.jQuery ? window.jQuery(selector) : null;
+    if (element && element.length && element.select2) {
+      element.select2({
+        width: '100%',
+        placeholder: element.data('placeholder') || '',
+        allowClear: true,
+        language: {
+          noResults: () => 'Ничего не найдено',
+          searching: () => 'Поиск…'
+        }
+      });
+    }
+  };
+
+  const initDynamicFilters = () => {
+    enhanceSelect('#id_supplier');
+    enhanceSelect('#id_manufacturer');
+  };
+  
+  const setToggleButtonState = (button, isExpanded) => {
+    const expandedText = button.getAttribute('data-expanded-text') || button.textContent;
+    const collapsedText = button.getAttribute('data-collapsed-text') || button.textContent;
+    button.textContent = isExpanded ? expandedText : collapsedText;
+    button.setAttribute('aria-expanded', isExpanded ? 'true' : 'false');
+  };
+
+  const initFilterToggle = (button) => {
+    if (!button || button.dataset.filterToggleInitialized === 'true') {
+      return;
+    }
+
+    const targetSelector = button.getAttribute('data-bs-target');
+    if (!targetSelector) {
+      return;
+    }
+
+    const target = document.querySelector(targetSelector);
+    if (!target) {
+      return;
+    }
+
+    const updateState = () => {
+      const isExpanded = target.classList.contains('show');
+      setToggleButtonState(button, isExpanded);
+    };
+
+    target.addEventListener('shown.bs.collapse', () => setToggleButtonState(button, true));
+    target.addEventListener('hidden.bs.collapse', () => setToggleButtonState(button, false));
+
+    updateState();
+
+    button.dataset.filterToggleInitialized = 'true';
+  };
+
+  const initFilterToggles = () => {
+    const buttons = document.querySelectorAll('[data-filter-toggle="button"]');
+    buttons.forEach(initFilterToggle);
+  };
+
+  const debounce = (fn, delay = 300) => {
+    let timerId;
+    return (...args) => {
+      if (timerId) {
+        clearTimeout(timerId);
+      }
+      timerId = window.setTimeout(() => {
+        timerId = null;
+        fn(...args);
+      }, delay);
+    };
+  };
+
+  const getFilterForm = () => document.getElementById('main-filter-form');
+
+  const requestTableUpdate = () => {
+    if (!window.htmx) {
+      return;
+    }
+
+    const form = getFilterForm();
+    if (!form) {
+      return;
+    }
+
+    const params = new URLSearchParams(new FormData(form));
+    params.delete('page');
+
+    const queryString = params.toString();
+    const tableUrl = '{{ table_update_url|escapejs }}';
+    const separator = tableUrl.includes('?') ? '&' : '?';
+    const url = queryString ? `${tableUrl}${separator}${queryString}` : tableUrl;
+
+    window.htmx.ajax('GET', url, {
+      target: '#main-table-container',
+      swap: 'outerHTML',
+    });
+
+    const newLocation = queryString ? `${window.location.pathname}?${queryString}` : window.location.pathname;
+    window.history.replaceState({}, '', newLocation);
+  };
+
+  const scheduleTableUpdate = debounce(requestTableUpdate, 500);
+
+  const shouldIgnoreAutoUpdate = (element) => {
+    return Boolean(element && element.dataset && element.dataset.ignoreAutoUpdate === 'true');
+  };
+
+  const registerAutoUpdate = () => {
+    const form = getFilterForm();
+    if (!form || form.dataset.autoUpdateInitialized === 'true') {
+      return;
+    }
+
+    form.addEventListener('input', (event) => {
+      const target = event.target;
+      if (!target) {
+        return;
+      }
+
+      if (target.matches('input[type="text"], input[type="search"], textarea')) {
+        if (shouldIgnoreAutoUpdate(target)) {
+          return;
+        }
+        scheduleTableUpdate();
+      }
+    });
+
+    form.addEventListener('change', (event) => {
+      const target = event.target;
+      if (!target) {
+        return;
+      }
+
+      if (target.matches('input, select, textarea')) {
+        if (shouldIgnoreAutoUpdate(target)) {
+          return;
+        }
+        requestTableUpdate();
+      }
+    });
+
+    form.dataset.autoUpdateInitialized = 'true';
+  };
+
+  const initCategoryFilterSearch = () => {
+    const containers = document.querySelectorAll('[data-category-filter]');
+    containers.forEach((container) => {
+      if (container.dataset.categoryFilterInitialized === 'true') {
+        return;
+      }
+
+      const searchInput = container.querySelector('[data-category-filter-search]');
+      const tree = container.querySelector('[data-category-tree]');
+
+      if (!searchInput || !tree) {
+        return;
+      }
+
+      const getChildList = (parent) => {
+        return Array.from(parent.children).find((element) => element.tagName === 'UL');
+      };
+
+      const getChildNodes = (parent) => {
+        const list = getChildList(parent);
+        if (!list) {
+          return [];
+        }
+        return Array.from(list.children).filter((child) => child.matches('[data-category-node]'));
+      };
+
+      const getRootNodes = () => {
+        const rootList = tree.querySelector('ul');
+        if (!rootList) {
+          return [];
+        }
+        return Array.from(rootList.children).filter((child) => child.matches('[data-category-node]'));
+      };
+
+      const filterTree = () => {
+        const term = searchInput.value.trim().toLowerCase();
+
+        if (!term) {
+          tree.querySelectorAll('[data-category-node]').forEach((node) => {
+            node.classList.remove('d-none');
+          });
+          return;
+        }
+
+        const applyFilter = (node) => {
+          const name = (node.dataset.categoryName || '').toLowerCase();
+          const children = getChildNodes(node);
+
+          let hasMatchingChild = false;
+          children.forEach((child) => {
+            if (applyFilter(child)) {
+              hasMatchingChild = true;
+            }
+          });
+
+          const matchesSelf = name.includes(term);
+          const shouldShow = matchesSelf || hasMatchingChild;
+          node.classList.toggle('d-none', !shouldShow);
+          return shouldShow;
+        };
+
+        getRootNodes().forEach((node) => {
+          applyFilter(node);
+        });
+      };
+
+      const debouncedFilter = debounce(filterTree, 150);
+      searchInput.addEventListener('input', debouncedFilter);
+      filterTree();
+      container.dataset.categoryFilterInitialized = 'true';
+    });
+  };
+
+  document.addEventListener('DOMContentLoaded', () => {
+    initDynamicFilters();
+    initFilterToggles();
+    registerAutoUpdate();
+    initCategoryFilterSearch();
+    const shoppingTabModal = document.getElementById('shoppingTabSelectionModal');
+    if (shoppingTabModal) {
+      const modalContent = shoppingTabModal.querySelector('#shopping-tab-selection-modal-content');
+      const defaultMarkup = modalContent ? modalContent.innerHTML : '';
+      shoppingTabModal.addEventListener('hidden.bs.modal', () => {
+        if (modalContent) {
+          modalContent.innerHTML = defaultMarkup;
+        }
+      });
+    }
+  });
+
+  const shouldEnhance = (target) => {
+    if (!target) {
+      return false;
+    }
+    return ['supplier-filter-container', 'manufacturer-filter-container'].includes(target.id);
+  };
+
+  document.body.addEventListener('htmx:afterSwap', (event) => {
+    if (event.target && event.target.id === 'filters-update-sink') {
+      initDynamicFilters();
+      initFilterToggles();
+      registerAutoUpdate();
+      initCategoryFilterSearch();
+    }
+  });
+
+  document.body.addEventListener('htmx:oobAfterSwap', (event) => {
+    if (shouldEnhance(event.detail && event.detail.target)) {
+      initDynamicFilters();
+    }
+    initFilterToggles();
+    registerAutoUpdate();
+    initCategoryFilterSearch();
+  });
+</script>
+{% endblock %}

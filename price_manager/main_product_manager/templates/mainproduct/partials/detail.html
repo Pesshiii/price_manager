@@ -1,0 +1,37 @@
+<div class="row gap-3">
+  <div class="col-7">
+    <div class="card row p-4">
+      <h1>
+        {{mainproduct.name}}
+      </h1>
+      <div>
+        <p class="">Индивидуальный номер: {% if  mainproduct.sku%}{{mainproduct.sku}}{% else %}Отсутствует.{% endif %}</p>
+        <p class="">Базовая цена: {% if  mainproduct.basic_price%}{{mainproduct.basic_price}} тг.{% else %}Отсутствует.{% endif %}</p>
+        <p class="">Себестоимость: {% if  mainproduct.prime_cost%}{{mainproduct.prime_cost}} тг.{% else %}Отсутствует.{% endif %}</p>
+        <p class="">Цена ИМ: {% if mainproduct.m_price %}{{mainproduct.m_price}} тг.{% else %}Отсутствует.{% endif %}</p>
+        <p class="">Последнее обновление: {% if mainproduct.price_updated_at %}{{mainproduct.price_updated_at}}{% else %}Отсутствует.{% endif %}</p>
+      </div>
+
+      <button class="btn btn-success" 
+          hx-get="{% url 'mainproduct-update' pk=mainproduct.pk %}" 
+          hx-target="#mainproduct-card"
+          hx-push-url="{% url 'mainproduct-update' pk=mainproduct.pk %}">
+          Изменить
+      </button>
+    </div>
+    <div id="mainproduct-logs" 
+        class="row mt-2"
+        hx-get="{% url 'mainproductlog-list' pk=mainproduct.pk %}" 
+        hx-trigger="load" 
+        hx-swap="innerHTML">
+      <p>Логи...</p>
+    </div>
+  </div>
+  <div id="mainproduct-pricetags" 
+    class="col-4 card p-4"
+    hx-get="{% url 'pricetag-list' pk=mainproduct.pk %}" 
+    hx-trigger="load" 
+    hx-swap="innerHTML">
+    <p>Наценки...</p>
+  </div>
+</div>

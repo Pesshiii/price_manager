@@ -1,0 +1,36 @@
+
+  <div class="row mt-4">
+    <!-- Блок фильтров -->
+    <div class="col-md-3">
+      <form method="get" class="card p-3 shadow-sm">
+        <h5 class="mb-3">Фильтры</h5>
+
+        <!-- Поиск по всем полям -->
+        {% for item in filter.form %}
+        <div class="container overflow-hidden">
+          <label>{{item.label}}</label>
+          <div class="mb-r">
+            {{ item}}
+          </div>
+        </div>
+        {%endfor%}
+
+        <!-- Кнопки -->
+        <div class=" d-flex gap-2 mt-5">
+          <button type="submit" class="btn btn-primary">
+            Искать
+          </button>
+        </div>
+      </form>
+    </div>
+
+    <!-- Таблица -->
+    <div class="col-md-9 mb-5">
+      {% load export_url from django_tables2 %}
+
+      <div class="table-responsive card p-3 shadow-sm overflow-visible">
+        {% load django_tables2 %}
+        {% render_table table %}
+      </div>
+    </div>
+  </div>

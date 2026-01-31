@@ -1,0 +1,18 @@
+{% for item in items %}
+  {% if item %}
+    {% if forloop.last and items.has_next %}
+      <tr 
+      hx-get="{% url "setting-table" pk=pk %}{% querystring page=page|add:1 %}"
+      hx-trigger="intersect once"
+      hx-swap="afterend"
+      hx-indicator="#placeholder"
+      hx-target="this">
+    {% else %}
+    <tr>
+    {% endif %}
+      {% for value in item %}
+        <td>{{value}}</td>
+      {% endfor %}
+    </tr>
+  {% endif %}
+{% endfor %}

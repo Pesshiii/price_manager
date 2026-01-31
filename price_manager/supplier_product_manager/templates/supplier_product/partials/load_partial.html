@@ -1,0 +1,15 @@
+
+<div
+  class="container d-flex justify-content-center mb-4 mt-4"
+  hx-get="{% url 'setting-upload' pk 1%}"
+  hx-trigger="load"
+  hx-target="#modal-container .modal-content"
+  hx-swap="innerHTML"
+  >
+    <div class="spinner-grow" role="status">
+    </div>
+    <div class="spinner-grow" role="status">
+    </div>
+    <div class="spinner-grow" role="status">
+    </div>
+</div>

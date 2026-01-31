@@ -1,0 +1,11 @@
+<div class="modal-dialog modal-dialog-centered">
+    <h1>Новый файл</h1>
+    <form hx-post="file/{{supplier.pk}}/upload"
+          hx-target="#file-modal">
+    {% csrf_token %}
+    {{form.as_p}}
+    <button type="submit">
+            Добавить
+    </button>
+    </form>
+</div>

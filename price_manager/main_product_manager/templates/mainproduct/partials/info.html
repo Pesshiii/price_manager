@@ -1,0 +1,17 @@
+{% extends "base.html" %}
+
+{% block title %}
+  Информация о продукте
+{% endblock title %}
+
+{% block body %}
+
+{%partialdef partial inline%}
+<div id="mainproduct-card">
+
+    {% include "mainproduct/partials/detail.html" %}
+    
+</div>
+{%endpartialdef%}
+
+{% endblock body %}

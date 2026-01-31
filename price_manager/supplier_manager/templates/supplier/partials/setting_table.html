@@ -1,0 +1,15 @@
+{% extends "base.html" %}
+
+
+{% block body %}
+  {% partialdef table inline %}
+    {% load django_tables2 %}
+    {% if table.data.exists or table.data %}
+        {% render_table table %}
+    {% else %}
+      <div class="alert alert-light mb-0 d-flex justify-content-center">
+        Настройки не найдены.
+      </div>
+    {% endif %}
+  {% endpartialdef %}
+{% endblock body %}

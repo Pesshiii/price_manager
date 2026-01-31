@@ -1,0 +1,82 @@
+{% load export_url from django_tables2 %}
+
+<div id="mainproducts-table" class="mb-5">
+  <h1 class="mb-4">Главный прайс</h1>
+  {% if categories or has_nulled %}
+    {% if has_nulled %}
+        <div class="table-contaier p-3 shadow-sm overflow-auto border rounded">
+          <div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
+            <h2 class="h5 mb-0">
+              Без категории
+            </h2>
+            <span class="badge text-bg-light">
+              {{ nulled_mp_count}}
+            </span>
+          </div>
+          <div
+          hx-get="{% url "mainproduct-table-nocat"%}{% querystring%}"
+          hx-trigger="load"
+          hx-swap="outerHTML">
+              <span class="placeholder col-12 placeholder-lg bg-light">
+              </span>
+              <span class="placeholder col-12 placeholder-lg bg-light">
+              </span>
+              <span class="placeholder col-12 placeholder-lg bg-light">
+              </span>
+          </div>
+        </div>
+    {% endif %}
+    {% partialdef category-table inline=True%}
+      {% for category in categories %}
+        {% if forloop.last and categories.has_next %}
+          <div 
+            hx-get="{% url "mainproducts" %}{% querystring page=categories.next_page_number %}"
+            hx-trigger="revealed"
+            hx-swap="afterend"
+            hx-indicator="#spinner"
+            class="table-contaier p-3 shadow-sm overflow-auto mt-4 border rounded">
+        {% else %}
+          <div class="table-contaier p-3 shadow-sm overflow-auto mt-4 border rounded">
+        {% endif %} 
+          {% if category %}
+            <div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
+              <h2 class="h5 mb-0">
+                {{ category.name|default:"" }}
+              </h2>
+              <span class="badge text-bg-light">
+                {{ category.mps_count}}
+              </span>
+            </div>
+            <div 
+            hx-get="{% url "mainproduct-table-bycat" category_pk=category.pk %}{% querystring %}"
+            hx-trigger="load"
+            hx-swap="outerHTML">
+              <span class="placeholder col-12 placeholder-lg bg-light">
+              </span>
+              <span class="placeholder col-12 placeholder-lg bg-light">
+              </span>
+              <span class="placeholder col-12 placeholder-lg bg-light">
+              </span>
+            </div>
+          {% endif %}
+        </div>
+      {% endfor %}
+    {% endpartialdef %}
+  {% else %}
+    <div class="alert alert-info mb-0">
+      Товары не найдены.
+    </div>
+  {% endif %}
+</div>
+
+<div  id="spinner" class="text-center htmx-indicator">
+  <div class="spinner-grow" style="width: 2rem; height: 2rem;" role="status">
+    <span class="visually-hidden">Loading...</span>
+  </div>
+  <div class="spinner-grow" style="width: 2rem; height: 2rem;" role="status">
+    <span class="visually-hidden">Loading...</span>
+  </div>
+  <div class="spinner-grow" style="width: 2rem; height: 2rem;" role="status">
+    <span class="visually-hidden">Loading...</span>
+  </div>
+</div>
