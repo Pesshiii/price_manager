@@ -14,9 +14,16 @@
         затем укажите целевую цену и формулу.
       </p>
     </div>
-    <a href="{% url 'price-manager'%}" class="btn btn-outline-secondary">
-      <i class="bi bi-arrow-left"></i> Все наценки
-    </a>
+    <div class="d-flex flex-wrap gap-2">
+      {% if request.GET.supplier %}
+        <a href="{% url 'supplier-detail' request.GET.supplier %}" class="btn btn-outline-secondary">
+          <i class="bi bi-arrow-left"></i> К поставщику
+        </a>
+      {% endif %}
+      <a href="{% url 'price-manager'%}" class="btn btn-outline-secondary">
+        <i class="bi bi-arrow-left"></i> Все наценки
+      </a>
+    </div>
   </div>
   <div class="row">
     <!-- Блок фильтров -->

@@ -132,7 +132,7 @@
             <h5 class="mb-1">Наценки поставщика</h5>
             <p class="text-muted mb-0">Создавайте и редактируйте правила расчёта цен.</p>
           </div>
-          <a class="btn btn-primary" href="{% url 'price-manager-create' %}?supplier={{ supplier.id }}">
+          <a class="btn btn-primary" href="{% url 'price-manager-create' %}?supplier={{ supplier.id }}&next={% url 'supplier-detail' supplier.id %}">
             Создать наценку
           </a>
         </div>
