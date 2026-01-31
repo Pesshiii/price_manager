@@ -62,7 +62,11 @@ class SupplierProductListTable(tables.Table):
   class Meta:
     model = SupplierProduct
     fields = [
-      *SP_TABLE_FIELDS,
+      'discounts',
+      'article',
+      'name',
+      'supplier_price',
+      'rrp',
       'main_basic_price',
       'main_m_price',
       'main_wholesale_price',
