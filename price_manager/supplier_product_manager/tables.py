@@ -29,15 +29,45 @@ class SettingListTable(tables.Table):
 
 class SupplierProductListTable(tables.Table):
   '''Таблица отображаемая на странице Постащик:имя'''
+  main_basic_price = tables.Column(
+    accessor='main_product.basic_price',
+    verbose_name='Базовая цена (главный прайс)'
+  )
+  main_m_price = tables.Column(
+    accessor='main_product.m_price',
+    verbose_name='Цена ИМ (главный прайс)'
+  )
+  main_wholesale_price = tables.Column(
+    accessor='main_product.wholesale_price',
+    verbose_name='Опт (главный прайс)'
+  )
+  main_wholesale_price_extra = tables.Column(
+    accessor='main_product.wholesale_price_extra',
+    verbose_name='Опт 1 (главный прайс)'
+  )
   actions = tables.TemplateColumn(
     template_name='supplier/product/actions.html',
     orderable=False,
     verbose_name='Действия',
     attrs = {'td': {'class': 'text-right'}}
   )
+  def render_main_basic_price(self, value):
+    return value if value is not None else '-'
+  def render_main_m_price(self, value):
+    return value if value is not None else '-'
+  def render_main_wholesale_price(self, value):
+    return value if value is not None else '-'
+  def render_main_wholesale_price_extra(self, value):
+    return value if value is not None else '-'
   class Meta:
     model = SupplierProduct
-    fields = SP_TABLE_FIELDS
+    fields = [
+      *SP_TABLE_FIELDS,
+      'main_basic_price',
+      'main_m_price',
+      'main_wholesale_price',
+      'main_wholesale_price_extra',
+    ]
     template_name = 'django_tables2/bootstrap5.html'
     attrs = {
       'class': 'table table-auto table-stripped table-hover clickable-rows'
