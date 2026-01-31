@@ -18,6 +18,31 @@
   <div class="row">
     <!-- Блок фильтров -->
     <div class="col-md-3">
+      <div class="card p-3 shadow-sm mb-3">
+        <div class="d-flex align-items-start justify-content-between gap-2">
+          <div>
+            <h5 class="mb-1">Наценки поставщика</h5>
+            <p class="text-muted mb-2 small">Быстро настройте правила расчёта цен.</p>
+          </div>
+          <a class="btn btn-sm btn-primary" href="{% url 'price-manager-create' %}?supplier={{ supplier.id }}">
+            Создать
+          </a>
+        </div>
+        {% if price_managers %}
+          <ul class="list-unstyled mb-0 small">
+            {% for price_manager in price_managers %}
+              <li class="d-flex justify-content-between align-items-center py-1 border-top">
+                <a href="{% url 'price-manager-update' price_manager.id %}" class="text-decoration-none">
+                  {{ price_manager.name }}
+                </a>
+                <span class="text-muted">→ {{ price_manager.get_dest_display }}</span>
+              </li>
+            {% endfor %}
+          </ul>
+        {% else %}
+          <div class="text-muted small">Пока нет наценок. Создайте первую.</div>
+        {% endif %}
+      </div>
       <form method="get" class="card p-3 shadow-sm">
         <h5 class="mb-3">Фильтры</h5>
 
