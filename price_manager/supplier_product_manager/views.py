@@ -117,8 +117,16 @@ def get_df(df: pd.DataFrame, links, initials, dicts, setting:Setting):
       df=df[df[column].notnull()]
     if field == 'name' and setting.differ_by_name:
       df=df[df[column].notnull()]
-    if field in SP_PRICES and setting.priced_only:
-      df = df[df[column].notnull()]
+    if field == 'supplier_price' and setting.priced_only:
+      def has_valid_supplier_price(value):
+        num = get_safe(value, Decimal)
+        if num in ('', None):
+          return False
+        try:
+          return Decimal(str(num)) > 0
+        except (InvalidOperation, ValueError):
+          return False
+      df = df[df[column].apply(has_valid_supplier_price)]
     buf: pd.Series = df[column]
     buf = buf.fillna(initials[field])
     buf = buf.astype(str)
@@ -532,9 +540,12 @@ def upload_supplier_products(request, **kwargs):
                   SupplierProduct.objects.filter(supplier=supplier, article=row[rev_links['article']])]
 
     if products == []:
-      if  setting.differ_by_name and  'name' in rev_links:
-        product, created = SupplierProduct.objects.get_or_create(supplier=supplier, article=row[rev_links['article']],
-                                                                  name=row[rev_links['name']])
+      if setting.differ_by_name and 'name' in rev_links:
+        product, created = SupplierProduct.objects.get_or_create(
+          supplier=supplier,
+          article=row[rev_links['article']],
+          name=row[rev_links['name']]
+        )
         new += created
         products.append(product)
 
@@ -562,15 +573,37 @@ def upload_supplier_products(request, **kwargs):
             setattr(product, field, convert_sp(row[column], field))
           except BaseException as ex:
             messages.error(request, f'Ошибка конвертации {row[column]} в поле {field}: {ex}')
-        if setting.update_main:
-          main_product, main_created = MainProduct.objects.get_or_create(supplier=supplier, article=product.article,
-                                                              name=product.name)
+        main_product = None
+        main_created = False
+        if setting.update_main_content or setting.add_main_products:
+          main_filters = {
+            'supplier': supplier,
+            'article': product.article,
+          }
+          if setting.differ_by_name:
+            main_filters['name'] = product.name
+          main_product = MainProduct.objects.filter(**main_filters).first()
+
+          if not main_product and setting.add_main_products:
+            main_product = MainProduct.objects.create(
+              supplier=supplier,
+              article=product.article,
+              name=product.name,
+            )
+            main_created = True
+
+        if main_product:
+          if main_created:
+            if 'category' in rev_links:
+              main_product.category = product.category
+            if 'manufacturer' in rev_links:
+              main_product.manufacturer = product.manufacturer
+          if setting.update_main_content:
+            main_product.name = product.name
+            if 'manufacturer' in rev_links:
+              main_product.manufacturer = product.manufacturer
           text = main_product._build_search_text()
           main_product.search_vector = SearchVector(Value(text), config='russian')
-          if main_created and 'category' in rev_links:
-            main_product.category = product.category
-          if main_created and 'manufacturer' in rev_links:
-            main_product.manufacturer = product.manufacturer
           product.main_product = main_product
           mps.append(main_product)
         sp.append(product)
@@ -578,7 +611,10 @@ def upload_supplier_products(request, **kwargs):
       except BaseException as ex:
         exs.append(ex)
 
-  MainProduct.objects.bulk_update(mps, fields=['supplier', 'article', 'name', 'search_vector', 'manufacturer'])
+  MainProduct.objects.bulk_update(
+    mps,
+    fields=['supplier', 'article', 'name', 'search_vector', 'manufacturer', 'category']
+  )
   if 'stock' in links.values():
     MainProductLog.objects.bulk_create((MainProductLog(
         main_product=mp,
