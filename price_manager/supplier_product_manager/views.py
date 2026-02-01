@@ -118,15 +118,8 @@ def get_df(df: pd.DataFrame, links, initials, dicts, setting:Setting):
     if field == 'name' and setting.differ_by_name:
       df=df[df[column].notnull()]
     if field == 'supplier_price' and setting.priced_only:
-      def has_valid_supplier_price(value):
-        num = get_safe(value, Decimal)
-        if num in ('', None):
-          return False
-        try:
-          return Decimal(str(num)) > 0
-        except (InvalidOperation, ValueError):
-          return False
-      df = df[df[column].apply(has_valid_supplier_price)]
+      non_empty = df[column].astype(str).str.strip().ne('')
+      df = df[df[column].notnull() & non_empty]
     buf: pd.Series = df[column]
     buf = buf.fillna(initials[field])
     buf = buf.astype(str)
@@ -540,14 +533,18 @@ def upload_supplier_products(request, **kwargs):
                   SupplierProduct.objects.filter(supplier=supplier, article=row[rev_links['article']])]
 
     if products == []:
-      if setting.differ_by_name and 'name' in rev_links:
-        product, created = SupplierProduct.objects.get_or_create(
-          supplier=supplier,
-          article=row[rev_links['article']],
-          name=row[rev_links['name']]
-        )
-        new += created
-        products.append(product)
+      name_value = None
+      if 'name' in rev_links:
+        name_value = row[rev_links['name']]
+      else:
+        name_value = row[rev_links['article']]
+      product, created = SupplierProduct.objects.get_or_create(
+        supplier=supplier,
+        article=row[rev_links['article']],
+        name=name_value
+      )
+      new += created
+      products.append(product)
 
     for product in products:
       try:  
