@@ -24,6 +24,11 @@ class MainProductListTable(tables.Table):
   supplier = tables.Column(
     attrs={'td': {'data-col': 'supplier'}, 'th': {'data-col': 'supplier'}}
   )
+  supplier_product = tables.Column(
+    empty_values=(),
+    verbose_name='Товар поставщика',
+    attrs={'td': {'data-col': 'supplier_product'}, 'th': {'data-col': 'supplier_product'}}
+  )
   name = tables.Column(
     attrs={'td': {'data-col': 'name'}, 'th': {'data-col': 'name'}}
   )
@@ -134,6 +139,21 @@ class MainProductListTable(tables.Table):
       {
         'record': record,
       }
+    )
+  def render_supplier_product(self, record):
+    supplier_product = (
+      record.supplier_products.filter(supplier=record.supplier).first()
+      or record.supplier_products.first()
+    )
+    if not supplier_product:
+      return '-'
+    return format_html(
+      '<div class="d-flex flex-column">'
+      '<span class="fw-semibold">{}</span>'
+      '<span class="text-muted small">{}</span>'
+      '</div>',
+      supplier_product.name,
+      supplier_product.article,
     )
   def render_price_managers(self, record):
     managers = list(record.price_managers.values_list('name', flat=True))

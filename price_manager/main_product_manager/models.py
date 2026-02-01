@@ -10,6 +10,7 @@ MP_TABLE_FIELDS = [
   'sku',
   'article',
   'supplier',
+  'supplier_product',
   'name',
   'category',
   'manufacturer',
