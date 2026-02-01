@@ -101,10 +101,6 @@ class Setting(models.Model):
     verbose_name='Сопоставлять товары по названию и артикулу поставщика',
     default=True,
   )
-  grouping_priority = models.PositiveIntegerField(
-    verbose_name='Приоритет при группировке',
-    default=0,
-  )
   class Meta:
     constraints = [models.UniqueConstraint(fields=['name', 'supplier'], name='name_supplier_constraint')]
 
