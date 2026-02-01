@@ -137,7 +137,9 @@
               {{ category_table.table.rows|length }}
             </span>
           </div>
-          {% render_table category_table.table %}
+          <div class="main-price-table-wrap">
+            {% render_table category_table.table %}
+          </div>
         </div>
       {% endfor %}
     </div>
@@ -151,6 +153,10 @@
 <style>
   .main-columns-menu {
     min-width: 240px;
+  }
+
+  .main-price-table-wrap {
+    overflow-x: auto;
   }
 </style>
 <script>
