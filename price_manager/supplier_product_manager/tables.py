@@ -29,18 +29,76 @@ class SettingListTable(tables.Table):
 
 class SupplierProductListTable(tables.Table):
   '''Таблица отображаемая на странице Постащик:имя'''
+  discounts = tables.Column(
+    verbose_name='Группа скидок',
+    attrs={'td': {'data-col': 'discounts'}, 'th': {'data-col': 'discounts'}}
+  )
+  article = tables.Column(
+    verbose_name='Артикул поставщика',
+    attrs={'td': {'data-col': 'article'}, 'th': {'data-col': 'article'}}
+  )
+  name = tables.Column(
+    verbose_name='Название',
+    attrs={'td': {'data-col': 'name'}, 'th': {'data-col': 'name'}}
+  )
+  supplier_price = tables.Column(
+    verbose_name='Цена поставщика',
+    attrs={'td': {'data-col': 'supplier_price'}, 'th': {'data-col': 'supplier_price'}}
+  )
+  rrp = tables.Column(
+    verbose_name='РРЦ',
+    attrs={'td': {'data-col': 'rrp'}, 'th': {'data-col': 'rrp'}}
+  )
+  main_basic_price = tables.Column(
+    accessor='main_product.basic_price',
+    verbose_name='Базовая (главный прайс)',
+    attrs={'td': {'data-col': 'main_basic_price'}, 'th': {'data-col': 'main_basic_price'}}
+  )
+  main_m_price = tables.Column(
+    accessor='main_product.m_price',
+    verbose_name='Цена ИМ (главный прайс)',
+    attrs={'td': {'data-col': 'main_m_price'}, 'th': {'data-col': 'main_m_price'}}
+  )
+  main_wholesale_price = tables.Column(
+    accessor='main_product.wholesale_price',
+    verbose_name='Опт (главный прайс)',
+    attrs={'td': {'data-col': 'main_wholesale_price'}, 'th': {'data-col': 'main_wholesale_price'}}
+  )
+  main_wholesale_price_extra = tables.Column(
+    accessor='main_product.wholesale_price_extra',
+    verbose_name='Опт 1 (главный прайс)',
+    attrs={'td': {'data-col': 'main_wholesale_price_extra'}, 'th': {'data-col': 'main_wholesale_price_extra'}}
+  )
   actions = tables.TemplateColumn(
     template_name='supplier/product/actions.html',
     orderable=False,
     verbose_name='Действия',
-    attrs = {'td': {'class': 'text-right'}}
+    attrs = {'td': {'class': 'text-right', 'data-col': 'actions'}, 'th': {'data-col': 'actions'}}
   )
+  def render_main_basic_price(self, value):
+    return value if value is not None else '-'
+  def render_main_m_price(self, value):
+    return value if value is not None else '-'
+  def render_main_wholesale_price(self, value):
+    return value if value is not None else '-'
+  def render_main_wholesale_price_extra(self, value):
+    return value if value is not None else '-'
   class Meta:
     model = SupplierProduct
-    fields = SP_TABLE_FIELDS
+    fields = [
+      'discounts',
+      'article',
+      'name',
+      'supplier_price',
+      'rrp',
+      'main_basic_price',
+      'main_m_price',
+      'main_wholesale_price',
+      'main_wholesale_price_extra',
+    ]
     template_name = 'django_tables2/bootstrap5.html'
     attrs = {
-      'class': 'table table-auto table-stripped table-hover clickable-rows'
+      'class': 'table table-auto table-stripped table-hover clickable-rows table-sm supplier-products-table'
       }
     
 class LinkListTable(tables.Table):

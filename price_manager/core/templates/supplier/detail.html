@@ -6,47 +6,152 @@
 
 {% block body %}
 <div class="container-fluid mt-4 mb-5">
-  <div class="container d-flex gap-4">
-    <h1 class="mb-4">
-      {{supplier.name}}
-    </h1>
+  <div class="d-flex flex-wrap align-items-center justify-content-between gap-3 mb-4">
     <div>
-      <a class="btn btn-secondary mt-2" href="settings" role="button">Импорт</a>
+      <h1 class="mb-1">{{supplier.name}}</h1>
+      <p class="text-muted mb-0">Управляйте товарами и наценками поставщика в одном месте.</p>
     </div>
+    <a class="btn btn-secondary" href="settings" role="button">Импорт</a>
   </div>
 
-  <div class="row">
-    <!-- Блок фильтров -->
-    <div class="col-md-3">
-      <form method="get" class="card p-3 shadow-sm">
-        <h5 class="mb-3">Фильтры</h5>
+  <ul class="nav nav-tabs mb-3" id="supplier-tabs" role="tablist">
+    <li class="nav-item" role="presentation">
+      <button class="nav-link active" id="products-tab" data-bs-toggle="tab" data-bs-target="#products" type="button" role="tab" aria-controls="products" aria-selected="true">
+        Товары
+      </button>
+    </li>
+    <li class="nav-item" role="presentation">
+      <button class="nav-link" id="markups-tab" data-bs-toggle="tab" data-bs-target="#markups" type="button" role="tab" aria-controls="markups" aria-selected="false">
+        Наценки
+      </button>
+    </li>
+  </ul>
 
-        <!-- Поиск по всем полям -->
-        {% for item in filter.form %}
-        <div class="container overflow-hidden">
-          <label>{{item.label}}</label>
-          <div class="mb-r">
-            {{ item}}
+  <div class="tab-content">
+    <div class="tab-pane fade show active" id="products" role="tabpanel" aria-labelledby="products-tab">
+      <div class="row">
+        <!-- Блок фильтров -->
+        <div class="col-lg-4 col-xl-3">
+          <form method="get" class="card p-3 shadow-sm">
+            <h5 class="mb-3">Фильтры</h5>
+
+            <!-- Поиск по всем полям -->
+            {% for item in filter.form %}
+            <div class="container overflow-hidden">
+              <label>{{item.label}}</label>
+              <div class="mb-r">
+                {{ item}}
+              </div>
+            </div>
+            {%endfor%}
+
+            <!-- Кнопки -->
+            <div class=" d-flex gap-2 mt-5">
+              <button type="submit" class="btn btn-primary">
+                Искать
+              </button>
+            </div>
+          </form>
+        </div>
+
+        <!-- Таблица -->
+        <div class="col-lg-8 col-xl-9 mb-5">
+          {% load export_url from django_tables2 %}
+
+          <div class="card p-3 shadow-sm">
+            <div class="d-flex flex-wrap align-items-center justify-content-between gap-2 mb-3">
+              <div>
+                <h5 class="mb-1">Товары поставщика</h5>
+                <p class="text-muted mb-0 small">Настройте видимость столбцов, чтобы таблица помещалась по ширине.</p>
+              </div>
+              <div class="dropdown">
+                <button class="btn btn-outline-secondary btn-sm dropdown-toggle" type="button" data-bs-toggle="dropdown" aria-expanded="false">
+                  Столбцы
+                </button>
+                <div class="dropdown-menu dropdown-menu-end p-3 supplier-columns-menu">
+                  <div class="form-check">
+                    <input class="form-check-input column-toggle" type="checkbox" value="discounts" id="col-discounts" checked>
+                    <label class="form-check-label" for="col-discounts">Группа скидок</label>
+                  </div>
+                  <div class="form-check">
+                    <input class="form-check-input column-toggle" type="checkbox" value="article" id="col-article" checked>
+                    <label class="form-check-label" for="col-article">Артикул</label>
+                  </div>
+                  <div class="form-check">
+                    <input class="form-check-input column-toggle" type="checkbox" value="name" id="col-name" checked>
+                    <label class="form-check-label" for="col-name">Название</label>
+                  </div>
+                  <div class="form-check">
+                    <input class="form-check-input column-toggle" type="checkbox" value="supplier_price" id="col-supplier-price" checked>
+                    <label class="form-check-label" for="col-supplier-price">Цена поставщика</label>
+                  </div>
+                  <div class="form-check">
+                    <input class="form-check-input column-toggle" type="checkbox" value="rrp" id="col-rrp" checked>
+                    <label class="form-check-label" for="col-rrp">РРЦ</label>
+                  </div>
+                  <hr class="my-2">
+                  <div class="form-check">
+                    <input class="form-check-input column-toggle" type="checkbox" value="main_basic_price" id="col-main-basic" checked>
+                    <label class="form-check-label" for="col-main-basic">Базовая (главный прайс)</label>
+                  </div>
+                  <div class="form-check">
+                    <input class="form-check-input column-toggle" type="checkbox" value="main_m_price" id="col-main-m" checked>
+                    <label class="form-check-label" for="col-main-m">Цена ИМ (главный прайс)</label>
+                  </div>
+                  <div class="form-check">
+                    <input class="form-check-input column-toggle" type="checkbox" value="main_wholesale_price" id="col-main-wholesale" checked>
+                    <label class="form-check-label" for="col-main-wholesale">Опт (главный прайс)</label>
+                  </div>
+                  <div class="form-check">
+                    <input class="form-check-input column-toggle" type="checkbox" value="main_wholesale_price_extra" id="col-main-wholesale-extra" checked>
+                    <label class="form-check-label" for="col-main-wholesale-extra">Опт 1 (главный прайс)</label>
+                  </div>
+                  <div class="form-check">
+                    <input class="form-check-input column-toggle" type="checkbox" value="actions" id="col-actions" checked>
+                    <label class="form-check-label" for="col-actions">Действия</label>
+                  </div>
+                  <div class="mt-2">
+                    <button class="btn btn-link btn-sm p-0 text-decoration-none reset-columns" type="button">Сбросить</button>
+                  </div>
+                </div>
+              </div>
+            </div>
+            <div class="table-responsive supplier-table-wrap">
+            {% load django_tables2 %}
+            {% render_table table %}
+            </div>
           </div>
         </div>
-        {%endfor%}
-
-        <!-- Кнопки -->
-        <div class=" d-flex gap-2 mt-5">
-          <button type="submit" class="btn btn-primary">
-            Искать
-          </button>
-        </div>
-      </form>
+      </div>
     </div>
 
-    <!-- Таблица -->
-    <div class="col-md-9 mb-5">
-      {% load export_url from django_tables2 %}
-
-      <div class="table-responsive card p-3 shadow-sm overflow-visible">
-        {% load django_tables2 %}
-        {% render_table table %}
+    <div class="tab-pane fade" id="markups" role="tabpanel" aria-labelledby="markups-tab">
+      <div class="card p-3 shadow-sm">
+        <div class="d-flex flex-wrap align-items-center justify-content-between gap-3">
+          <div>
+            <h5 class="mb-1">Наценки поставщика</h5>
+            <p class="text-muted mb-0">Создавайте и редактируйте правила расчёта цен.</p>
+          </div>
+          <a class="btn btn-primary" href="{% url 'price-manager-create' %}?supplier={{ supplier.id }}&next={% url 'supplier-detail' supplier.id %}">
+            Создать наценку
+          </a>
+        </div>
+        <hr class="my-3">
+        {% if price_managers %}
+          <div class="list-group list-group-flush">
+            {% for price_manager in price_managers %}
+              <a href="{% url 'price-manager-update' price_manager.id %}" class="list-group-item list-group-item-action d-flex justify-content-between align-items-center">
+                <div>
+                  <div class="fw-semibold">{{ price_manager.name }}</div>
+                  <div class="text-muted small">Цель: {{ price_manager.get_dest_display }}</div>
+                </div>
+                <span class="text-muted small">Открыть</span>
+              </a>
+            {% endfor %}
+          </div>
+        {% else %}
+          <div class="text-muted">Пока нет наценок. Создайте первую, чтобы задать правила расчёта цен.</div>
+        {% endif %}
       </div>
     </div>
   </div>
@@ -54,4 +159,90 @@
 {% endblock %}
 
 {% block script %}
+<style>
+  .supplier-products-table th {
+    white-space: normal;
+    font-size: 0.85rem;
+    vertical-align: bottom;
+  }
+
+  .supplier-products-table td {
+    white-space: nowrap;
+    vertical-align: top;
+  }
+
+  .supplier-products-table td[data-col="name"] {
+    white-space: normal;
+    min-width: 220px;
+  }
+
+  .supplier-products-table td:nth-last-child(1),
+  .supplier-products-table th:nth-last-child(1) {
+    white-space: nowrap;
+  }
+
+  .supplier-table-wrap {
+    overflow-x: auto;
+  }
+
+  .supplier-columns-menu {
+    min-width: 260px;
+  }
+</style>
+<script>
+  (function () {
+    const supplierId = '{{ supplier.id }}';
+    const storageKey = `supplier-columns-${supplierId}`;
+    const toggles = document.querySelectorAll('.column-toggle');
+    const resetBtn = document.querySelector('.reset-columns');
+
+    const applyVisibility = (column, visible) => {
+      document.querySelectorAll(`[data-col="${column}"]`).forEach((cell) => {
+        cell.classList.toggle('d-none', !visible);
+      });
+    };
+
+    const loadState = () => {
+      try {
+        const raw = localStorage.getItem(storageKey);
+        return raw ? JSON.parse(raw) : null;
+      } catch (err) {
+        return null;
+      }
+    };
+
+    const saveState = (state) => {
+      localStorage.setItem(storageKey, JSON.stringify(state));
+    };
+
+    const state = loadState();
+    if (state) {
+      toggles.forEach((toggle) => {
+        if (Object.prototype.hasOwnProperty.call(state, toggle.value)) {
+          toggle.checked = state[toggle.value];
+          applyVisibility(toggle.value, toggle.checked);
+        }
+      });
+    }
+
+    toggles.forEach((toggle) => {
+      toggle.addEventListener('change', () => {
+        applyVisibility(toggle.value, toggle.checked);
+        const nextState = loadState() || {};
+        nextState[toggle.value] = toggle.checked;
+        saveState(nextState);
+      });
+    });
+
+    if (resetBtn) {
+      resetBtn.addEventListener('click', () => {
+        toggles.forEach((toggle) => {
+          toggle.checked = true;
+          applyVisibility(toggle.value, true);
+        });
+        localStorage.removeItem(storageKey);
+      });
+    }
+  })();
+</script>
 {% endblock %}

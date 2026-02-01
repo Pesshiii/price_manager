@@ -6,24 +6,135 @@
 
 {% block body %}
 <div class="container-fluid mt-4 mb-5">
-  <h1 class="mb-4">Новая наценка</h1>
-  <div class="container">
-    <a href="{% url 'price-manager'%}" class="btn btn-secondary">
-      <i class="bi bi-arrow-left"></i> Все наценки
-    </a>
+  <div class="d-flex flex-wrap align-items-center justify-content-between gap-3 mb-4">
+    <div>
+      <h1 class="mb-1">Новая наценка</h1>
+      <p class="text-muted mb-0">
+        Настройте правило расчёта цен. Сначала выберите поставщика и источник цены,
+        затем укажите целевую цену и формулу.
+      </p>
+    </div>
+    <div class="d-flex flex-wrap gap-2">
+      {% if request.GET.supplier %}
+        <a href="{% url 'supplier-detail' request.GET.supplier %}" class="btn btn-outline-secondary">
+          <i class="bi bi-arrow-left"></i> К поставщику
+        </a>
+      {% endif %}
+      <a href="{% url 'price-manager'%}" class="btn btn-outline-secondary">
+        <i class="bi bi-arrow-left"></i> Все наценки
+      </a>
+    </div>
   </div>
   <div class="row">
     <!-- Блок фильтров -->
-    <div class="col-md-3">
-      <form method="post" class="card p-3 shadow-sm">
+    <div class="col-lg-4 col-xl-3">
+      <form method="post" class="card p-3 shadow-sm markup-form">
         {% csrf_token %}
-        <h5 class="mb-3">Фильтры</h5>
+        <h5 class="mb-3">Параметры правила</h5>
+        {% if form.non_field_errors %}
+          <div class="alert alert-danger">{{ form.non_field_errors }}</div>
+        {% endif %}
 
-        <!-- Поиск по всем полям -->
-        {{form}}
+        <div class="mb-4">
+          <h6 class="text-muted text-uppercase small mb-2">1. Общие данные</h6>
+          <div class="mb-3">
+            <label class="form-label" for="{{ form.name.id_for_label }}">{{ form.name.label }}</label>
+            {{ form.name }}
+            {% if form.name.errors %}
+              <div class="text-danger small mt-1">{{ form.name.errors }}</div>
+            {% endif %}
+          </div>
+          <div class="mb-3">
+            <label class="form-label" for="{{ form.supplier.id_for_label }}">{{ form.supplier.label }}</label>
+            {{ form.supplier }}
+            {% if form.supplier.errors %}
+              <div class="text-danger small mt-1">{{ form.supplier.errors }}</div>
+            {% endif %}
+          </div>
+          <div class="mb-3">
+            <label class="form-label" for="{{ form.has_rrp.id_for_label }}">{{ form.has_rrp.label }}</label>
+            {{ form.has_rrp }}
+            {% if form.has_rrp.errors %}
+              <div class="text-danger small mt-1">{{ form.has_rrp.errors }}</div>
+            {% endif %}
+          </div>
+          <div class="mb-0">
+            <label class="form-label" for="{{ form.discounts.id_for_label }}">{{ form.discounts.label }}</label>
+            {{ form.discounts }}
+            <div class="form-text">Можно выбрать несколько групп скидок.</div>
+            {% if form.discounts.errors %}
+              <div class="text-danger small mt-1">{{ form.discounts.errors }}</div>
+            {% endif %}
+          </div>
+        </div>
+
+        <div class="mb-4">
+          <h6 class="text-muted text-uppercase small mb-2">2. Логика расчёта</h6>
+          <div class="mb-3">
+            <label class="form-label" for="{{ form.source.id_for_label }}">{{ form.source.label }}</label>
+            {{ form.source }}
+            {% if form.source.errors %}
+              <div class="text-danger small mt-1">{{ form.source.errors }}</div>
+            {% endif %}
+          </div>
+          <div class="mb-0">
+            <label class="form-label" for="{{ form.dest.id_for_label }}">{{ form.dest.label }}</label>
+            {{ form.dest }}
+            {% if form.dest.errors %}
+              <div class="text-danger small mt-1">{{ form.dest.errors }}</div>
+            {% endif %}
+          </div>
+        </div>
+
+        <div class="mb-4">
+          <h6 class="text-muted text-uppercase small mb-2">3. Ценовой диапазон</h6>
+          <div class="row g-2">
+            <div class="col-6">
+              <label class="form-label" for="{{ form.price_from.id_for_label }}">{{ form.price_from.label }}</label>
+              {{ form.price_from }}
+              <div class="form-text">Порог от, можно пустым.</div>
+              {% if form.price_from.errors %}
+                <div class="text-danger small mt-1">{{ form.price_from.errors }}</div>
+              {% endif %}
+            </div>
+            <div class="col-6">
+              <label class="form-label" for="{{ form.price_to.id_for_label }}">{{ form.price_to.label }}</label>
+              {{ form.price_to }}
+              <div class="form-text">Порог до, можно пустым.</div>
+              {% if form.price_to.errors %}
+                <div class="text-danger small mt-1">{{ form.price_to.errors }}</div>
+              {% endif %}
+            </div>
+          </div>
+          <div class="form-text mt-2">
+            Диапазон применяется к выбранной цене-источнику.
+          </div>
+        </div>
+
+        <div class="mb-4">
+          <h6 class="text-muted text-uppercase small mb-2">4. Формула</h6>
+          <div class="row g-2">
+            <div class="col-6">
+              <label class="form-label" for="{{ form.markup.id_for_label }}">{{ form.markup.label }}</label>
+              {{ form.markup }}
+              <div class="form-text">Процент, можно отрицательный.</div>
+              {% if form.markup.errors %}
+                <div class="text-danger small mt-1">{{ form.markup.errors }}</div>
+              {% endif %}
+            </div>
+            <div class="col-6">
+              <label class="form-label" for="{{ form.increase.id_for_label }}">{{ form.increase.label }}</label>
+              {{ form.increase }}
+              <div class="form-text">Фиксированная надбавка.</div>
+              {% if form.increase.errors %}
+                <div class="text-danger small mt-1">{{ form.increase.errors }}</div>
+              {% endif %}
+            </div>
+          </div>
+        </div>
 
         <!-- Кнопки -->
-        <div class=" d-flex gap-2 mt-5">
+        <div class="d-grid gap-2">
           <button name="btn" type="submit" class="btn btn-secondary" value="apply">
             Применить
           </button>
@@ -35,10 +146,16 @@
     </div>
 
     <!-- Таблица -->
-    <div class="col-md-9 mb-5">
+    <div class="col-lg-8 col-xl-9 mb-5">
       {% load export_url from django_tables2 %}
 
       <div class="table-responsive card p-3 shadow-sm overflow-visible">
+        <div class="d-flex flex-wrap align-items-center justify-content-between gap-2 mb-3">
+          <div>
+            <h5 class="mb-1">Предпросмотр товаров</h5>
+            <p class="text-muted mb-0 small">Проверьте, какие товары попадут под правило.</p>
+          </div>
+        </div>
         {% load django_tables2 %}
         {% render_table table %}
       </div>
@@ -48,5 +165,17 @@
 {% endblock %}
 
 {% block script %}
+<style>
+  .markup-form input,
+  .markup-form select,
+  .markup-form textarea {
+    width: 100%;
+    max-width: 100%;
+    box-sizing: border-box;
+  }
 
+  .markup-form select[multiple] {
+    min-height: 120px;
+  }
+</style>
 {% endblock %}

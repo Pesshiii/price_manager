@@ -68,11 +68,26 @@ class PriceManagerCreate(SingleTableMixin, CreateView):
   table_class = SupplierProductPriceManagerTable
   success_url = '/price-manager/'
   template_name = 'price_manager/create.html'
+  def get_initial(self):
+    initial = super().get_initial()
+    supplier_id = self.request.GET.get('supplier')
+    if supplier_id:
+      initial['supplier'] = supplier_id
+    return initial
   def get_success_url(self):
+    next_url = self.request.GET.get('next')
+    if next_url:
+      return next_url
+    supplier_id = self.request.GET.get('supplier')
+    if supplier_id:
+      return reverse('supplier-detail', args=[supplier_id])
     return f'/price-manager'
   def get_table_data(self):
     products = SupplierProduct.objects.all()
     if not hasattr(self, 'cleaned_data'):
+      supplier_id = self.request.GET.get('supplier')
+      if supplier_id:
+        return products.filter(supplier=supplier_id)
       return products
     cleaned_data = self.cleaned_data
     products = products.filter(
@@ -99,6 +114,9 @@ class PriceManagerCreate(SingleTableMixin, CreateView):
     return products
   def get_form(self):
     form = super().get_form(self.form_class)
+    supplier_id = self.request.GET.get('supplier')
+    if supplier_id:
+      form.initial['supplier'] = supplier_id
     discounts = Discount.objects.all()
     discounts = discounts.filter(supplier=form['supplier'].value())
     choices = [(disc.id, disc.name) for disc in discounts]
@@ -156,7 +174,7 @@ class PriceManagerCreate(SingleTableMixin, CreateView):
     if not self.request.POST.get('btn') == 'save': return self.form_invalid(form)
     form.save()
     messages.success(self.request, 'Наценка успешно добавлена')
-    return super().form_invalid(form)
+    return redirect(self.get_success_url())
   
 
 

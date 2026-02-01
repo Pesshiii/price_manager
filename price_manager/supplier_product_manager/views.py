@@ -20,6 +20,7 @@ from django.db.models import Value
 # Импорты моделей, функций, форм, таблиц
 from file_manager.models import FileModel
 from main_product_manager.models import MainProduct, MainProductLog
+from product_price_manager.models import PriceManager
 from core.functions import extract_initial_from_post
 from .forms import *
 from .tables import *
@@ -58,6 +59,7 @@ class SupplierDetail(SingleTableMixin, FilterView):
   def get_context_data(self, **kwargs):
     context = super().get_context_data(**kwargs)
     context['supplier'] = Supplier.objects.get(id=self.kwargs.get('id'))
+    context['price_managers'] = PriceManager.objects.filter(supplier_id=self.kwargs.get('id')).order_by('name')
     return context
 
 
@@ -597,4 +599,3 @@ def upload_supplier_products(request, **kwargs):
       request,
       f'''Ошибок: {len(exs)}.     ''' + ex_str)
   return redirect('supplier-detail', id=supplier.pk)
-
