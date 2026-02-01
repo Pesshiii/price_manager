@@ -41,6 +41,10 @@ class SupplierProductListTable(tables.Table):
     verbose_name='Название',
     attrs={'td': {'data-col': 'name'}, 'th': {'data-col': 'name'}}
   )
+  stock = tables.Column(
+    verbose_name='Остаток',
+    attrs={'td': {'data-col': 'stock'}, 'th': {'data-col': 'stock'}}
+  )
   supplier_price = tables.Column(
     verbose_name='Цена поставщика',
     attrs={'td': {'data-col': 'supplier_price'}, 'th': {'data-col': 'supplier_price'}}
@@ -92,6 +96,7 @@ class SupplierProductListTable(tables.Table):
       'discounts',
       'article',
       'name',
+      'stock',
       'supplier_price',
       'rrp',
       'main_basic_price',
