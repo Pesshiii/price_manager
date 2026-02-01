@@ -118,8 +118,15 @@ def get_df(df: pd.DataFrame, links, initials, dicts, setting:Setting):
     if field == 'name' and setting.differ_by_name:
       df=df[df[column].notnull()]
     if field == 'supplier_price' and setting.priced_only:
-      non_empty = df[column].astype(str).str.strip().ne('')
-      df = df[df[column].notnull() & non_empty]
+      def has_valid_supplier_price(value):
+        num = get_safe(value, Decimal)
+        if num in ('', None):
+          return False
+        try:
+          return Decimal(str(num)) > 0
+        except (InvalidOperation, ValueError):
+          return False
+      df = df[df[column].apply(has_valid_supplier_price)]
     buf: pd.Series = df[column]
     buf = buf.fillna(initials[field])
     buf = buf.astype(str)
