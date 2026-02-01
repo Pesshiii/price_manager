@@ -55,7 +55,10 @@ class SupplierDetail(SingleTableMixin, FilterView):
   template_name = 'supplier/detail.html'
 
   def get_table_data(self):
-    return super().get_table_data().filter(supplier=self.kwargs.get('id', None))
+    return (super()
+            .get_table_data()
+            .filter(supplier=self.kwargs.get('id', None))
+            .prefetch_related('discounts'))
   def get_context_data(self, **kwargs):
     context = super().get_context_data(**kwargs)
     context['supplier'] = Supplier.objects.get(id=self.kwargs.get('id'))
