@@ -153,8 +153,22 @@ class MainPage(SingleTableMixin, FilterView):
   template_name = 'main/main.html'
   table_pagination = False
 
+  def _get_main_table_columns(self):
+    return ['actions', *MP_TABLE_FIELDS]
+
+  def _get_selected_columns(self):
+    all_columns = self._get_main_table_columns()
+    selected = [col for col in self.request.GET.getlist('columns') if col in all_columns]
+    if not selected:
+      selected = list(all_columns)
+    if 'actions' not in selected:
+      selected.insert(0, 'actions')
+    return all_columns, selected
+
   def get_table(self, **kwargs):
-    return super().get_table(**kwargs, request=self.request)
+    all_columns, selected_columns = self._get_selected_columns()
+    exclude = [column for column in all_columns if column not in selected_columns]
+    return super().get_table(**kwargs, request=self.request, exclude=exclude)
 
   def get_context_data(self, **kwargs):
     context = super().get_context_data(**kwargs)
@@ -164,11 +178,14 @@ class MainPage(SingleTableMixin, FilterView):
     filterset = context.get('filter')
     category_tables = []
 
+    all_columns, selected_columns = self._get_selected_columns()
+    exclude = [column for column in all_columns if column not in selected_columns]
+
     if filterset is not None:
       filtered_records = filterset.qs.select_related('category')
 
       if len(filtered_records) > 10000:
-        category_table = self.table_class(filtered_records, request=self.request)
+        category_table = self.table_class(filtered_records, request=self.request, exclude=exclude)
         RequestConfig(self.request).configure(category_table)
         category_tables.append({
             'category': Category.objects.none(),
@@ -195,7 +212,7 @@ class MainPage(SingleTableMixin, FilterView):
         )
 
         for group in sorted_groups:
-          category_table = self.table_class(group['records'], request=self.request)
+          category_table = self.table_class(group['records'], request=self.request, exclude=exclude)
           RequestConfig(self.request, paginate=False).configure(category_table)
           category_tables.append({
               'category': group['category'],
@@ -203,6 +220,25 @@ class MainPage(SingleTableMixin, FilterView):
           })
 
     context['category_tables'] = category_tables
+
+    column_labels = {
+        'actions': 'Действия',
+    }
+    for column in MP_TABLE_FIELDS:
+      try:
+        column_labels[column] = MainProduct._meta.get_field(column).verbose_name
+      except Exception:
+        column_labels[column] = column
+
+    context['available_columns'] = [
+        {
+            'name': column,
+            'label': column_labels.get(column, column),
+            'is_required': column == 'actions',
+        }
+        for column in all_columns
+    ]
+    context['selected_columns'] = set(selected_columns)
 
     filter_form = filter_context['filter_form']
     dynamic_url = reverse('main-filter-options')

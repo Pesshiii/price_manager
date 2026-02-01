@@ -105,7 +105,28 @@
         
         {% include 'main/includes/filter_field.html' with field=filter_form.supplier container_id='supplier-filter-container' collapse_id='supplier-filter-collapse' available_options=available_suppliers available_options_label='Доступные поставщики' collapsible=False %}
 
-
+        <div class="form-group mt-4">
+          <label class="form-label">Отображение столбцов</label>
+          <input type="hidden" name="columns" value="actions">
+          <div class="d-flex flex-column gap-2">
+            {% for column in available_columns %}
+              <div class="form-check">
+                <input
+                  class="form-check-input"
+                  type="checkbox"
+                  name="columns"
+                  id="main-column-{{ column.name }}"
+                  value="{{ column.name }}"
+                  {% if column.name in selected_columns %}checked{% endif %}
+                  {% if column.is_required %}disabled{% endif %}
+                >
+                <label class="form-check-label" for="main-column-{{ column.name }}">
+                  {{ column.label }}
+                </label>
+              </div>
+            {% endfor %}
+          </div>
+        </div>
 
         <div class="mt-4 d-flex gap-2">
             <button type="submit" class="btn btn-primary flex-grow-1">

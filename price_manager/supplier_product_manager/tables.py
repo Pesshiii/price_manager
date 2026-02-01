@@ -42,6 +42,12 @@ class SupplierProductListTable(tables.Table):
     attrs = {
       'class': 'table table-auto table-stripped table-hover clickable-rows'
       }
+
+  def render_discounts(self, record):
+    discounts = record.discounts.all()
+    if not discounts:
+      return '—'
+    return ', '.join(discount.name for discount in discounts)
     
 class LinkListTable(tables.Table):
   '''Таблица отображаемая на странице Настройка/Связки'''
