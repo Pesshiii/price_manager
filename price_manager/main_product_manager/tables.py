@@ -13,7 +13,26 @@ class MainProductListTable(tables.Table):
   '''Таблица Главного прайса отображаемая на главной странице'''
   actions = tables.Column(empty_values=(),
                          orderable=False,
-                         verbose_name='')
+                         verbose_name='',
+                         attrs={'td': {'data-col': 'actions'}, 'th': {'data-col': 'actions'}})
+  article = tables.Column(
+    attrs={'td': {'data-col': 'article'}, 'th': {'data-col': 'article'}}
+  )
+  supplier = tables.Column(
+    attrs={'td': {'data-col': 'supplier'}, 'th': {'data-col': 'supplier'}}
+  )
+  name = tables.Column(
+    attrs={'td': {'data-col': 'name'}, 'th': {'data-col': 'name'}}
+  )
+  manufacturer = tables.Column(
+    attrs={'td': {'data-col': 'manufacturer'}, 'th': {'data-col': 'manufacturer'}}
+  )
+  prime_cost = tables.Column(
+    attrs={'td': {'data-col': 'prime_cost'}, 'th': {'data-col': 'prime_cost'}}
+  )
+  stock = tables.Column(
+    attrs={'td': {'data-col': 'stock'}, 'th': {'data-col': 'stock'}}
+  )
   def __init__(self, *args, **kwargs):
     self.request = kwargs.pop('request')
     super().__init__(*args, **kwargs)

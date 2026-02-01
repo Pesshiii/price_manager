@@ -2,7 +2,47 @@
 {% load django_tables2 %}
 
 <div id="main-table-container" class="table-area mb-5">
-  <h1 class="mb-4">Главный прайс</h1>
+  <div class="d-flex flex-wrap align-items-center justify-content-between gap-2 mb-4">
+    <h1 class="mb-0">Главный прайс</h1>
+    <div class="dropdown">
+      <button class="btn btn-outline-secondary btn-sm dropdown-toggle" type="button" data-bs-toggle="dropdown" aria-expanded="false">
+        Столбцы
+      </button>
+      <div class="dropdown-menu dropdown-menu-end p-3 main-columns-menu">
+        <div class="form-check">
+          <input class="form-check-input main-column-toggle" type="checkbox" value="actions" id="main-col-actions" checked>
+          <label class="form-check-label" for="main-col-actions">Действия</label>
+        </div>
+        <div class="form-check">
+          <input class="form-check-input main-column-toggle" type="checkbox" value="article" id="main-col-article" checked>
+          <label class="form-check-label" for="main-col-article">Артикул</label>
+        </div>
+        <div class="form-check">
+          <input class="form-check-input main-column-toggle" type="checkbox" value="supplier" id="main-col-supplier" checked>
+          <label class="form-check-label" for="main-col-supplier">Поставщик</label>
+        </div>
+        <div class="form-check">
+          <input class="form-check-input main-column-toggle" type="checkbox" value="name" id="main-col-name" checked>
+          <label class="form-check-label" for="main-col-name">Название</label>
+        </div>
+        <div class="form-check">
+          <input class="form-check-input main-column-toggle" type="checkbox" value="manufacturer" id="main-col-manufacturer" checked>
+          <label class="form-check-label" for="main-col-manufacturer">Производитель</label>
+        </div>
+        <div class="form-check">
+          <input class="form-check-input main-column-toggle" type="checkbox" value="prime_cost" id="main-col-prime-cost" checked>
+          <label class="form-check-label" for="main-col-prime-cost">Себестоимость</label>
+        </div>
+        <div class="form-check">
+          <input class="form-check-input main-column-toggle" type="checkbox" value="stock" id="main-col-stock" checked>
+          <label class="form-check-label" for="main-col-stock">Остаток</label>
+        </div>
+        <div class="mt-2">
+          <button class="btn btn-link btn-sm p-0 text-decoration-none reset-main-columns" type="button">Сбросить</button>
+        </div>
+      </div>
+    </div>
+  </div>
 
   {% if category_tables %}
     <div class="d-flex flex-column gap-4">
@@ -26,3 +66,64 @@
     </div>
   {% endif %}
 </div>
+
+<style>
+  .main-columns-menu {
+    min-width: 240px;
+  }
+</style>
+<script>
+  (function () {
+    const storageKey = 'main-price-columns';
+    const toggles = document.querySelectorAll('.main-column-toggle');
+    const resetBtn = document.querySelector('.reset-main-columns');
+
+    const applyVisibility = (column, visible) => {
+      document.querySelectorAll(`[data-col="${column}"]`).forEach((cell) => {
+        cell.classList.toggle('d-none', !visible);
+      });
+    };
+
+    const loadState = () => {
+      try {
+        const raw = localStorage.getItem(storageKey);
+        return raw ? JSON.parse(raw) : null;
+      } catch (err) {
+        return null;
+      }
+    };
+
+    const saveState = (state) => {
+      localStorage.setItem(storageKey, JSON.stringify(state));
+    };
+
+    const state = loadState();
+    if (state) {
+      toggles.forEach((toggle) => {
+        if (Object.prototype.hasOwnProperty.call(state, toggle.value)) {
+          toggle.checked = state[toggle.value];
+          applyVisibility(toggle.value, toggle.checked);
+        }
+      });
+    }
+
+    toggles.forEach((toggle) => {
+      toggle.addEventListener('change', () => {
+        applyVisibility(toggle.value, toggle.checked);
+        const nextState = loadState() || {};
+        nextState[toggle.value] = toggle.checked;
+        saveState(nextState);
+      });
+    });
+
+    if (resetBtn) {
+      resetBtn.addEventListener('click', () => {
+        toggles.forEach((toggle) => {
+          toggle.checked = true;
+          applyVisibility(toggle.value, true);
+        });
+        localStorage.removeItem(storageKey);
+      });
+    }
+  })();
+</script>

@@ -83,6 +83,9 @@ class SupplierProductListTable(tables.Table):
     return value if value is not None else '-'
   def render_main_wholesale_price_extra(self, value):
     return value if value is not None else '-'
+  def render_discounts(self, record):
+    discounts = list(record.discounts.values_list('name', flat=True))
+    return ', '.join(discounts) if discounts else '-'
   class Meta:
     model = SupplierProduct
     fields = [
