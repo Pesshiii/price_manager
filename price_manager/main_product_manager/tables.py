@@ -139,7 +139,7 @@ class MainProductListTable(tables.Table):
     managers = list(record.price_managers.values_list('name', flat=True))
     return ', '.join(managers) if managers else '-'
   def render_special_prices(self, record):
-    specials = list(record.special_prices.values_list('name', flat=True))
+    specials = [str(item) for item in record.special_prices.all()]
     return ', '.join(specials) if specials else '-'
 
 
