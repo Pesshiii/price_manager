@@ -6,7 +6,34 @@ from supplier_manager.models import Supplier, Category, Manufacturer
 from product_price_manager.models import PriceManager, SpecialPrice, PRICE_TYPES
 
    
-MP_TABLE_FIELDS = ['article', 'supplier', 'name', 'manufacturer','prime_cost', 'stock']
+MP_TABLE_FIELDS = [
+  'sku',
+  'article',
+  'supplier',
+  'name',
+  'category',
+  'manufacturer',
+  'stock',
+  'weight',
+  'prime_cost',
+  'wholesale_price',
+  'basic_price',
+  'm_price',
+  'wholesale_price_extra',
+  'length',
+  'width',
+  'depth',
+  'price_updated_at',
+  'stock_updated_at',
+  'price_managers',
+  'special_prices',
+  'supplier_delivery_days',
+  'supplier_price_update_rate',
+  'supplier_stock_update_rate',
+  'supplier_currency',
+  'supplier_price_updated_at',
+  'supplier_stock_updated_at',
+]
 MP_CHARS = ['sku', 'article', 'name']
 MP_FKS = ['supplier', 'category', 'discount', 'manufacturer', 'price_manager']
 MP_DECIMALS = ['weight', 'length', 'width', 'depth']

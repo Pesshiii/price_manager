@@ -41,6 +41,10 @@ class SupplierProductListTable(tables.Table):
     verbose_name='Название',
     attrs={'td': {'data-col': 'name'}, 'th': {'data-col': 'name'}}
   )
+  stock = tables.Column(
+    verbose_name='Остаток',
+    attrs={'td': {'data-col': 'stock'}, 'th': {'data-col': 'stock'}}
+  )
   supplier_price = tables.Column(
     verbose_name='Цена поставщика',
     attrs={'td': {'data-col': 'supplier_price'}, 'th': {'data-col': 'supplier_price'}}
@@ -83,12 +87,16 @@ class SupplierProductListTable(tables.Table):
     return value if value is not None else '-'
   def render_main_wholesale_price_extra(self, value):
     return value if value is not None else '-'
+  def render_discounts(self, record):
+    discounts = list(record.discounts.values_list('name', flat=True))
+    return ', '.join(discounts) if discounts else '-'
   class Meta:
     model = SupplierProduct
     fields = [
       'discounts',
       'article',
       'name',
+      'stock',
       'supplier_price',
       'rrp',
       'main_basic_price',
