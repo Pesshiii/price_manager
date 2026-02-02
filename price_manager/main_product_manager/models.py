@@ -16,6 +16,18 @@ MP_PRICES = ['prime_cost', 'wholesale_price', 'basic_price', 'm_price', 'wholesa
 MP_MANAGMENT = ['price_updated_at', 'stock_updated_at', 'search_vector']
 
 class MainProduct(models.Model):
+  class Meta:
+    verbose_name = 'Главный продукт'
+    ordering = ['article', 'name']
+    constraints = [
+      models.UniqueConstraint(
+        fields=['supplier', 'article', 'name'],
+        name='mp_unique_supplier_article_name'
+      )
+    ]
+    indexes = [
+      GinIndex(fields=['search_vector']),
+    ]
   sku = models.CharField(verbose_name='Артикул товара',
                          null=True,
                          blank=True,
@@ -93,11 +105,6 @@ class MainProduct(models.Model):
   stock_updated_at = models.DateTimeField(verbose_name='Последнее обновление остатка',
                                     null=True)
   search_vector = SearchVectorField(null=True, editable=False, unique=False, verbose_name="Вектор поиска")
-  def save(self, *args, **kwargs):
-    super().save(*args, **kwargs)
-    MainProduct.objects.filter(pk=self.pk).update(
-        search_vector=SearchVector('name', config='russian')
-    )
   def __str__(self):
     return self.sku if self.sku else 'Не указан'
   def _build_search_text(self) -> str:
@@ -111,34 +118,17 @@ class MainProduct(models.Model):
         getattr(self.manufacturer, "name", ""),
     ]
     return " ".join(parts)
-  def recalculate_search_vectors():
-    mps = MainProduct.objects.all().prefetch_related('supplier', 'manufacturer', 'category')
-    def build_searchvector(mp):
-      mp.search_vector=SearchVector(Value(mp._build_search_text()), config='russian')
-      return mp
-    mps = map(build_searchvector, mps)
-    return MainProduct.objects.bulk_update(mps, fields=['search_vector'])
   def rebuild_search_vector(self):
     """Обновляет search_vector без join-полей (через константу)."""
     text = self._build_search_text()
     MainProduct.objects.filter(pk=self.pk).update(
         search_vector=SearchVector(Value(text), config='russian')
     )
+    
   def save(self, *args, **kwargs):
     super().save(*args, **kwargs)
     self.rebuild_search_vector()
-  class Meta:
-    verbose_name = 'Главный продукт'
-    ordering = ['article', 'name']
-    constraints = [
-      models.UniqueConstraint(
-        fields=['supplier', 'article', 'name'],
-        name='mp_unique_supplier_article_name'
-      )
-    ]
-    indexes = [
-      GinIndex(fields=['search_vector']),
-    ]
+  
 
 class MainProductLog(models.Model):
   update_time = models.DateTimeField(verbose_name='Дата',
@@ -172,43 +162,51 @@ class MainProductLog(models.Model):
       )
     ]
 
+def recalculate_search_vectors(mps):
+    if not mps: return None
+    mps.select_related('supplier', 'category', 'manufacturer')
+    def build_searchvector(mp):
+      mp.search_vector=SearchVector(Value(mp._build_search_text()), config='russian')
+      return mp
+    mps = map(build_searchvector, mps)
+    return MainProduct.objects.bulk_update(mps, fields=['search_vector'])
+
 
 def update_stocks():
   mps = MainProduct.objects.prefetch_related('supplier_products').annotate(new_stock=Sum('supplier_products__stock'))
   mps = mps.filter(Q(new_stock__isnull=False)).filter(~Q(stock=F('new_stock')))
   mps.stock = F('new_stock')
+  mpls = map(lambda mp: MainProductLog(main_product=mp, stock=mp.stock),  mps)
+  MainProductLog.objects.bulk_create(mpls)
   return mps.bulk_update(mps, fields=['stock', 'stock_updated_at'])
 
 def update_logs():
   updated_logs = 0
+  
   for price_type in MP_PRICES:
-    latest_log_date_subquery = MainProductLog.objects.filter(
-      main_product__id=OuterRef('pk')
-    ).filter(price_type=price_type).order_by('-update_time').values('update_time')[:1]
-    latest_log_price_subquery =  MainProductLog.objects.filter(
+    latest_log_price_subquery =  MainProductLog.objects.select_related('main_product').filter(
       main_product__id=OuterRef('pk')
     ).filter(price_type=price_type).order_by('-update_time').values('price')[:1]
-    mps = MainProduct.objects.all().annotate(
+    mps = MainProduct.objects.prefetch_related('mp_log').all().annotate(
       **{
-          f'latest_log_{price_type}_data':Subquery(latest_log_date_subquery),
           f'latest_log_{price_type}':Subquery(latest_log_price_subquery)
       }
     )
-    mps = mps.filter(~Q(**{price_type:F(f'latest_log_{price_type}')})|Q(**{f'latest_log_{price_type}__isnull':True}))
-    mpls = map(lambda item: MainProductLog(price_type=item[0], main_product=item[1], price=getattr(item[1], price_type)), zip([price_type] * mps.count(), mps.all()))
+    mps = mps.filter(~Q(**{price_type:F(f'latest_log_{price_type}')})&
+                     ((Q(**{f'{price_type}__isnull':True})&Q(**{f'latest_log_{price_type}__isnull':False}))|
+                     (Q(**{f'{price_type}__isnull':False})&Q(**{f'latest_log_{price_type}__isnull':True}))))
+    print(mps.values_list(price_type, f'latest_log_{price_type}'))
+    mpls = map(lambda mp: MainProductLog(price_type=price_type, main_product=mp, price=getattr(mp, price_type)), mps.all())
     mpls = MainProductLog.objects.bulk_create(mpls)
     updated_logs += len(mpls)
 
-
-  latest_log_date_subquery = MainProductLog.objects.filter(
-    main_product__pk=OuterRef('pk')
-  ).filter(price_type__isnull=True).order_by('-update_time').values('update_time')[:1]
+  
+  print('stock:', timezone.now())
   latest_log_stock_subquery =  MainProductLog.objects.filter(
     main_product__pk=OuterRef('pk')
   ).filter(price_type__isnull=True).order_by('-update_time').values('stock')[:1]
   mps = MainProduct.objects.filter(stock__isnull=False).annotate(
     **{
-        f'latest_log_stock_data':Subquery(latest_log_date_subquery),
         f'latest_log_stock':Subquery(latest_log_stock_subquery)
     }
   )

@@ -19,6 +19,9 @@ class PriceManagerListTable(tables.Table):
     attrs = {
       'class': 'table table-auto table-stripped table-hover clickable-rows'
       }
+  def render_has_rrp(self, record):
+    if record.has_rrp == None: return 'Без разницы'
+    return record.has_rrp
   def render_name(self, record):
     return format_html("""
       <a

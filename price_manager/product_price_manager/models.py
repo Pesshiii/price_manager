@@ -2,7 +2,7 @@ from django.db import models
 from django.core.validators import (MinValueValidator, MaxValueValidator)
 from supplier_manager.models import Supplier, Discount
 from supplier_product_manager.models import SupplierProduct, SP_PRICES
-from main_product_manager.models import MainProduct, MP_PRICES, update_logs
+from main_product_manager.models import MainProduct, MP_PRICES, update_logs, MainProductLog
 from django.db.models import (F, ExpressionWrapper, 
                               fields, Func, 
                               Value, Min, Max,
@@ -10,6 +10,7 @@ from django.db.models import (F, ExpressionWrapper,
                               OuterRef, Subquery, Prefetch,
                               Case, When)
 from django.db.models.functions import Ceil
+from django.utils import timezone
 
 # Импорты сторонних библиотек
 from decimal import Decimal, InvalidOperation
@@ -44,13 +45,15 @@ class PriceManager(models.Model):
   Методы:
     __str__: Возвращает название менеджера цен.
   """
+  class Meta:
+    ordering = ['dest', 'source']
   
   name = models.CharField(verbose_name='Название',
                           unique=True)
   supplier = models.ForeignKey(Supplier,
                                on_delete=models.CASCADE,
                                verbose_name='Поставщик',
-                               related_name='price_managers',
+                               related_name='pricemanagers',
                                null=False,
                                blank=True)
   has_rrp = models.BooleanField(verbose_name='Есть РРЦ',
@@ -124,17 +127,26 @@ class PriceManager(models.Model):
       decimal_places=2,
       max_digits=20,
       default=0)
-  class Meta:
-    ordering = ['dest', 'source']
+
   def __str__(self):
     return self.name
+  
   def get_fitting_mps(self):
     """
     Возвращает продукты подходящие под данный менеджер наценок \\
     Возвращает querryset с аннотацией:\\
-    - changed_price - цена после применения наценки
+    - changed_price - цена после применения наценки\\
+      (при подсечете от цен поставщика берет минимальное значение)
     """
     def get_price_querry(price_from, price_to, price_prefix):
+      # query = Q(**{f'{price_prefix}__isnull': False})
+      # if price_from and price_to:
+      #   query &= Q(**{f'{price_prefix}__range':(price_from, price_to)})
+      # elif price_from:
+      #   query &= Q(**{f'{price_prefix}__gte':price_from})
+      # elif price_to:
+      #   query &= Q(**{f'{price_prefix}__lte':price_to})
+      # return query
       if price_from and price_to:
         return Q(**{f'{price_prefix}__range':(price_from, price_to)})
       elif price_from:
@@ -143,9 +155,10 @@ class PriceManager(models.Model):
         return Q(**{f'{price_prefix}__lte':price_to})
       else:
         return Q()
+
     price_manager = self
     mps = MainProduct.objects.all().prefetch_related('supplier_products')
-    products = SupplierProduct.objects.all()
+    products = SupplierProduct.objects.all().prefetch_related('main_product')
     products = products.filter(
       supplier=price_manager.supplier)
     if not price_manager.has_rrp is None:
@@ -161,14 +174,14 @@ class PriceManager(models.Model):
         price_manager.price_to,
         price_manager.source))
       if price_manager.discounts.exists():
-        products = products.filter(discount__in=price_manager.discounts)
+        products = products.filter(discount__in=price_manager.discounts.all())
     elif price_manager.source in MP_PRICES:
       products = products.filter(get_price_querry(
         price_manager.price_from,
         price_manager.price_to,
         f'''main_product__{price_manager.source}'''))
     
-    mps = MainProduct.objects.filter(id__in=products.values_list('main_product__id'))
+    mps = MainProduct.objects.filter(pk__in=products.values_list('main_product', flat=True))
     source = price_manager.source
     if price_manager.source in SP_PRICES:
       mps = mps.annotate(source_price=Min(f'supplier_products__{price_manager.source}'))
@@ -202,7 +215,7 @@ class PriceManager(models.Model):
         )
         .values("_changed_price")[:1]
       )
-    else:  
+    else:
       calc_qs = (
         mps.filter(pk=OuterRef("pk"))
         .annotate(
@@ -217,76 +230,81 @@ class PriceManager(models.Model):
       )
     
     mps = mps.annotate(
-          changed_price=Subquery(calc_qs, output_field=DecimalField())
+        changed_price=Subquery(calc_qs, output_field=DecimalField())
       )
     
     return mps
+  
+  def update_pricetags(self):
+    pts = self.pricetags.values_list('mp', flat=True)
+    mps = self.get_fitting_mps().filter(~Q(pk__in=pts))
+    pts = map(
+      lambda item: 
+        PriceTag(**{
+          'mp':item[1],
+          'p_manager':item[0],
+          'source':item[0].source,
+          'dest':item[0].dest,
+          'markup':item[0].markup,
+          'increase':item[0].increase,
+          'fixed_price':item[0].fixed_price
+        }), zip([self]*mps.count(), mps))
+    return PriceTag.objects.bulk_create(
+      pts, 
+      update_conflicts=True, 
+      unique_fields=['mp', 'p_manager', 'dest'], 
+      update_fields=[
+        'source',
+        'markup',
+        'increase',
+        'fixed_price'])
+  
+  def save(self, **kwargs):
+    super().save(**kwargs)
+    mps = self.get_fitting_mps()
+    pts = map(
+      lambda item: 
+        PriceTag(**{
+          'mp':item[1],
+          'p_manager':item[0],
+          'source':item[0].source,
+          'dest':item[0].dest,
+          'markup':item[0].markup,
+          'increase':item[0].increase,
+          'fixed_price':item[0].fixed_price
+        }), zip([self]*mps.count(), mps))
+    PriceTag.objects.bulk_create(
+      pts, 
+      update_conflicts=True, 
+      unique_fields=['mp', 'p_manager', 'dest'], 
+      update_fields=[
+        'source',
+        'markup',
+        'increase',
+        'fixed_price'])
 
-    
+  def apply(self):
+    print('\n\n\n', self.supplier, '\n\n\n')
+    mps = self.get_fitting_mps()
+    mps = mps.filter(~Q(**{self.dest: F('changed_price')}))
+    mpls = map(lambda mp: MainProductLog(price_type=self.dest, main_product=mp, price=getattr(mp, 'changed_price')), mps)
+    MainProductLog.objects.bulk_create(mpls)
+    self.update_pricetags()
+    return mps.update(**{self.dest:F('changed_price')})
 
-class SpecialPrice(models.Model):
-  """
-  Модель PriceManager предназначена для управления ценами и скидками товаров от различных поставщиков.
-  Атрибуты:
-    name (CharField): Название менеджера цен. Должно быть уникальным.
-    supplier (ForeignKey): Ссылка на поставщика (Supplier). При удалении поставщика связанные менеджеры цен также удаляются.
-    discounts (ManyToManyField): Группы скидок, связанные с менеджером цен.
-    source (CharField): Источник цены, от которой производится расчет (выбор из предопределённых вариантов).
-    dest (CharField): Целевая цена, которую необходимо рассчитать (выбор из предопределённых вариантов).
-    price_from (DecimalField): Нижняя граница цены для применения менеджера цен.
-    price_to (DecimalField): Верхняя граница цены для применения менеджера цен.
-    markup (DecimalField): Процентная накрутка на цену (от -100 до 100).
-    increase (DecimalField): Фиксированная надбавка к цене.
-  Методы:
-    __str__: Возвращает название менеджера цен.
-  """
-  source = models.CharField(verbose_name='От какой цены считать',
-                                 choices=[
-                                  (None, 'Фиксированная цена'),
-                                  ('rrp', 'РРЦ в валюте поставщика'),
-                                  ('supplier_price', 'Цена поставщика в валюте поставщика'),
-                                  ('basic_price', 'Базовая цена'),
-                                  ('prime_cost', 'Себестоимость'),
-                                  ('m_price', 'Цена ИМ'),
-                                  ('wholesale_price', 'Оптовая цена'),
-                                  ('wholesale_price_extra', 'Оптовая цена1')],
-                                  blank=True,
-                                  null=True)
-  dest = models.CharField(verbose_name='Какую цену считать',
-                                 choices=[
-                                  ('basic_price', 'Базовая цена'),
-                                  ('prime_cost', 'Себестоимость'),
-                                  ('m_price', 'Цена ИМ'),
-                                  ('wholesale_price', 'Оптовая цена'),
-                                  ('wholesale_price_extra', 'Оптовая цена1')],
-                                  blank=True,
-                                  null=True)
-  markup = models.DecimalField(
-      verbose_name='Накрутка',
-      decimal_places=2,
-      max_digits=5,
-      validators=[MinValueValidator(-100), MaxValueValidator(100)],
-      default=0)
-  increase = models.DecimalField(
-      verbose_name='Надбавка',
-      decimal_places=2,
-      max_digits=20,
-      default=0)
-  fixed_price = models.DecimalField(
-      verbose_name='Фиксированная цена',
-      decimal_places=2,
-      max_digits=20,
-      validators=[MinValueValidator(0)],
-      null=True,
-      blank=True)
-  def __str__(self):
-    if self.source:
-      return f'{PRICE_TYPES[self.source]} -> {PRICE_TYPES[self.dest]} ({(1+self.markup/100)*100}% + {self.increase} тг.)'
-    else:
-      return f'{PRICE_TYPES[self.dest]}: {self.fixed_price}'
+  def delete(self, *args, **kwargs):
+    mps = self.get_fitting_mps()
+    setattr(mps, self.dest, Value(None))
+    MainProduct.objects.bulk_update(mps, fields=[self.dest, 'price_updated_at'])
+    super().delete(*args, **kwargs)
+
 
 
 class PriceTag(models.Model):
+  class Meta:
+    verbose_name = ("Наценка")
+    verbose_name_plural = ("Наценки")
+    constraints = [models.UniqueConstraint(fields=['mp', 'p_manager', 'dest'], name='pricetag_constraint')]
   mp = models.ForeignKey(verbose_name="Товар главного прайса",
                                 to=MainProduct,
                                 related_name='pricetags',
@@ -345,83 +363,56 @@ class PriceTag(models.Model):
       validators=[MinValueValidator(0)],
       null=True,
       blank=True)
+  
   def __str__(self):
     if self.source:
       return f'{PRICE_TYPES[self.source]} -> {PRICE_TYPES[self.dest]} ({(1+self.markup/100)*100}% + {self.increase} тг.)'
     else:
       return f'{PRICE_TYPES[self.dest]}: {self.fixed_price}'
+  
+  def get_aggfunc():
+    '''
+    Функция для аггрегации цен поставщика
+    '''
+    return max
 
+  def get_sprice(self):
+    if self.source == 'fixed_price':
+      return self.fixed_price
+    if self.source in MP_PRICES:
+      return self.get_aggfunc()(
+        self.mp.supplier_products.filter(**{f'{self.source}__isnull':False}).values_list(self.source, flat=True) 
+        ) * self.mp.supplier.currency.value()
+    return getattr(self.mp, self.source)
+  
+  def get_dprice(self):
+    return self.get_sprice()*(1+self.markup/100) + self.increase
 
-  class Meta:
-    verbose_name = ("Наценка")
-    verbose_name_plural = ("Наценки")
+  def get_mp(self):
+    mp = self.mp
+    new_price = self.get_dprice()
+    if not getattr(mp, self.dest) == new_price:
+      setattr(mp, self.dest, new_price)
+    MainProductLog.objects.create(price_type=self.dest, main_product=mp, price=getattr(mp, self.dest))
+    return mp
+  
+  def delete(self, *args, **kwargs):
+    setattr(self.mp, self.dest, None)
+    self.mp.save()
+    super().delete(*args, **kwargs)
 
-  def __str__(self):
-    if not self.source == 'fixed_price':
-      return f'{PRICE_TYPES[self.source]} -> {PRICE_TYPES[self.dest]} ({(1+self.markup/100)*100}% + {self.increase} тг.)'
-    else:
-      return f'{PRICE_TYPES[self.dest]}: {self.fixed_price}'
-
-
-def update_pricetags():
-  count = 0
-  for pm in PriceManager.objects.all().prefetch_related('pricetags'):
-    pts = pm.pricetags.values_list('mp', flat=True)
-    mps = pm.get_fitting_mps().filter(~Q(pk__in=pts))
-    pts = map(
-      lambda item: 
-        PriceTag(**{
-          'mp':item[1],
-          'p_manager':item[0],
-          'source':item[0].source,
-          'dest':item[0].dest,
-          'markup':item[0].markup,
-          'increase':item[0].increase,
-          'fixed_price':item[0].fixed_price
-        }), zip([pm]*mps.count(), mps))
-    count += len(PriceTag.objects.bulk_create(pts))
-  return count
 
 
 def update_prices():
   count = 0
-  # def get_newprice_qr(source, dest):
-  #   if source in SP_PRICES:
   
   SupplierProduct.objects.filter(*[Q(**{dest: 0}) for dest in SP_PRICES]).update(**{dest: None for dest in SP_PRICES})
   MainProduct.objects.filter(*[Q(**{dest: 0}) for dest in MP_PRICES]).update(**{dest: None for dest in MP_PRICES})
-  for dest in MP_PRICES:
-    for source in PRICE_TYPES.keys():
-      if not source: continue
-      pts = PriceTag.objects.filter(source=source, dest=dest).select_related('mp')
-      if source in SP_PRICES:
-        sp_qs = MainProduct.objects.filter(pk=OuterRef('mp__pk')
-                  ).prefetch_related('supplier_products'
-                  ).select_related('supplier'
-                  ).select_related('supplier__currnecy'
-                  ).annotate(price=Min(f'supplier_products__{source}')*F('supplier__currency__value')
-                  ).values('price')[:1]
-        pts = pts.annotate(raw_price=Subquery(sp_qs))
-      elif source in MP_PRICES:
-        mp_qs = MainProduct.objects.filter(pk=OuterRef('mp__pk')
-                  ).values(source)[:1]
-        pts = pts.annotate(raw_price=Subquery(mp_qs))
-      if not source == 'fixed_price':
-        pts = pts.filter(Q(raw_price__isnull=False)|~Q(raw_price=0))
-        pts = pts.annotate(new_price=Ceil(ExpressionWrapper(
-                F('raw_price')*(1+F('markup')/100)+F('increase'),
-                output_field=DecimalField()
-        )))
-      else:
-        pts = pts.filter(Q(fixed_price__isnull=False)|~Q(fixed_price=0))
-        pts = pts.annotate(new_price=F('fixed_price'))
-      pts = pts.filter(
-                ~Q(**{f'mp__{dest}':F('new_price')})
-              )
-      pts_qs=pts.filter(pk__in=OuterRef('pricetags__pk')).values('new_price')[:1]
-      mp_ids=pts.values_list('mp__pk', flat=True)
-      mps = MainProduct.objects.filter(pk__in=mp_ids)
-      mps = mps.annotate(new_price=pts_qs)
-      setattr(mps, dest, F('new_price'))
-      count += MainProduct.objects.bulk_update(mps, fields=[dest, 'price_updated_at'])
+  now = timezone.now()
+  time_query = (Q(date_from__lt=now)|Q(date_from__isnull=True))&(Q(date_to__gt=now)|Q(date_to__isnull=True))
+  for pm in PriceManager.objects.filter(time_query).all():
+    count += pm.apply()
+  mps = map(lambda pt: pt.get_mp,PriceTag.objects.filter(p_manager__isnull=True).filter(time_query).select_related('mp'))
+  count += MainProduct.objects.bulk_update(mps, fields=[*MP_PRICES, 'price_updated_at'])
+
   return count

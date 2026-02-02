@@ -32,7 +32,7 @@ from django_tables2 import SingleTableView, RequestConfig, SingleTableMixin
 from django_htmx.http import HttpResponseClientRefresh 
 
 # Импорты моделей, функций, форм, таблиц
-from .models import PriceManager, SpecialPrice
+from .models import PriceManager
 from file_manager.models import FileModel
 from core.functions import *
 from main_product_manager.models import MainProduct, MainProductLog, MP_PRICES
@@ -74,7 +74,7 @@ class PriceManagerCreate(CreateView):
   def get_context_data(self, **kwargs) -> dict[str, Any]:
     context = super().get_context_data(**kwargs)
     context['supplier'] = Supplier.objects.get(pk=self.kwargs.get('pk'))
-    context['form'].fields['price_fixed'].queryset = Supplier.objects.get(pk=self.kwargs.get('pk', None)).discounts
+    context['form'].fields['discounts'].queryset = Supplier.objects.get(pk=self.kwargs.get('pk', None)).discounts
     return context
   def form_invalid(self, form):
     messages.error(self.request, 'Ошибка')
@@ -131,7 +131,7 @@ class PriceManagerUpdate(SingleTableMixin, UpdateView):
   def get_context_data(self, **kwargs) -> dict[str, Any]:
     context = super().get_context_data(**kwargs)
     context['form'].initial['price_fixed'] = self.instance.source=='fixed_price'
-    context['form'].fields['price_fixed'].queryset = self.instance.supplier.discounts
+    context['form'].fields['discounts'].queryset = self.instance.supplier.discounts
     return context
   def form_valid(self, form):
     cd = form.cleaned_data

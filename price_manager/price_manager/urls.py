@@ -1,14 +1,15 @@
 
 from django.contrib import admin
+from django.conf import settings
+from django.conf.urls.static import static
 from django.urls import path
+
 from core import views
 from file_manager import views as fm_views
 from supplier_product_manager import views as spm_views
 from main_product_manager import views as mp_views
 from supplier_manager import views as sm_views
 from product_price_manager import views as ppm_views
-from django.conf import settings
-from django.conf.urls.static import static
 
 
 urlpatterns = [
@@ -86,3 +87,4 @@ urlpatterns = [
     path("toasts/", views.toast_messages, name="toast-messages"),
 
 ] + static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)
+

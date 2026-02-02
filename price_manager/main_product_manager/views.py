@@ -41,7 +41,7 @@ from core.functions import *
 from .forms import *
 from .tables import *
 from .filters import *
-from product_price_manager.views import update_prices, update_pricetags
+from product_price_manager.views import update_prices
 
 # Импорты сторонних библиотек
 from decimal import Decimal, InvalidOperation
@@ -121,12 +121,14 @@ class MainProductTableView(SingleTableView):
 def sync_main_products(request, **kwargs):
   """Обновляет остатки и применяет наценки в MainProduct из SupplierProduct"""
   # Category.objects.rebuild()
-  # messages.info(request, f"Векторы поиска обновлены у {MainProduct.recalculate_search_vectors()} товаров")
-  messages.info(request, f"Наценки обновлены у {update_pricetags()} товаров")
-  messages.info(request, f"Цены обновлены у {update_prices()} товаров")
+  messages.info(
+    request, 
+    f"Векторы поиска обновлены у {recalculate_search_vectors(MainProduct.objects.filter(search_vector__isnull=True)) or 0} товаров")
+  count = update_prices()
+  messages.info(request, f"Цены обновлены у {count} товаров.")
   messages.info(request, f"Остатки обновлены у {update_stocks()} товаров")
-  update_logs()
-
+  # update_logs()
+  
   return HttpResponseClientRedirect(reverse('mainproducts'))
 
 

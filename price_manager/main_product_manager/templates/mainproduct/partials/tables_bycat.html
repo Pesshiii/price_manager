@@ -4,7 +4,7 @@
   <h1 class="mb-4">Главный прайс</h1>
   {% if categories or has_nulled %}
     {% if has_nulled %}
-        <div class="table-contaier p-3 shadow-sm overflow-auto border rounded">
+        <div class="p-3 shadow-sm overflow-auto border rounded">
           <div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
             <h2 class="h5 mb-0">
               Без категории
@@ -34,9 +34,9 @@
             hx-trigger="revealed"
             hx-swap="afterend"
             hx-indicator="#spinner"
-            class="table-contaier p-3 shadow-sm overflow-auto mt-4 border rounded">
+            class="p-3 shadow-sm overflow-auto mt-4 border rounded">
         {% else %}
-          <div class="table-contaier p-3 shadow-sm overflow-auto mt-4 border rounded">
+          <div class="p-3 shadow-sm overflow-auto mt-4 border rounded">
         {% endif %} 
           {% if category %}
             <div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">

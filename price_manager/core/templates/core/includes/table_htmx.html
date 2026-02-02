@@ -34,7 +34,7 @@
        hx-get="{{table.url}}{% querystring table.prefixed_page_field=table.page.previous_page_number %}"
        hx-push-url="{% querystring table.prefixed_page_field=table.page.previous_page_number %}"
        hx-trigger="click"
-       hx-target="div.table-container"
+       hx-target="closest div.table-container"
        hx-swap="outerHTML"
        {% else %}disabled{% endif %}>
       <span aria-hidden="true">&laquo;</span>
@@ -51,7 +51,7 @@
        hx-get="{{table.url}}{% querystring table.prefixed_page_field=table.page.next_page_number %}"
        hx-push-url="{% querystring table.prefixed_page_field=table.page.next_page_number %}"
        hx-trigger="click"
-       hx-target="div.table-container"
+       hx-target="closest div.table-container"
        hx-swap="outerHTML"
        {% else %}disabled{% endif %}>
       <span aria-hidden="true">&raquo;</span>
