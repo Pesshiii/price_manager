@@ -298,6 +298,11 @@ class PriceManager(models.Model):
     MainProduct.objects.bulk_update(mps, fields=[self.dest, 'price_updated_at'])
     super().delete(*args, **kwargs)
 
+  def deprecate(self):
+    mps = self.get_fitting_mps()
+    self.pricetags.all().delete()
+    return mps.update(**{self.dest:Value(None)})
+
 
 
 class PriceTag(models.Model):
@@ -401,18 +406,28 @@ class PriceTag(models.Model):
     self.mp.save()
     super().delete(*args, **kwargs)
 
+  def deprecate(self):
+    mp = self.mp
+    if not getattr(mp, self.dest): return None
+    setattr(mp, self.dest, None)
+    return mp
 
 
 def update_prices():
   count = 0
+  dcount = 0
   
   SupplierProduct.objects.filter(*[Q(**{dest: 0}) for dest in SP_PRICES]).update(**{dest: None for dest in SP_PRICES})
   MainProduct.objects.filter(*[Q(**{dest: 0}) for dest in MP_PRICES]).update(**{dest: None for dest in MP_PRICES})
   now = timezone.now()
   time_query = (Q(date_from__lt=now)|Q(date_from__isnull=True))&(Q(date_to__gt=now)|Q(date_to__isnull=True))
+  for pm in PriceManager.objects.filter(~Q(time_query)).all():
+    dcount += pm.deprecate()
   for pm in PriceManager.objects.filter(time_query).all():
     count += pm.apply()
+  dmps = map(lambda pt: pt.deprecate(),PriceTag.objects.filter(p_manager__isnull=True).filter(~Q(time_query)).select_related('mp'))
+  dcount += MainProduct.objects.bulk_update([_ for _ in dmps if _], fields=[*MP_PRICES, 'price_updated_at'])
   mps = map(lambda pt: pt.get_mp,PriceTag.objects.filter(p_manager__isnull=True).filter(time_query).select_related('mp'))
   count += MainProduct.objects.bulk_update(mps, fields=[*MP_PRICES, 'price_updated_at'])
 
-  return count
+  return (count, dcount)

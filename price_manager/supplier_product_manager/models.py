@@ -144,6 +144,7 @@ class SupplierFile(models.Model):
                               on_delete=models.CASCADE)
   file = models.FileField(verbose_name='Файл',
                           upload_to=setting_dir,
+                          max_length=255,
                           validators=[FileExtensionValidator(allowed_extensions=['xls', 'xlsx', 'xlsm'])],
                           null=False)
   status = models.IntegerField(verbose_name="Статус загрузки",

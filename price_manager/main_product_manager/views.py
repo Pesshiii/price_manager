@@ -124,8 +124,8 @@ def sync_main_products(request, **kwargs):
   messages.info(
     request, 
     f"Векторы поиска обновлены у {recalculate_search_vectors(MainProduct.objects.filter(search_vector__isnull=True)) or 0} товаров")
-  count = update_prices()
-  messages.info(request, f"Цены обновлены у {count} товаров.")
+  count, dcount = update_prices()
+  messages.info(request, f"Цены обновлены у {count} товаров. Обнулены у {dcount} товаров.")
   messages.info(request, f"Остатки обновлены у {update_stocks()} товаров")
   # update_logs()
   

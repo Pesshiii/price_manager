@@ -249,9 +249,9 @@ def load_setting(pk):
         **{'manufacturer': row.manufacturer if 'manufacturer' in df.columns else None}
       ),
       df.itertuples(index=False)))
-    
+    df.drop_duplicates
     mps = MainProduct.objects.bulk_create(
-      df['main_product'].to_list(),
+      df.drop_duplicates(['article', 'name'], keep='first')['main_product'].to_list(),
       
       update_conflicts=True,
 
@@ -287,8 +287,8 @@ def load_setting(pk):
       setting.supplier.price_updated_at = timezone.now()
     setting.supplier.save()
     return (sps, mps)
-    
-    
+
+
 
 
 class SettingList(SingleTableView):
