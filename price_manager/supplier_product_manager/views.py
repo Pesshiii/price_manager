@@ -228,7 +228,7 @@ def load_setting(pk):
     df = df.rename(columns={link.value : link.key})
   if not 'article' in df.columns: return None
   df = df.replace('', np.nan)
-  df = df.loc[:,[link.key for link in links if not link.key=='' and link.key in df.columns]].convert_dtypes()
+  df = df.loc[:,[link.key for link in links if not link.key=='' and link.key in df.columns]]
   df = df.dropna(subset=['article'])
   for link in links:
     if link.key in df.columns and link.key in SP_NUMBERS:
