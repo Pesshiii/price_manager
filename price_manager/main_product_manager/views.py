@@ -120,7 +120,7 @@ class MainProductTableView(SingleTableView):
 
 def sync_main_products(request, **kwargs):
   """Обновляет остатки и применяет наценки в MainProduct из SupplierProduct"""
-  # Category.objects.rebuild()
+  Category.objects.rebuild()
   messages.info(
     request, 
     f"Векторы поиска обновлены у {recalculate_search_vectors(MainProduct.objects.filter(search_vector__isnull=True)) or 0} товаров")
