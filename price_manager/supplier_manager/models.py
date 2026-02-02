@@ -17,7 +17,7 @@ class Currency(models.Model):
   def __str__(self):
     return self.name
 
-SUPPLIER_SPECIFIABLE_FIELDS = ['name', 'delivery_days', 'currency', 'price_update_rate', 'stock_update_rate']
+SUPPLIER_SPECIFIABLE_FIELDS = ['name', 'delivery_days', 'grouping_priority', 'currency', 'price_update_rate', 'stock_update_rate']
 
 class Supplier(models.Model):
   """
@@ -48,6 +48,10 @@ class Supplier(models.Model):
                                           blank=True)
   delivery_days = models.PositiveIntegerField(verbose_name='Срок доставки',
                                               default=0)
+  grouping_priority = models.PositiveIntegerField(
+    verbose_name='Приоритет при группировке',
+    default=0,
+  )
   price_update_rate = models.CharField(verbose_name='Частота обновления цен',
                                        choices=[(_, _) for _ in TIME_FREQ.keys()])
   stock_update_rate = models.CharField(verbose_name='Частота обновления остатков',

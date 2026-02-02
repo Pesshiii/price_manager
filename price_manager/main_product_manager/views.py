@@ -165,7 +165,7 @@ class MainPage(SingleTableMixin, FilterView):
     category_tables = []
 
     if filterset is not None:
-      filtered_records = filterset.qs.select_related('category')
+      filtered_records = filterset.qs.select_related('category').prefetch_related('supplier_products')
 
       if len(filtered_records) > 10000:
         category_table = self.table_class(filtered_records, request=self.request)
