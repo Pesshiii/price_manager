@@ -21,7 +21,7 @@ class PriceManagerListTable(tables.Table):
       }
   def render_has_rrp(self, record):
     if record.has_rrp == None: return 'Без разницы'
-    return record.has_rrp
+    return format_html('''<i class="bi bi-{}-lg" width=16 hight=16></i>''', 'check' if record.has_rrp else 'x')
   def render_name(self, record):
     return format_html("""
       <a

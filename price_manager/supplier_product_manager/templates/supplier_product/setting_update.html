@@ -2,7 +2,7 @@
   <form 
     method="POST"
     hx-post="{% url "setting-update" pk=setting.pk %}"
-    hx-trigger="submit, change changed"
+    hx-trigger="submit"
     hx-target="#modal-container .modal-content"
     hx-swap="ininnerHTML"
   >

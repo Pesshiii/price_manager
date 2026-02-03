@@ -161,6 +161,7 @@ class MainProductLog(models.Model):
         name='mpl_unique_date_mp'
       )
     ]
+    ordering = ['-update_time']
 
 def recalculate_search_vectors(mps):
     if not mps: return None
@@ -174,7 +175,10 @@ def recalculate_search_vectors(mps):
 
 def update_stocks():
   mps = MainProduct.objects.prefetch_related('supplier_products').annotate(new_stock=Sum('supplier_products__stock'))
-  mps = mps.filter(Q(new_stock__isnull=False)).filter(~Q(stock=F('new_stock')))
+  mps = mps.filter(Q(stock__isnull=False)|Q(new_stock__isnull=False))
+  mps = mps.filter(~Q(stock=F('new_stock')))
+  print(mps.values_list('stock', 'new_stock'))
+  print(mps.count())
   mps.stock = F('new_stock')
   mpls = map(lambda mp: MainProductLog(main_product=mp, stock=mp.stock),  mps)
   MainProductLog.objects.bulk_create(mpls)

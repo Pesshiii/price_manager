@@ -127,7 +127,6 @@ def sync_main_products(request, **kwargs):
   count, dcount = update_prices()
   messages.info(request, f"Цены обновлены у {count} товаров. Обнулены у {dcount} товаров.")
   messages.info(request, f"Остатки обновлены у {update_stocks()} товаров")
-  # update_logs()
   
   return HttpResponseClientRedirect(reverse('mainproducts'))
 
@@ -175,7 +174,7 @@ class MainProductLogList(SingleTableView):
   table_class = MainProductLogTable
   template_name = 'mainproduct/partials/logs.html'
   def get_queryset(self):
-    return super().get_queryset().filter(main_product=self.kwargs.get('pk', None)).order_by('update_time')
+    return super().get_queryset().filter(main_product=self.kwargs.get('pk', None))
   def get(self, request, *args, **kwargs):
     if not self.request.htmx:
       return redirect(reverse('mainproduct-info', kwargs=self.kwargs))

@@ -125,7 +125,10 @@ def setting_upload(request, pk, state):
     return render(request, 'supplier_product/partials/load_partial.html', {'pk':pk, 'state':0})
   if setting.is_bound():
     products = load_setting(pk)
-    messages.info(request, f"Загрузка файла через настройку {setting.name}. Обработано {len(products[0])} товаров. Добавлено {len(products[1])} товаров главного прайса")
+    if products is None:
+      messages.info(request, "Нет связок")
+    else:
+      messages.info(request, f"Загрузка файла через настройку {setting.name}. Обработано {len(products[0])} товаров. Добавлено {len(products[1])} товаров главного прайса")
   else:
     messages.error(request, f'Не указано поле артикула и\\или наименования')
   return HttpResponseClientRefresh()
@@ -135,7 +138,10 @@ class XMLTableView(TemplateView):
   def get_context_data(self, **kwargs) -> dict[str, Any]:
       pk = self.kwargs.get('pk')
       context = super().get_context_data(**kwargs)
-      df = get_df(self.kwargs.get('pk')).fillna('')
+      df = get_df(self.kwargs.get('pk'))
+      if df is None:
+        return context
+      df = df.fillna('')
       page = int(self.request.GET.get('page', 1))
       items = Paginator(df.to_records(index=False), per_page=5).page(page)
       context['pk'] = pk
@@ -170,22 +176,30 @@ class SettingUpdate(UpdateView):
       setting.delete()
       return HttpResponseClientRefresh()
 
-    df = get_df(pk)
-
+    
+    if not setting.name == form.cleaned_data['name']:
+      setting.name = form.cleaned_data['name']
+      setting.save()
     if not setting.sheet_name == form.cleaned_data['sheet_name']:
       setting.sheet_name = form.cleaned_data['sheet_name']
       setting.save()
+      return redirect(reverse('setting-update', kwargs={'pk': pk}))
     
+    df = get_df(pk)
+    if df is None:
+      messages.error(self.request, f'Пустой лист или неподходящая структура')
+      return self.form_invalid(form)
+
     link_formset = get_linkformset(post, pk)
     indicts = get_indicts(post, pk)
     if not link_formset.is_valid() :
-      messages.error(self.request, f'Неоднозначная связь: Столбец\\знаение')
-      return self.form_invalid(form)
+      messages.error(self.request, f'Что-то пошло не так')
+      return HttpResponseClientRefresh()
     keys = [item['key'] for item in link_formset.cleaned_data if not item['key']=='']
     if not len(set(keys)) == len(keys):
       messages.error(self.request, f'Неоднозначная связь: Столбец\\знаение')
       return self.form_invalid(form)
-    
+    setting.links.all().delete()
     for i in range(len(link_formset.cleaned_data)):
       link = None
       key = link_formset.cleaned_data[i]['key']
@@ -198,7 +212,7 @@ class SettingUpdate(UpdateView):
     for link, value in LINKS.items():
       if link == '': continue
       if indicts[link]['dict_formset'].is_valid():
-        mlink = Link.objects.get(setting=pk, key=link)
+        mlink = Link.objects.get_or_create(setting=setting, key=link)[0]
         DictItem.objects.filter(link=mlink).delete()
         for item in indicts[link]['dict_formset'].cleaned_data:
           if item['key'] == '': continue
@@ -210,8 +224,8 @@ class SettingUpdate(UpdateView):
     context = super().get_context_data(**kwargs)
     pk = self.kwargs.get('pk')
     post = self.request.POST
-    context['links'] = get_indicts(post, pk)
-    context["link_formset"] = get_linkformset(post, pk)
+    context['links'] = get_indicts(None, pk)
+    context["link_formset"] = get_linkformset(None, pk)
     return context
   
 
@@ -219,6 +233,8 @@ def load_setting(pk):
   setting = Setting.objects.get(pk=pk)
   links = Link.objects.filter(setting=setting)
   df = get_df(pk, nrows=None)
+  if not links.filter(~Q(key__in=['name', 'article'])&Q(value__isnull=False)).exists():
+    return None
   for link in links:
     if link.value == '': continue
     if link.initial:

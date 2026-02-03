@@ -127,6 +127,10 @@ class PriceManager(models.Model):
       decimal_places=2,
       max_digits=20,
       default=0)
+  deprecated = models.BooleanField(
+    verbose_name='Устаревший менеджер цен',
+    default=False
+  )
 
   def __str__(self):
     return self.name
@@ -261,6 +265,7 @@ class PriceManager(models.Model):
   
   def save(self, **kwargs):
     super().save(**kwargs)
+    if self.deprecated: return None
     mps = self.get_fitting_mps()
     pts = map(
       lambda item: 
@@ -301,6 +306,8 @@ class PriceManager(models.Model):
   def deprecate(self):
     mps = self.get_fitting_mps()
     self.pricetags.all().delete()
+    self.deprecated = True
+    self.save()
     return mps.update(**{self.dest:Value(None)})
 
 
@@ -368,7 +375,10 @@ class PriceTag(models.Model):
       validators=[MinValueValidator(0)],
       null=True,
       blank=True)
-  
+  deprecated = models.BooleanField(
+    verbose_name='Устаревшая наценка',
+    default=False
+  )
   def __str__(self):
     if self.source:
       return f'{PRICE_TYPES[self.source]} -> {PRICE_TYPES[self.dest]} ({(1+self.markup/100)*100}% + {self.increase} тг.)'
@@ -407,9 +417,12 @@ class PriceTag(models.Model):
     super().delete(*args, **kwargs)
 
   def deprecate(self):
+    if self.deprecated: return None
     mp = self.mp
     if not getattr(mp, self.dest): return None
     setattr(mp, self.dest, None)
+    self.deprecated=True
+    self.save()
     return mp
 
 
@@ -417,13 +430,12 @@ def update_prices():
   count = 0
   dcount = 0
   
-  SupplierProduct.objects.filter(*[Q(**{dest: 0}) for dest in SP_PRICES]).update(**{dest: None for dest in SP_PRICES})
-  MainProduct.objects.filter(*[Q(**{dest: 0}) for dest in MP_PRICES]).update(**{dest: None for dest in MP_PRICES})
+  pms = PriceManager.objects.filter(deprecated=False)
   now = timezone.now()
   time_query = (Q(date_from__lt=now)|Q(date_from__isnull=True))&(Q(date_to__gt=now)|Q(date_to__isnull=True))
-  for pm in PriceManager.objects.filter(~Q(time_query)).all():
+  for pm in pms.filter(~Q(time_query)).all():
     dcount += pm.deprecate()
-  for pm in PriceManager.objects.filter(time_query).all():
+  for pm in pms.filter(time_query).all():
     count += pm.apply()
   dmps = map(lambda pt: pt.deprecate(),PriceTag.objects.filter(p_manager__isnull=True).filter(~Q(time_query)).select_related('mp'))
   dcount += MainProduct.objects.bulk_update([_ for _ in dmps if _], fields=[*MP_PRICES, 'price_updated_at'])

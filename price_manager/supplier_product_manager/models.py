@@ -133,7 +133,7 @@ class DictItem(models.Model):
     constraints = [models.UniqueConstraint(fields=['link', 'key', 'value'], name='link-dict-constraint')]
 
 def setting_dir(instance, filename):
-  return f'setting_{instance.setting.supplier.pk}_{instance.setting.name}/{filename}'
+  return f'setting_{instance.setting.supplier.pk}/{filename}'
 
 class SupplierFile(models.Model):
   setting = models.ForeignKey(Setting,

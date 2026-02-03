@@ -27,6 +27,8 @@ def get_df(pk, nrows: int | None = 100):
   if not file: return None
   df = pd.read_excel(file, engine='calamine', sheet_name=setting.sheet_name, nrows=nrows, index_col=None).dropna(axis=0, how='all').dropna(axis=1, how='all')
   file.close()
+  if df.shape[0] == 0:
+    return None
   return df
 
 class DictForm(forms.Form):
@@ -158,6 +160,7 @@ LinkFormset = forms.formset_factory(
 
 def get_linkformset(post, pk):
   df = get_df(pk)
+  if df is None: return None
   setting = Setting.objects.get(pk=pk)
   return LinkFormset(
       post if post else None, 
@@ -170,7 +173,7 @@ def get_linkformset(post, pk):
           }
 
           for column in df.columns
-        ], 
+        ],
       prefix='link', 
       form_kwargs=
         {
