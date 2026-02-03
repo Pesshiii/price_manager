@@ -93,8 +93,6 @@ class Setting(models.Model):
   sheet_name = models.CharField(verbose_name='Название листа')
   priced_only = models.BooleanField(verbose_name='Не включать поля без цены',
                                     default=True)
-  update_main = models.BooleanField(verbose_name='Обновлять главный прайс',
-                                  default=True)
   differ_by_name = models.BooleanField(verbose_name='Различать по имени',
                                        default=True)
   class Meta:
