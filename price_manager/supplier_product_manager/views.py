@@ -100,16 +100,17 @@ class UploadSupplierFile(CreateView):
           setting.save()
           created = True
           instance.setting = setting
-          messages.info(self.request, f"Новая настройка создана: {setting.name}")
-        except:
+          messages.info(self.request, f"Новая настройка создана: {instance.setting.name}")
+        except BaseException as ex:
+          print(ex)
           number += 1
           created = False
     if not instance.setting.sheet_name in pd.ExcelFile(instance.file, engine='calamine').sheet_names:
-      messages.error(self.request, f'Нет листа {setting.sheet_name}')
+      messages.error(self.request, f'Нет листа {instance.setting.sheet_name}')
       return self.form_invalid(form)
-    for supplier_file in instance.setting.supplier_files.all():
-      supplier_file.file.delete()
-      supplier_file.delete()
+    for supplierfile in instance.setting.supplierfiles.all():
+      supplierfile.file.delete()
+      supplierfile.delete()
     instance.save()
     if instance.setting.is_bound():
       return redirect(reverse('setting-upload', kwargs={'pk': instance.setting.pk, 'state':0}))

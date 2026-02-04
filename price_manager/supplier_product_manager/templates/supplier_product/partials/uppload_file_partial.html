@@ -5,6 +5,7 @@
       <form method="post"
                   hx-post="{% url "supplier-upload" supplier.pk%}"
                   hx-target="#modal-container .modal-content"
+                  hx-trigger="submit"
                   enctype="multipart/form-data">
             {% csrf_token %}
             {{form.file|add_label_class:"form-lable mb-1 mt-4"}}

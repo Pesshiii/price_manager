@@ -93,10 +93,6 @@ class Setting(models.Model):
                               on_delete=models.CASCADE,
                               blank=False)
   sheet_name = models.CharField(verbose_name='Название листа')
-  priced_only = models.BooleanField(verbose_name='Не включать поля без цены',
-                                    default=True)
-  differ_by_name = models.BooleanField(verbose_name='Различать по имени',
-                                       default=True)
   class Meta:
     constraints = [models.UniqueConstraint(fields=['name', 'supplier'], name='name_supplier_constraint')]
   def __str__(self):

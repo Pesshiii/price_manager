@@ -20,4 +20,20 @@ class Migration(migrations.Migration):
             name='key',
             field=models.CharField(choices=[('', 'Не включать'), ('article', 'Артикул поставщика'), ('name', 'Название'), ('manufacturer', 'Производитель'), ('discount', 'Группа скидок'), ('stock', 'Остаток'), ('supplier_price', 'Цена поставщика в валюте поставщика'), ('rrp', 'РРЦ в валюте поставщика'), ('discount_price', 'Цена со скидкой в валюте поставщика')]),
         ),
+        migrations.RemoveField(
+            model_name='setting',
+            name='add_main_products',
+        ),
+        migrations.RemoveField(
+            model_name='setting',
+            name='priced_only',
+        ),
+        migrations.RemoveField(
+            model_name='setting',
+            name='differ_by_name',
+        ),
+        migrations.RemoveField(
+            model_name='setting',
+            name='update_main_content',
+        ),
     ]
