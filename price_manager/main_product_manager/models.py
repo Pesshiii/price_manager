@@ -8,12 +8,20 @@ from django.utils import timezone
 from supplier_manager.models import Supplier, Category, Manufacturer
    
 MP_TABLE_FIELDS = ['article', 'supplier', 'name', 'manufacturer','prime_cost', 'stock']
-MP_CHARS = ['sku', 'article', 'name']
-MP_FKS = ['supplier', 'category', 'discount', 'manufacturer', 'price_manager']
-MP_DECIMALS = ['weight', 'length', 'width', 'depth']
-MP_INTEGERS = ['stock']
-MP_PRICES = ['prime_cost', 'wholesale_price', 'basic_price', 'm_price', 'wholesale_price_extra']
-MP_MANAGMENT = ['price_updated_at', 'stock_updated_at', 'search_vector']
+MP_PRICES = ['prime_cost', 'wholesale_price', 'basic_price', 'm_price', 'wholesale_price_extra', 'discount_price']
+PRICE_TYPES = {
+  None : 'Не указано',
+  'fixed_price': 'Фиксированная цена',
+  'rrp': 'РРЦ в валюте поставщика',
+  'supplier_price': 'Цена поставщика в валюте поставщика',
+  'basic_price': 'Базовая цена',
+  'prime_cost': 'Себестоимость',
+  'm_price': 'Цена ИМ',
+  'wholesale_price': 'Оптовая цена',
+  'wholesale_price_extra': 'Оптовая цена1',
+  'discount_price': 'Цена со скидкой',
+}
+
 
 class MainProduct(models.Model):
   class Meta:
@@ -85,6 +93,11 @@ class MainProduct(models.Model):
       null=True)
   wholesale_price_extra = models.DecimalField(
       verbose_name='Оптовая цена доп.',
+      decimal_places=2,
+      max_digits=20,
+      null=True)
+  discount_price = models.DecimalField(
+      verbose_name='Цена со скидкой',
       decimal_places=2,
       max_digits=20,
       null=True)

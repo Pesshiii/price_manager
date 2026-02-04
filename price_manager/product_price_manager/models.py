@@ -2,7 +2,7 @@ from django.db import models
 from django.core.validators import (MinValueValidator, MaxValueValidator)
 from supplier_manager.models import Supplier, Discount
 from supplier_product_manager.models import SupplierProduct, SP_PRICES
-from main_product_manager.models import MainProduct, MP_PRICES, update_logs, MainProductLog
+from main_product_manager.models import MainProduct, PRICE_TYPES, MP_PRICES, update_logs, MainProductLog
 from django.db.models import (F, ExpressionWrapper, 
                               fields, Func, 
                               Value, Min, Max,
@@ -17,19 +17,6 @@ from decimal import Decimal, InvalidOperation
 
 
 # Модели для применения наценок
-
-PRICE_TYPES = {
-  None : 'Не указано',
-  'fixed_price': 'Фиксированная цена',
-  'rrp': 'РРЦ в валюте поставщика',
-  'supplier_price': 'Цена поставщика в валюте поставщика',
-  'basic_price': 'Базовая цена',
-  'prime_cost': 'Себестоимость',
-  'm_price': 'Цена ИМ',
-  'wholesale_price': 'Оптовая цена',
-  'wholesale_price_extra': 'Оптовая цена1',
-}
-
 class PriceManager(models.Model):
   """
   Модель PriceManager предназначена для управления ценами и скидками товаров от различных поставщиков.
@@ -86,7 +73,8 @@ class PriceManager(models.Model):
                                   ('prime_cost', 'Себестоимость'),
                                   ('m_price', 'Цена ИМ'),
                                   ('wholesale_price', 'Оптовая цена'),
-                                  ('wholesale_price_extra', 'Оптовая цена1')])
+                                  ('wholesale_price_extra', 'Оптовая цена1'),
+                                  ('discount_price', 'Цена со скидкой'),])
   dest = models.CharField(verbose_name='Какую цену считать',
                                  choices=[
                                   (None, 'Не указано'),
@@ -94,7 +82,8 @@ class PriceManager(models.Model):
                                   ('prime_cost', 'Себестоимость'),
                                   ('m_price', 'Цена ИМ'),
                                   ('wholesale_price', 'Оптовая цена'),
-                                  ('wholesale_price_extra', 'Оптовая цена1')],
+                                  ('wholesale_price_extra', 'Оптовая цена1'),
+                                  ('discount_price', 'Цена со скидкой'),],
                                   blank=False)
   price_from = models.DecimalField(
       verbose_name='Цена от',
@@ -345,7 +334,8 @@ class PriceTag(models.Model):
                                   ('prime_cost', 'Себестоимость'),
                                   ('m_price', 'Цена ИМ'),
                                   ('wholesale_price', 'Оптовая цена'),
-                                  ('wholesale_price_extra', 'Оптовая цена1')],
+                                  ('wholesale_price_extra', 'Оптовая цена1'),
+                                  ('discount_price', 'Цена со скидкой'),],
                                   blank=True,
                                   null=True)
   dest = models.CharField(verbose_name='Какую цену считать',
@@ -354,7 +344,8 @@ class PriceTag(models.Model):
                                   ('prime_cost', 'Себестоимость'),
                                   ('m_price', 'Цена ИМ'),
                                   ('wholesale_price', 'Оптовая цена'),
-                                  ('wholesale_price_extra', 'Оптовая цена1')],
+                                  ('wholesale_price_extra', 'Оптовая цена1'),
+                                  ('discount_price', 'Цена со скидкой'),],
                                   blank=True,
                                   null=True)
   markup = models.DecimalField(

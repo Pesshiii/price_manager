@@ -8,12 +8,8 @@ from supplier_manager.models import Supplier, Discount, Manufacturer, Category
 from decimal import Decimal
   
 SP_TABLE_FIELDS = ['article', 'name', 'manufacturer', 'supplier_price', 'rrp', 'discount', ]
-SP_CHARS = ['article', 'name']
-SP_FKS = ['main_product', 'category', 'supplier', 'manufacturer', 'discounts']
-SP_PRICES = ['supplier_price', 'rrp']
-SP_INTEGERS = ['stock']
-SP_MANAGMENT = ['updated_at']
-SP_NUMBERS = ['supplier_price', 'rrp', 'stock']
+SP_PRICES = ['supplier_price', 'rrp', 'discount_price']
+SP_NUMBERS = ['supplier_price', 'rrp', 'stock', 'discount_price']
 
 class SupplierProduct(models.Model):
   main_product=models.ForeignKey(MainProduct,
@@ -58,6 +54,11 @@ class SupplierProduct(models.Model):
       decimal_places=2,
       max_digits=20,
       null=True)
+  discount_price = models.DecimalField(
+      verbose_name='Цена со скидкой в валюте поставщика',
+      decimal_places=2,
+      max_digits=20,
+      null=True)
   updated_at = models.DateTimeField(verbose_name='Последнее обновление',
                                     auto_now=True)
   
@@ -80,6 +81,7 @@ LINKS = {'': 'Не включать',
          'stock': 'Остаток',
          'supplier_price': 'Цена поставщика в валюте поставщика',
          'rrp': 'РРЦ в валюте поставщика',
+         'discount_price': 'Цена со скидкой в валюте поставщика',
          }
 
 class Setting(models.Model):
