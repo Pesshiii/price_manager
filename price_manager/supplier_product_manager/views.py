@@ -154,6 +154,13 @@ class SettingUpdate(UpdateView):
   model = Setting
   form_class = SettingForm
   template_name = "supplier_product/setting_update.html"
+  def get(self, request, *args, **kwargs):
+    pk = self.kwargs.get('pk')
+    setting = Setting.objects.get(pk=pk)
+    if setting.supplierfiles.first() is None or setting.supplierfiles.first().file is None:
+      messages.error(request, 'Файл не найден')
+      return HttpResponseClientRefresh()
+    return super().get(request, *args, **kwargs)
   def get_form_kwargs(self):
     kwargs = super().get_form_kwargs()
     kwargs['pk'] = self.kwargs.get('pk')

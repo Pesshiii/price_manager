@@ -140,7 +140,7 @@ class SupplierFile(models.Model):
                               null=True,
                               blank=True,
                               verbose_name="Настройка",
-                              related_name="supplier_files",
+                              related_name="supplierfiles",
                               on_delete=models.CASCADE)
   file = models.FileField(verbose_name='Файл',
                           upload_to=setting_dir,
