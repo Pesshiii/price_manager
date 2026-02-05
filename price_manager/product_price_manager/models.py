@@ -1,6 +1,6 @@
 from django.db import models
 from django.core.validators import (MinValueValidator, MaxValueValidator)
-from supplier_manager.models import Supplier, Discount
+from supplier_manager.models import Supplier, Discount, Category
 from supplier_product_manager.models import SupplierProduct, SP_PRICES
 from main_product_manager.models import MainProduct, PRICE_TYPES, MP_PRICES, update_logs, MainProductLog
 from django.db.models import (F, ExpressionWrapper, 
@@ -51,6 +51,12 @@ class PriceManager(models.Model):
     Discount,
     related_name='pricemanagers',
     verbose_name='Группы скидок',
+    blank=True
+  )
+  categories = models.ManyToManyField(
+    Category,
+    related_name='pricemanagers',
+    verbose_name='Категории',
     blank=True
   )
   date_from = models.DateTimeField(
@@ -175,6 +181,8 @@ class PriceManager(models.Model):
         f'''main_product__{price_manager.source}'''))
     
     mps = MainProduct.objects.filter(pk__in=products.values_list('main_product', flat=True))
+    if price_manager.categories.exists():
+      mps = mps.filter(category__in=price_manager.categories.all())
     source = price_manager.source
     if price_manager.source in SP_PRICES:
       mps = mps.annotate(source_price=Min(f'supplier_products__{price_manager.source}'))

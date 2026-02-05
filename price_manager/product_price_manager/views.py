@@ -73,8 +73,10 @@ class PriceManagerCreate(CreateView):
     return resolve_url('pricemanager-create', self.kwargs.get('pk', None))
   def get_context_data(self, **kwargs) -> dict[str, Any]:
     context = super().get_context_data(**kwargs)
-    context['supplier'] = Supplier.objects.get(pk=self.kwargs.get('pk'))
-    context['form'].fields['discounts'].queryset = Supplier.objects.get(pk=self.kwargs.get('pk', None)).discounts
+    supplier = Supplier.objects.get(pk=self.kwargs.get('pk'))
+    context['supplier'] = supplier
+    context['form'].fields['discounts'].queryset = supplier.discounts
+    context['form'].fields['categories'].queryset = Category.objects.filter(pk__in=MainProduct.objects.select_related('supplierproducts', 'category').filter(supplierproducts__in=supplier.supplierproducts.all()).values('category'))
     return context
   def form_invalid(self, form):
     messages.error(self.request, 'Ошибка')

@@ -20,7 +20,7 @@ class PriceManagerForm(forms.ModelForm):
     model = PriceManager
     fields = (
       'name',
-      'has_rrp', 'discounts',
+      'has_rrp', 'discounts', 'categories',
       'date_from', 'date_to',
       'price_from', 'price_to',
       'source', 'dest',
