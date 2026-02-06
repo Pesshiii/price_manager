@@ -140,7 +140,7 @@ def load_setting(pk):
   sps = SupplierProduct.objects.filter(supplier=setting.supplier)
   s_articles = sps.values_list('article', flat=True)
   s_names = sps.values_list('name', flat=True)
-  if not links.filter(~Q(key__in=['name', 'article'])&Q(value__isnull=False)).exists():
+  if not links.filter(Q(value__isnull=False)).exists():
     return None
   for link in links:
     if link.value == '': continue
@@ -156,8 +156,7 @@ def load_setting(pk):
   for link in links:
     if link.key in df.columns and link.key in SP_NUMBERS:
       df[link.key] = pd.to_numeric(df[link.key], errors='coerce')
-  df = df.dropna(subset=[link.key for link in links if not link.key=='article' and not link.key == 'name' and link.key in df.columns], how='all')
-  df = df.replace({pd.NA: None, float('nan'): None})
+  df = df.dropna(subset=[link.key for link in links if not link.key=='article' and link.key in df.columns], how='all')
   if not 'name' in df.columns:
     _df = df.copy()
     names = _df['article'].apply(lambda article: sps.filter(article=article).values_list('name', flat=True))
@@ -165,6 +164,7 @@ def load_setting(pk):
     _df = _df[_df['name'].apply(len) > 0]
     _df = _df.explode('name', ignore_index=True)
     df = _df
+  df = df.replace({pd.NA: None, float('nan'): None})
   if not setting.create_new:
     df = df[df['name'].isin(s_names) & df['article'].isin(s_articles)]
   df.drop_duplicates(subset=['article', 'name'], keep='first')
