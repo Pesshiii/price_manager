@@ -11,26 +11,6 @@ from crispy_forms.layout import Submit, Layout, Field, Div, HTML, Button
 import os
 import pandas as pd
 
-def get_df_sheet_names(pk):
-  file = None
-  file = SupplierFile.objects.filter(setting=pk).first().file
-  if not file: return None
-  columns = pd.ExcelFile(file, engine='calamine').sheet_names
-  file.close()
-  return columns
-
-def get_df(pk, nrows: int | None = 100):
-  file = None
-  setting = Setting.objects.get(pk=pk)
-
-  file = SupplierFile.objects.filter(setting=pk).first().file
-  if not file: return None
-  df = pd.read_excel(file, engine='calamine', sheet_name=setting.sheet_name, nrows=nrows, index_col=None).dropna(axis=0, how='all').dropna(axis=1, how='all')
-  file.close()
-  if df.shape[0] == 0:
-    return None
-  return df
-
 class DictForm(forms.Form):
   def __init__(self, *args, **kwargs):
     pk = kwargs.pop('pk', None)
@@ -62,19 +42,6 @@ DictFormset = forms.formset_factory(
   min_num=1,
   extra=0)
 
-def get_dictformset(post, pk, link):
-  
-  mlink = Link.objects.get_or_create(setting=pk, key=link)[0]
-  return DictFormset(
-          post if post else None,
-          initial=[
-            {'key': ldict.key, 'value': ldict.value}
-            for ldict in mlink.dicts.all()
-          ],
-          form_kwargs={'link':link, 'pk':pk},
-          prefix=f'{link}-dict'
-        )
-  
 class InitialForm(forms.Form):
   """Форма для задания начальных значений"""
   def __init__(self, *args, **kwargs):
@@ -107,9 +74,17 @@ class UploadFileForm(forms.ModelForm):
 class SettingForm(forms.ModelForm):
   class Meta:
     model = Setting
-    fields = ['name', 'sheet_name']
+    fields = ['name', 'sheet_name', 'create_new']
 
-  sheet_name = forms.ChoiceField(required=False)
+  sheet_name = forms.ChoiceField(
+    required=False,
+    label='Название листа')
+  create_new = forms.ChoiceField(
+    label='Добавлять в ПП если нет',
+    required=False, 
+    choices=[(False, 'Не добавлять'), (True, 'Добавлять')])
+
+  
   
   def __init__(self, *args, **kwargs):
     pk = kwargs.pop('pk', None)
@@ -120,6 +95,15 @@ class SettingForm(forms.ModelForm):
     self.helper.layout = Layout(
       Field('name', css_class="form-control mb-4"),
       Field('sheet_name', css_class="form-select mb-4"),
+      Field('create_new', css_class="form-select mb-4"),
+      HTML('''
+        <div class="row p-2">
+          <ul>
+            <li>Для загрузки необходим столбец с артиклем и названием</li>
+            <li>Если есть дубликаты продуктов, то обрабатывается только первый</li>
+          </ul>
+        </div>
+      '''),
       Div(
         Div(
           Div(
@@ -130,7 +114,7 @@ class SettingForm(forms.ModelForm):
           css_class='col-6'
         ),
         HTML(f'''<button onclick="submit" class="btn btn-danger ms-auto col-3" name="action" value="delete">Удалить<i class="bi bi-trash-fill"></i></button>'''),
-        css_class='row'
+        css_class='row mt-4'
       )
     )
 
@@ -157,66 +141,3 @@ LinkFormset = forms.formset_factory(
   LinkForm,
   extra=0
 )
-
-def get_linkformset(post, pk):
-  df = get_df(pk)
-  if df is None: return None
-  setting = Setting.objects.get(pk=pk)
-  return LinkFormset(
-      post if post else None, 
-      initial=[
-          {
-            'key': 
-            Link.objects.filter(setting=setting, value=column).first().key 
-            if Link.objects.filter(setting=setting, value=column).exists()
-            else None
-          }
-
-          for column in df.columns
-        ],
-      prefix='link', 
-      form_kwargs=
-        {
-          'columns':df.columns
-        }
-      )
-
-
-def get_indicts(post, pk):
-  indicts = dict()
-  for link, name in LINKS.items():
-    if link == '': continue
-    mlink = Link.objects.get_or_create(setting=Setting.objects.get(pk=pk), key=link)[0]
-    dict_formset = DictFormset(
-          post if post else None,
-          initial=[
-            {'key': ldict.key, 'value': ldict.value}
-            for ldict in mlink.dicts.all()
-          ],
-          form_kwargs={'link':link, 'pk':pk},
-          prefix=f'{link}-dict'
-        )
-    initial = InitialForm(post, initial=mlink.initial, prefix=f'{link}-initial', pk=pk)
-    indicts[link] = (initial, dict_formset)
-    if post and dict_formset.is_valid() and post.get('action'):
-      action = post.get('action')
-      if 'delete-' + link in action:
-        data = []
-        for i in range(len(dict_formset.cleaned_data)):
-          if not i == int(action.strip(f'delete-{link}-dict-')):
-            data.append(dict_formset.cleaned_data[i])
-        dict_formset = DictFormset(initial=data,
-                        form_kwargs={'link':link, 'pk':pk},
-                        prefix=f'{link}-dict')
-      elif 'add-' + link in action:
-        data = dict_formset.cleaned_data
-        data.append({})
-        dict_formset = DictFormset(initial=data,
-                        form_kwargs={'link':link, 'pk':pk},
-                        prefix=f'{link}-dict')
-    indicts[link] = { 
-        'verbose_name':name, 
-        'initial':initial, 
-        'dict_formset':dict_formset,
-        }
-  return indicts

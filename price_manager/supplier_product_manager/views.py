@@ -7,7 +7,6 @@ from django.shortcuts import (render,
                               redirect,
                               get_object_or_404)
 from django.template.loader import render_to_string
-from django.utils import timezone
 from django.urls import reverse
 from django.views.generic import (View, TemplateView,
                                   DetailView,
@@ -15,7 +14,6 @@ from django.views.generic import (View, TemplateView,
                                   UpdateView,
                                   DeleteView)
 from django.core.paginator import Paginator
-from django.core.files.base import ContentFile
  
 
 
@@ -26,8 +24,6 @@ from django.template.context_processors import csrf
 from crispy_forms.utils import render_crispy_form
 
 # Импорты моделей, функций, форм, таблиц
-from file_manager.models import FileModel
-from main_product_manager.models import MainProduct, MainProductLog, MP_PRICES, recalculate_search_vectors
 from product_price_manager.models import PriceManager, PriceTag
 from core.functions import extract_initial_from_post
 from .models import DictItem
@@ -38,9 +34,9 @@ from .filters import *
 import io, os
 from typing import Dict, Any
 import pandas as pd
-import numpy as np
-from decimal import Decimal, InvalidOperation
 import re
+
+from .functions import *
 
 class SupplierDetail(SingleTableMixin, FilterView):
   '''
@@ -52,23 +48,41 @@ class SupplierDetail(SingleTableMixin, FilterView):
   table_class = SupplierProductListTable
   filterset_class = SupplierProductFilter
   template_name = 'supplier/detail.html'
+  def get_filterset_kwargs(self, filterset_class):
+    kwargs = super().get_filterset_kwargs(filterset_class)
+    kwargs['pk'] = self.kwargs.get('pk', None)
+    return kwargs
   def get(self, request, *args, **kwargs):
     self.supplier = Supplier.objects.get(pk=self.kwargs.get('pk', None))
+    if self.request.htmx:
+      self.template_name = 'supplier\partials\detail_products_table_partial.html#table'
     return super().get(request, *args, **kwargs)
   def get_table_data(self):
     return super().get_table_data().filter(supplier=self.supplier)
   def get_context_data(self, **kwargs):
     context = super().get_context_data(**kwargs)
     context['supplier'] = self.supplier
-    pms = PriceManager.objects.filter(supplier=self.supplier).annotate(
-    is_published=ExpressionWrapper(
-      Q(fixed_price__isnull=False)|~Q(fixed_price=0),
-      output_field=BooleanField()
-    )
-)
+    pms = PriceManager.objects.filter(supplier=self.supplier)
     context['pricemanagers'] = pms
     return context
 
+def copy_to_main(request, pk, state):
+  if state == 0:
+    url = reverse('supplier-copymain', kwargs={'pk':pk, 'state':1})
+    return render(request, 'supplier_product/partials/load_partial.html', {'url':url})
+  products = SupplierProductFilter(request,pk=pk).queryset.select_related('main_product', 'supplier').filter(supplier=pk)
+  to_create = products.filter(main_product__isnull=True).count()
+  def get_mp(sp: SupplierProduct):
+    mp = MainProduct(supplier=sp.supplier, article=sp.article, name=sp.name, manufacturer=sp.manufacturer)
+    sp.main_product = mp
+    return mp
+  mp_map = map(get_mp, products)
+  mp_list = MainProduct.objects.bulk_create(mp_map, update_conflicts=True, unique_fields=['supplier', 'article', 'name'], update_fields=['manufacturer'])
+  mps = MainProduct.objects.filter(pk__in=[mp.pk for mp in mp_list])
+  products.bulk_update(products, fields=['main_product'])
+  recalculate_search_vectors(mps)
+  messages.info(request, f'Обработано товаров ГП {len(mps)}. Создано новых: {to_create}')
+  return HttpResponseClientRefresh()
 
 # Обработка настройки
 class UploadSupplierFile(CreateView):
@@ -123,13 +137,14 @@ class UploadSupplierFile(CreateView):
 def setting_upload(request, pk, state):
   setting = Setting.objects.get(pk=pk)
   if state == 0:
-    return render(request, 'supplier_product/partials/load_partial.html', {'pk':pk, 'state':0})
+    url = reverse('setting-upload', kwargs={'pk':pk, 'state':1})
+    return render(request, 'supplier_product/partials/load_partial.html', {'url':url})
   if setting.is_bound():
     products = load_setting(pk)
     if products is None:
       messages.info(request, "Нет связок")
     else:
-      messages.info(request, f"Загрузка файла через настройку {setting.name}. Обработано {len(products[0])} товаров. Добавлено {len(products[1])} товаров главного прайса")
+      messages.info(request, f"Загрузка файла через настройку {setting.name}. Обработано {len(products)} товаров.")
   else:
     messages.error(request, f'Не указано поле артикула и\\или наименования')
   return HttpResponseClientRefresh()
@@ -160,7 +175,6 @@ class SettingUpdate(UpdateView):
     setting = Setting.objects.get(pk=pk)
     if setting.supplierfiles.first() is None or setting.supplierfiles.first().file is None:
       messages.error(request, 'Файл не найден')
-      return HttpResponseClientRefresh()
     return super().get(request, *args, **kwargs)
   def get_form_kwargs(self):
     kwargs = super().get_form_kwargs()
@@ -168,7 +182,13 @@ class SettingUpdate(UpdateView):
     return kwargs
   def get_form(self):
     form = super().get_form(self.form_class)
-    form.fields['sheet_name'].choices = [(sheet_name, sheet_name) for sheet_name in get_df_sheet_names(self.kwargs.get('pk'))]
+    pk = self.kwargs.get('pk')
+    setting = Setting.objects.get(pk=pk)
+    sheet_names = get_df_sheet_names(self.kwargs.get('pk'))
+    if sheet_names:
+      form.fields['sheet_name'].choices = [(sheet_name, sheet_name) for sheet_name in sheet_names]
+    else:
+      form.fields['sheet_name'].choices = [(setting.sheet_name, setting.sheet_name)]
     return form
   def get_success_url(self):
     return reverse('setting-update', kwargs={'pk': self.kwargs.get('pk')})
@@ -192,6 +212,9 @@ class SettingUpdate(UpdateView):
       setting.sheet_name = form.cleaned_data['sheet_name']
       setting.save()
       return redirect(reverse('setting-update', kwargs={'pk': pk}))
+    if not setting.create_new == form.cleaned_data['create_new']:
+      setting.create_new = form.cleaned_data['create_new']
+      setting.save()
     
     df = get_df(pk)
     if df is None:
@@ -232,88 +255,9 @@ class SettingUpdate(UpdateView):
     context = super().get_context_data(**kwargs)
     pk = self.kwargs.get('pk')
     post = self.request.POST
-    context['links'] = get_indicts(None, pk)
-    context["link_formset"] = get_linkformset(None, pk)
+    context['links'] = get_indicts(post, pk)
+    context["link_formset"] = get_linkformset(post, pk)
     return context
-  
-
-def load_setting(pk):
-  setting = Setting.objects.get(pk=pk)
-  links = Link.objects.filter(setting=setting)
-  df = get_df(pk, nrows=None)
-  if not links.filter(~Q(key__in=['name', 'article'])&Q(value__isnull=False)).exists():
-    return None
-  for link in links:
-    if link.value == '': continue
-    if link.initial:
-      df[link.value] = df[link.value].fillna(link.initial)
-    for dict in link.dicts.all():
-      df[link.value] = df[link.value].replace(dict.key, dict.value)
-    df = df.rename(columns={link.value : link.key})
-  if not 'article' in df.columns: return None
-  df = df.replace('', np.nan)
-  df = df.loc[:,[link.key for link in links if not link.key=='' and link.key in df.columns]]
-  df = df.dropna(subset=['article'])
-  for link in links:
-    if link.key in df.columns and link.key in SP_NUMBERS:
-      df[link.key] = pd.to_numeric(df[link.key], errors='coerce')
-  df = df.dropna(subset=[link.key for link in links if not link.key=='article' and not link.key == 'name' and link.key in df.columns], how='all')
-  df = df.replace({pd.NA: None, float('nan'): None})
-  if 'manufacturer' in df.columns:
-    df['manufacturer'] = df['manufacturer'].apply(lambda s: Manufacturer.objects.get_or_create(name=s)[0] if s else None)
-  if 'discount' in df.columns:
-    df['discount'] = df['discount'].apply(lambda s: Discount.objects.get_or_create(supplier=setting.supplier, name=s)[0] if s else None)
-  if 'name' in df.columns:
-    df = df.dropna(subset=['name'])
-    df['main_product'] =  list(map(
-      lambda row: MainProduct(
-        supplier=setting.supplier,
-        article=row.article,
-        name=row.name,
-        **{'manufacturer': row.manufacturer if 'manufacturer' in df.columns else None}
-      ),
-      df.itertuples(index=False)))
-    df.drop_duplicates
-    mps = MainProduct.objects.bulk_create(
-      df.drop_duplicates(['article', 'name'], keep='first')['main_product'].to_list(),
-      
-      update_conflicts=True,
-
-      unique_fields=['supplier', 'article', 'name'],
-      update_fields=['search_vector']
-    )
-    def get_spmodel(row):
-      data = {
-          link.key: Decimal(str(getattr(row, link.key))) if link.key in SP_NUMBERS else getattr(row, link.key)
-          for link in links 
-          if not link.key=='article' and not link.key == 'name' and link.key in df.columns
-          and getattr(row, link.key)
-        }
-      if row.main_product:
-        data['main_product'] = row.main_product
-      return SupplierProduct(
-        supplier=setting.supplier,
-        article=row.article,
-        name=row.name,
-        **data)
-    sp_model_instances = map(get_spmodel, df.itertuples(index=False))
-    sp_update_fields = [link.key for link in links if not link.key=='article' and not link.key == 'name' and link.key in df.columns]
-    sp_update_fields.append('updated_at')
-    sps = SupplierProduct.objects.bulk_create(
-      sp_model_instances, 
-      update_conflicts=True, 
-      update_fields=sp_update_fields,
-      unique_fields=['supplier', 'article', 'name'])
-    recalculate_search_vectors(MainProduct.objects.filter(pk__in=[mp.pk for mp in mps]))
-    if 'stock' in df.columns:
-      setting.supplier.stock_updated_at = timezone.now()
-    if not set(SP_PRICES).intersection(set(df.columns)) == set():
-      setting.supplier.price_updated_at = timezone.now()
-    setting.supplier.save()
-    return (sps, mps)
-
-
-
 
 class SettingList(SingleTableView):
   '''Отображение наценок << /supplier/<int:pk>/settings >>'''
@@ -332,7 +276,6 @@ class SettingList(SingleTableView):
     return qs
   
 # Обработка продуктов
-
 
 def delete_supplier_product(request, **kwargs):
   '''

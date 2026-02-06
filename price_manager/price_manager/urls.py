@@ -34,6 +34,7 @@ urlpatterns = [
     path('supplier/<int:pk>/', spm_views.SupplierDetail.as_view(), name='supplier-detail'),
 
     path('supplier/<int:pk>/upload', spm_views.UploadSupplierFile.as_view(), name='supplier-upload'),
+    path('supplier/<int:pk>/copytomain/<int:state>', spm_views.copy_to_main, name='supplier-copymain'),
 
     path('supplier/<int:pk>/settings/', spm_views.SettingList.as_view(), name='settings'),
     path('setting/<int:pk>/', spm_views.SettingUpdate.as_view(), name='setting-update'),

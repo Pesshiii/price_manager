@@ -93,6 +93,8 @@ class Setting(models.Model):
                               on_delete=models.CASCADE,
                               blank=False)
   sheet_name = models.CharField(verbose_name='Название листа')
+  create_new = models.BooleanField(verbose_name='Создавать если нет',
+                                   default=False)
   class Meta:
     constraints = [models.UniqueConstraint(fields=['name', 'supplier'], name='name_supplier_constraint')]
   def __str__(self):
@@ -101,7 +103,11 @@ class Setting(models.Model):
     for link in self.links.filter(value=''):
       link.value = None
       link.save()
-    return self.links.filter(key='article', value__isnull=False).exists() and self.links.filter(key='name', value__isnull=False).exists()
+    if not self.links.filter(key='article', value__isnull=False).exists():
+      return False
+    if self.create_new and not self.links.filter(key='name', value__isnull=False):
+      return False
+    return True
 
 class Link(models.Model):
   class Meta:
