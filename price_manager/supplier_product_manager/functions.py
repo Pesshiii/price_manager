@@ -157,6 +157,7 @@ def load_setting(pk):
     if link.key in df.columns and link.key in SP_NUMBERS:
       df[link.key] = pd.to_numeric(df[link.key], errors='coerce')
   df = df.dropna(subset=[link.key for link in links if not link.key=='article' and link.key in df.columns], how='all')
+
   if not 'name' in df.columns:
     _df = df.copy()
     names = _df['article'].apply(lambda article: sps.filter(article=article).values_list('name', flat=True))
@@ -164,7 +165,10 @@ def load_setting(pk):
     _df = _df[_df['name'].apply(len) > 0]
     _df = _df.explode('name', ignore_index=True)
     df = _df
+  df = df.dropna(subset=['name'])
+
   df = df.replace({pd.NA: None, float('nan'): None})
+  
   if not setting.create_new:
     df = df[df['name'].isin(s_names) & df['article'].isin(s_articles)]
   df.drop_duplicates(subset=['article', 'name'], keep='first')
@@ -172,7 +176,6 @@ def load_setting(pk):
     df['manufacturer'] = df['manufacturer'].apply(lambda s: Manufacturer.objects.get_or_create(name=s)[0] if s else None)
   if 'discount' in df.columns:
     df['discount'] = df['discount'].apply(lambda s: Discount.objects.get_or_create(supplier=setting.supplier, name=s)[0] if s else None)
-  df = df.dropna(subset=['name'])
   def get_spmodel(row):
     data = {
         link.key: Decimal(str(getattr(row, link.key))) if link.key in SP_NUMBERS else getattr(row, link.key)

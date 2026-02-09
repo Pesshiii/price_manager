@@ -198,8 +198,9 @@ class SettingUpdate(UpdateView):
     post = self.request.POST
 
     if post.get('action', None) == 'delete':
-      for mfile in setting.supplier_files.all():
-        mfile.file.delete()
+      for mfile in setting.supplierfiles.all():
+        if not mfile.file is None:
+          mfile.file.delete()
         mfile.delete()
       setting.delete()
       return HttpResponseClientRefresh()

@@ -156,7 +156,7 @@ class PriceManager(models.Model):
         return Q()
 
     price_manager = self
-    mps = MainProduct.objects.all().prefetch_related('supplier_products')
+    mps = MainProduct.objects.all().prefetch_related('supplierproducts')
     products = SupplierProduct.objects.all().prefetch_related('main_product')
     products = products.filter(
       supplier=price_manager.supplier)
@@ -185,7 +185,7 @@ class PriceManager(models.Model):
       mps = mps.filter(category__in=price_manager.categories.all())
     source = price_manager.source
     if price_manager.source in SP_PRICES:
-      mps = mps.annotate(source_price=Min(f'supplier_products__{price_manager.source}'))
+      mps = mps.annotate(source_price=Min(f'supplierproducts__{price_manager.source}'))
       source = 'source_price'
       calc_qs = (
         mps.filter(pk=OuterRef("pk"))
@@ -395,7 +395,7 @@ class PriceTag(models.Model):
       return self.fixed_price
     if self.source in MP_PRICES:
       return self.get_aggfunc()(
-        self.mp.supplier_products.filter(**{f'{self.source}__isnull':False}).values_list(self.source, flat=True) 
+        self.mp.supplierproducts.filter(**{f'{self.source}__isnull':False}).values_list(self.source, flat=True) 
         ) * self.mp.supplier.currency.value()
     return getattr(self.mp, self.source)
   

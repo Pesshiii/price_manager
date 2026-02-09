@@ -187,7 +187,7 @@ def recalculate_search_vectors(mps):
 
 
 def update_stocks():
-  mps = MainProduct.objects.prefetch_related('supplier_products').annotate(new_stock=Sum('supplier_products__stock'))
+  mps = MainProduct.objects.prefetch_related('supplierproducts').annotate(new_stock=Sum('supplierproducts__stock'))
   mps = mps.filter(Q(stock__isnull=False)|Q(new_stock__isnull=False))
   mps = mps.filter(~Q(stock=F('new_stock')))
   print(mps.values_list('stock', 'new_stock'))
