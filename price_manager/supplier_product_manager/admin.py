@@ -1,6 +1,6 @@
 from django.contrib import admin
 from .models import SupplierProduct, SupplierFile, Setting
-
+from .functions import resolve_conflicts
 
 @admin.register(SupplierProduct)
 class SupplierProductAdmin(admin.ModelAdmin):
@@ -10,6 +10,11 @@ class SupplierProductAdmin(admin.ModelAdmin):
     list_display_links = ['id', 'name']
     search_fields = ['article', 'name', 'stock']
     list_filter = ['supplier', 'manufacturer']
+    actions = ['resolve_conflicts']
+    
+    @admin.action(description="Разрешить конфликты")
+    def resolve_conflicts(self, request, queryset):
+        resolve_conflicts(queryset)
 
 @admin.register(SupplierFile)
 class SupplierFileAdmin(admin.ModelAdmin):
