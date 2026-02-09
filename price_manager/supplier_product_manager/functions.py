@@ -150,6 +150,7 @@ def load_setting(pk):
       df[link.value] = df[link.value].replace(dict.key, dict.value)
     df = df.rename(columns={link.value : link.key})
   if not 'article' in df.columns: return None
+
   df = df.replace('', np.nan)
   df = df.loc[:,[link.key for link in links if not link.key=='' and link.key in df.columns]]
   df = df.dropna(subset=['article'])
@@ -157,7 +158,6 @@ def load_setting(pk):
     if link.key in df.columns and link.key in SP_NUMBERS:
       df[link.key] = pd.to_numeric(df[link.key], errors='coerce')
   df = df.dropna(subset=[link.key for link in links if not link.key=='article' and link.key in df.columns], how='all')
-
   if not 'name' in df.columns:
     _df = df.copy()
     names = _df['article'].apply(lambda article: sps.filter(article=article).values_list('name', flat=True))
@@ -165,6 +165,7 @@ def load_setting(pk):
     _df = _df[_df['name'].apply(len) > 0]
     _df = _df.explode('name', ignore_index=True)
     df = _df
+  df['name'] = df['name'].str.replace(r'\s+', ' ', regex=True)
   df = df.dropna(subset=['name'])
 
   df = df.replace({pd.NA: None, float('nan'): None})
