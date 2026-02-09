@@ -22,7 +22,7 @@ def resolve_conflicts(qs):
       sp, created = SupplierProduct.objects.get_or_create(
         supplier = item.supplier, 
         article=item.article, 
-        name=re.sub(r'\s', '', item.name),
+        name=re.sub(r'\s', ' ', item.name),
         defaults={field:getattr(item, field) for field in [*SP_PRICES, 'stock'] if not getattr(item, field) is None})
       item.delete()
 

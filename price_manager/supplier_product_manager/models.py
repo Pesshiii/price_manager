@@ -43,24 +43,29 @@ class SupplierProduct(models.Model):
                                 null=True,
                                 blank=True)
   stock = models.PositiveIntegerField(verbose_name='Остаток',
-      null=True)
+      null=True,
+      blank=True)
   supplier_price = models.DecimalField(
       verbose_name='Цена поставщика в валюте поставщика',
       decimal_places=2,
       max_digits=20,
-      null=True)
+      null=True,
+      blank=True)
   rrp = models.DecimalField(
       verbose_name='РРЦ в валюте поставщика',
       decimal_places=2,
       max_digits=20,
-      null=True)
+      null=True,
+      blank=True)
   discount_price = models.DecimalField(
       verbose_name='Цена со скидкой в валюте поставщика',
       decimal_places=2,
       max_digits=20,
-      null=True)
+      null=True,
+      blank=True)
   updated_at = models.DateTimeField(verbose_name='Последнее обновление',
-                                    auto_now=True)
+                                    auto_now=True,
+      blank=True)
   
   class Meta:
     constraints = [
