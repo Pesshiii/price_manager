@@ -12,7 +12,7 @@ class SupplierProductAdmin(admin.ModelAdmin):
     list_filter = ['supplier', 'manufacturer']
     actions = ['resolve_conflicts']
     
-    @admin.action(description="Разрешить конфликты")
+    @admin.action(description="Разрешить конфликты форматирования")
     def resolve_conflicts(self, request, queryset):
         resolve_conflicts(queryset)
 
