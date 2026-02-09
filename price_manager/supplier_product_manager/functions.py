@@ -17,12 +17,12 @@ import re
 
 def resolve_conflicts(qs):
   for item in qs:
-    cl_name = re.sub(r'\s', '', item.name)
+    cl_name = re.sub(r'\s', ' ', item.name)
     if not cl_name == item.name:
       sp, created = SupplierProduct.objects.get_or_create(
         supplier = item.supplier, 
         article=item.article, 
-        name=re.sub(r'\s', ' ', item.name),
+        name=cl_name,
         defaults={field:getattr(item, field) for field in [*SP_PRICES, 'stock'] if not getattr(item, field) is None})
       item.delete()
 
