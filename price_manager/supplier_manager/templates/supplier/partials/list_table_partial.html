@@ -37,31 +37,49 @@
                 </div>
               </td>
               <td>
-                <span class="small text-body-secondary">{{ supplier.price_updated_at }}</span>
+                <div class="d-flex flex-column gap-1">
+                  <span class="small text-body-secondary">{{ supplier.price_updated_at }}</span>
+                  {% if supplier.price_overdue %}
+                    <span class="badge text-bg-danger align-self-start">Просрочено</span>
+                  {% else %}
+                    <span class="badge text-bg-success align-self-start">Актуально</span>
+                  {% endif %}
+                </div>
               </td>
               <td>
-                <span class="small text-body-secondary">{{ supplier.stock_updated_at }}</span>
+                <div class="d-flex flex-column gap-1">
+                  <span class="small text-body-secondary">{{ supplier.stock_updated_at }}</span>
+                  {% if supplier.stock_overdue %}
+                    <span class="badge text-bg-danger align-self-start">Просрочено</span>
+                  {% else %}
+                    <span class="badge text-bg-success align-self-start">Актуально</span>
+                  {% endif %}
+                </div>
               </td>
 
               <td>
-                <span class="badge bg-success-subtle text-success-emphasis me-1">{{ supplier.basic_price|subtract:supplier.total }}</span>
-                <span class="text-body-secondary">/</span>
-                <span class="badge {% if supplier.basic_price > 0 %}bg-danger-subtle text-danger-emphasis fw-bold{% else %}bg-light text-muted{% endif %}">{{ supplier.basic_price }}</span>
+                <div class="d-flex align-items-center gap-1">
+                  <span class="badge bg-success-subtle text-success-emphasis">Ок: {{ supplier.basic_price|subtract:supplier.total }}</span>
+                  <span class="badge {% if supplier.basic_price > 0 %}bg-danger-subtle text-danger-emphasis fw-bold{% else %}bg-light text-muted{% endif %}">Пробл.: {{ supplier.basic_price }}</span>
+                </div>
               </td>
               <td>
-                <span class="badge bg-success-subtle text-success-emphasis me-1">{{ supplier.wholesale_price|subtract:supplier.total }}</span>
-                <span class="text-body-secondary">/</span>
-                <span class="badge {% if supplier.wholesale_price > 0 %}bg-danger-subtle text-danger-emphasis fw-bold{% else %}bg-light text-muted{% endif %}">{{ supplier.wholesale_price }}</span>
+                <div class="d-flex align-items-center gap-1">
+                  <span class="badge bg-success-subtle text-success-emphasis">Ок: {{ supplier.wholesale_price|subtract:supplier.total }}</span>
+                  <span class="badge {% if supplier.wholesale_price > 0 %}bg-danger-subtle text-danger-emphasis fw-bold{% else %}bg-light text-muted{% endif %}">Пробл.: {{ supplier.wholesale_price }}</span>
+                </div>
               </td>
               <td>
-                <span class="badge bg-success-subtle text-success-emphasis me-1">{{ supplier.m_price|subtract:supplier.total }}</span>
-                <span class="text-body-secondary">/</span>
-                <span class="badge {% if supplier.m_price > 0 %}bg-danger-subtle text-danger-emphasis fw-bold{% else %}bg-light text-muted{% endif %}">{{ supplier.m_price }}</span>
+                <div class="d-flex align-items-center gap-1">
+                  <span class="badge bg-success-subtle text-success-emphasis">Ок: {{ supplier.m_price|subtract:supplier.total }}</span>
+                  <span class="badge {% if supplier.m_price > 0 %}bg-danger-subtle text-danger-emphasis fw-bold{% else %}bg-light text-muted{% endif %}">Пробл.: {{ supplier.m_price }}</span>
+                </div>
               </td>
               <td class="pe-3">
-                <span class="badge bg-success-subtle text-success-emphasis me-1">{{ supplier.prime_cost|subtract:supplier.total }}</span>
-                <span class="text-body-secondary">/</span>
-                <span class="badge {% if supplier.prime_cost > 0 %}bg-danger-subtle text-danger-emphasis fw-bold{% else %}bg-light text-muted{% endif %}">{{ supplier.prime_cost }}</span>
+                <div class="d-flex align-items-center gap-1">
+                  <span class="badge bg-success-subtle text-success-emphasis">Ок: {{ supplier.prime_cost|subtract:supplier.total }}</span>
+                  <span class="badge {% if supplier.prime_cost > 0 %}bg-danger-subtle text-danger-emphasis fw-bold{% else %}bg-light text-muted{% endif %}">Пробл.: {{ supplier.prime_cost }}</span>
+                </div>
               </td>
             </tr>
           {% empty %}

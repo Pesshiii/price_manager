@@ -59,6 +59,12 @@ class SupplierList(TemplateView):
   def get_context_data(self, **kwargs) -> dict[str, Any]:
     now = timezone.now()
     context = super().get_context_data(**kwargs)
+
+    def is_overdue(updated_at, update_rate):
+      if not updated_at:
+        return False
+      return now - updated_at >= timedelta(days=TIME_FREQ[update_rate])
+
     def price_filter(price): 
       return Q(**{f'{price}__isnull':True})|Q(**{f'{price}':0})
     # queryset = Paginator(Supplier.objects.all(), 5).page(1).object_list.prefetch_related('main_products')
@@ -67,8 +73,9 @@ class SupplierList(TemplateView):
        map(lambda obj: {
           'pk': obj.pk,
           'name':obj.name,
-          'danger':  obj.stock_updated_at and timedelta(weeks=TIME_FREQ[obj.stock_update_rate]) <= now - obj.stock_updated_at or
-                     obj.price_updated_at and  timedelta(weeks=TIME_FREQ[obj.price_update_rate]) <= now - obj.price_updated_at,
+          'price_overdue': is_overdue(obj.price_updated_at, obj.price_update_rate),
+          'stock_overdue': is_overdue(obj.stock_updated_at, obj.stock_update_rate),
+          'danger': is_overdue(obj.stock_updated_at, obj.stock_update_rate) or is_overdue(obj.price_updated_at, obj.price_update_rate),
           'total': obj.main_products.count(),
           'price_updated_at':obj.price_updated_at if obj.price_updated_at else 'Отсутствует',
           'stock_updated_at':obj.stock_updated_at if obj.stock_updated_at else 'Отсутствует',
