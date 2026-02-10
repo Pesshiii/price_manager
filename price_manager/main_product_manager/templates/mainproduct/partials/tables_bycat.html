@@ -1,21 +1,6 @@
 {% load export_url from django_tables2 %}
 
 <div id="mainproducts-table" class="mb-5">
-  <div class="row">
-    <h1 class="mb-4 col-8">Главный прайс</h1>
-    <div class="container btn-group col-3 p-1 mb-3">
-      <button type="button"
-              class="btn btn-lg btn-primary"
-              title="Обновить"
-              data-bs-toggle="modal"
-              data-bs-target="#modal-container"
-              hx-get="{% url 'mainproducts-sync'%}"
-              hx-target="#modal-container .modal-content"
-              hx-swap="innerHTML">
-        Обновить
-      </button>
-    </div>
-  </div>
   {% if categories or has_nulled %}
     {% if has_nulled %}
         <div class="p-3 shadow-sm overflow-auto border rounded">

@@ -7,15 +7,13 @@
       hx-target="#mainproducts-block"
       hx-swap="outerHTML"
       hx-trigger="change, submit"
+      class="d-flex flex-column gap-3"
     >
-      <div class="mb-3">
-        <label for="{{ filter.form.supplier_search.id_for_label }}" class="form-label fw-semibold">{{ filter.form.supplier_search.label }}</label>
+      <div class="filter-section">
+        <div class="filter-section-title">Поставщики</div>
+        <label for="{{ filter.form.supplier_search.id_for_label }}" class="form-label small text-muted mb-1">Поиск поставщика</label>
         {{ filter.form.supplier_search }}
-      </div>
-
-      <div class="mb-3">
-        <div class="d-flex justify-content-between align-items-center mb-2">
-          <span class="fw-semibold">Поставщики</span>
+        <div class="d-flex justify-content-end mt-2 mb-2">
           <button type="button" class="btn btn-sm btn-outline-secondary" data-expand-tile-list="supplier-tiles">Ещё</button>
         </div>
         <div id="supplier-tiles" class="filter-tiles">
@@ -30,14 +28,11 @@
         </div>
       </div>
 
-      <div class="mb-3">
-        <label for="{{ filter.form.manufacturer_search.id_for_label }}" class="form-label fw-semibold">{{ filter.form.manufacturer_search.label }}</label>
+      <div class="filter-section">
+        <div class="filter-section-title">Производители</div>
+        <label for="{{ filter.form.manufacturer_search.id_for_label }}" class="form-label small text-muted mb-1">Поиск производителя</label>
         {{ filter.form.manufacturer_search }}
-      </div>
-
-      <div class="mb-3">
-        <div class="d-flex justify-content-between align-items-center mb-2">
-          <span class="fw-semibold">Производители</span>
+        <div class="d-flex justify-content-end mt-2 mb-2">
           <button type="button" class="btn btn-sm btn-outline-secondary" data-expand-tile-list="manufacturer-tiles">Ещё</button>
         </div>
         <div id="manufacturer-tiles" class="filter-tiles">
@@ -52,16 +47,17 @@
         </div>
       </div>
 
-      <div class="mb-3">
-        <label for="category-filter-search" class="form-label fw-semibold">Поиск по категориям</label>
+      <div class="filter-section">
+        <div class="filter-section-title">Категории</div>
+        <label for="category-filter-search" class="form-label small text-muted mb-1">Поиск по категориям</label>
         <input type="search" class="form-control" id="category-filter-search" placeholder="Начните вводить название категории..." data-category-filter-search>
+
+        <div class="category-filter-card mt-2" data-category-filter-tree>
+          {% include 'supplier/partials/category_filter_field.html' with field=filter.form.category %}
+        </div>
       </div>
 
-      <div class="category-filter-card mb-3" data-category-filter-tree>
-        {% include 'supplier/partials/category_filter_field.html' with field=filter.form.category %}
-      </div>
-
-      <div class="d-flex gap-2 mt-3">
+      <div class="d-flex gap-2 mt-1">
         <button type="submit" class="btn btn-primary flex-grow-1">Применить</button>
         <a href="{% url 'mainproducts' %}" class="btn btn-light border">Сброс</a>
       </div>
@@ -72,6 +68,18 @@
 <style>
   #mainproduct-filter .form-control {
     border-radius: .65rem;
+  }
+
+  .filter-section {
+    border: 1px solid #eceff3;
+    border-radius: .75rem;
+    padding: .65rem;
+    background: #fcfdff;
+  }
+
+  .filter-section-title {
+    font-weight: 600;
+    margin-bottom: .35rem;
   }
 
   .filter-tiles {

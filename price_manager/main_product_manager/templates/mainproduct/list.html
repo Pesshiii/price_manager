@@ -5,41 +5,102 @@
 {% endblock %}
 
 {% block style %}
-  .main-search-card {
-    position: sticky;
-    top: 72px;
-    z-index: 20;
+  .mainproducts-shell {
+    --panel-radius: .9rem;
   }
 
-  .main-search-input {
+  .filter-sidebar-card {
+    position: sticky;
+    top: 82px;
+    border-radius: var(--panel-radius);
+  }
+
+  .workspace-header {
+    border-radius: var(--panel-radius);
+  }
+
+  .workspace-title {
+    margin: 0;
+  }
+
+  .workspace-search-input {
     min-height: 46px;
-    font-size: 1rem;
+    border-radius: .65rem;
+  }
+
+  .workspace-actions {
+    gap: .5rem;
+  }
+
+  .column-chooser-menu {
+    width: min(320px, 90vw);
+    max-height: 320px;
+    overflow: auto;
+  }
+
+  .column-chooser-item {
+    display: flex;
+    align-items: center;
+    gap: .55rem;
+    padding: .25rem 0;
+  }
+
+  .column-chooser-item input {
+    margin-top: 0;
   }
 
   @media (max-width: 991.98px) {
-    .main-search-card {
+    .filter-sidebar-card {
       position: static;
+      top: auto;
     }
   }
 {% endblock %}
 
 {% block body %}
   {% partialdef list inline %}
-    <div id="mainproducts-block" class="container-fluid px-4 py-3">
+    <div id="mainproducts-block" class="container-fluid px-3 px-lg-4 py-3 mainproducts-shell">
       <div class="row g-3 align-items-start">
-        <div class="col-12 col-lg-3">
-          {% include "mainproduct/partials/filter.html" %}
-        </div>
+        <aside class="col-12 col-xl-3">
+          <div class="filter-sidebar-card">
+            {% include "mainproduct/partials/filter.html" %}
+          </div>
+        </aside>
 
-        <div class="col-12 col-lg-9">
-          <div class="card shadow-sm border-0 main-search-card mb-3">
+        <section class="col-12 col-xl-9">
+          <div class="card shadow-sm border-0 workspace-header mb-3">
             <div class="card-body">
-              <label for="main-search-input" class="form-label fw-semibold mb-2">Быстрый поиск по главному прайсу</label>
+              <div class="d-flex flex-column flex-lg-row justify-content-between align-items-lg-center gap-3 mb-3">
+                <h1 class="workspace-title h2">Главный прайс</h1>
+                <div class="workspace-actions d-flex flex-wrap">
+                  <div class="dropdown">
+                    <button class="btn btn-outline-secondary" type="button" data-bs-toggle="dropdown" aria-expanded="false">
+                      Столбцы
+                    </button>
+                    <div class="dropdown-menu dropdown-menu-end p-3 shadow-sm column-chooser-menu" id="column-chooser-menu">
+                      <div class="small text-muted mb-2">Выберите столбцы для таблиц</div>
+                      <div id="column-chooser-items"></div>
+                    </div>
+                  </div>
+                  <button type="button"
+                          class="btn btn-primary"
+                          title="Обновить"
+                          data-bs-toggle="modal"
+                          data-bs-target="#modal-container"
+                          hx-get="{% url 'mainproducts-sync'%}"
+                          hx-target="#modal-container .modal-content"
+                          hx-swap="innerHTML">
+                    Обновить
+                  </button>
+                </div>
+              </div>
+
+              <label for="main-search-input" class="form-label fw-semibold mb-2">Поиск по главному прайсу</label>
               <input
                 id="main-search-input"
                 type="search"
                 name="search"
-                class="form-control main-search-input"
+                class="form-control workspace-search-input"
                 placeholder="Название, артикул, ключевые слова..."
                 value="{{ filter.form.search.value|default_if_none:'' }}"
                 form="mainproduct-filter"
@@ -49,7 +110,7 @@
           </div>
 
           {% include 'mainproduct/partials/tables_bycat.html' %}
-        </div>
+        </section>
       </div>
     </div>
   {% endpartialdef %}
@@ -70,6 +131,93 @@
 {% block script %}
 <script>
   (() => {
+    const STORAGE_KEY = 'mainproducts.visible.columns';
+    const COLUMN_META = [
+      { key: 'actions', label: 'Действия' },
+      { key: 'article', label: 'Артикул поставщика' },
+      { key: 'supplier', label: 'Поставщик' },
+      { key: 'name', label: 'Название' },
+      { key: 'manufacturer', label: 'Производитель' },
+      { key: 'prime_cost', label: 'Себестоимость' },
+      { key: 'stock', label: 'Остаток' },
+      { key: 'stock_msg', label: 'Статус наличия' },
+    ];
+
+    const loadColumnState = () => {
+      try {
+        const raw = window.localStorage.getItem(STORAGE_KEY);
+        if (!raw) {
+          return COLUMN_META.reduce((acc, item) => ({ ...acc, [item.key]: true }), {});
+        }
+        const parsed = JSON.parse(raw);
+        return COLUMN_META.reduce((acc, item) => ({ ...acc, [item.key]: parsed[item.key] !== false }), {});
+      } catch (error) {
+        return COLUMN_META.reduce((acc, item) => ({ ...acc, [item.key]: true }), {});
+      }
+    };
+
+    const saveColumnState = (state) => {
+      window.localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+    };
+
+    let columnState = loadColumnState();
+
+    const ensureChooser = () => {
+      const container = document.getElementById('column-chooser-items');
+      if (!container || container.dataset.rendered === 'true') {
+        return;
+      }
+
+      container.innerHTML = COLUMN_META.map((item) => `
+        <label class="column-chooser-item">
+          <input type="checkbox" class="form-check-input" data-column-key="${item.key}" ${columnState[item.key] ? 'checked' : ''}>
+          <span>${item.label}</span>
+        </label>
+      `).join('');
+
+      container.addEventListener('change', (event) => {
+        const target = event.target;
+        if (!(target instanceof HTMLInputElement) || !target.dataset.columnKey) {
+          return;
+        }
+
+        const key = target.dataset.columnKey;
+        if (key === 'name' && !target.checked) {
+          target.checked = true;
+          return;
+        }
+
+        columnState = { ...columnState, [key]: target.checked };
+        saveColumnState(columnState);
+        applyColumnVisibility();
+      });
+
+      container.dataset.rendered = 'true';
+    };
+
+    const getColumnIndexMap = (table) => {
+      const headerCells = Array.from(table.querySelectorAll('thead th'));
+      const map = {};
+      COLUMN_META.forEach((item, index) => {
+        if (headerCells[index]) {
+          map[item.key] = index + 1;
+        }
+      });
+      return map;
+    };
+
+    const applyColumnVisibility = () => {
+      document.querySelectorAll('#mainproducts-table table').forEach((table) => {
+        const indexMap = getColumnIndexMap(table);
+        Object.entries(indexMap).forEach(([key, index]) => {
+          const visible = columnState[key] !== false;
+          table.querySelectorAll(`tr > *:nth-child(${index})`).forEach((cell) => {
+            cell.classList.toggle('d-none', !visible);
+          });
+        });
+      });
+    };
+
     const initExternalSearchTrigger = () => {
       const input = document.getElementById('main-search-input');
       const form = document.getElementById('mainproduct-filter');
@@ -88,16 +236,26 @@
           } else {
             form.submit();
           }
-        }, 350);
+        }, 300);
       });
 
       input.dataset.searchBound = 'true';
     };
 
-    document.addEventListener('DOMContentLoaded', initExternalSearchTrigger);
+    const initMainPageUi = () => {
+      ensureChooser();
+      initExternalSearchTrigger();
+      applyColumnVisibility();
+    };
+
+    document.addEventListener('DOMContentLoaded', initMainPageUi);
+
     document.body.addEventListener('htmx:afterSwap', (event) => {
-      if (event.target && event.target.id === 'mainproducts-block') {
-        initExternalSearchTrigger();
+      if (event.target && (event.target.id === 'mainproducts-block' || event.target.id === 'mainproducts-table')) {
+        initMainPageUi();
+      }
+      if (event.target && event.target.closest && event.target.closest('#mainproducts-table')) {
+        applyColumnVisibility();
       }
     });
   })();
