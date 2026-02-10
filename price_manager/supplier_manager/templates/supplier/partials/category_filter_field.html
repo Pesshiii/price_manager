@@ -1,6 +1,11 @@
 {% load crispy_forms_field mptt_tags %}
 <div class="container">
-  <label class="form-label">{{ field.label }}</label>
+  <legend class="form-label fw-bold mb-2">
+      {{ field.label }}
+      {% if field.field.required %}
+          <span class="text-danger">*</span>
+      {% endif %}
+  </legend>
   <div class="accordion accordion-flush" id="categoryAccordion">
     {% recursetree field.field.queryset %}
       {% include "supplier/partials/category_filter_node.html" with node=node children=children field=field parent_accordion_id="categoryAccordion" %}

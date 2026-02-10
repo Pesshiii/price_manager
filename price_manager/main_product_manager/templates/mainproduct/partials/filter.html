@@ -1,5 +1,6 @@
 <div class="card p-3">
   {% partialdef filter inline %}
-    {{rendered_form|safe}}
+    {%load crispy_forms_tags%}
+    {%crispy filter.form filter.form.helper%}
   {% endpartialdef %}
 </div>

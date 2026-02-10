@@ -30,12 +30,10 @@
 </head>
 <body  hx-headers='{"X-CSRFToken": "{{ csrf_token }}"}'>
     {% include 'includes/header.html' %}
-    <div class="container mt-5">
-      <div data-toasts-container hx-get='{% url "toast-messages" %}' hx-trigger="toasts:fetch from:body" hx-swap="afterbegin" class="toast-container top-0 end-0 p-3">
-          {% include "core/partials/toast_messages.html" %}
-      </div>
-    {% block body %}{% endblock %}
+    <div data-toasts-container hx-get='{% url "toast-messages" %}' hx-trigger="toasts:fetch from:body" hx-swap="afterbegin" class="toast-container top-0 end-0 p-3">
+        {% include "core/partials/toast_messages.html" %}
     </div>
+    {% block body %}{% endblock %}
     <div class="modal fade" id="shoppingTabSelectionModal" tabindex="-1" aria-labelledby="shoppingTabSelectionModalLabel" aria-hidden="true">
       <div class="modal-dialog modal-dialog-centered modal-lg modal-dialog-scrollable">
         <div class="modal-content">

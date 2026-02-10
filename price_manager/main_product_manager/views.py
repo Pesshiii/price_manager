@@ -57,12 +57,10 @@ class MainPage(FilterView):
       if self.request.htmx:
         if not self.request.GET.get('page', 1) == 1:
           return ["mainproduct/partials/tables_bycat.html#category-table"]
-        return ["mainproduct/partials/tables_bycat.html"]
+        return [self.template_name+"#list"]
       return super().get_template_names()
   def get_context_data(self, **kwargs) -> dict[str, Any]:
     context = super().get_context_data(**kwargs)
-    ctx = {}
-    ctx.update(csrf(self.request))
     queryset = context['object_list']
     categories = Paginator(
         Category.objects.filter(
@@ -77,9 +75,6 @@ class MainPage(FilterView):
     context['categories'] =  categories
     context['has_nulled'] = queryset.filter(category__isnull=True).exists()
     context['nulled_mp_count'] = queryset.filter(category__isnull=True).count()
-    form_html = render_crispy_form(self.filterset.form, context=ctx)
-    context['rendered_form'] = form_html
-    self.queryset
     return context
   def render_to_response(self, context, **response_kwargs):
     response = super().render_to_response(context, **response_kwargs)

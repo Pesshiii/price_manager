@@ -25,6 +25,15 @@ def resolve_conflicts(qs):
         name=cl_name,
         defaults={field:getattr(item, field) for field in [*SP_PRICES, 'stock'] if not getattr(item, field) is None})
       item.delete()
+      continue
+    elif SupplierProduct.objects.filter(name=cl_name).exclude(pk=item.pk).exists():
+      sp, created = SupplierProduct.objects.get_or_create(
+        supplier = item.supplier, 
+        article=item.article, 
+        name=cl_name,
+        defaults={field:getattr(item, field) for field in [*SP_PRICES, 'stock'] if not getattr(item, field) is None})
+      item.delete()
+      continue
 
 
 
@@ -157,7 +166,9 @@ def load_setting(pk):
   if not links.filter(Q(value__isnull=False)).exists():
     return None
   for link in links:
-    if link.value == '': continue
+    if link.value == '' or link.value is None: continue
+    print(link.key, df[link.value])
+    df[link.value] = df[link.value].str.replace(r'\s+', ' ', regex=True)
     if link.initial:
       df[link.value] = df[link.value].fillna(link.initial)
     for dict in link.dicts.all():
@@ -165,7 +176,7 @@ def load_setting(pk):
     df = df.rename(columns={link.value : link.key})
   if not 'article' in df.columns: return None
 
-  df = df.replace('', np.nan)
+  df = df.replace('', pd.NA)
   df = df.loc[:,[link.key for link in links if not link.key=='' and link.key in df.columns]]
   df = df.dropna(subset=['article'])
   for link in links:
@@ -179,10 +190,9 @@ def load_setting(pk):
     _df = _df[_df['name'].apply(len) > 0]
     _df = _df.explode('name', ignore_index=True)
     df = _df
-  df['name'] = df['name'].str.replace(r'\s+', ' ', regex=True)
   df = df.dropna(subset=['name'])
 
-  df = df.replace({pd.NA: None, float('nan'): None})
+  df = df.replace({pd.NA: None, float('nan'): None, '': None})
   
   if not setting.create_new:
     df = df[df['name'].isin(s_names) & df['article'].isin(s_articles)]
@@ -191,6 +201,7 @@ def load_setting(pk):
     df['manufacturer'] = df['manufacturer'].apply(lambda s: Manufacturer.objects.get_or_create(name=s)[0] if s else None)
   if 'discount' in df.columns:
     df['discount'] = df['discount'].apply(lambda s: Discount.objects.get_or_create(supplier=setting.supplier, name=s)[0] if s else None)
+  print(df['article'], df.dtypes)
   def get_spmodel(row):
     data = {
         link.key: Decimal(str(getattr(row, link.key))) if link.key in SP_NUMBERS else getattr(row, link.key)
