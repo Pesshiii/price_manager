@@ -44,7 +44,10 @@
         <button class="nav-link" id="pricemanagers-tab" data-bs-toggle="tab" data-bs-target="#pricemanagers" type="button" role="tab" aria-controls="pricemanagers" aria-selected="false" >Наценки</button>
       </li>
       <li class="nav-item" role="presentation">
-        <button class="nav-link" id="settings-tab" data-bs-toggle="tab" data-bs-target="#settings" type="button" role="tab" aria-controls="settings" aria-selected="false" >Настройки</button>
+        <button class="nav-link" id="settings-tab" data-bs-toggle="tab" data-bs-target="#settings" type="button" role="tab" aria-controls="settings" aria-selected="false" >Настройки загрузки файлов</button>
+      </li>
+      <li class="nav-item" role="presentation">
+        <button class="nav-link" id="supplier-settings-tab" data-bs-toggle="tab" data-bs-target="#supplier-settings" type="button" role="tab" aria-controls="supplier-settings" aria-selected="false" >Настройки поставщика</button>
       </li>
     </ul>
     <div class="tab-content" id="funcTabsContent">
@@ -56,6 +59,9 @@
       </div>
       <div class="tab-pane" id="settings" role="tabpanel" aria-labelledby="settings-tab">
         {% include "supplier/partials/detail_settings_table_partial.html" %}
+      </div>
+      <div class="tab-pane" id="supplier-settings" role="tabpanel" aria-labelledby="supplier-settings-tab">
+        {% include "supplier/partials/detail_supplier_settings_partial.html" %}
       </div>
     </div>
   </div>

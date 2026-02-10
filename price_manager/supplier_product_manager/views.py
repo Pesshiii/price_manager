@@ -26,6 +26,7 @@ from crispy_forms.utils import render_crispy_form
 # Импорты моделей, функций, форм, таблиц
 from product_price_manager.models import PriceManager, PriceTag
 from core.functions import extract_initial_from_post
+from supplier_manager.forms import SupplierForm
 from .models import DictItem
 from .forms import *
 from .tables import *
@@ -57,11 +58,21 @@ class SupplierDetail(SingleTableMixin, FilterView):
     if self.request.htmx:
       self.template_name = 'supplier\partials\detail_products_table_partial.html#table'
     return super().get(request, *args, **kwargs)
+  def post(self, request, *args, **kwargs):
+    self.supplier = Supplier.objects.get(pk=self.kwargs.get('pk', None))
+    form = SupplierForm(request.POST, instance=self.supplier)
+    if form.is_valid():
+      form.save()
+      messages.success(request, 'Настройки поставщика сохранены')
+    else:
+      messages.error(request, 'Не удалось сохранить настройки поставщика')
+    return redirect(f"{reverse('supplier-detail', kwargs={'pk': self.supplier.pk})}#supplier-settings")
   def get_table_data(self):
     return super().get_table_data().filter(supplier=self.supplier)
   def get_context_data(self, **kwargs):
     context = super().get_context_data(**kwargs)
     context['supplier'] = self.supplier
+    context['supplier_form'] = SupplierForm(instance=self.supplier)
     pms = PriceManager.objects.filter(supplier=self.supplier)
     context['pricemanagers'] = pms
     return context
