@@ -9,81 +9,114 @@
       hx-trigger="change, submit"
       class="d-flex flex-column gap-3"
     >
-      <div class="filter-section" data-tile-filter-section="supplier">
+      <div class="filter-section" data-suggest-filter="supplier">
         <div class="filter-section-title">Поставщики</div>
-        <label for="{{ filter.form.supplier_search.id_for_label }}" class="form-label small text-muted mb-1">Поиск поставщика</label>
+        <label for="supplier-search-input" class="form-label small text-muted mb-1">Поиск с подсказками</label>
         <input
           type="search"
-          name="supplier_search"
-          id="{{ filter.form.supplier_search.id_for_label }}"
+          id="supplier-search-input"
           class="form-control"
-          placeholder="Начните вводить..."
-          value="{{ filter.form.supplier_search.value|default_if_none:'' }}"
+          placeholder="Начните вводить название поставщика..."
           list="supplier-search-options"
-          data-tile-filter-search="supplier"
           autocomplete="off"
+          data-suggest-input="supplier"
         >
         <datalist id="supplier-search-options">
           {% for checkbox in filter.form.supplier %}
             <option value="{{ checkbox.choice_label }}"></option>
           {% endfor %}
         </datalist>
-        <div class="d-flex justify-content-end mt-2 mb-2">
-          <button type="button" class="btn btn-sm btn-outline-secondary" data-expand-tile-list="supplier-tiles">Ещё</button>
-        </div>
-        <div id="supplier-tiles" class="filter-tiles" data-tile-list="supplier">
+
+        <div class="suggestion-list mt-2" data-suggest-list="supplier">
           {% for checkbox in filter.form.supplier %}
-            <label class="filter-tile" data-tile-text="{{ checkbox.choice_label|lower }}">
-              {{ checkbox.tag }}
-              <span>{{ checkbox.choice_label }}</span>
-            </label>
+            <button type="button" class="suggestion-item" data-option-label="{{ checkbox.choice_label|lower }}" data-option-value="{{ checkbox.data.value }}" data-suggest-option="supplier">
+              {{ checkbox.choice_label }}
+            </button>
           {% empty %}
             <div class="small text-muted">Нет доступных поставщиков</div>
           {% endfor %}
         </div>
+
+        <div class="selected-chips mt-2" data-selected-chips="supplier"></div>
+
+        <div class="d-none" data-checkbox-container="supplier">
+          {% for checkbox in filter.form.supplier %}
+            {{ checkbox.tag }}
+          {% endfor %}
+        </div>
       </div>
 
-      <div class="filter-section" data-tile-filter-section="manufacturer">
+      <div class="filter-section" data-suggest-filter="manufacturer">
         <div class="filter-section-title">Производители</div>
-        <label for="{{ filter.form.manufacturer_search.id_for_label }}" class="form-label small text-muted mb-1">Поиск производителя</label>
+        <label for="manufacturer-search-input" class="form-label small text-muted mb-1">Поиск с подсказками</label>
         <input
           type="search"
-          name="manufacturer_search"
-          id="{{ filter.form.manufacturer_search.id_for_label }}"
+          id="manufacturer-search-input"
           class="form-control"
-          placeholder="Начните вводить..."
-          value="{{ filter.form.manufacturer_search.value|default_if_none:'' }}"
+          placeholder="Начните вводить название производителя..."
           list="manufacturer-search-options"
-          data-tile-filter-search="manufacturer"
           autocomplete="off"
+          data-suggest-input="manufacturer"
         >
         <datalist id="manufacturer-search-options">
           {% for checkbox in filter.form.manufacturer %}
             <option value="{{ checkbox.choice_label }}"></option>
           {% endfor %}
         </datalist>
-        <div class="d-flex justify-content-end mt-2 mb-2">
-          <button type="button" class="btn btn-sm btn-outline-secondary" data-expand-tile-list="manufacturer-tiles">Ещё</button>
-        </div>
-        <div id="manufacturer-tiles" class="filter-tiles" data-tile-list="manufacturer">
+
+        <div class="suggestion-list mt-2" data-suggest-list="manufacturer">
           {% for checkbox in filter.form.manufacturer %}
-            <label class="filter-tile" data-tile-text="{{ checkbox.choice_label|lower }}">
-              {{ checkbox.tag }}
-              <span>{{ checkbox.choice_label }}</span>
-            </label>
+            <button type="button" class="suggestion-item" data-option-label="{{ checkbox.choice_label|lower }}" data-option-value="{{ checkbox.data.value }}" data-suggest-option="manufacturer">
+              {{ checkbox.choice_label }}
+            </button>
           {% empty %}
             <div class="small text-muted">Нет доступных производителей</div>
           {% endfor %}
         </div>
+
+        <div class="selected-chips mt-2" data-selected-chips="manufacturer"></div>
+
+        <div class="d-none" data-checkbox-container="manufacturer">
+          {% for checkbox in filter.form.manufacturer %}
+            {{ checkbox.tag }}
+          {% endfor %}
+        </div>
       </div>
 
-      <div class="filter-section">
+      <div class="filter-section" data-suggest-filter="category">
         <div class="filter-section-title">Категории</div>
-        <label for="category-filter-search" class="form-label small text-muted mb-1">Поиск по категориям</label>
-        <input type="search" class="form-control" id="category-filter-search" placeholder="Начните вводить название категории..." data-category-filter-search>
+        <label for="category-search-input" class="form-label small text-muted mb-1">Поиск с подсказками</label>
+        <input
+          type="search"
+          id="category-search-input"
+          class="form-control"
+          placeholder="Начните вводить название категории..."
+          list="category-search-options"
+          autocomplete="off"
+          data-suggest-input="category"
+        >
+        <datalist id="category-search-options">
+          {% for checkbox in filter.form.category %}
+            <option value="{{ checkbox.choice_label }}"></option>
+          {% endfor %}
+        </datalist>
 
-        <div class="category-filter-card mt-2" data-category-filter-tree>
-          {% include 'supplier/partials/category_filter_field.html' with field=filter.form.category %}
+        <div class="suggestion-list mt-2" data-suggest-list="category">
+          {% for checkbox in filter.form.category %}
+            <button type="button" class="suggestion-item" data-option-label="{{ checkbox.choice_label|lower }}" data-option-value="{{ checkbox.data.value }}" data-suggest-option="category">
+              {{ checkbox.choice_label }}
+            </button>
+          {% empty %}
+            <div class="small text-muted">Нет доступных категорий</div>
+          {% endfor %}
+        </div>
+
+        <div class="selected-chips mt-2" data-selected-chips="category"></div>
+
+        <div class="d-none" data-checkbox-container="category">
+          {% for checkbox in filter.form.category %}
+            {{ checkbox.tag }}
+          {% endfor %}
         </div>
       </div>
 
@@ -112,172 +145,143 @@
     margin-bottom: .35rem;
   }
 
-  .filter-tiles {
-    display: grid;
-    grid-template-columns: repeat(1, minmax(0, 1fr));
-    gap: .4rem;
-    max-height: 102px;
-    overflow: hidden;
-    transition: max-height .2s ease;
-  }
-
-  .filter-tiles.filter-tiles--expanded {
-    max-height: 340px;
-    overflow: auto;
-    padding-right: .25rem;
-  }
-
-  .filter-tile {
+  .suggestion-list {
     display: flex;
-    align-items: center;
-    gap: .5rem;
-    border: 1px solid #dbe2ea;
-    border-radius: .45rem;
-    padding: .42rem .55rem;
-    font-size: .92rem;
-    line-height: 1.25;
-    background: #f7f9fc;
-    cursor: pointer;
-    user-select: none;
-    box-shadow: inset 0 -1px 0 rgba(0, 0, 0, 0.03);
-  }
-
-  .filter-tile.filter-tile--active {
-    border-color: #86b7fe;
-    background: #eaf3ff;
-  }
-
-  .filter-tile input {
-    margin-top: 0;
-    flex: 0 0 auto;
-  }
-
-  .category-filter-card {
-    max-height: 280px;
+    flex-direction: column;
+    gap: .35rem;
+    max-height: 190px;
     overflow: auto;
-    border: 1px solid #eceff3;
-    border-radius: .7rem;
-    background: #fcfcfd;
-    padding: .5rem .6rem;
   }
 
-  .category-filter-card ul {
-    list-style: none;
-    padding-left: .8rem;
-    margin-bottom: 0;
-  }
-
-  .category-filter-card > ul {
-    padding-left: .2rem;
-  }
-
-  .category-filter-card label {
+  .suggestion-item {
+    border: 1px solid #dbe2ea;
+    border-radius: .5rem;
+    background: #f9fbff;
+    text-align: left;
+    padding: .45rem .6rem;
     font-size: .92rem;
+  }
+
+  .suggestion-item:hover {
+    background: #eef4ff;
+  }
+
+  .selected-chips {
+    display: flex;
+    flex-wrap: wrap;
+    gap: .4rem;
+  }
+
+  .selected-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: .35rem;
+    border: 1px solid #cfe1ff;
+    background: #eaf3ff;
+    color: #1f3f7a;
+    border-radius: 999px;
+    padding: .2rem .6rem;
+    font-size: .82rem;
+  }
+
+  .selected-chip button {
+    border: 0;
+    background: transparent;
+    padding: 0;
+    line-height: 1;
+    font-size: .95rem;
+    color: #1f3f7a;
   }
 </style>
 
 <script>
   (() => {
-    const initFilterTiles = () => {
-      document.querySelectorAll('[data-expand-tile-list]').forEach((button) => {
-        if (button.dataset.bound === 'true') {
-          return;
-        }
-
-        button.addEventListener('click', () => {
-          const targetId = button.getAttribute('data-expand-tile-list');
-          const list = document.getElementById(targetId);
-          if (!list) {
-            return;
-          }
-          list.classList.toggle('filter-tiles--expanded');
-          button.textContent = list.classList.contains('filter-tiles--expanded') ? 'Свернуть' : 'Ещё';
-        });
-
-        button.dataset.bound = 'true';
-      });
-    };
-
-    const syncActiveTileStyles = () => {
-      document.querySelectorAll('.filter-tile').forEach((tile) => {
-        const checkbox = tile.querySelector('input[type="checkbox"]');
-        if (!checkbox) {
-          return;
-        }
-        tile.classList.toggle('filter-tile--active', checkbox.checked);
-      });
-    };
-
-    const initTileSearch = () => {
-      document.querySelectorAll('[data-tile-filter-search]').forEach((input) => {
-        if (input.dataset.bound === 'true') {
-          return;
-        }
-
-        const key = input.dataset.tileFilterSearch;
-        const tileList = document.querySelector(`[data-tile-list="${key}"]`);
-        if (!tileList) {
-          return;
-        }
-
-        const applySearch = () => {
-          const term = (input.value || '').trim().toLowerCase();
-          tileList.querySelectorAll('.filter-tile').forEach((tile) => {
-            const text = tile.dataset.tileText || '';
-            tile.classList.toggle('d-none', Boolean(term) && !text.includes(term));
-          });
-        };
-
-        input.addEventListener('input', applySearch);
-        applySearch();
-        input.dataset.bound = 'true';
-      });
-    };
-
-    const initCategoryQuickSearch = () => {
-      const searchInput = document.querySelector('[data-category-filter-search]');
-      const categoryTree = document.querySelector('[data-category-filter-tree]');
-
-      if (!searchInput || !categoryTree || searchInput.dataset.bound === 'true') {
+    const initSuggestFilter = () => {
+      const form = document.getElementById('mainproduct-filter');
+      if (!form) {
         return;
       }
 
-      const normalize = (value) => (value || '').toLowerCase().trim();
-      const labels = Array.from(categoryTree.querySelectorAll('label'));
+      const setupScope = (scope) => {
+        const input = form.querySelector(`[data-suggest-input="${scope}"]`);
+        const list = form.querySelector(`[data-suggest-list="${scope}"]`);
+        const chips = form.querySelector(`[data-selected-chips="${scope}"]`);
+        const checkboxContainer = form.querySelector(`[data-checkbox-container="${scope}"]`);
 
-      searchInput.addEventListener('input', () => {
-        const term = normalize(searchInput.value);
-        labels.forEach((label) => {
-          const wrapper = label.closest('.form-check, .accordion-item');
-          if (!wrapper) {
-            return;
-          }
-          const text = normalize(label.textContent);
-          const show = !term || text.includes(term);
-          wrapper.classList.toggle('d-none', !show);
-        });
-      });
+        if (!input || !list || !chips || !checkboxContainer) {
+          return;
+        }
 
-      searchInput.dataset.bound = 'true';
+        const getCheckboxByValue = (value) => checkboxContainer.querySelector(`input[type="checkbox"][value="${value}"]`);
+
+        const renderChips = () => {
+          const selected = Array.from(checkboxContainer.querySelectorAll('input[type="checkbox"]:checked'));
+          chips.innerHTML = selected.map((inputEl) => {
+            const option = list.querySelector(`[data-option-value="${inputEl.value}"]`);
+            const label = (option?.textContent || inputEl.value).trim();
+            return `<span class="selected-chip" data-chip-value="${inputEl.value}">${label}<button type="button" data-remove-chip="${scope}" data-remove-value="${inputEl.value}">×</button></span>`;
+          }).join('');
+        };
+
+        const applySearch = () => {
+          const term = (input.value || '').trim().toLowerCase();
+          list.querySelectorAll('[data-suggest-option]').forEach((btn) => {
+            const text = btn.dataset.optionLabel || '';
+            btn.classList.toggle('d-none', Boolean(term) && !text.includes(term));
+          });
+        };
+
+        if (input.dataset.bound !== 'true') {
+          input.addEventListener('input', applySearch);
+          input.addEventListener('change', applySearch);
+          input.dataset.bound = 'true';
+        }
+
+        if (list.dataset.bound !== 'true') {
+          list.addEventListener('click', (event) => {
+            const option = event.target.closest('[data-suggest-option]');
+            if (!option) {
+              return;
+            }
+            const checkbox = getCheckboxByValue(option.dataset.optionValue);
+            if (!checkbox) {
+              return;
+            }
+            checkbox.checked = !checkbox.checked;
+            checkbox.dispatchEvent(new Event('change', { bubbles: true }));
+            renderChips();
+          });
+          list.dataset.bound = 'true';
+        }
+
+        if (chips.dataset.bound !== 'true') {
+          chips.addEventListener('click', (event) => {
+            const button = event.target.closest(`[data-remove-chip="${scope}"]`);
+            if (!button) {
+              return;
+            }
+            const checkbox = getCheckboxByValue(button.dataset.removeValue);
+            if (!checkbox) {
+              return;
+            }
+            checkbox.checked = false;
+            checkbox.dispatchEvent(new Event('change', { bubbles: true }));
+            renderChips();
+          });
+          chips.dataset.bound = 'true';
+        }
+
+        renderChips();
+        applySearch();
+      };
+
+      ['supplier', 'manufacturer', 'category'].forEach(setupScope);
     };
 
-    const initMainFilterUi = () => {
-      initFilterTiles();
-      initTileSearch();
-      initCategoryQuickSearch();
-      syncActiveTileStyles();
-    };
-
-    document.addEventListener('change', (event) => {
-      if (event.target && event.target.matches('.filter-tile input[type="checkbox"]')) {
-        syncActiveTileStyles();
-      }
-    });
-
-    document.addEventListener('DOMContentLoaded', initMainFilterUi);
+    document.addEventListener('DOMContentLoaded', initSuggestFilter);
     document.body.addEventListener('htmx:afterSwap', (event) => {
       if (event.target && event.target.id === 'mainproducts-block') {
-        initMainFilterUi();
+        initSuggestFilter();
       }
     });
   })();
