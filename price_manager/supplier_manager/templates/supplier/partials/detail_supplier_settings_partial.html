@@ -1,35 +1,6 @@
-<div class="container mt-3">
-  <form method="post" action="{% url 'supplier-detail' supplier.pk %}">
-    {% csrf_token %}
-    {{ supplier_form.name.as_hidden }}
-    <div class="row g-3">
-      <div class="col-md-6">
-        <label for="id_price_update_rate" class="form-label">Периодичность обновления цен</label>
-        {{ supplier_form.price_update_rate }}
-      </div>
-      <div class="col-md-6">
-        <label for="id_stock_update_rate" class="form-label">Периодичность обновления остатков</label>
-        {{ supplier_form.stock_update_rate }}
-      </div>
-      <div class="col-md-6">
-        <label for="id_msg_available" class="form-label">Статус товара при наличии</label>
-        {{ supplier_form.msg_available }}
-      </div>
-      <div class="col-md-6">
-        <label for="id_msg_navailable" class="form-label">Статус товара при отсутствии</label>
-        {{ supplier_form.msg_navailable }}
-      </div>
-      <div class="col-md-6">
-        <label for="id_delivery_days" class="form-label">Срок поставки (Рабочие дни) в зависимости от наличия</label>
-        {{ supplier_form.delivery_days }}
-      </div>
-      <div class="col-md-6">
-        <label for="id_currency" class="form-label">Валюта поставщика</label>
-        {{ supplier_form.currency }}
-      </div>
-    </div>
-    <div class="mt-3">
-      <button class="btn btn-primary" type="submit">Сохранить настройки поставщика</button>
-    </div>
-  </form>
+<div 
+hx-get="{% url "supplier-update" supplier.pk%}"
+hx-swap='outerHTML'
+hx-trigger='load'
+>
 </div>

@@ -1,0 +1,18 @@
+{% extends 'base.html' %}
+
+{% block title %}
+Поставщик
+{% endblock %}
+
+{% block body %}
+{% partialdef form_partial inline=True %}
+  {% load crispy_forms_tags %}
+  <div class="container p-4" id="supplier-update">
+    {% crispy form form.helper%}
+  </div>
+{% endpartialdef %}
+{% endblock %}
+
+{% block script %}
+
+{% endblock %}

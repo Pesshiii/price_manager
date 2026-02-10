@@ -23,9 +23,12 @@ from typing import Optional, Any, Dict, Iterable
 from collections import defaultdict, OrderedDict
 from django.db.models import Count, Prefetch
 from django_tables2 import SingleTableView, RequestConfig, SingleTableMixin
-from dal import autocomplete
 from django.db.models import Q, F, ExpressionWrapper, BooleanField, DurationField, Value, Case, When
 from django.db.models.functions import Greatest, ExtractDay
+
+
+from dal import autocomplete
+from django_htmx.http import HttpResponseClientRedirect, HttpResponseClientRefresh, retarget
 
 # Импорты моделей, функций, форм, таблиц
 from .models import *
@@ -86,7 +89,15 @@ class SupplierCreate(CreateView):
   model = Supplier
   form_class=SupplierForm
   success_url = '/supplier'
-  template_name = 'supplier/create.html'
+  template_name = 'supplier/partials/create.html'
+  def get_form_kwargs(self):
+    kwargs = super().get_form_kwargs()
+    kwargs['url'] = reverse('supplier-create')
+    return kwargs
+  def form_valid(self, form):
+    response = super().form_valid(form)
+    return HttpResponseClientRedirect(reverse('supplier'))
+  
 
 
 class SupplierDelete(DeleteView):
@@ -98,10 +109,20 @@ class SupplierDelete(DeleteView):
 class SupplierUpdate(UpdateView):
   '''Таблица  обновления Поставщиков <<supplier/update/>>'''
   model = Supplier
-  fields = SUPPLIER_SPECIFIABLE_FIELDS
-  success_url = '/supplier'
-  template_name = 'supplier/update.html'
-  pk_url_kwarg='id'
+  form_class = SupplierForm
+  template_name = 'supplier/partials/update.html'
+  pk_url_kwarg='pk'
+  def get_form_kwargs(self):
+    kwargs = super().get_form_kwargs()
+    kwargs['url'] = reverse('supplier-update', kwargs={'pk':self.kwargs.get('pk')})
+    return kwargs
+  def get_template_names(self) -> list[str]:
+      if self.request.htmx:
+          return [self.template_name+"#form_partial"]
+      return super().get_template_names()
+  def get_success_url(self):
+    return reverse('supplier-update', kwargs={'pk':self.kwargs.get('pk')})
+  
 
 class ManufacturerList(SingleTableView):
   '''Отображение производителей <<manufacturer/>>'''

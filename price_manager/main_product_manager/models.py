@@ -187,15 +187,17 @@ def recalculate_search_vectors(mps):
 
 
 def update_stocks():
-  mps = MainProduct.objects.prefetch_related('supplierproducts').annotate(new_stock=Sum('supplierproducts__stock'))
+  query = MainProduct.objects.filter(
+    pk=OuterRef('pk')
+    ).prefetch_related('supplierproducts').annotate(
+      new_stock=Sum(F('supplierproducts__stock'))).values('new_stock')
+  mps = MainProduct.objects.prefetch_related('supplierproducts').annotate(new_stock=Subquery(query))
   mps = mps.filter(Q(stock__isnull=False)|Q(new_stock__isnull=False))
   mps = mps.filter(~Q(stock=F('new_stock')))
   print(mps.values_list('stock', 'new_stock'))
-  print(mps.count())
-  mps.stock = F('new_stock')
-  mpls = map(lambda mp: MainProductLog(main_product=mp, stock=mp.stock),  mps)
+  mpls = map(lambda mp: MainProductLog(main_product=mp, stock=mp.new_stock),  mps)
   MainProductLog.objects.bulk_create(mpls)
-  return mps.bulk_update(mps, fields=['stock', 'stock_updated_at'])
+  return mps.update(stock=F('new_stock'))
 
 def update_logs():
   updated_logs = 0

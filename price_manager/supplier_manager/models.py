@@ -18,8 +18,6 @@ class Currency(models.Model):
   def __str__(self):
     return self.name
 
-SUPPLIER_SPECIFIABLE_FIELDS = ['name', 'delivery_days', 'currency', 'price_update_rate', 'stock_update_rate']
-
 class Supplier(models.Model):
   """
   Модель Supplier представляет поставщика товаров.
