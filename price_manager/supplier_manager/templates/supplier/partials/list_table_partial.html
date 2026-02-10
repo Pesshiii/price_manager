@@ -1,63 +1,87 @@
-<table class="table">
-  <thead>
-    <tr>
-      <th scope="col"></th>
-      <th scope="col">Поставщик</th>
-      <th scope="col">Последние обновление цены</th>
-      <th scope="col">Последние обновление остатка</th>
-      <th scope="col">Базовая цена <br> (есть/нет)</th>
-      <th scope="col">Себестоимость <br> (есть/нет)</th>
-      <th scope="col">Цена ИМ <br> (есть/нет)</th>
-      <th scope="col">Оптовая цена <br> (есть/нет)</th>
-    </tr>
-  </thead>
-  <tbody>
-    {% for supplier in suppliers %}
-      <tr>
-        <td>
-          <div class="d-flex gap-1">
-            <button type="button"
-                    class="btn btn-sm btn-success"
-                    title="Загрузка"
-                    data-bs-toggle="modal"
-                    data-bs-target="#modal-container"
-                    hx-get="{% url 'supplier-upload' supplier.pk %}"
-                    hx-target="#modal-container .modal-content"
-                    hx-swap="innerHTML">
-              <i class="bi bi-upload"></i>
-            </button>
-          </div>
-        </td>
-        <td>
-          <span class="badge rounded-pill p-1
-          {% if supplier.danger %}bg-danger {% else %} bg-success {% endif %}">
-          </span>
-          <a href={% url "supplier-detail"  supplier.pk%}> {{supplier.name}} </a>
-          <span class=" badge rounded-pill bg-secondary">
-          {{supplier.total}}
-          </span></td>
-        <td>{{supplier.price_updated_at}}</td>
-        <td>{{supplier.stock_updated_at}}</td>
-        <td>{{supplier.basic_price|subtract:supplier.total}}/{{supplier.basic_price}}</td>
-        <td>{{supplier.wholesale_price|subtract:supplier.total}}/{{supplier.wholesale_price}}</td>
-        <td>{{supplier.m_price|subtract:supplier.total}}/{{supplier.m_price}}</td>
-        <td>{{supplier.prime_cost|subtract:supplier.total}}/{{supplier.prime_cost}}</td>
-      </tr>
-    {% endfor %}
-  </tbody>
-</table>
+<div class="card shadow-sm border-0 mt-3">
+  <div class="card-body p-0">
+    <div class="table-responsive">
+      <table class="table table-hover align-middle mb-0">
+        <thead class="table-light">
+          <tr>
+            <th scope="col" class="ps-3" style="width: 72px;">Действия</th>
+            <th scope="col">Поставщик</th>
+            <th scope="col">Обновление цен</th>
+            <th scope="col">Обновление остатков</th>
+            <th scope="col">Базовая цена</th>
+            <th scope="col">Себестоимость</th>
+            <th scope="col">Цена ИМ</th>
+            <th scope="col" class="pe-3">Оптовая цена</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for supplier in suppliers %}
+            <tr>
+              <td class="ps-3">
+                <button type="button"
+                        class="btn btn-sm btn-outline-success"
+                        title="Загрузка"
+                        data-bs-toggle="modal"
+                        data-bs-target="#modal-container"
+                        hx-get="{% url 'supplier-upload' supplier.pk %}"
+                        hx-target="#modal-container .modal-content"
+                        hx-swap="innerHTML">
+                  <i class="bi bi-upload"></i>
+                </button>
+              </td>
+              <td>
+                <div class="d-flex align-items-center gap-2">
+                  <span class="badge rounded-pill p-1 {% if supplier.danger %}bg-danger{% else %}bg-success{% endif %}"></span>
+                  <a class="fw-semibold text-decoration-none" href="{% url 'supplier-detail' supplier.pk %}">{{ supplier.name }}</a>
+                  <span class="badge rounded-pill bg-secondary">{{ supplier.total }}</span>
+                </div>
+              </td>
+              <td>
+                <span class="small text-body-secondary">{{ supplier.price_updated_at }}</span>
+              </td>
+              <td>
+                <span class="small text-body-secondary">{{ supplier.stock_updated_at }}</span>
+              </td>
 
+              <td>
+                <span class="badge bg-success-subtle text-success-emphasis me-1">{{ supplier.basic_price|subtract:supplier.total }}</span>
+                <span class="text-body-secondary">/</span>
+                <span class="badge {% if supplier.basic_price > 0 %}bg-danger-subtle text-danger-emphasis fw-bold{% else %}bg-light text-muted{% endif %}">{{ supplier.basic_price }}</span>
+              </td>
+              <td>
+                <span class="badge bg-success-subtle text-success-emphasis me-1">{{ supplier.wholesale_price|subtract:supplier.total }}</span>
+                <span class="text-body-secondary">/</span>
+                <span class="badge {% if supplier.wholesale_price > 0 %}bg-danger-subtle text-danger-emphasis fw-bold{% else %}bg-light text-muted{% endif %}">{{ supplier.wholesale_price }}</span>
+              </td>
+              <td>
+                <span class="badge bg-success-subtle text-success-emphasis me-1">{{ supplier.m_price|subtract:supplier.total }}</span>
+                <span class="text-body-secondary">/</span>
+                <span class="badge {% if supplier.m_price > 0 %}bg-danger-subtle text-danger-emphasis fw-bold{% else %}bg-light text-muted{% endif %}">{{ supplier.m_price }}</span>
+              </td>
+              <td class="pe-3">
+                <span class="badge bg-success-subtle text-success-emphasis me-1">{{ supplier.prime_cost|subtract:supplier.total }}</span>
+                <span class="text-body-secondary">/</span>
+                <span class="badge {% if supplier.prime_cost > 0 %}bg-danger-subtle text-danger-emphasis fw-bold{% else %}bg-light text-muted{% endif %}">{{ supplier.prime_cost }}</span>
+              </td>
+            </tr>
+          {% empty %}
+            <tr>
+              <td colspan="8" class="text-center py-4 text-body-secondary">Поставщики не найдены</td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
 
 <div id="modal-container" class="modal modal-xl fade" tabindex="-1" aria-labelledby="modalLabel" aria-hidden="true">
     <div class="modal-dialog">
         <div class="modal-content">
           <div class="container d-flex justify-content-center mb-4 mt-4">
-            <div class="spinner-grow" role="status">
-            </div>
-            <div class="spinner-grow" role="status">
-            </div>
-            <div class="spinner-grow" role="status">
-            </div>
+            <div class="spinner-grow" role="status"></div>
+            <div class="spinner-grow" role="status"></div>
+            <div class="spinner-grow" role="status"></div>
           </div>
         </div>
     </div>
