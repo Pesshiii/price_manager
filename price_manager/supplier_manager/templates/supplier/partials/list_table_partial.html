@@ -19,7 +19,7 @@
             <tr>
               <td class="ps-3">
                 <button type="button"
-                        class="btn btn-sm btn-outline-success"
+                        class="btn btn-sm btn-success shadow-sm"
                         title="Загрузка"
                         data-bs-toggle="modal"
                         data-bs-target="#modal-container"
@@ -31,7 +31,7 @@
               </td>
               <td>
                 <div class="d-flex align-items-center gap-2">
-                  <span class="badge rounded-pill p-1 {% if supplier.danger %}bg-danger{% else %}bg-success{% endif %}"></span>
+                  <span class="badge rounded-pill p-1 {% if supplier.danger %}bg-danger-subtle border border-danger-subtle{% else %}bg-success-subtle border border-success-subtle{% endif %}"></span>
                   <a class="fw-semibold text-decoration-none" href="{% url 'supplier-detail' supplier.pk %}">{{ supplier.name }}</a>
                   <span class="badge rounded-pill bg-secondary">{{ supplier.total }}</span>
                 </div>
@@ -40,9 +40,9 @@
                 <div class="d-flex flex-column gap-1">
                   <span class="small text-body-secondary">{{ supplier.price_updated_at }}</span>
                   {% if supplier.price_overdue %}
-                    <span class="badge text-bg-danger align-self-start">Просрочено</span>
+                    <span class="badge bg-danger-subtle text-danger-emphasis align-self-start">Просрочено</span>
                   {% else %}
-                    <span class="badge text-bg-success align-self-start">Актуально</span>
+                    <span class="badge bg-success-subtle text-success-emphasis align-self-start">Актуально</span>
                   {% endif %}
                 </div>
               </td>
@@ -50,35 +50,35 @@
                 <div class="d-flex flex-column gap-1">
                   <span class="small text-body-secondary">{{ supplier.stock_updated_at }}</span>
                   {% if supplier.stock_overdue %}
-                    <span class="badge text-bg-danger align-self-start">Просрочено</span>
+                    <span class="badge bg-danger-subtle text-danger-emphasis align-self-start">Просрочено</span>
                   {% else %}
-                    <span class="badge text-bg-success align-self-start">Актуально</span>
+                    <span class="badge bg-success-subtle text-success-emphasis align-self-start">Актуально</span>
                   {% endif %}
                 </div>
               </td>
 
               <td>
                 <div class="d-flex align-items-center gap-1">
-                  <span class="badge bg-success-subtle text-success-emphasis">Ок: {{ supplier.basic_price|subtract:supplier.total }}</span>
-                  <span class="badge {% if supplier.basic_price > 0 %}bg-danger-subtle text-danger-emphasis fw-bold{% else %}bg-light text-muted{% endif %}">Пробл.: {{ supplier.basic_price }}</span>
+                  <span class="badge bg-success-subtle text-success-emphasis">{{ supplier.basic_price|subtract:supplier.total }}</span>
+                  <span class="badge {% if supplier.basic_price > 0 %}bg-danger-subtle text-danger-emphasis{% else %}bg-light text-muted{% endif %}">{{ supplier.basic_price }}</span>
                 </div>
               </td>
               <td>
                 <div class="d-flex align-items-center gap-1">
-                  <span class="badge bg-success-subtle text-success-emphasis">Ок: {{ supplier.wholesale_price|subtract:supplier.total }}</span>
-                  <span class="badge {% if supplier.wholesale_price > 0 %}bg-danger-subtle text-danger-emphasis fw-bold{% else %}bg-light text-muted{% endif %}">Пробл.: {{ supplier.wholesale_price }}</span>
+                  <span class="badge bg-success-subtle text-success-emphasis">{{ supplier.wholesale_price|subtract:supplier.total }}</span>
+                  <span class="badge {% if supplier.wholesale_price > 0 %}bg-danger-subtle text-danger-emphasis{% else %}bg-light text-muted{% endif %}">{{ supplier.wholesale_price }}</span>
                 </div>
               </td>
               <td>
                 <div class="d-flex align-items-center gap-1">
-                  <span class="badge bg-success-subtle text-success-emphasis">Ок: {{ supplier.m_price|subtract:supplier.total }}</span>
-                  <span class="badge {% if supplier.m_price > 0 %}bg-danger-subtle text-danger-emphasis fw-bold{% else %}bg-light text-muted{% endif %}">Пробл.: {{ supplier.m_price }}</span>
+                  <span class="badge bg-success-subtle text-success-emphasis">{{ supplier.m_price|subtract:supplier.total }}</span>
+                  <span class="badge {% if supplier.m_price > 0 %}bg-danger-subtle text-danger-emphasis{% else %}bg-light text-muted{% endif %}">{{ supplier.m_price }}</span>
                 </div>
               </td>
               <td class="pe-3">
                 <div class="d-flex align-items-center gap-1">
-                  <span class="badge bg-success-subtle text-success-emphasis">Ок: {{ supplier.prime_cost|subtract:supplier.total }}</span>
-                  <span class="badge {% if supplier.prime_cost > 0 %}bg-danger-subtle text-danger-emphasis fw-bold{% else %}bg-light text-muted{% endif %}">Пробл.: {{ supplier.prime_cost }}</span>
+                  <span class="badge bg-success-subtle text-success-emphasis">{{ supplier.prime_cost|subtract:supplier.total }}</span>
+                  <span class="badge {% if supplier.prime_cost > 0 %}bg-danger-subtle text-danger-emphasis{% else %}bg-light text-muted{% endif %}">{{ supplier.prime_cost }}</span>
                 </div>
               </td>
             </tr>
