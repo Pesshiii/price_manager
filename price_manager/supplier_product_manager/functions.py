@@ -171,7 +171,11 @@ def load_setting(pk):
   for link in links:
     if link.key in df.columns and link.key in SP_NUMBERS:
       df[link.key] = pd.to_numeric(df[link.key], errors='coerce')
+  
+
+  # to do: добавить проверку на наличие каких либо столбцов кроме артикула и названия если есть применять если нет то нет
   df = df.dropna(subset=[link.key for link in links if not link.key=='article' and not link.key =='name' and link.key in df.columns], how='all')
+  
   if not 'name' in df.columns:
     if setting.create_new:
       return None
