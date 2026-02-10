@@ -29,7 +29,29 @@ class MainProductTable(tables.Table):
 
   class Meta:
     model = MainProduct
-    fields = ['actions', 'article', 'supplier', 'name', 'manufacturer','prime_cost', 'stock', 'stock_msg']
+    fields = [
+      'actions',
+      'sku',
+      'article',
+      'supplier',
+      'name',
+      'category',
+      'manufacturer',
+      'stock',
+      'weight',
+      'prime_cost',
+      'wholesale_price',
+      'basic_price',
+      'm_price',
+      'wholesale_price_extra',
+      'discount_price',
+      'length',
+      'width',
+      'depth',
+      'price_updated_at',
+      'stock_updated_at',
+      'stock_msg',
+    ]
     template_name = 'core/includes/table_htmx.html'
     attrs = {
       'class': 'clickable-rows table table-auto table-stripped table-hover'

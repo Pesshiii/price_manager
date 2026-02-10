@@ -9,16 +9,31 @@
       hx-trigger="change, submit"
       class="d-flex flex-column gap-3"
     >
-      <div class="filter-section">
+      <div class="filter-section" data-tile-filter-section="supplier">
         <div class="filter-section-title">Поставщики</div>
         <label for="{{ filter.form.supplier_search.id_for_label }}" class="form-label small text-muted mb-1">Поиск поставщика</label>
-        {{ filter.form.supplier_search }}
+        <input
+          type="search"
+          name="supplier_search"
+          id="{{ filter.form.supplier_search.id_for_label }}"
+          class="form-control"
+          placeholder="Начните вводить..."
+          value="{{ filter.form.supplier_search.value|default_if_none:'' }}"
+          list="supplier-search-options"
+          data-tile-filter-search="supplier"
+          autocomplete="off"
+        >
+        <datalist id="supplier-search-options">
+          {% for checkbox in filter.form.supplier %}
+            <option value="{{ checkbox.choice_label }}"></option>
+          {% endfor %}
+        </datalist>
         <div class="d-flex justify-content-end mt-2 mb-2">
           <button type="button" class="btn btn-sm btn-outline-secondary" data-expand-tile-list="supplier-tiles">Ещё</button>
         </div>
-        <div id="supplier-tiles" class="filter-tiles">
+        <div id="supplier-tiles" class="filter-tiles" data-tile-list="supplier">
           {% for checkbox in filter.form.supplier %}
-            <label class="filter-tile">
+            <label class="filter-tile" data-tile-text="{{ checkbox.choice_label|lower }}">
               {{ checkbox.tag }}
               <span>{{ checkbox.choice_label }}</span>
             </label>
@@ -28,16 +43,31 @@
         </div>
       </div>
 
-      <div class="filter-section">
+      <div class="filter-section" data-tile-filter-section="manufacturer">
         <div class="filter-section-title">Производители</div>
         <label for="{{ filter.form.manufacturer_search.id_for_label }}" class="form-label small text-muted mb-1">Поиск производителя</label>
-        {{ filter.form.manufacturer_search }}
+        <input
+          type="search"
+          name="manufacturer_search"
+          id="{{ filter.form.manufacturer_search.id_for_label }}"
+          class="form-control"
+          placeholder="Начните вводить..."
+          value="{{ filter.form.manufacturer_search.value|default_if_none:'' }}"
+          list="manufacturer-search-options"
+          data-tile-filter-search="manufacturer"
+          autocomplete="off"
+        >
+        <datalist id="manufacturer-search-options">
+          {% for checkbox in filter.form.manufacturer %}
+            <option value="{{ checkbox.choice_label }}"></option>
+          {% endfor %}
+        </datalist>
         <div class="d-flex justify-content-end mt-2 mb-2">
           <button type="button" class="btn btn-sm btn-outline-secondary" data-expand-tile-list="manufacturer-tiles">Ещё</button>
         </div>
-        <div id="manufacturer-tiles" class="filter-tiles">
+        <div id="manufacturer-tiles" class="filter-tiles" data-tile-list="manufacturer">
           {% for checkbox in filter.form.manufacturer %}
-            <label class="filter-tile">
+            <label class="filter-tile" data-tile-text="{{ checkbox.choice_label|lower }}">
               {{ checkbox.tag }}
               <span>{{ checkbox.choice_label }}</span>
             </label>
@@ -84,14 +114,15 @@
 
   .filter-tiles {
     display: grid;
-    gap: .35rem;
-    max-height: 86px;
+    grid-template-columns: repeat(1, minmax(0, 1fr));
+    gap: .4rem;
+    max-height: 102px;
     overflow: hidden;
     transition: max-height .2s ease;
   }
 
   .filter-tiles.filter-tiles--expanded {
-    max-height: 320px;
+    max-height: 340px;
     overflow: auto;
     padding-right: .25rem;
   }
@@ -100,17 +131,25 @@
     display: flex;
     align-items: center;
     gap: .5rem;
-    border: 1px solid #e8ebf0;
-    border-radius: .55rem;
-    padding: .35rem .55rem;
+    border: 1px solid #dbe2ea;
+    border-radius: .45rem;
+    padding: .42rem .55rem;
     font-size: .92rem;
     line-height: 1.25;
-    background: #f9fafb;
+    background: #f7f9fc;
     cursor: pointer;
+    user-select: none;
+    box-shadow: inset 0 -1px 0 rgba(0, 0, 0, 0.03);
+  }
+
+  .filter-tile.filter-tile--active {
+    border-color: #86b7fe;
+    background: #eaf3ff;
   }
 
   .filter-tile input {
     margin-top: 0;
+    flex: 0 0 auto;
   }
 
   .category-filter-card {
@@ -159,6 +198,42 @@
       });
     };
 
+    const syncActiveTileStyles = () => {
+      document.querySelectorAll('.filter-tile').forEach((tile) => {
+        const checkbox = tile.querySelector('input[type="checkbox"]');
+        if (!checkbox) {
+          return;
+        }
+        tile.classList.toggle('filter-tile--active', checkbox.checked);
+      });
+    };
+
+    const initTileSearch = () => {
+      document.querySelectorAll('[data-tile-filter-search]').forEach((input) => {
+        if (input.dataset.bound === 'true') {
+          return;
+        }
+
+        const key = input.dataset.tileFilterSearch;
+        const tileList = document.querySelector(`[data-tile-list="${key}"]`);
+        if (!tileList) {
+          return;
+        }
+
+        const applySearch = () => {
+          const term = (input.value || '').trim().toLowerCase();
+          tileList.querySelectorAll('.filter-tile').forEach((tile) => {
+            const text = tile.dataset.tileText || '';
+            tile.classList.toggle('d-none', Boolean(term) && !text.includes(term));
+          });
+        };
+
+        input.addEventListener('input', applySearch);
+        applySearch();
+        input.dataset.bound = 'true';
+      });
+    };
+
     const initCategoryQuickSearch = () => {
       const searchInput = document.querySelector('[data-category-filter-search]');
       const categoryTree = document.querySelector('[data-category-filter-tree]');
@@ -188,8 +263,16 @@
 
     const initMainFilterUi = () => {
       initFilterTiles();
+      initTileSearch();
       initCategoryQuickSearch();
+      syncActiveTileStyles();
     };
+
+    document.addEventListener('change', (event) => {
+      if (event.target && event.target.matches('.filter-tile input[type="checkbox"]')) {
+        syncActiveTileStyles();
+      }
+    });
 
     document.addEventListener('DOMContentLoaded', initMainFilterUi);
     document.body.addEventListener('htmx:afterSwap', (event) => {

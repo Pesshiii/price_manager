@@ -132,27 +132,12 @@
 <script>
   (() => {
     const STORAGE_KEY = 'mainproducts.visible.columns';
-    const COLUMN_META = [
-      { key: 'actions', label: 'Действия' },
-      { key: 'article', label: 'Артикул поставщика' },
-      { key: 'supplier', label: 'Поставщик' },
-      { key: 'name', label: 'Название' },
-      { key: 'manufacturer', label: 'Производитель' },
-      { key: 'prime_cost', label: 'Себестоимость' },
-      { key: 'stock', label: 'Остаток' },
-      { key: 'stock_msg', label: 'Статус наличия' },
-    ];
 
     const loadColumnState = () => {
       try {
-        const raw = window.localStorage.getItem(STORAGE_KEY);
-        if (!raw) {
-          return COLUMN_META.reduce((acc, item) => ({ ...acc, [item.key]: true }), {});
-        }
-        const parsed = JSON.parse(raw);
-        return COLUMN_META.reduce((acc, item) => ({ ...acc, [item.key]: parsed[item.key] !== false }), {});
+        return JSON.parse(window.localStorage.getItem(STORAGE_KEY) || '{}');
       } catch (error) {
-        return COLUMN_META.reduce((acc, item) => ({ ...acc, [item.key]: true }), {});
+        return {};
       }
     };
 
@@ -162,58 +147,78 @@
 
     let columnState = loadColumnState();
 
-    const ensureChooser = () => {
-      const container = document.getElementById('column-chooser-items');
-      if (!container || container.dataset.rendered === 'true') {
-        return;
-      }
-
-      container.innerHTML = COLUMN_META.map((item) => `
-        <label class="column-chooser-item">
-          <input type="checkbox" class="form-check-input" data-column-key="${item.key}" ${columnState[item.key] ? 'checked' : ''}>
-          <span>${item.label}</span>
-        </label>
-      `).join('');
-
-      container.addEventListener('change', (event) => {
-        const target = event.target;
-        if (!(target instanceof HTMLInputElement) || !target.dataset.columnKey) {
+    const getColumnMetaFromTables = () => {
+      const seen = new Set();
+      const meta = [];
+      document.querySelectorAll('#mainproducts-table table thead th[data-column-key]').forEach((th) => {
+        const key = th.dataset.columnKey;
+        if (!key || seen.has(key)) {
           return;
         }
-
-        const key = target.dataset.columnKey;
-        if (key === 'name' && !target.checked) {
-          target.checked = true;
-          return;
-        }
-
-        columnState = { ...columnState, [key]: target.checked };
-        saveColumnState(columnState);
-        applyColumnVisibility();
+        seen.add(key);
+        const label = (th.textContent || '').trim() || key;
+        meta.push({ key, label });
       });
-
-      container.dataset.rendered = 'true';
+      return meta;
     };
 
-    const getColumnIndexMap = (table) => {
-      const headerCells = Array.from(table.querySelectorAll('thead th'));
-      const map = {};
-      COLUMN_META.forEach((item, index) => {
-        if (headerCells[index]) {
-          map[item.key] = index + 1;
+    const ensureColumnStateDefaults = (meta) => {
+      let changed = false;
+      meta.forEach(({ key }) => {
+        if (!(key in columnState)) {
+          columnState[key] = true;
+          changed = true;
         }
       });
-      return map;
+      if (columnState.name === false) {
+        columnState.name = true;
+        changed = true;
+      }
+      if (changed) {
+        saveColumnState(columnState);
+      }
     };
 
     const applyColumnVisibility = () => {
       document.querySelectorAll('#mainproducts-table table').forEach((table) => {
-        const indexMap = getColumnIndexMap(table);
-        Object.entries(indexMap).forEach(([key, index]) => {
+        const headerCells = Array.from(table.querySelectorAll('thead th[data-column-key]'));
+        headerCells.forEach((th, idx) => {
+          const key = th.dataset.columnKey;
           const visible = columnState[key] !== false;
-          table.querySelectorAll(`tr > *:nth-child(${index})`).forEach((cell) => {
+          const columnIndex = idx + 1;
+          table.querySelectorAll(`tr > *:nth-child(${columnIndex})`).forEach((cell) => {
             cell.classList.toggle('d-none', !visible);
           });
+        });
+      });
+    };
+
+    const renderColumnChooser = () => {
+      const container = document.getElementById('column-chooser-items');
+      if (!container) {
+        return;
+      }
+
+      const meta = getColumnMetaFromTables();
+      ensureColumnStateDefaults(meta);
+
+      container.innerHTML = meta.map((item) => `
+        <label class="column-chooser-item">
+          <input type="checkbox" class="form-check-input" data-column-key="${item.key}" ${columnState[item.key] !== false ? 'checked' : ''}>
+          <span>${item.label}</span>
+        </label>
+      `).join('');
+
+      container.querySelectorAll('input[data-column-key]').forEach((input) => {
+        input.addEventListener('change', (event) => {
+          const key = event.target.dataset.columnKey;
+          if (key === 'name' && !event.target.checked) {
+            event.target.checked = true;
+            return;
+          }
+          columnState = { ...columnState, [key]: event.target.checked };
+          saveColumnState(columnState);
+          applyColumnVisibility();
         });
       });
     };
@@ -243,8 +248,8 @@
     };
 
     const initMainPageUi = () => {
-      ensureChooser();
       initExternalSearchTrigger();
+      renderColumnChooser();
       applyColumnVisibility();
     };
 
@@ -255,6 +260,7 @@
         initMainPageUi();
       }
       if (event.target && event.target.closest && event.target.closest('#mainproducts-table')) {
+        renderColumnChooser();
         applyColumnVisibility();
       }
     });

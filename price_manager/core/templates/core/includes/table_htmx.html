@@ -8,7 +8,7 @@
 <thead {{ table.attrs.thead.as_html }}>
 <tr>
   {% for column in table.columns %}
-  <th {{ column.attrs.th.as_html }} scope="col"
+  <th {{ column.attrs.th.as_html }} scope="col" data-column-key="{{ column.name }}"
       {% if column.orderable %}
       hx-get="{{table.url}}{% querystring table.prefixed_order_by_field=column.order_by_alias.next %}"
       hx-push-url="{% querystring table.prefixed_order_by_field=column.order_by_alias.next %}"
