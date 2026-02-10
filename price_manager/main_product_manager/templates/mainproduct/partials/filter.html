@@ -1,6 +1,193 @@
-<div class="card p-3">
+<div class="card p-3 shadow-sm border-0">
   {% partialdef filter inline %}
-    {%load crispy_forms_tags%}
-    {%crispy filter.form filter.form.helper%}
+    <form
+      id="mainproduct-filter"
+      method="get"
+      hx-get="{% url 'mainproducts' %}"
+      hx-target="#mainproducts-block"
+      hx-swap="outerHTML"
+      hx-trigger="change, submit"
+    >
+      <div class="mb-3">
+        <label for="{{ filter.form.supplier_search.id_for_label }}" class="form-label fw-semibold">{{ filter.form.supplier_search.label }}</label>
+        {{ filter.form.supplier_search }}
+      </div>
+
+      <div class="mb-3">
+        <div class="d-flex justify-content-between align-items-center mb-2">
+          <span class="fw-semibold">Поставщики</span>
+          <button type="button" class="btn btn-sm btn-outline-secondary" data-expand-tile-list="supplier-tiles">Ещё</button>
+        </div>
+        <div id="supplier-tiles" class="filter-tiles">
+          {% for checkbox in filter.form.supplier %}
+            <label class="filter-tile">
+              {{ checkbox.tag }}
+              <span>{{ checkbox.choice_label }}</span>
+            </label>
+          {% empty %}
+            <div class="small text-muted">Нет доступных поставщиков</div>
+          {% endfor %}
+        </div>
+      </div>
+
+      <div class="mb-3">
+        <label for="{{ filter.form.manufacturer_search.id_for_label }}" class="form-label fw-semibold">{{ filter.form.manufacturer_search.label }}</label>
+        {{ filter.form.manufacturer_search }}
+      </div>
+
+      <div class="mb-3">
+        <div class="d-flex justify-content-between align-items-center mb-2">
+          <span class="fw-semibold">Производители</span>
+          <button type="button" class="btn btn-sm btn-outline-secondary" data-expand-tile-list="manufacturer-tiles">Ещё</button>
+        </div>
+        <div id="manufacturer-tiles" class="filter-tiles">
+          {% for checkbox in filter.form.manufacturer %}
+            <label class="filter-tile">
+              {{ checkbox.tag }}
+              <span>{{ checkbox.choice_label }}</span>
+            </label>
+          {% empty %}
+            <div class="small text-muted">Нет доступных производителей</div>
+          {% endfor %}
+        </div>
+      </div>
+
+      <div class="mb-3">
+        <label for="category-filter-search" class="form-label fw-semibold">Поиск по категориям</label>
+        <input type="search" class="form-control" id="category-filter-search" placeholder="Начните вводить название категории..." data-category-filter-search>
+      </div>
+
+      <div class="category-filter-card mb-3" data-category-filter-tree>
+        {% include 'supplier/partials/category_filter_field.html' with field=filter.form.category %}
+      </div>
+
+      <div class="d-flex gap-2 mt-3">
+        <button type="submit" class="btn btn-primary flex-grow-1">Применить</button>
+        <a href="{% url 'mainproducts' %}" class="btn btn-light border">Сброс</a>
+      </div>
+    </form>
   {% endpartialdef %}
 </div>
+
+<style>
+  #mainproduct-filter .form-control {
+    border-radius: .65rem;
+  }
+
+  .filter-tiles {
+    display: grid;
+    gap: .35rem;
+    max-height: 86px;
+    overflow: hidden;
+    transition: max-height .2s ease;
+  }
+
+  .filter-tiles.filter-tiles--expanded {
+    max-height: 320px;
+    overflow: auto;
+    padding-right: .25rem;
+  }
+
+  .filter-tile {
+    display: flex;
+    align-items: center;
+    gap: .5rem;
+    border: 1px solid #e8ebf0;
+    border-radius: .55rem;
+    padding: .35rem .55rem;
+    font-size: .92rem;
+    line-height: 1.25;
+    background: #f9fafb;
+    cursor: pointer;
+  }
+
+  .filter-tile input {
+    margin-top: 0;
+  }
+
+  .category-filter-card {
+    max-height: 280px;
+    overflow: auto;
+    border: 1px solid #eceff3;
+    border-radius: .7rem;
+    background: #fcfcfd;
+    padding: .5rem .6rem;
+  }
+
+  .category-filter-card ul {
+    list-style: none;
+    padding-left: .8rem;
+    margin-bottom: 0;
+  }
+
+  .category-filter-card > ul {
+    padding-left: .2rem;
+  }
+
+  .category-filter-card label {
+    font-size: .92rem;
+  }
+</style>
+
+<script>
+  (() => {
+    const initFilterTiles = () => {
+      document.querySelectorAll('[data-expand-tile-list]').forEach((button) => {
+        if (button.dataset.bound === 'true') {
+          return;
+        }
+
+        button.addEventListener('click', () => {
+          const targetId = button.getAttribute('data-expand-tile-list');
+          const list = document.getElementById(targetId);
+          if (!list) {
+            return;
+          }
+          list.classList.toggle('filter-tiles--expanded');
+          button.textContent = list.classList.contains('filter-tiles--expanded') ? 'Свернуть' : 'Ещё';
+        });
+
+        button.dataset.bound = 'true';
+      });
+    };
+
+    const initCategoryQuickSearch = () => {
+      const searchInput = document.querySelector('[data-category-filter-search]');
+      const categoryTree = document.querySelector('[data-category-filter-tree]');
+
+      if (!searchInput || !categoryTree || searchInput.dataset.bound === 'true') {
+        return;
+      }
+
+      const normalize = (value) => (value || '').toLowerCase().trim();
+      const labels = Array.from(categoryTree.querySelectorAll('label'));
+
+      searchInput.addEventListener('input', () => {
+        const term = normalize(searchInput.value);
+        labels.forEach((label) => {
+          const wrapper = label.closest('.form-check, .accordion-item');
+          if (!wrapper) {
+            return;
+          }
+          const text = normalize(label.textContent);
+          const show = !term || text.includes(term);
+          wrapper.classList.toggle('d-none', !show);
+        });
+      });
+
+      searchInput.dataset.bound = 'true';
+    };
+
+    const initMainFilterUi = () => {
+      initFilterTiles();
+      initCategoryQuickSearch();
+    };
+
+    document.addEventListener('DOMContentLoaded', initMainFilterUi);
+    document.body.addEventListener('htmx:afterSwap', (event) => {
+      if (event.target && event.target.id === 'mainproducts-block') {
+        initMainFilterUi();
+      }
+    });
+  })();
+</script>

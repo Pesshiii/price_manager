@@ -4,30 +4,102 @@
 Главная страница
 {% endblock %}
 
+{% block style %}
+  .main-search-card {
+    position: sticky;
+    top: 72px;
+    z-index: 20;
+  }
+
+  .main-search-input {
+    min-height: 46px;
+    font-size: 1rem;
+  }
+
+  @media (max-width: 991.98px) {
+    .main-search-card {
+      position: static;
+    }
+  }
+{% endblock %}
+
 {% block body %}
   {% partialdef list inline %}
-    <div id="mainproducts-block" class="row gap-2 p-4">
-      
-      <div class="col-3">
-        {% include "mainproduct/partials/filter.html" %}
-      </div>
-      <div class="col-8">
-        {% include 'mainproduct/partials/tables_bycat.html' %}
+    <div id="mainproducts-block" class="container-fluid px-4 py-3">
+      <div class="row g-3 align-items-start">
+        <div class="col-12 col-lg-3">
+          {% include "mainproduct/partials/filter.html" %}
+        </div>
+
+        <div class="col-12 col-lg-9">
+          <div class="card shadow-sm border-0 main-search-card mb-3">
+            <div class="card-body">
+              <label for="main-search-input" class="form-label fw-semibold mb-2">Быстрый поиск по главному прайсу</label>
+              <input
+                id="main-search-input"
+                type="search"
+                name="search"
+                class="form-control main-search-input"
+                placeholder="Название, артикул, ключевые слова..."
+                value="{{ filter.form.search.value|default_if_none:'' }}"
+                form="mainproduct-filter"
+                autocomplete="off"
+              >
+            </div>
+          </div>
+
+          {% include 'mainproduct/partials/tables_bycat.html' %}
+        </div>
       </div>
     </div>
   {% endpartialdef %}
+
   <div id="modal-container" class="modal modal-xl fade" tabindex="-1" aria-labelledby="modalLabel" aria-hidden="true">
       <div class="modal-dialog">
           <div class="modal-content">
             <div class="container d-flex justify-content-center mb-4 mt-4">
-              <div class="spinner-grow" role="status">
-              </div>
-              <div class="spinner-grow" role="status">
-              </div>
-              <div class="spinner-grow" role="status">
-              </div>
+              <div class="spinner-grow" role="status"></div>
+              <div class="spinner-grow" role="status"></div>
+              <div class="spinner-grow" role="status"></div>
             </div>
           </div>
       </div>
   </div>
+{% endblock %}
+
+{% block script %}
+<script>
+  (() => {
+    const initExternalSearchTrigger = () => {
+      const input = document.getElementById('main-search-input');
+      const form = document.getElementById('mainproduct-filter');
+      if (!input || !form || input.dataset.searchBound === 'true') {
+        return;
+      }
+
+      let timerId;
+      input.addEventListener('input', () => {
+        if (timerId) {
+          clearTimeout(timerId);
+        }
+        timerId = setTimeout(() => {
+          if (window.htmx) {
+            window.htmx.trigger(form, 'change');
+          } else {
+            form.submit();
+          }
+        }, 350);
+      });
+
+      input.dataset.searchBound = 'true';
+    };
+
+    document.addEventListener('DOMContentLoaded', initExternalSearchTrigger);
+    document.body.addEventListener('htmx:afterSwap', (event) => {
+      if (event.target && event.target.id === 'mainproducts-block') {
+        initExternalSearchTrigger();
+      }
+    });
+  })();
+</script>
 {% endblock %}
