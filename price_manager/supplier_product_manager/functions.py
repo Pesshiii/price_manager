@@ -16,24 +16,16 @@ from decimal import Decimal
 import re
 
 def resolve_conflicts(qs):
-  for item in qs:
+  def resolve(item):
     cl_name = re.sub(r'\s', ' ', item.name)
-    if not cl_name == item.name:
-      sp, created = SupplierProduct.objects.get_or_create(
+    if cl_name == item.name:
+      return item
+    return SupplierProduct.objects.get_or_create(
         supplier = item.supplier, 
         article=item.article, 
         name=cl_name,
-        defaults={field:getattr(item, field) for field in [*SP_PRICES, 'stock'] if not getattr(item, field) is None})
-      item.delete()
-      continue
-    elif SupplierProduct.objects.filter(name=cl_name).exclude(pk=item.pk).exists():
-      sp, created = SupplierProduct.objects.get_or_create(
-        supplier = item.supplier, 
-        article=item.article, 
-        name=cl_name,
-        defaults={field:getattr(item, field) for field in [*SP_PRICES, 'stock'] if not getattr(item, field) is None})
-      item.delete()
-      continue
+        defaults={field:getattr(item, field) for field in [*SP_PRICES, 'stock'] if not getattr(item, field) is None})[0]
+  return list(map(resolve, qs))
 
 
 
@@ -60,7 +52,7 @@ def get_df(pk, nrows: int | None = 100)->pd.DataFrame|None:
   if not SupplierFile.objects.filter(setting=pk).first(): return None
   file = SupplierFile.objects.filter(setting=pk).first().file
   if not file: return None
-  df = pd.read_excel(file, engine='calamine', dtype=str, sheet_name=setting.sheet_name, nrows=nrows, index_col=None).dropna(axis=0, how='all').dropna(axis=1, how='all')
+  df = pd.read_excel(file, engine='calamine', dtype=str, sheet_name=setting.sheet_name, nrows=nrows, index_col=None, na_values=['']).dropna(axis=0, how='all').dropna(axis=1, how='all')
   file.close()
   if df.shape[0] == 0:
     return None
@@ -161,13 +153,12 @@ def load_setting(pk):
   links = Link.objects.filter(setting=setting)
   df = get_df(pk, nrows=None)
   sps = SupplierProduct.objects.filter(supplier=setting.supplier)
-  s_articles = sps.values_list('article', flat=True)
-  s_names = sps.values_list('name', flat=True)
+  s_values = map(tuple, sps.values_list('article', 'name'))
+  resolve_conflicts(sps)
   if not links.filter(Q(value__isnull=False)).exists():
     return None
   for link in links:
     if link.value == '' or link.value is None: continue
-    print(link.key, df[link.value])
     df[link.value] = df[link.value].str.replace(r'\s+', ' ', regex=True)
     if link.initial:
       df[link.value] = df[link.value].fillna(link.initial)
@@ -175,15 +166,15 @@ def load_setting(pk):
       df[link.value] = df[link.value].replace(dict.key, dict.value)
     df = df.rename(columns={link.value : link.key})
   if not 'article' in df.columns: return None
-
-  df = df.replace('', pd.NA)
   df = df.loc[:,[link.key for link in links if not link.key=='' and link.key in df.columns]]
   df = df.dropna(subset=['article'])
   for link in links:
     if link.key in df.columns and link.key in SP_NUMBERS:
       df[link.key] = pd.to_numeric(df[link.key], errors='coerce')
-  df = df.dropna(subset=[link.key for link in links if not link.key=='article' and link.key in df.columns], how='all')
+  df = df.dropna(subset=[link.key for link in links if not link.key=='article' and not link.key =='name' and link.key in df.columns], how='all')
   if not 'name' in df.columns:
+    if setting.create_new:
+      return None
     _df = df.copy()
     names = _df['article'].apply(lambda article: sps.filter(article=article).values_list('name', flat=True))
     _df['name'] = names
@@ -192,22 +183,23 @@ def load_setting(pk):
     df = _df
   df = df.dropna(subset=['name'])
 
-  df = df.replace({pd.NA: None, float('nan'): None, '': None})
+  df = df.replace({pd.NA: None, float('nan'): None, '': None, 'NaN':None})
   
   if not setting.create_new:
-    df = df[df['name'].isin(s_names) & df['article'].isin(s_articles)]
+    mask = df[['article', 'name']].apply(tuple, axis=1).isin(s_values)
+    df = df[mask]
   df.drop_duplicates(subset=['article', 'name'], keep='first')
   if 'manufacturer' in df.columns:
     df['manufacturer'] = df['manufacturer'].apply(lambda s: Manufacturer.objects.get_or_create(name=s)[0] if s else None)
   if 'discount' in df.columns:
     df['discount'] = df['discount'].apply(lambda s: Discount.objects.get_or_create(supplier=setting.supplier, name=s)[0] if s else None)
-  print(df['article'], df.dtypes)
+  print(len(df['name'].unique()))
   def get_spmodel(row):
     data = {
         link.key: Decimal(str(getattr(row, link.key))) if link.key in SP_NUMBERS else getattr(row, link.key)
         for link in links 
         if not link.key=='article' and not link.key == 'name' and link.key in df.columns
-        and getattr(row, link.key)
+        and getattr(row, link.key) is not None
       }
     return SupplierProduct(
       supplier=setting.supplier,
