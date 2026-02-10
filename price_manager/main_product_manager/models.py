@@ -194,6 +194,7 @@ def update_stocks():
   mps = MainProduct.objects.prefetch_related('supplierproducts').annotate(new_stock=Subquery(query))
   mps = mps.filter(Q(stock__isnull=False)|Q(new_stock__isnull=False))
   mps = mps.filter(~Q(stock=F('new_stock')))
+  mps.bulk_update(mps, fields=['stock_updated_at'])
   print(mps.values_list('stock', 'new_stock'))
   mpls = map(lambda mp: MainProductLog(main_product=mp, stock=mp.new_stock),  mps)
   MainProductLog.objects.bulk_create(mpls)

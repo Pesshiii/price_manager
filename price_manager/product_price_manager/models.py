@@ -438,7 +438,7 @@ def update_prices():
     count += pm.apply()
   dmps = map(lambda pt: pt.deprecate(),PriceTag.objects.filter(p_manager__isnull=True).filter(~Q(time_query)).select_related('mp'))
   dcount += MainProduct.objects.bulk_update([_ for _ in dmps if _], fields=[*MP_PRICES, 'price_updated_at'])
-  mps = map(lambda pt: pt.get_mp,PriceTag.objects.filter(p_manager__isnull=True).filter(time_query).select_related('mp'))
+  mps = map(lambda pt: pt.get_mp(),PriceTag.objects.filter(p_manager__isnull=True).filter(time_query).select_related('mp'))
   count += MainProduct.objects.bulk_update(mps, fields=[*MP_PRICES, 'price_updated_at'])
 
   return (count, dcount)
