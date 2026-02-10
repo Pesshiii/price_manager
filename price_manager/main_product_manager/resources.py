@@ -139,12 +139,12 @@ class MainProductResource(resources.ModelResource):
 
     def dehydrate_supplier_prices(self, mainproduct):
         """Format all supplier prices for this main product"""
-        supplier_product = mainproduct.supplier_product.all()
-        if not supplier_product:
+        supplier_products = mainproduct.supplierproducts.all()
+        if not supplier_products:
             return "No suppliers"
         
         price_list = []
-        for sp in supplier_product:
+        for sp in supplier_products:
             price_list.append(f"{sp.supplier.name}: {sp.supplier_price}({sp.rrp}) {sp.supplier.currency}")
         
         return " | ".join(price_list)
