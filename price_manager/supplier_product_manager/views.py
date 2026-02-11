@@ -69,9 +69,15 @@ class SupplierDetail(SingleTableMixin, FilterView):
     return redirect(f"{reverse('supplier-detail', kwargs={'pk': self.supplier.pk})}#supplier-settings")
   def get_table_data(self):
     return super().get_table_data().filter(supplier=self.supplier)
+  def get_table(self, **kwargs):
+    selected_columns = self.request.GET.getlist('columns')
+    return super().get_table(**kwargs, selected_columns=selected_columns)
   def get_context_data(self, **kwargs):
     context = super().get_context_data(**kwargs)
     context['supplier'] = self.supplier
+    context['column_groups'] = SP_AVAILABLE_COLUMN_GROUPS
+    selected_columns = self.request.GET.getlist('columns')
+    context['selected_columns'] = selected_columns if selected_columns else SP_DEFAULT_VISIBLE_COLUMNS
     context['supplier_form'] = SupplierForm(instance=self.supplier)
     pms = PriceManager.objects.filter(supplier=self.supplier)
     context['pricemanagers'] = pms
