@@ -38,19 +38,25 @@ INSTALLED_APPS = [
     'django.contrib.messages',
     'django.contrib.staticfiles',
     'django.contrib.postgres',
+
     'django_tables2',
     'import_export',
     'django_filters',
     'dal',
     'dal_select2',
+    'django_htmx',
+    'template_partials',
+    'widget_tweaks',
+    'crispy_bootstrap4',
+    'crispy_forms',
+    'mptt',
+
     'core',
     'file_manager',
     'supplier_product_manager',
     'product_price_manager',
     'main_product_manager',
     'supplier_manager',
-    'django_htmx',
-    'template_partials',
 ]
 
 MIDDLEWARE = [
@@ -59,10 +65,12 @@ MIDDLEWARE = [
     'django.middleware.common.CommonMiddleware',
     'django.middleware.csrf.CsrfViewMiddleware',
     'django.contrib.auth.middleware.AuthenticationMiddleware',
-    'core.middleware.LoginRequiredMiddleware',
     'django.contrib.messages.middleware.MessageMiddleware',
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
-    "django_htmx.middleware.HtmxMiddleware",
+    'django_htmx.middleware.HtmxMiddleware',
+    'core.middleware.LoginRequiredMiddleware',
+    'core.middleware.toaster_middleware',
+
 ]
 
 ROOT_URLCONF = 'price_manager.urls'
@@ -74,10 +82,16 @@ TEMPLATES = [
           'core/templates',
           'main_product_manager/templates',
           'product_price_manager/templates',
+          'supplier_manager/templates',
+          'supplier_product_manager/templates',
         ],
         'APP_DIRS': True,
         'OPTIONS': {
-            "builtins": ["template_partials.templatetags.partials"],
+            "builtins": [
+                "template_partials.templatetags.partials",
+                "core.templatetags.special_tags",
+                "widget_tweaks.templatetags.widget_tweaks",
+            ],
             'context_processors': [
                 'django.template.context_processors.request',
                 'django.contrib.auth.context_processors.auth',
@@ -157,14 +171,14 @@ DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 
 
 # Настройка для сообщений
-from django.contrib.messages import constants as messages
+from django.contrib import messages 
 
 MESSAGE_TAGS = {
-    messages.DEBUG: 'alert-info',
-    messages.INFO: 'alert-info',
-    messages.SUCCESS: 'alert-success',
-    messages.WARNING: 'alert-warning',
-    messages.ERROR: 'alert-danger',
+    messages.DEBUG: 'debug',
+    messages.INFO: 'info',
+    messages.SUCCESS: 'success',
+    messages.WARNING: 'warning',
+    messages.ERROR: 'danger',
 }
 
 LOGIN_URL = 'login'
@@ -180,3 +194,18 @@ LOGIN_EXEMPT_URLS = (
     'admin:password_reset_confirm',
     'admin:password_reset_complete',
 )
+
+LOGGING = {
+    "version": 1,
+    'disable_existing_loggers': False,
+    "formatters": {
+        "procrastinate": {
+            "format": "%(asctime)s %(levelname)-7s %(name)s %(message)s"
+        },
+    },
+}
+
+# TAGS FOR CRISPY FORMS
+
+CRISPY_ALLOWED_TEMPLATE_PACKS = 'bootstrap4'
+CRISPY_TEMPLATE_PACK = 'bootstrap4'

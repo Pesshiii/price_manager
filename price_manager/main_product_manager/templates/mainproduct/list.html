@@ -1,0 +1,33 @@
+{% extends 'base.html' %}
+
+{% block title %}
+Главная страница
+{% endblock %}
+
+{% block body %}
+  {% partialdef list inline %}
+    <div id="mainproducts-block" class="row gap-2 p-4">
+      
+      <div class="col-3">
+        {% include "mainproduct/partials/filter.html" %}
+      </div>
+      <div class="col-8">
+        {% include 'mainproduct/partials/tables_bycat.html' %}
+      </div>
+    </div>
+  {% endpartialdef %}
+  <div id="modal-container" class="modal modal-xl fade" tabindex="-1" aria-labelledby="modalLabel" aria-hidden="true">
+      <div class="modal-dialog">
+          <div class="modal-content">
+            <div class="container d-flex justify-content-center mb-4 mt-4">
+              <div class="spinner-grow" role="status">
+              </div>
+              <div class="spinner-grow" role="status">
+              </div>
+              <div class="spinner-grow" role="status">
+              </div>
+            </div>
+          </div>
+      </div>
+  </div>
+{% endblock %}

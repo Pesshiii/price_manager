@@ -5,11 +5,11 @@
         {{mainproduct.name}}
       </h1>
       <div>
-        <p class="">Индивидуальный номер: {{mainproduct.sku}}.</p>
-        <p class="">Базовая цена: {{mainproduct.basic_price}} тг.</p>
-        <p class="">Себестоимость: {{mainproduct.prime_cost}} тг.</p>
-        <p class="">Цена ИМ: {{mainproduct.m_price}} тг.</p>
-        <p class="">Последнее обновление: {{mainproduct.price_updated_at}}</p>
+        <p class="">Индивидуальный номер: {% if  mainproduct.sku%}{{mainproduct.sku}}{% else %}Отсутствует.{% endif %}</p>
+        <p class="">Базовая цена: {% if  mainproduct.basic_price%}{{mainproduct.basic_price}} тг.{% else %}Отсутствует.{% endif %}</p>
+        <p class="">Себестоимость: {% if  mainproduct.prime_cost%}{{mainproduct.prime_cost}} тг.{% else %}Отсутствует.{% endif %}</p>
+        <p class="">Цена ИМ: {% if mainproduct.m_price %}{{mainproduct.m_price}} тг.{% else %}Отсутствует.{% endif %}</p>
+        <p class="">Последнее обновление: {% if mainproduct.price_updated_at %}{{mainproduct.price_updated_at}}{% else %}Отсутствует.{% endif %}</p>
       </div>
 
       <button class="btn btn-success" 
@@ -27,9 +27,9 @@
       <p>Логи...</p>
     </div>
   </div>
-  <div id="mainproduct-specialprices" 
+  <div id="mainproduct-pricetags" 
     class="col-4 card p-4"
-    hx-get="{% url 'specialprice-list' pk=mainproduct.pk %}" 
+    hx-get="{% url 'pricetag-list' pk=mainproduct.pk %}" 
     hx-trigger="load" 
     hx-swap="innerHTML">
     <p>Наценки...</p>

@@ -1,4 +1,5 @@
 from django.db import models
+from mptt.models import MPTTModel, TreeForeignKey
 
 TIME_FREQ = {'Каждый день': 1,
              'Каждую неделю': 7,
@@ -16,8 +17,6 @@ class Currency(models.Model):
                                decimal_places=2)
   def __str__(self):
     return self.name
-
-SUPPLIER_SPECIFIABLE_FIELDS = ['name', 'delivery_days', 'currency', 'price_update_rate', 'stock_update_rate']
 
 class Supplier(models.Model):
   """
@@ -46,16 +45,34 @@ class Supplier(models.Model):
   stock_updated_at = models.DateTimeField(verbose_name='Последнее обновление остатка', 
                                           null=True,
                                           blank=True)
-  delivery_days = models.PositiveIntegerField(verbose_name='Срок доставки',
-                                              default=0)
+  delivery_days_available = models.PositiveIntegerField(
+    verbose_name='Срок поставки (Рабочие дни) при наличии',
+    null=True,
+    blank=False,
+  )
+  delivery_days_navailable = models.PositiveIntegerField(
+    verbose_name='Срок поставки (Рабочие дни) при отсутствии',
+    null=True,
+    blank=False,
+  )
   price_update_rate = models.CharField(verbose_name='Частота обновления цен',
                                        choices=[(_, _) for _ in TIME_FREQ.keys()])
   stock_update_rate = models.CharField(verbose_name='Частота обновления остатков',
                                        choices=[(_, _) for _ in TIME_FREQ.keys()])
+  msg_available = models.CharField(verbose_name="Сообщение при наличии",
+                                   default="Есть в наличии")
+  msg_navailable = models.CharField(verbose_name="Сообщение при отсутствии",
+                                    default="Нет в наличии")
   class Meta:
     verbose_name = 'Поставщик'
+    ordering = ['name']
   def __str__(self):
     return self.name
+  
+  def get_delivery_days_for_stock(self, stock):
+    if stock and stock > 0:
+      return self.delivery_days_available
+    return self.delivery_days_navailable
   
 
 class Discount(models.Model):
@@ -106,10 +123,11 @@ class ManufacturerDict(models.Model):
     return f'{self.name}({self.manufacturer.name})'
   
 
-class Category(models.Model):
-  parent = models.ForeignKey('self',
+class Category(MPTTModel):
+  parent = TreeForeignKey('self',
                              on_delete=models.PROTECT,
                              verbose_name='Подкатегория для',
+                             related_name='children',
                              null=True,
                              blank=True)
   name = models.CharField(verbose_name='Название',
@@ -121,4 +139,6 @@ class Category(models.Model):
       return self.name
   class Meta:
     constraints = [models.UniqueConstraint(fields=['parent', 'name'], name='parent_child_constraint')]
+  class MPTTMeta:
+      order_insertion_by = ['name']
     

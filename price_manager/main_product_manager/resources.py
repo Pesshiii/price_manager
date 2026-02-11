@@ -1,6 +1,8 @@
 from import_export import resources, fields
 from import_export.widgets import ForeignKeyWidget, ManyToManyWidget
+from difflib import get_close_matches
 from .models import *
+from supplier_manager.models import ManufacturerDict
 
 class CategoryWidget(ForeignKeyWidget):
     """Категория строкой: 'Инструмент > Ручной инструмент > Отвертки'."""
@@ -62,8 +64,35 @@ class ManufacturerWidget(ForeignKeyWidget):
     def clean(self, value, row=None, *args, **kwargs):
         if not value:
             return None
-        manufacturer, _ = Manufacturer.objects.get_or_create(name=value)
-        return manufacturer
+        normalized_name = str(value).strip()
+        if not normalized_name:
+            return None
+
+        # 1) Точное совпадение по имени производителя
+        manufacturer = Manufacturer.objects.filter(name__iexact=normalized_name).first()
+        if manufacturer:
+            return manufacturer
+
+        # 2) Сопоставление через словарь вариаций производителя
+        manufacturer_dict = ManufacturerDict.objects.filter(
+            name__iexact=normalized_name
+        ).select_related("manufacturer").first()
+        if manufacturer_dict:
+            return manufacturer_dict.manufacturer
+
+        # 3) Пытаемся сопоставить с уже существующим производителем
+        existing_names = list(Manufacturer.objects.values_list("name", flat=True))
+        close_matches = get_close_matches(normalized_name, existing_names, n=1, cutoff=0.85)
+        if close_matches:
+            manufacturer = Manufacturer.objects.get(name=close_matches[0])
+            ManufacturerDict.objects.get_or_create(
+                name=normalized_name,
+                defaults={"manufacturer": manufacturer},
+            )
+            return manufacturer
+
+        # 4) Если сопоставить не удалось — создаём нового производителя
+        return Manufacturer.objects.create(name=normalized_name)
 
 class DiscountWidget(ManyToManyWidget):
     """Скидки по названию."""
@@ -138,44 +167,16 @@ class MainProductResource(resources.ModelResource):
         report_skipped = True
 
     def dehydrate_supplier_prices(self, mainproduct):
-        """
-        Format all supplier prices for this main product.
-        Поддерживает разные варианты названий связи.
-        """
-
-        # 1) FK-вариант (если связь одиночная)
-        sp_fk = getattr(mainproduct, "supplier_product", None)
-        if sp_fk is not None and not hasattr(sp_fk, "all"):
-            sp_list = [sp_fk] if sp_fk else []
-
-        else:
-            # 2) ManyToMany / reverse FK варианты (если связь множественная)
-            rel = (
-                    getattr(mainproduct, "supplier_products", None) or
-                    getattr(mainproduct, "supplier_product", None) or
-                    getattr(mainproduct, "supplierpricerow_set", None) or
-                    getattr(mainproduct, "supplierproduct_set", None)
-            )
-
-            if rel is None:
-                return ""
-
-            sp_list = list(rel.all())
-
-        if not sp_list:
-            return ""
-
+        """Format all supplier prices for this main product"""
+        supplierproducts = mainproduct.supplierproducts.all()
+        if not supplierproducts:
+            return "No suppliers"
+        
         price_list = []
-        for sp in sp_list:
-            supplier_name = getattr(getattr(sp, "supplier", None), "name", "") or ""
-            supplier_price = getattr(sp, "supplier_price", "") or ""
-            rrp = getattr(sp, "rrp", "") or ""
-            currency = getattr(getattr(getattr(sp, "supplier", None), "currency", None), "name", "") or getattr(
-                getattr(sp, "supplier", None), "currency", "") or ""
-
-            price_list.append(f"{supplier_name}: {supplier_price}({rrp}) {currency}".strip())
-
-        return " | ".join([p for p in price_list if p])
+        for sp in supplierproducts:
+            price_list.append(f"{sp.supplier.name}: {sp.supplier_price}({sp.rrp}) {sp.supplier.currency}")
+        
+        return " | ".join(price_list)
 
     def get_import_fields(self, selected_fields=None):
         """Ограничить набор импортируемых полей"""

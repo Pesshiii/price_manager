@@ -1,0 +1,40 @@
+<div class="container mb-4">
+  <h3 class="d-inline">
+    Наценки
+  </h3>
+  <button type="button"
+          class="btn btn-secondary"
+          title="Добавить"
+          data-bs-toggle="modal"
+          data-bs-target="#modal-container"
+          hx-get="{% url 'pricetag-create' mainproduct.pk %}"
+          hx-target="#modal-container .modal-content"
+          hx-swap="innerHTML">
+    <i class="bi bi-plus"></i>
+    <span>Добавить наценку</span>
+  </button>
+  <div id="modal-container" class="modal modal-xl" tabindex="-1" aria-labelledby="modalLabel" aria-hidden="true">
+      <div class="modal-dialog">
+          <div class="modal-content">
+
+          </div>
+      </div>
+  </div>
+</div>
+{% for pricetag in pricetags %}
+<div class="border border-dark rounded p-2 row gap-2 mb-2">
+  <button type="button"
+          class="btn btn-sm col-1"
+          title="Изменить"
+          data-bs-toggle="modal"
+          data-bs-target="#modal-container"
+          hx-get="{% url 'pricetag-update' pricetag.pk %}"
+          hx-target="#modal-container .modal-content"
+          hx-swap="innerHTML">
+      <i class="bi bi-pencil-square"></i>
+  </button>
+  <div class="col-10">
+    {{pricetag}}
+  </div>
+</div>
+{% endfor %}

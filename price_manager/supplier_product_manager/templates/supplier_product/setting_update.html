@@ -1,0 +1,68 @@
+<div class="container p-5">
+  <form 
+    method="POST"
+    hx-post="{% url "setting-update" pk=setting.pk %}"
+    hx-trigger="submit"
+    hx-target="#modal-container .modal-content"
+    hx-swap="ininnerHTML"
+  >
+    <div class="row mb-5">
+      <div class=" col-6">
+        {% load crispy_forms_tags %}
+        {%crispy form%}
+      </div>
+      <div class="col-6">
+        <div class="accordion" id="dictAccordion">
+          {% for name, item in links.items %}
+            <div class="accordion-item">
+              <h2 class="accordion-header">
+                <button class="accordion-button collapsed" type="button" data-bs-toggle="collapse" data-bs-target="#dict-{{name}}" aria-expanded= aria-controls="dict-{{name}}">
+                  {{item.verbose_name}}
+                </button>
+              </h2>
+              <div id="dict-{{name}}" class="accordion-collapse collapse">
+                <div class="accordion-body">
+                  {%crispy item.initial %}
+                  {{item.dict_formset.management_form|crispy}}
+                  {% for form in item.dict_formset %}
+                    {%crispy form%}
+                  {% endfor %}
+                <button type="submit" class="btn btn-primary" value="add-{{name}}" name="action">
+                    <i class="bi bi-plus-lg"></i>
+                </button>
+                </div>
+              </div>
+            </div>
+          {% endfor %}
+        </div>
+      </div>
+    </div>
+    <div class="row overflow-auto scrollbar-top">
+      {%partialdef table inline=True%}
+        {{link_formset.management_form|crispy}}
+        <table class="table table-bordered table-hover">
+          <thead>
+            {% for form in link_formset %}
+              <th class="text-nowrap">{{form.name}}<br>{% crispy form %}</th>
+            {% endfor %}
+          </thead>
+          <tbody>
+            <tr 
+              hx-get="{% url "setting-table" pk=setting.pk%}{% querystring page=1 %}"
+              hx-trigger="load"
+              hx-swap="outerHTML"
+              hx-target="this">
+            </tr>
+            <tr  id="placeholder" class="htmx-indicator">
+              {% for column in columns %}
+              <td>
+                <span class="placeholder col-6"></span>
+              </td>
+              {% endfor %}
+            </tr>
+          </tbody>
+        </table>
+        {%endpartialdef%}
+    </div>
+  </form>
+</div>

@@ -1,16 +1,28 @@
 from django.contrib import admin
-from .models import SupplierProduct
-
+from .models import SupplierProduct, SupplierFile, Setting
+from .functions import resolve_conflicts
 
 @admin.register(SupplierProduct)
 class SupplierProductAdmin(admin.ModelAdmin):
     # показываем все поля модели
     list_display = [field.name for field in SupplierProduct._meta.fields]
-    list_display.append('display_discounts')
     # делаем кликабельным поле name (или id, если удобнее)
     list_display_links = ['id', 'name']
     search_fields = ['article', 'name', 'stock']
     list_filter = ['supplier', 'manufacturer']
-    def display_discounts(self, obj):
-        return ", ".join([discount.name for discount in obj.discounts.all()])
-    display_discounts.short_description = 'Категории Скидок'
+    actions = ['resolve_conflicts']
+    
+    @admin.action(description="Разрешить конфликты форматирования")
+    def resolve_conflicts(self, request, queryset):
+        resolve_conflicts(queryset)
+
+@admin.register(SupplierFile)
+class SupplierFileAdmin(admin.ModelAdmin):
+    # показываем все поля модели
+    list_display = ['pk', 'setting', 'status', 'logs']
+
+
+@admin.register(Setting)
+class SupplierFileAdmin(admin.ModelAdmin):
+    # показываем все поля модели
+    list_display = ['pk', 'name']

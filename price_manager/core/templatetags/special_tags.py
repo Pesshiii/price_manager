@@ -1,4 +1,5 @@
 from django import template
+from product_price_manager.models import PRICE_TYPES
 
 register = template.Library()
 
@@ -27,8 +28,33 @@ def is_in(left, right):
 def get(obj, indx):
   return obj[indx]
 
+
+@register.filter
+def subtract(a, b):
+  return (b) - (a)
+
+
+@register.filter
+def percent_added(num):
+  return num*100 + 100
+
 @register.filter
 def margin(first, second):
   if first == 0:
     return 0
   return (float(first) - float(second))/float(first) * 100
+
+
+@register.filter
+def price_type(name):
+  if name in PRICE_TYPES.keys():
+    return PRICE_TYPES[name]
+  else: return 'Странная цена'
+
+@register.filter
+def values_list(queryset, value):
+  return map(str, queryset.values_list(value, flat=True))
+
+@register.filter
+def intersection(a,b):
+  return not set(a).intersection(set(b)) == set()

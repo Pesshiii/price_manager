@@ -1,0 +1,84 @@
+
+            <div >
+              {{ form.errors }}
+            </div>
+            <div class="row">
+              <div class="row">
+                {{form.name|add_label_class:"form-lable mb-1 mt-4"}}
+                {% render_field form.name class="form-control mb-4"%}
+              </div>
+              <div class="row">
+                {{form.has_rrp|add_label_class:"form-lable mb-1 mt-4"}}
+                {% render_field form.has_rrp class="form-select mb-4"%}
+              </div>
+              <div class="row">
+                {{form.discounts|add_label_class:"form-lable mb-1 mt-4"}}
+                {% render_field form.discounts class="form-select mb-4" multiple="multiple"%}
+              </div>
+              <div class="row">
+                {{form.categories|add_label_class:"form-lable mb-1 mt-4"}}
+                {% render_field form.categories class="form-select mb-4" multiple="multiple"%}
+              </div>
+              <div class="row gap-3">
+                <div class="col-3">
+                  {{form.date_from|add_label_class:"form-lable mb-1 mt-4"}}
+                  {% render_field form.date_from class="form-control mb-4" type="date"%}
+                </div>
+                <div class="col-3">
+                  {{form.date_to|add_label_class:"form-lable mb-1 mt-4"}}
+                  {% render_field form.date_to class="form-control mb-4" type="date"%}
+                </div>
+                <div class="col-5">
+                  <div class="row">
+                    <div>
+                      {{form.dest|add_label_class:"form-lable mb-1 mt-4"}}
+                      {% render_field form.dest class="form-select mb-4"%}
+                    </div>
+                  </div>
+                </div>
+              </div>
+              <div class="row p-3">
+                <div class="border rounded">
+                  <div class="form-check form-check-reverse form-check-inline form-switch mt-4">
+                    {{form.price_fixed|add_label_class:"form-label"}}
+                    {% render_field form.price_fixed class="form-check-input fs-4" role="switch" data-bs-toggle="collapse" data-bs-target=".setPrice" aria-controls="setPrice1 setPrice2"%}
+                  </div>
+                  <div class="row {% if not form.price_fixed.value %}collapse {% else %} show {% endif %} setPrice" id="setPrice1">
+                    <div class="row">
+                      <div>
+                        {{form.fixed_price|add_label_class:"form-lable mb-1 mt-4"}}
+                        {% render_field form.fixed_price class="form-control mt-2 mb-4"%}
+                      </div>
+                    </div>
+                  </div>
+                  <div class="row {% if form.price_fixed.value %}collapse {% else %} show {% endif %} setPrice" id="setPrice2">
+                    <div class="row">
+                      <div class="col-6">
+                        {{form.price_from|add_label_class:"form-lable mb-1 mt-4"}}
+                        {% render_field form.price_from class="form-control mb-4"%}
+                      </div>
+                      <div class="col-6">
+                        {{form.price_to|add_label_class:"form-lable mb-1 mt-4"}}
+                        {% render_field form.price_to class="form-control mb-4"%}
+                      </div>
+                    </div>
+                    <div class="row">
+                      <div>
+                        {{form.source|add_label_class:"form-lable mb-1"}}
+                        {% render_field form.source class="form-select mb-4"%}
+                      </div>
+                    </div>
+                    <div class="row mb-4">
+                      <div class="col-6">
+                        {{form.markup|add_label_class:"form-lable mb-1"}}
+                        {% render_field form.markup class="form-control mb-4"%}
+                      </div>
+                      <div class="col-6">
+                        {{form.increase|add_label_class:"form-lable mb-1"}}
+                        {% render_field form.increase class="form-control mb-4"%}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>

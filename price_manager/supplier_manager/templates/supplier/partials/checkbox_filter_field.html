@@ -1,0 +1,60 @@
+{# checkbox_select_multiple_advanced.html #}
+{% load crispy_forms_field %}
+
+<div id="div_{{ field.auto_id }}" 
+     class="mb-3{% if field.errors %} has-error{% endif %} container">
+    
+    {% if field.label %}
+        <legend class="form-label fw-bold mb-2">
+            {{ field.label }}
+            {% if field.field.required %}
+                <span class="text-danger">*</span>
+            {% endif %}
+        </legend>
+    {% endif %}
+
+    {% if field.help_text %}
+        <p class="form-text text-muted mb-2">
+            {{ field.help_text|safe }}
+        </p>
+    {% endif %}
+    
+    <div class="form-check-group">
+        {%if field.field.choices%}
+            {% for choice in field.field.choices %}
+                <div class="form-check mb-2">
+                    <input 
+                        type="checkbox" 
+                        name="{{ field.html_name }}" 
+                        value="{{ choice.0 }}" 
+                        id="{{ field.auto_id }}_{{ forloop.counter0 }}"
+                        class="form-check-input{% if field.errors %} is-invalid{% endif %}"
+                        {% if choice.0|stringformat:'' in field.value%}checked{% endif %}
+                    >
+                    <label 
+                        class="form-check-label" 
+                        for="{{ field.auto_id }}_{{ forloop.counter0 }}"
+                    >
+                        {{ choice.1 }}
+                    </label>
+                </div>
+            {% endfor %}
+        {% elif field.label %}
+            <div>
+                {{field.label }} не найдены
+            </div>
+        {% else %}
+            <div>
+                Нет подходящих
+            </div>
+        {% endif %}
+    </div>
+
+    {% if field.errors %}
+        <div class="invalid-feedback d-block">
+            {% for error in field.errors %}
+                {{ error }}
+            {% endfor %}
+        </div>
+    {% endif %}
+</div>

@@ -1,27 +1,48 @@
 from django.db import models
 from django.contrib.postgres.search import SearchVectorField, SearchVector 
 from django.contrib.postgres.indexes import GinIndex
-from django.db.models import Value
+from django.db.models import Value, OuterRef, Subquery, Q, F, Sum
+from django.db.models.functions import Concat
+from django.core.validators import MinValueValidator, MaxValueValidator
+from django.utils import timezone
 from supplier_manager.models import Supplier, Category, Manufacturer
-from product_price_manager.models import PriceManager, SpecialPrice, PRICE_TYPES
-
    
 MP_TABLE_FIELDS = ['article', 'supplier', 'name', 'manufacturer','prime_cost', 'stock']
-MP_CHARS = ['sku', 'article', 'name']
-MP_FKS = ['supplier', 'category', 'discount', 'manufacturer', 'price_manager']
-MP_DECIMALS = ['weight', 'length', 'width', 'depth']
-MP_INTEGERS = ['stock']
-MP_PRICES = ['prime_cost', 'wholesale_price', 'basic_price', 'm_price', 'wholesale_price_extra']
-MP_MANAGMENT = ['price_updated_at', 'stock_updated_at', 'search_vector']
+MP_PRICES = ['prime_cost', 'wholesale_price', 'basic_price', 'm_price', 'wholesale_price_extra', 'discount_price']
+PRICE_TYPES = {
+  None : 'Не указано',
+  'fixed_price': 'Фиксированная цена',
+  'rrp': 'РРЦ в валюте поставщика',
+  'supplier_price': 'Цена поставщика в валюте поставщика',
+  'basic_price': 'Базовая цена',
+  'prime_cost': 'Себестоимость',
+  'm_price': 'Цена ИМ',
+  'wholesale_price': 'Оптовая цена',
+  'wholesale_price_extra': 'Оптовая цена1',
+  'discount_price': 'Цена со скидкой',
+}
+
 
 class MainProduct(models.Model):
+  class Meta:
+    verbose_name = 'Главный продукт'
+    ordering = ['article', 'name']
+    constraints = [
+      models.UniqueConstraint(
+        fields=['supplier', 'article', 'name'],
+        name='mp_unique_supplier_article_name'
+      )
+    ]
+    indexes = [
+      GinIndex(fields=['search_vector']),
+    ]
   sku = models.CharField(verbose_name='Артикул товара',
                          null=True,
                          blank=True,
                          unique=False)
   supplier=models.ForeignKey(Supplier,
                              verbose_name='Поставщик',
-                             related_name='mp_supplier_ptr',
+                             related_name='main_products',
                              on_delete=models.PROTECT,
                              null=False,
                              blank=False)
@@ -34,6 +55,7 @@ class MainProduct(models.Model):
   category = models.ForeignKey(Category,
                                on_delete=models.SET_NULL,
                                verbose_name='Категория',
+                               related_name='mainproducts',
                                null=True,
                                blank=True)
   manufacturer = models.ForeignKey(Manufacturer,
@@ -48,44 +70,37 @@ class MainProduct(models.Model):
       verbose_name='Вес',
       decimal_places=1,
       max_digits=8,
-      default=0)
+      null=True)
   prime_cost = models.DecimalField(
       verbose_name='Себестоимость',
       decimal_places=2,
       max_digits=20,
-      default=0)
+      null=True)
   wholesale_price = models.DecimalField(
       verbose_name='Оптовая цена',
       decimal_places=2,
       max_digits=20,
-      default=0)
+      null=True)
   basic_price = models.DecimalField(
       verbose_name='Базовая цена',
       decimal_places=2,
       max_digits=20,
-      default=0)
+      null=True)
   m_price = models.DecimalField(
       verbose_name='Цена ИМ',
       decimal_places=2,
       max_digits=20,
-      default=0)
+      null=True)
   wholesale_price_extra = models.DecimalField(
       verbose_name='Оптовая цена доп.',
       decimal_places=2,
       max_digits=20,
-      default=0)
-  price_managers = models.ManyToManyField(
-    PriceManager,
-    verbose_name='Наценка',
-    related_name='main_products',
-    blank=True
-  )
-  special_prices = models.ManyToManyField(
-    SpecialPrice,
-    verbose_name= 'Спец наценки',
-    related_name='main_products',
-    blank=True
-  )
+      null=True)
+  discount_price = models.DecimalField(
+      verbose_name='Цена со скидкой',
+      decimal_places=2,
+      max_digits=20,
+      null=True)
   length = models.DecimalField(verbose_name='Длина',
                                max_digits=10,
                                decimal_places=2,
@@ -103,45 +118,30 @@ class MainProduct(models.Model):
   stock_updated_at = models.DateTimeField(verbose_name='Последнее обновление остатка',
                                     null=True)
   search_vector = SearchVectorField(null=True, editable=False, unique=False, verbose_name="Вектор поиска")
-  def save(self, *args, **kwargs):
-    super().save(*args, **kwargs)
-    MainProduct.objects.filter(pk=self.pk).update(
-        search_vector=SearchVector('name', config='russian')
-    )
   def __str__(self):
     return self.sku if self.sku else 'Не указан'
   def _build_search_text(self) -> str:
     """Собираем строку для поиска без join-ов."""
     parts = [
-        self.name or "",
-        getattr(self.category, "name", "") or "",
-        getattr(self.manufacturer, "name", "") or "",
-        self.article or "",
         self.sku or "",
+        self.article or "",
+        self.name or "",
+        ' '.join(self.category.get_ancestors(include_self=True).values_list('name', flat=True) if self.category else ""),
+        getattr(self.supplier, "name", ""),
+        getattr(self.manufacturer, "name", ""),
     ]
-    return " ".join(p for p in parts if p)
-
+    return " ".join(parts)
   def rebuild_search_vector(self):
     """Обновляет search_vector без join-полей (через константу)."""
     text = self._build_search_text()
     MainProduct.objects.filter(pk=self.pk).update(
         search_vector=SearchVector(Value(text), config='russian')
     )
-
+    
   def save(self, *args, **kwargs):
-      super().save(*args, **kwargs)
-      self.rebuild_search_vector()
-  class Meta:
-    verbose_name = 'Главный продукт'
-    constraints = [
-      models.UniqueConstraint(
-        fields=['supplier', 'article', 'name'],
-        name='mp_unique_supplier_article_name'
-      )
-    ]
-    indexes = [
-      GinIndex(fields=['search_vector']),
-    ]
+    super().save(*args, **kwargs)
+    self.rebuild_search_vector()
+  
 
 class MainProductLog(models.Model):
   update_time = models.DateTimeField(verbose_name='Дата',
@@ -174,3 +174,65 @@ class MainProductLog(models.Model):
         name='mpl_unique_date_mp'
       )
     ]
+    ordering = ['-update_time']
+
+def recalculate_search_vectors(mps):
+    if not mps: return None
+    mps.select_related('supplier', 'category', 'manufacturer')
+    def build_searchvector(mp):
+      mp.search_vector=SearchVector(Value(mp._build_search_text()), config='russian')
+      return mp
+    mps = map(build_searchvector, mps)
+    return MainProduct.objects.bulk_update(mps, fields=['search_vector'])
+
+
+def update_stocks():
+  query = MainProduct.objects.filter(
+    pk=OuterRef('pk')
+    ).prefetch_related('supplierproducts').annotate(
+      new_stock=Sum(F('supplierproducts__stock'))).values('new_stock')
+  mps = MainProduct.objects.prefetch_related('supplierproducts').annotate(new_stock=Subquery(query))
+  mps = mps.filter(Q(stock__isnull=False)|Q(new_stock__isnull=False))
+  mps = mps.filter(~Q(stock=F('new_stock')))
+  mps.bulk_update(mps, fields=['stock_updated_at'])
+  print(mps.values_list('stock', 'new_stock'))
+  mpls = map(lambda mp: MainProductLog(main_product=mp, stock=mp.new_stock),  mps)
+  MainProductLog.objects.bulk_create(mpls)
+  return mps.update(stock=F('new_stock'))
+
+def update_logs():
+  updated_logs = 0
+  
+  for price_type in MP_PRICES:
+    latest_log_price_subquery =  MainProductLog.objects.select_related('main_product').filter(
+      main_product__id=OuterRef('pk')
+    ).filter(price_type=price_type).order_by('-update_time').values('price')[:1]
+    mps = MainProduct.objects.prefetch_related('mp_log').all().annotate(
+      **{
+          f'latest_log_{price_type}':Subquery(latest_log_price_subquery)
+      }
+    )
+    mps = mps.filter(~Q(**{price_type:F(f'latest_log_{price_type}')})&
+                     ((Q(**{f'{price_type}__isnull':True})&Q(**{f'latest_log_{price_type}__isnull':False}))|
+                     (Q(**{f'{price_type}__isnull':False})&Q(**{f'latest_log_{price_type}__isnull':True}))))
+    print(mps.values_list(price_type, f'latest_log_{price_type}'))
+    mpls = map(lambda mp: MainProductLog(price_type=price_type, main_product=mp, price=getattr(mp, price_type)), mps.all())
+    mpls = MainProductLog.objects.bulk_create(mpls)
+    updated_logs += len(mpls)
+
+  
+  print('stock:', timezone.now())
+  latest_log_stock_subquery =  MainProductLog.objects.filter(
+    main_product__pk=OuterRef('pk')
+  ).filter(price_type__isnull=True).order_by('-update_time').values('stock')[:1]
+  mps = MainProduct.objects.filter(stock__isnull=False).annotate(
+    **{
+        f'latest_log_stock':Subquery(latest_log_stock_subquery)
+    }
+  )
+  mps = mps.filter(~Q(**{'stock':F('latest_log_stock')})|Q(**{f'latest_log_stock__isnull':True}))
+  mpls = map(lambda mp: MainProductLog(main_product=mp, stock=mp.stock),  mps)
+  mpls = MainProductLog.objects.bulk_create(mpls)
+  updated_logs += len(mpls)
+  return updated_logs
+

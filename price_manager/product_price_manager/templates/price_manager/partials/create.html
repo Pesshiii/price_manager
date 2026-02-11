@@ -1,8 +1,16 @@
 
-<div class="container">
-  <form method="post">
-    {% csrf_token %}
-    {{form.as_p}}
-    <button type="submit" value="add">Сохранить</button>
-  </form>
+<div class="form-control p-5">
+      <h1>Новый менеджер наценок</h1>
+      <form method="post"
+                  hx-post="{% url "pricemanager-create" supplier.pk%}"
+                  hx-target="#modal-container .modal-content"
+                  enctype="multipart/form-data">
+            {% csrf_token %}
+            {% include "price_manager/partials/pricemanager_form.html" with form=form %}
+            <button 
+            class="btn btn-primary mt-4" 
+            type="submit">
+                  Добавить
+            </button>
+      </form>
 </div>

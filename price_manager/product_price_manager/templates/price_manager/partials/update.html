@@ -1,8 +1,27 @@
 
-  <div class="container">
-    <form method="post">
-      {% csrf_token %}
-      {{form.as_p}}
-      <button type="submit" value="add">Обновить</button>
-    </form>
-  </div>
+<div class="form-control p-5">
+      <h1>Обновление менеджера наценок</h1>
+      <form method="post"
+                  hx-post="{% url "pricemanager-update" pricemanager.pk%}"
+                  hx-target="#modal-container .modal-content"
+                  enctype="multipart/form-data">
+            {% csrf_token %}
+            {% include "price_manager/partials/pricemanager_form.html" with form=form %}
+            <div class="row">
+              <div class=" col-5">
+                <button 
+                class="btn btn-primary" 
+                type="submit">
+                      Сохранить
+                </button>
+                <button 
+                class="btn btn-danger " 
+                name="delete"
+                value="true"
+                type="submit">
+                  Удалить
+                </button>
+              </div>
+            </div>
+      </form>
+</div>

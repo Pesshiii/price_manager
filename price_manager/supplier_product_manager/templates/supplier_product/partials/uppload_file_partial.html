@@ -1,0 +1,21 @@
+
+<div class="form-control">
+      <h1>{{supplier.name}}</h1>
+      <span>Загрузка файла</span>
+      <form method="post"
+                  hx-post="{% url "supplier-upload" supplier.pk%}"
+                  hx-target="#modal-container .modal-content"
+                  hx-trigger="submit"
+                  enctype="multipart/form-data">
+            {% csrf_token %}
+            {{form.file|add_label_class:"form-lable mb-1 mt-4"}}
+            {% render_field form.file class="form-control mb-4"%}
+            {{form.setting|add_label_class:"form-lable mb-1"}}
+            {% render_field form.setting class="form-select mb-5"%}
+            <button 
+            class="btn btn-primary" 
+            type="submit">
+                  Добавить
+            </button>
+      </form>
+</div>
