@@ -110,7 +110,21 @@ class MainProductTableView(SingleTableView):
       prefix=f'{self.category_pk if self.category_pk else 0}-'
     )
   def get_table_data(self):
-    qs = MainProductFilter(self.request.GET).qs.prefetch_related('category')
+    supplier_price_sq = SupplierProduct.objects.filter(
+      main_product=OuterRef('pk')
+    ).order_by('-updated_at').values('supplier_price')[:1]
+    rrp_sq = SupplierProduct.objects.filter(
+      main_product=OuterRef('pk')
+    ).order_by('-updated_at').values('rrp')[:1]
+    discount_price_sq = SupplierProduct.objects.filter(
+      main_product=OuterRef('pk')
+    ).order_by('-updated_at').values('discount_price')[:1]
+
+    qs = MainProductFilter(self.request.GET).qs.prefetch_related('category').annotate(
+      supplier_product_price=Subquery(supplier_price_sq),
+      supplier_product_rrp=Subquery(rrp_sq),
+      supplier_product_discount_price=Subquery(discount_price_sq),
+    )
     if not self.category_pk:
       return qs.filter(category__isnull=True)
     return qs.filter(category=Category.objects.get(pk=self.category_pk))

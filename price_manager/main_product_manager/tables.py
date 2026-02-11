@@ -44,6 +44,9 @@ AVAILABLE_COLUMN_GROUPS = [
       ('m_price', 'Цена ИМ'),
       ('wholesale_price_extra', 'Оптовая цена доп.'),
       ('discount_price', 'Цена со скидкой'),
+      ('supplier_product_price', 'Цена поставщика'),
+      ('supplier_product_rrp', 'РРЦ'),
+      ('supplier_product_discount_price', 'Цена поставщика со скидкой'),
       ('weight', 'Вес'),
       ('length', 'Длина'),
       ('width', 'Ширина'),
@@ -89,6 +92,9 @@ class MainProductTable(tables.Table):
   stock_msg = tables.Column(verbose_name='Статус наличия',
                             orderable=False,
                             empty_values=())
+  supplier_product_price = tables.Column(verbose_name='Цена поставщика', default='—')
+  supplier_product_rrp = tables.Column(verbose_name='РРЦ', default='—')
+  supplier_product_discount_price = tables.Column(verbose_name='Цена поставщика со скидкой', default='—')
   delivery_days = tables.Column(
     verbose_name='Срок поставки (Рабочие дни)',
     orderable=False,
@@ -151,6 +157,9 @@ class MainProductTable(tables.Table):
       'm_price',
       'wholesale_price_extra',
       'discount_price',
+      'supplier_product_price',
+      'supplier_product_rrp',
+      'supplier_product_discount_price',
       'stock',
       'price_updated_at',
       'stock_updated_at',
