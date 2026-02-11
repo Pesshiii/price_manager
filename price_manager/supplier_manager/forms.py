@@ -7,7 +7,16 @@ from crispy_forms.layout import Submit, Layout, Field, Div, HTML
 class SupplierForm(forms.ModelForm):
   class Meta:
     model = Supplier
-    fields = ['name', 'delivery_days', 'currency', 'price_update_rate', 'stock_update_rate', 'msg_available', 'msg_navailable']
+    fields = [
+      'name',
+      'delivery_days_available',
+      'delivery_days_navailable',
+      'currency',
+      'price_update_rate',
+      'stock_update_rate',
+      'msg_available',
+      'msg_navailable',
+    ]
   def __init__(self, *args, **kwargs):
     url = kwargs.pop('url', None)
     if not url: return None
@@ -23,7 +32,11 @@ class SupplierForm(forms.ModelForm):
     }
     self.helper.layout = Layout(
       'name', 
-      'delivery_days', 
+      Div(
+        Div('delivery_days_available', css_class='col-4'),
+        Div('delivery_days_navailable', css_class='col-4'),
+        css_class='row',
+      ),
       Field('currency', css_class='form-select'),
       HTML('<hr class="my-4 border-secondary">'),
       Div(

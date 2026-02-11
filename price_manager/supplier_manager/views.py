@@ -123,6 +123,10 @@ class SupplierUpdate(UpdateView):
   def get_success_url(self):
     return reverse('supplier-update', kwargs={'pk':self.kwargs.get('pk')})
   
+  def form_valid(self, form):
+    messages.success(self.request, 'Настройки поставщика сохранены.')
+    return super().form_valid(form)
+  
 
 class ManufacturerList(SingleTableView):
   '''Отображение производителей <<manufacturer/>>'''

@@ -47,6 +47,14 @@ class Supplier(models.Model):
                                           blank=True)
   delivery_days = models.PositiveIntegerField(verbose_name='Срок доставки',
                                               default=0)
+  delivery_days_available = models.PositiveIntegerField(
+    verbose_name='Срок поставки (Рабочие дни) при наличии',
+    default=0,
+  )
+  delivery_days_navailable = models.PositiveIntegerField(
+    verbose_name='Срок поставки (Рабочие дни) при отсутствии',
+    default=0,
+  )
   price_update_rate = models.CharField(verbose_name='Частота обновления цен',
                                        choices=[(_, _) for _ in TIME_FREQ.keys()])
   stock_update_rate = models.CharField(verbose_name='Частота обновления остатков',
@@ -60,6 +68,11 @@ class Supplier(models.Model):
     ordering = ['name']
   def __str__(self):
     return self.name
+  
+  def get_delivery_days_for_stock(self, stock):
+    if stock and stock > 0:
+      return self.delivery_days_available
+    return self.delivery_days_navailable
   
 
 class Discount(models.Model):
