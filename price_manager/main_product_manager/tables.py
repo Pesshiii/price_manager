@@ -18,6 +18,11 @@ class MainProductTable(tables.Table):
   stock_msg = tables.Column(verbose_name='Статус наличия',
                             orderable=False,
                             empty_values=())
+  delivery_days = tables.Column(
+    verbose_name='Срок поставки (Рабочие дни)',
+    orderable=False,
+    empty_values=(),
+  )
   def __init__(self, *args, **kwargs):
     self.request = kwargs.pop('request')
     self.url = kwargs.pop('url', None)
@@ -29,7 +34,17 @@ class MainProductTable(tables.Table):
 
   class Meta:
     model = MainProduct
-    fields = ['actions', 'article', 'supplier', 'name', 'manufacturer','prime_cost', 'stock', 'stock_msg']
+    fields = [
+      'actions',
+      'article',
+      'supplier',
+      'name',
+      'manufacturer',
+      'prime_cost',
+      'stock',
+      'delivery_days',
+      'stock_msg',
+    ]
     template_name = 'core/includes/table_htmx.html'
     attrs = {
       'class': 'clickable-rows table table-auto table-stripped table-hover'
@@ -39,6 +54,9 @@ class MainProductTable(tables.Table):
       return record.supplier.msg_navailable
     else:
       return record.supplier.msg_available
+  
+  def render_delivery_days(self, record):
+    return record.supplier.get_delivery_days_for_stock(record.stock)
   def render_actions(self, record):
         return render_to_string(
             'main/product/actions.html',
