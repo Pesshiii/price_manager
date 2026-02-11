@@ -11,10 +11,6 @@ from crispy_forms.layout import Submit, Layout, Field, Div, HTML
 
 import re
 
-from .tables import AVAILABLE_COLUMN_GROUPS, DEFAULT_VISIBLE_COLUMNS
-
-
-
 class MainProductFilter(FilterSet):
   class Meta:
     model = MainProduct
@@ -71,13 +67,6 @@ class MainProductFilter(FilterSet):
     label='Категории'
   )
 
-  columns = filters.MultipleChoiceFilter(
-    method='column_method',
-    label='Отображаемые столбцы',
-    choices=AVAILABLE_COLUMN_GROUPS,
-    widget=forms.CheckboxSelectMultiple(),
-  )
-
   def __init__(self, *args, **kwargs):
     super().__init__(*args, **kwargs)
     self.config_filters(self.search_method(self.queryset, '', value=self.data.get('search', '')))
@@ -98,19 +87,12 @@ class MainProductFilter(FilterSet):
         Field('manufacturer_search'),
         Field('manufacturer', template='supplier/partials/checkbox_filter_field.html'),
         Field('category', template='supplier/partials/category_filter_field.html'),
-        Field('columns', template='mainproduct/partials/column_filter_field.html'),
         Div(
           Submit('action', 'Поиск', title="Поиск", css_class='btn btn-primary col-5  btn-lg'),
           HTML('''<a href="{% url 'mainproducts' %}" class="btn btn-secondary col-4 btn-lg" title="Сбросить">Сбросить</a>'''),
           css_class='d-flex gap-1 mt-4 container'
         )
     )
-
-    initial_columns = self.data.getlist('columns') if hasattr(self.data, 'getlist') else []
-    if not initial_columns:
-      initial_columns = DEFAULT_VISIBLE_COLUMNS
-    self.form.initial['columns'] = initial_columns
-    self.form.fields['columns'].initial = initial_columns
 
   def config_filters(self, queryset):
 
@@ -175,6 +157,3 @@ class MainProductFilter(FilterSet):
       query |= Q(pk__in=category.get_descendants(include_self=True))
     categories = Category.objects.filter(query)
     return queryset.filter(category__in=categories)
-
-  def column_method(self, queryset, name, value):
-    return queryset
