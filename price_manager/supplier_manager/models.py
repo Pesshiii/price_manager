@@ -45,15 +45,15 @@ class Supplier(models.Model):
   stock_updated_at = models.DateTimeField(verbose_name='Последнее обновление остатка', 
                                           null=True,
                                           blank=True)
-  delivery_days = models.PositiveIntegerField(verbose_name='Срок доставки',
-                                              default=0)
   delivery_days_available = models.PositiveIntegerField(
     verbose_name='Срок поставки (Рабочие дни) при наличии',
-    default=0,
+    null=True,
+    blank=False,
   )
   delivery_days_navailable = models.PositiveIntegerField(
     verbose_name='Срок поставки (Рабочие дни) при отсутствии',
-    default=0,
+    null=True,
+    blank=False,
   )
   price_update_rate = models.CharField(verbose_name='Частота обновления цен',
                                        choices=[(_, _) for _ in TIME_FREQ.keys()])

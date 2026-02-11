@@ -116,7 +116,7 @@ class MainProductTable(tables.Table):
         tables.Column(
           accessor=key,
           verbose_name=verbose_name,
-          default='—',
+          default='',
         )
       )
       for key, verbose_name in AVAILABLE_COLUMN_CHOICES

@@ -31,14 +31,18 @@ class SupplierForm(forms.ModelForm):
       'hx-trigger':'submit',
     }
     self.helper.layout = Layout(
-      'name', 
       Div(
-        Div('delivery_days_available', css_class='col-4'),
-        Div('delivery_days_navailable', css_class='col-4'),
+        Div('name', css_class='col-8'),
         css_class='row',
       ),
-      Field('currency', css_class='form-select'),
-      HTML('<hr class="my-4 border-secondary">'),
+      Div(
+        Div(
+          Field('currency', css_class='form-select'), 
+          css_class='col-8'
+        ), 
+        css_class='row'
+      ),
+      HTML('<hr class="my-4 border-secondary col-8">'),
       Div(
         Div(
         Field('price_update_rate', css_class='form-select'), css_class="col-4"),
@@ -46,7 +50,13 @@ class SupplierForm(forms.ModelForm):
         Field('stock_update_rate', css_class='form-select'),css_class="col-4"),
         css_class='row'
       ),
-      HTML('<hr class="my-4 border-secondary">'),
+      HTML('<hr class="my-4 border-secondary col-8">'),
+      Div(
+        Div('delivery_days_available', css_class='col-4'),
+        Div('delivery_days_navailable', css_class='col-4'),
+        css_class='row',
+      ),
+      HTML('<hr class="my-4 border-secondary col-8">'),
       Div(
         Div(
         Field('msg_available', css_class='form-control'), css_class="col-4"),
@@ -54,6 +64,7 @@ class SupplierForm(forms.ModelForm):
         Field('msg_navailable', css_class='form-control'),css_class="col-4"),
         css_class='row mb-4'
       ),
+      HTML('<hr class="my-4 border-secondary col-8">'),
       Submit('action', 'Сохранить', title="Поиск", css_class='btn btn-primary col-5 mt-4 btn-lg')
     )
 
