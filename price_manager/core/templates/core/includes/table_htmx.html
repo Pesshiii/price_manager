@@ -1,62 +1,80 @@
-
 {% extends 'django_tables2/bootstrap5.html' %}
-{% load i18n %}
 {% load django_tables2 %}
+{% load i18n l10n %}
 
-{% block table.thead %}
-{% if table.show_header %}
-<thead {{ table.attrs.thead.as_html }}>
-<tr>
-  {% for column in table.columns %}
-  <th {{ column.attrs.th.as_html }} scope="col"
-      {% if column.orderable %}
-      hx-get="{{table.url}}{% querystring table.prefixed_order_by_field=column.order_by_alias.next %}"
-      hx-push-url="{% querystring table.prefixed_order_by_field=column.order_by_alias.next %}"
-      hx-trigger="click"
-      hx-target="closest div.table-container"
-      hx-swap="outerHTML"
-      style="cursor: pointer;"
-      {% endif %}>
-    {{ column.header }}
-  </th>
-  {% endfor %}
-</tr>
-</thead>
-{% endif %}
-{% endblock table.thead %}
-
-{% block pagination %}
-<div class="pagination">
-  {% if table.page and table.paginator.num_pages > 1 %}
-  <div class="join">
-    <a class="join-item btn"
-       {% if table.page.has_previous %}
-       hx-get="{{table.url}}{% querystring table.prefixed_page_field=table.page.previous_page_number %}"
-       hx-push-url="{% querystring table.prefixed_page_field=table.page.previous_page_number %}"
-       hx-trigger="click"
-       hx-target="closest div.table-container"
-       hx-swap="outerHTML"
-       {% else %}disabled{% endif %}>
-      <span aria-hidden="true">&laquo;</span>
-    </a>
-    <a class="join-item btn">
-      {% with current_position=table.page.end_index total=table.page.paginator.count %}
-      {% blocktranslate %}
-      {{ current_position }} of {{ total }}
-      {% endblocktranslate %}
-      {% endwith %}
-    </a>
-    <a class="join-item btn"
-       {% if table.page.has_next %}
-       hx-get="{{table.url}}{% querystring table.prefixed_page_field=table.page.next_page_number %}"
-       hx-push-url="{% querystring table.prefixed_page_field=table.page.next_page_number %}"
-       hx-trigger="click"
-       hx-target="closest div.table-container"
-       hx-swap="outerHTML"
-       {% else %}disabled{% endif %}>
-      <span aria-hidden="true">&raquo;</span>
-    </a>
-  </div>
-</div>
-{% endif %}
-{% endblock pagination %}
+{% block table-wrapper %}
+{% with page=table.page.number %}
+  {% if page == 1 %}<div class="table-container">{% endif %}
+    {% block table %}
+      {% if page == 1 %}<table {% render_attrs table.attrs class="table" %}>{% endif %}
+            {% block table.thead %}
+              {% if page == 1 %}
+                {% if table.show_header %}
+                <thead {{ table.attrs.thead.as_html }}>
+                <tr>
+                  {% for column in table.columns %}
+                  <th {{ column.attrs.th.as_html }} scope="col"
+                      {% if column.orderable %}
+                      hx-get="{{table.url}}{% querystring table.prefixed_order_by_field=column.order_by_alias.next %}"
+                      hx-push-url="{% querystring table.prefixed_order_by_field=column.order_by_alias.next %}"
+                      hx-trigger="click"
+                      hx-target="closest div.table-container"
+                      hx-swap="outerHTML"
+                      style="cursor: pointer;"
+                      {% endif %}>
+                    {{ column.header }}
+                  </th>
+                  {% endfor %}
+                </tr>
+                </thead>
+                {% endif %}
+              {% endif %}
+            {% endblock table.thead %}
+            {% block table.tbody %}
+                {% if page == 1 %}<tbody {{ table.attrs.tbody.as_html }}>{% endif %}
+                {% for row in table.paginated_rows %}
+                    {% block table.tbody.row %}
+                    <tr
+                    {{ row.attrs.as_html }}
+                    {% comment %} Подгрузка следующей страницы если есть {% endcomment %}
+                    {% if forloop.last and table.page.has_next %}
+                      hx-get="{{table.url}}{% querystring table.prefixed_page_field=table.page.next_page_number %}"
+                      hx-trigger="load"
+                      hx-target="this"
+                      hx-swap="afterend"
+                    {% endif %}
+                    >
+                        {% for column, cell in row.items %}
+                            <td {{ column.attrs.td.as_html }}>{% if column.localize == None %}{{ cell }}{% else %}{% if column.localize %}{{ cell|localize }}{% else %}{{ cell|unlocalize }}{% endif %}{% endif %}</td>
+                        {% endfor %}
+                    </tr>
+                    {% endblock table.tbody.row %}
+                {% empty %}
+                    {% if table.empty_text %}
+                    {% block table.tbody.empty_text %}
+                        <tr><td colspan="{{ table.columns|length }}">{{ table.empty_text }}</td></tr>
+                    {% endblock table.tbody.empty_text %}
+                    {% endif %}
+                {% endfor %}
+                {% if page == 1 %}</tbody>{% endif %}
+            {% endblock table.tbody %}
+            {% block table.tfoot %}
+              {% if page == 1 %}
+                {% if table.has_footer %}
+                <tfoot {{ table.attrs.tfoot.as_html }}>
+                    <tr>
+                    {% for column in table.columns %}
+                        <td {{ column.attrs.tf.as_html }}>{{ column.footer }}</td>
+                    {% endfor %}
+                    </tr>
+                </tfoot>
+                {% endif %}
+              {% endif %}
+            {% endblock table.tfoot %}
+        {% if page == 1 %}</table>{% endif %}
+    {% endblock table %}
+    {% block pagination %}
+    {% endblock pagination %}
+  {% if page == 1 %}</div>{% endif %}
+{% endwith %}
+{% endblock table-wrapper %}

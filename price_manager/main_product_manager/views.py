@@ -90,7 +90,6 @@ class MainProductTableView(SingleTableView):
   table_class=MainProductTable
   template_name='mainproduct/partials/table.html'
   model = MainProduct
-  paginate_by = 10
   def get(self, request, *args, **kwargs):
     if not self.request.htmx:
       return redirect(reverse_lazy('mainproducts'))
