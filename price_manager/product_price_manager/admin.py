@@ -11,4 +11,4 @@ class PriceManagerAdmin(admin.ModelAdmin):
 
 @admin.register(PriceTag)
 class UniquePriceManagerAdmin(admin.ModelAdmin):
-    list_display = ['mp', 'source', 'dest', 'markup', 'increase', 'fixed_price']
+    list_display = ['mp', 'p_manager', 'source', 'dest', 'markup', 'increase', 'fixed_price']

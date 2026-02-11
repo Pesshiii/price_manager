@@ -286,12 +286,16 @@ class PriceManager(models.Model):
         'fixed_price'])
 
   def apply(self):
-    print('\n\n\n', self.supplier, '\n\n\n')
     mps = self.get_fitting_mps()
     mps = mps.filter(~Q(**{self.dest: F('changed_price')}))
     mpls = map(lambda mp: MainProductLog(price_type=self.dest, main_product=mp, price=getattr(mp, 'changed_price')), mps)
     MainProductLog.objects.bulk_create(mpls)
     self.update_pricetags()
+    if mps.exists():
+      print('\n\n\n', self.supplier, ': ', self.source, ',', self.dest, ';', self.price_from, ',', self.price_to)
+      print('Группы скидок', self.discounts.all())
+      print('Категории', self.categories.all())
+      print(mps)
     return mps.update(**{self.dest:F('changed_price')})
 
   def delete(self, *args, **kwargs):

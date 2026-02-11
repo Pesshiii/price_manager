@@ -107,6 +107,10 @@ class PriceManagerCreate(CreateView):
       instance.discounts.remove(discount)
     for discount in cd['discounts']:
       instance.discounts.add(discount)
+    for category in instance.categories.filter(~Q(pk__in=cd['categories'])):
+      instance.categories.remove(category)
+    for category in cd['categories']:
+      instance.categories.add(category)
     messages.success(self.request, 'Менеджер добавлен')
     return HttpResponseClientRefresh()
   
@@ -159,6 +163,10 @@ class PriceManagerUpdate(SingleTableMixin, UpdateView):
       instance.discounts.remove(discount)
     for discount in cd['discounts']:
       instance.discounts.add(discount)
+    for category in instance.categories.filter(~Q(pk__in=cd['categories'])):
+      instance.categories.remove(category)
+    for category in cd['categories']:
+      instance.categories.add(category)
     messages.success(self.request, 'Обновления менеджера сохранены')
     return HttpResponseClientRefresh()
   
