@@ -11,8 +11,6 @@ from crispy_forms.layout import Submit, Layout, Field, Div, HTML
 
 import re
 
-
-
 class MainProductFilter(FilterSet):
   class Meta:
     model = MainProduct

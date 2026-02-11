@@ -10,6 +10,62 @@ from core.functions import get_field_details
 
 import pandas as pd
 
+
+SP_DEFAULT_VISIBLE_COLUMNS = [
+  'actions',
+  'article',
+  'name',
+  'manufacturer',
+  'supplier_price',
+  'rrp',
+  'discount',
+]
+
+
+SP_AVAILABLE_COLUMN_GROUPS = [
+  (
+    'Прайс поставщика',
+    [
+      ('actions', 'Действия'),
+      ('article', 'Артикул поставщика'),
+      ('name', 'Название'),
+      ('manufacturer', 'Производитель'),
+      ('discount', 'Группа скидок'),
+      ('stock', 'Остаток'),
+      ('supplier_price', 'Цена поставщика'),
+      ('rrp', 'РРЦ'),
+      ('discount_price', 'Цена со скидкой'),
+      ('updated_at', 'Последнее обновление'),
+    ],
+  ),
+  (
+    'Связь с главным прайсом',
+    [
+      ('main_product__sku', 'ГП • SKU'),
+      ('main_product__article', 'ГП • Артикул поставщика'),
+      ('main_product__name', 'ГП • Название'),
+      ('main_product__prime_cost', 'ГП • Себестоимость'),
+      ('main_product__m_price', 'ГП • Цена ИМ'),
+      ('main_product__wholesale_price', 'ГП • Оптовая цена'),
+      ('main_product__wholesale_price_extra', 'ГП • Оптовая цена доп.'),
+      ('main_product__basic_price', 'ГП • Базовая цена'),
+      ('main_product__stock', 'ГП • Остаток'),
+    ],
+  ),
+  (
+    'Поставщик',
+    [
+      ('supplier__name', 'Поставщик • Название'),
+      ('supplier__currency__name', 'Поставщик • Валюта'),
+      ('supplier__price_updated_at', 'Поставщик • Обновление цены'),
+      ('supplier__stock_updated_at', 'Поставщик • Обновление остатков'),
+    ],
+  ),
+]
+
+SP_AVAILABLE_COLUMN_CHOICES = [item for _, options in SP_AVAILABLE_COLUMN_GROUPS for item in options]
+SP_AVAILABLE_COLUMN_MAP = dict(SP_AVAILABLE_COLUMN_CHOICES)
+
 class SettingListTable(tables.Table):
   class Meta:
     model = Setting
@@ -43,9 +99,50 @@ class SupplierProductListTable(tables.Table):
     verbose_name='Действия',
     attrs = {'td': {'class': 'text-right'}}
   )
+  def __init__(self, *args, **kwargs):
+    selected_columns = kwargs.pop('selected_columns', None) or []
+    if not selected_columns:
+      selected_columns = SP_DEFAULT_VISIBLE_COLUMNS
+    self.selected_columns = [column for column in selected_columns if column in SP_AVAILABLE_COLUMN_MAP]
+    if not self.selected_columns:
+      self.selected_columns = SP_DEFAULT_VISIBLE_COLUMNS
+
+    extra_columns = [
+      (
+        key,
+        tables.Column(
+          accessor=key,
+          verbose_name=verbose_name,
+          default='—',
+        )
+      )
+      for key, verbose_name in SP_AVAILABLE_COLUMN_CHOICES
+      if '__' in key
+    ]
+    super().__init__(*args, extra_columns=extra_columns, **kwargs)
+
+    for column_key in SP_AVAILABLE_COLUMN_MAP:
+      if column_key not in self.selected_columns and column_key in self.columns:
+        self.columns.hide(column_key)
+
+    sequence = [column for column in self.selected_columns if column in self.columns]
+    sequence.append('...')
+    self.sequence = sequence
+
   class Meta:
     model = SupplierProduct
-    fields = SP_TABLE_FIELDS
+    fields = [
+      'actions',
+      'article',
+      'name',
+      'manufacturer',
+      'discount',
+      'stock',
+      'supplier_price',
+      'rrp',
+      'discount_price',
+      'updated_at',
+    ]
     template_name = 'django_tables2/bootstrap5.html'
     attrs = {
       'class': 'table table-auto table-stripped table-hover clickable-rows'
