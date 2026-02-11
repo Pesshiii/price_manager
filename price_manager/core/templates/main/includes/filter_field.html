@@ -34,9 +34,9 @@
         <div class="autocomplete-suggestions d-none" data-autocomplete-suggestions></div>
         <div class="filter-tile-list mt-2" data-autocomplete-options>
           {% for choice in field %}
-            <label class="filter-tile" data-option-item data-option-name="{{ choice.choice_label|lower|escape }}">
+            <label class="filter-tile" data-option-item>
               {{ choice.tag }}
-              <span>{{ choice.choice_label }}</span>
+              <span data-option-label>{{ choice.choice_label }}</span>
             </label>
           {% empty %}
             <div class="small text-muted">Нет доступных значений</div>

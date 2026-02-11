@@ -224,7 +224,10 @@
         return;
       }
 
-      const getItemLabel = (item) => item.dataset.optionName || '';
+      const getItemLabel = (item) => {
+        const optionLabel = item.querySelector('[data-option-label]');
+        return normalizeText(optionLabel ? optionLabel.textContent : '');
+      };
 
       const updateSuggestions = (term) => {
         if (!term) {
@@ -278,7 +281,7 @@
         updateSuggestions(term);
       };
 
-      searchInput.addEventListener('input', debounce(applyFilter, 120));
+      searchInput.addEventListener('input', applyFilter);
       applyFilter();
       container.dataset.autocompleteInitialized = 'true';
     });
