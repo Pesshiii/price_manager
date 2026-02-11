@@ -296,6 +296,7 @@ class PriceManager(models.Model):
       print('Группы скидок', self.discounts.all())
       print('Категории', self.categories.all())
       print(mps)
+    MainProduct.objects.bulk_update(MainProduct.objects.filter(pk__in=mps), ['price_updated_at'])
     return mps.update(**{self.dest:F('changed_price')})
 
   def delete(self, *args, **kwargs):
