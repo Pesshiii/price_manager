@@ -20,8 +20,29 @@
   </div>
   <div id="{{ collapse_id }}" class="mt-2{% if collapsible %} collapse{% if field_value %} show{% endif %}{% endif %}">
     {% if not is_category %}
-      <label for="{{ field.id_for_label }}" class="form-label">{{ field.label }}</label>
-      {{ field }}
+      <div data-autocomplete-filter>
+        <label for="{{ field.auto_id }}_search" class="form-label">{{ field.label }}</label>
+        <input
+            type="search"
+            id="{{ field.auto_id }}_search"
+            class="form-control form-control-sm"
+            placeholder="Начните вводить значение"
+            data-autocomplete-search
+            data-ignore-auto-update="true"
+            autocomplete="off"
+        >
+        <div class="autocomplete-suggestions d-none" data-autocomplete-suggestions></div>
+        <div class="filter-tile-list mt-2" data-autocomplete-options>
+          {% for choice in field %}
+            <label class="filter-tile" data-option-item data-option-name="{{ choice.choice_label|lower|escape }}">
+              {{ choice.tag }}
+              <span>{{ choice.choice_label }}</span>
+            </label>
+          {% empty %}
+            <div class="small text-muted">Нет доступных значений</div>
+          {% endfor %}
+        </div>
+      </div>
     {% else %}
       <div data-category-filter>
         <label for="{{ field.auto_id }}_search" class="form-label">Поиск категории</label>
@@ -33,6 +54,7 @@
             data-category-filter-search
             data-ignore-auto-update="true"
         >
+        <div class="autocomplete-suggestions d-none" data-category-suggestions></div>
         {% include 'includes/category_tree_filter.html' with field=field category_tree=category_tree selected_categories=selected_categories %}
       </div>
     {% endif %}

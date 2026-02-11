@@ -44,6 +44,66 @@
       margin-top: 1rem;
     }
 
+    .filter-tile-list {
+      display: flex;
+      flex-wrap: wrap;
+      gap: .5rem;
+      max-height: 220px;
+      overflow-y: auto;
+      padding-right: .25rem;
+    }
+
+    .filter-tile {
+      display: inline-flex;
+      align-items: center;
+      gap: .35rem;
+      border: 1px solid var(--bs-border-color);
+      border-radius: .75rem;
+      padding: .35rem .65rem;
+      background: var(--bs-light);
+      cursor: pointer;
+      font-size: .875rem;
+      transition: all .2s ease;
+    }
+
+    .filter-tile input[type="checkbox"] {
+      margin: 0;
+    }
+
+    .filter-tile:has(input[type="checkbox"]:checked) {
+      border-color: var(--bs-primary);
+      background: rgba(var(--bs-primary-rgb), 0.12);
+    }
+
+    .autocomplete-suggestions {
+      margin-top: .5rem;
+      border: 1px solid var(--bs-border-color);
+      border-radius: .5rem;
+      background: #fff;
+      max-height: 210px;
+      overflow-y: auto;
+      box-shadow: 0 .5rem 1rem rgba(0,0,0,.08);
+    }
+
+    .autocomplete-suggestion-item {
+      width: 100%;
+      border: 0;
+      background: transparent;
+      text-align: left;
+      padding: .45rem .65rem;
+      font-size: .875rem;
+    }
+
+    .autocomplete-suggestion-item:hover,
+    .autocomplete-suggestion-item:focus {
+      background: var(--bs-light);
+    }
+
+    .autocomplete-suggestion-path {
+      color: var(--bs-secondary-color);
+      font-size: .75rem;
+    }
+
     .table-area {
       margin-top: 2rem;
     }
@@ -145,6 +205,83 @@
   const initDynamicFilters = () => {
     enhanceSelect('#id_supplier');
     enhanceSelect('#id_manufacturer');
+  };
+
+  const normalizeText = (value) => (value || '').trim().toLowerCase();
+
+  const initAutocompleteFilters = () => {
+    const containers = document.querySelectorAll('[data-autocomplete-filter]');
+    containers.forEach((container) => {
+      if (container.dataset.autocompleteInitialized === 'true') {
+        return;
+      }
+
+      const searchInput = container.querySelector('[data-autocomplete-search]');
+      const optionItems = Array.from(container.querySelectorAll('[data-option-item]'));
+      const suggestions = container.querySelector('[data-autocomplete-suggestions]');
+
+      if (!searchInput || !optionItems.length || !suggestions) {
+        return;
+      }
+
+      const getItemLabel = (item) => item.dataset.optionName || '';
+
+      const updateSuggestions = (term) => {
+        if (!term) {
+          suggestions.innerHTML = '';
+          suggestions.classList.add('d-none');
+          return;
+        }
+
+        const matchedItems = optionItems
+          .filter((item) => getItemLabel(item).includes(term))
+          .slice(0, 8);
+
+        if (!matchedItems.length) {
+          suggestions.innerHTML = '';
+          suggestions.classList.add('d-none');
+          return;
+        }
+
+        suggestions.innerHTML = matchedItems.map((item, index) => {
+          const checkbox = item.querySelector('input[type="checkbox"]');
+          const selected = checkbox && checkbox.checked ? ' ✓' : '';
+          const label = item.querySelector('span') ? item.querySelector('span').textContent.trim() : '';
+          return `<button type="button" class="autocomplete-suggestion-item" data-suggestion-index="${index}">${label}${selected}</button>`;
+        }).join('');
+        suggestions.classList.remove('d-none');
+
+        suggestions.querySelectorAll('[data-suggestion-index]').forEach((element) => {
+          element.addEventListener('click', () => {
+            const selectedItem = matchedItems[Number(element.dataset.suggestionIndex)];
+            if (!selectedItem) {
+              return;
+            }
+
+            const checkbox = selectedItem.querySelector('input[type="checkbox"]');
+            if (checkbox) {
+              checkbox.checked = !checkbox.checked;
+              checkbox.dispatchEvent(new Event('change', { bubbles: true }));
+            }
+            selectedItem.classList.remove('d-none');
+            selectedItem.scrollIntoView({ block: 'nearest' });
+          });
+        });
+      };
+
+      const applyFilter = () => {
+        const term = normalizeText(searchInput.value);
+        optionItems.forEach((item) => {
+          const shouldShow = !term || getItemLabel(item).includes(term);
+          item.classList.toggle('d-none', !shouldShow);
+        });
+        updateSuggestions(term);
+      };
+
+      searchInput.addEventListener('input', debounce(applyFilter, 120));
+      applyFilter();
+      container.dataset.autocompleteInitialized = 'true';
+    });
   };
   
   const setToggleButtonState = (button, isExpanded) => {
@@ -281,8 +418,9 @@
 
       const searchInput = container.querySelector('[data-category-filter-search]');
       const tree = container.querySelector('[data-category-tree]');
+      const suggestions = container.querySelector('[data-category-suggestions]');
 
-      if (!searchInput || !tree) {
+      if (!searchInput || !tree || !suggestions) {
         return;
       }
 
@@ -306,29 +444,98 @@
         return Array.from(rootList.children).filter((child) => child.matches('[data-category-node]'));
       };
 
+      const getNodePath = (node) => {
+        const path = [];
+        let current = node;
+
+        while (current && current.matches('[data-category-node]')) {
+          const label = current.querySelector('[data-category-label]');
+          if (label) {
+            path.push(label.textContent.trim());
+          }
+          const parentNode = current.parentElement ? current.parentElement.closest('[data-category-node]') : null;
+          current = parentNode;
+        }
+
+        return path.reverse();
+      };
+
+      const collectAllNodes = () => Array.from(tree.querySelectorAll('[data-category-node]'));
+
+      const buildSuggestions = (term) => {
+        if (!term) {
+          suggestions.classList.add('d-none');
+          suggestions.innerHTML = '';
+          return;
+        }
+
+        const matches = collectAllNodes()
+          .filter((node) => (node.dataset.categoryName || '').includes(term))
+          .slice(0, 8);
+
+        if (!matches.length) {
+          suggestions.classList.add('d-none');
+          suggestions.innerHTML = '';
+          return;
+        }
+
+        suggestions.innerHTML = matches.map((node) => {
+          const path = getNodePath(node);
+          const title = path[path.length - 1] || '';
+          const branch = path.slice(0, -1).join(' / ');
+          return `
+            <button type="button" class="autocomplete-suggestion-item" data-category-suggestion="${node.dataset.categoryId}">
+              <div>${title}</div>
+              ${branch ? `<div class="autocomplete-suggestion-path">${branch}</div>` : ''}
+            </button>
+          `;
+        }).join('');
+
+        suggestions.classList.remove('d-none');
+
+        suggestions.querySelectorAll('[data-category-suggestion]').forEach((element) => {
+          element.addEventListener('click', () => {
+            const nodeId = element.dataset.categorySuggestion;
+            const node = tree.querySelector(`[data-category-node][data-category-id="${nodeId}"]`);
+            if (!node) {
+              return;
+            }
+
+            node.scrollIntoView({ block: 'center' });
+            const checkbox = node.querySelector('input[type="checkbox"]:not([disabled])');
+            if (checkbox) {
+              checkbox.checked = !checkbox.checked;
+              checkbox.dispatchEvent(new Event('change', { bubbles: true }));
+            }
+          });
+        });
+      };
+
       const filterTree = () => {
-        const term = searchInput.value.trim().toLowerCase();
+        const term = normalizeText(searchInput.value);
 
         if (!term) {
           tree.querySelectorAll('[data-category-node]').forEach((node) => {
             node.classList.remove('d-none');
           });
+          buildSuggestions(term);
           return;
         }
 
-        const applyFilter = (node) => {
+        const applyFilter = (node, forceShow = false) => {
           const name = (node.dataset.categoryName || '').toLowerCase();
           const children = getChildNodes(node);
+          const matchesSelf = name.includes(term);
+          const shouldShowChildren = forceShow || matchesSelf;
 
           let hasMatchingChild = false;
           children.forEach((child) => {
-            if (applyFilter(child)) {
+            if (applyFilter(child, shouldShowChildren)) {
               hasMatchingChild = true;
             }
           });
 
-          const matchesSelf = name.includes(term);
-          const shouldShow = matchesSelf || hasMatchingChild;
+          const shouldShow = shouldShowChildren || hasMatchingChild;
           node.classList.toggle('d-none', !shouldShow);
           return shouldShow;
         };
@@ -336,6 +543,8 @@
         getRootNodes().forEach((node) => {
           applyFilter(node);
         });
+
+        buildSuggestions(term);
       };
 
       const debouncedFilter = debounce(filterTree, 150);
@@ -348,6 +557,7 @@
   document.addEventListener('DOMContentLoaded', () => {
     initDynamicFilters();
     initFilterToggles();
+    initAutocompleteFilters();
     registerAutoUpdate();
     initCategoryFilterSearch();
     const shoppingTabModal = document.getElementById('shoppingTabSelectionModal');
@@ -373,6 +583,7 @@
     if (event.target && event.target.id === 'filters-update-sink') {
       initDynamicFilters();
       initFilterToggles();
+      initAutocompleteFilters();
       registerAutoUpdate();
       initCategoryFilterSearch();
     }
@@ -383,6 +594,7 @@
       initDynamicFilters();
     }
     initFilterToggles();
+    initAutocompleteFilters();
     registerAutoUpdate();
     initCategoryFilterSearch();
   });

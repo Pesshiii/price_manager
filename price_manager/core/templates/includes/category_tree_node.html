@@ -1,4 +1,4 @@
-<li data-category-node data-category-name="{{ node.category.name|lower|escape }}">
+<li data-category-node data-category-id="{{ node.category.pk }}" data-category-name="{{ node.category.name|lower|escape }}">
   <div class="form-check{%if not node.children %}-reverse{% endif %} ">
     {% if not node.children %}
     <input
@@ -13,6 +13,7 @@
     {% endif %}
     <label
         class="form-check-label"
+        data-category-label
         for="{{ field.auto_id }}_{{ node.category.pk }}"
         {% if node.children %}title="Выберите подкатегорию"{% endif %}
     >
