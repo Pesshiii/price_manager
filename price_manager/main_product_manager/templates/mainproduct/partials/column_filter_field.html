@@ -1,0 +1,49 @@
+{% load crispy_forms_field %}
+
+<div id="div_{{ field.auto_id }}" class="mb-3 container{% if field.errors %} has-error{% endif %}">
+  {% if field.label %}
+    <legend class="form-label fw-bold mb-2">
+      {{ field.label }}
+      {% if field.field.required %}
+        <span class="text-danger">*</span>
+      {% endif %}
+    </legend>
+  {% endif %}
+
+  {% if field.help_text %}
+    <p class="form-text text-muted mb-2">{{ field.help_text|safe }}</p>
+  {% endif %}
+
+  <div class="form-check-group d-flex flex-column gap-3">
+    {% with selected=field.value|default:field.field.initial %}
+      {% for group_label, group_choices in field.field.choices %}
+        <div class="border rounded p-2">
+          <div class="fw-semibold mb-2">{{ group_label }}</div>
+          {% for value, label in group_choices %}
+            <div class="form-check mb-1">
+              <input
+                type="checkbox"
+                name="{{ field.html_name }}"
+                value="{{ value }}"
+                id="{{ field.auto_id }}_{{ forloop.parentloop.counter0 }}_{{ forloop.counter0 }}"
+                class="form-check-input{% if field.errors %} is-invalid{% endif %}"
+                {% if value|stringformat:'' in selected %}checked{% endif %}
+              >
+              <label class="form-check-label" for="{{ field.auto_id }}_{{ forloop.parentloop.counter0 }}_{{ forloop.counter0 }}">
+                {{ label }}
+              </label>
+            </div>
+          {% endfor %}
+        </div>
+      {% endfor %}
+    {% endwith %}
+  </div>
+
+  {% if field.errors %}
+    <div class="invalid-feedback d-block">
+      {% for error in field.errors %}
+        {{ error }}
+      {% endfor %}
+    </div>
+  {% endif %}
+</div>

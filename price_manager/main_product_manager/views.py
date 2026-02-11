@@ -98,7 +98,14 @@ class MainProductTableView(SingleTableView):
       url = reverse('mainproduct-table-bycat',kwargs={'category_pk': self.category_pk})
     else:
       url = reverse('mainproduct-table-nocat')
-    return super().get_table(**kwargs, request=self.request, url=url, prefix=f'{self.category_pk if self.category_pk else 0}-')
+    selected_columns = self.request.GET.getlist('columns')
+    return super().get_table(
+      **kwargs,
+      request=self.request,
+      url=url,
+      selected_columns=selected_columns,
+      prefix=f'{self.category_pk if self.category_pk else 0}-'
+    )
   def get_table_data(self):
     qs = MainProductFilter(self.request.GET).qs.prefetch_related('category')
     if not self.category_pk:
