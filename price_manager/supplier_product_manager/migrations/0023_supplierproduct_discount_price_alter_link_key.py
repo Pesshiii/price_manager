@@ -10,6 +10,36 @@ class Migration(migrations.Migration):
     ]
 
     operations = [
+        migrations.SeparateDatabaseAndState(
+            state_operations=[
+                migrations.RemoveField(
+                    model_name='setting',
+                    name='update_main_content',
+                ),
+            ],
+            # Table already exists. See core\migrations\0045_remove_link_setting_remove_setting_supplier_and_more.py
+            database_operations=[
+            ],
+        ),
+        migrations.RemoveField(
+            model_name='setting',
+            name='differ_by_name',
+        ),
+        migrations.RemoveField(
+            model_name='setting',
+            name='priced_only',
+        ),
+        migrations.SeparateDatabaseAndState(
+            state_operations=[
+                migrations.RemoveField(
+                    model_name='setting',
+                    name='add_main_products',
+                ),
+            ],
+            # Table already exists. See core\migrations\0045_remove_link_setting_remove_setting_supplier_and_more.py
+            database_operations=[
+            ],
+        ),
         migrations.AddField(
             model_name='supplierproduct',
             name='discount_price',
@@ -19,21 +49,5 @@ class Migration(migrations.Migration):
             model_name='link',
             name='key',
             field=models.CharField(choices=[('', 'Не включать'), ('article', 'Артикул поставщика'), ('name', 'Название'), ('manufacturer', 'Производитель'), ('discount', 'Группа скидок'), ('stock', 'Остаток'), ('supplier_price', 'Цена поставщика в валюте поставщика'), ('rrp', 'РРЦ в валюте поставщика'), ('discount_price', 'Цена со скидкой в валюте поставщика')]),
-        ),
-        migrations.RemoveField(
-            model_name='setting',
-            name='add_main_products',
-        ),
-        migrations.RemoveField(
-            model_name='setting',
-            name='priced_only',
-        ),
-        migrations.RemoveField(
-            model_name='setting',
-            name='differ_by_name',
-        ),
-        migrations.RemoveField(
-            model_name='setting',
-            name='update_main_content',
         ),
     ]
