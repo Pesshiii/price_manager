@@ -180,7 +180,7 @@ class XMLTableView(TemplateView):
       context['pk'] = pk
       context['items'] = items
       context['columns'] = get_df_sheet_names(pk=pk)
-      context["page"] = page
+      context['page'] = page
       return context
   
 class SettingUpdate(UpdateView):
@@ -244,7 +244,7 @@ class SettingUpdate(UpdateView):
     if not link_formset.is_valid() :
       messages.error(self.request, f'Что-то пошло не так')
       return HttpResponseClientRefresh()
-    keys = [item['key'] for item in link_formset.cleaned_data if not item['key']=='']
+    keys = [item['key'] for item in link_formset.cleaned_data if not item['key'] is None and not item['key']=='']
     if not len(set(keys)) == len(keys):
       messages.error(self.request, f'Неоднозначная связь: Столбец\\знаение')
       return self.form_invalid(form)
@@ -254,14 +254,15 @@ class SettingUpdate(UpdateView):
       key = link_formset.cleaned_data[i]['key']
       if not key or key=='' : continue
       link = Link.objects.get_or_create(setting=setting, key=key)[0]
-      if indicts[key]['initial'].is_valid():
-        link.initial = indicts[key]['initial'].cleaned_data['initial']
       link.value = df.columns[i]
       link.save()
     for link, value in LINKS.items():
       if link == '': continue
       if indicts[link]['dict_formset'].is_valid():
         mlink = Link.objects.get_or_create(setting=setting, key=link)[0]
+        if indicts[link]['initial'].is_valid() and not indicts[link]['initial'].cleaned_data['initial'] == '':
+          mlink.initial = indicts[link]['initial'].cleaned_data['initial']
+          mlink.save()
         DictItem.objects.filter(link=mlink).delete()
         for item in indicts[link]['dict_formset'].cleaned_data:
           if item['key'] == '': continue

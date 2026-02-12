@@ -48,7 +48,10 @@ def get_df(pk, nrows: int | None = 100)->pd.DataFrame|None:
     В противном случае None
   '''
   file = None
-  setting = Setting.objects.get(pk=pk)
+  try:
+    setting = Setting.objects.get(pk=pk)
+  except:
+    return None
   if not SupplierFile.objects.filter(setting=pk).first(): return None
   file = SupplierFile.objects.filter(setting=pk).first().file
   if not file: return None
@@ -72,7 +75,7 @@ def get_dictformset(post, pk, link):
           form_kwargs={'link':link, 'pk':pk},
           prefix=f'{link}-dict'
         )
-  
+
 
 def get_linkformset(post, pk):
   '''
@@ -118,8 +121,7 @@ def get_indicts(post, pk):
           form_kwargs={'link':link, 'pk':pk},
           prefix=f'{link}-dict'
         )
-    initial = InitialForm(post, initial=mlink.initial, prefix=f'{link}-initial', pk=pk)
-    indicts[link] = (initial, dict_formset)
+    initial = InitialForm(post if post else None, initial={'initial':mlink.initial}, prefix=f'{link}-initial', pk=pk)
     if post and dict_formset.is_valid() and post.get('action'):
       action = post.get('action')
       if 'delete-' + link in action:
@@ -171,11 +173,11 @@ def load_setting(pk):
   for link in links:
     if link.key in df.columns and link.key in SP_NUMBERS:
       df[link.key] = pd.to_numeric(df[link.key], errors='coerce')
-  
+
 
   # to do: добавить проверку на наличие каких либо столбцов кроме артикула и названия если есть применять если нет то нет
   df = df.dropna(subset=[link.key for link in links if not link.key=='article' and not link.key =='name' and link.key in df.columns], how='all')
-  
+
   if not 'name' in df.columns:
     if setting.create_new:
       return None
@@ -192,7 +194,7 @@ def load_setting(pk):
   if not setting.create_new:
     mask = df[['article', 'name']].apply(tuple, axis=1).isin(s_values)
     df = df[mask]
-  df.drop_duplicates(subset=['article', 'name'], keep='first')
+  df = df.drop_duplicates(subset=['article', 'name'], keep='first')
   if 'manufacturer' in df.columns:
     df['manufacturer'] = df['manufacturer'].apply(lambda s: Manufacturer.objects.get_or_create(name=s)[0] if s else None)
   if 'discount' in df.columns:
