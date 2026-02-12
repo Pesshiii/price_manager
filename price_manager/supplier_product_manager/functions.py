@@ -160,7 +160,11 @@ def load_setting(pk):
   if not links.filter(Q(value__isnull=False)).exists():
     return None
   for link in links:
-    if link.value == '' or link.value is None: continue
+    if link.value == '' or link.value is None:
+      if link.value == '' or link.value is None:
+        continue
+      else:
+        df[link.key] = link.initial
     df[link.value] = df[link.value].str.replace(r'\s+', ' ', regex=True)
     if link.initial:
       df[link.value] = df[link.value].fillna(link.initial)

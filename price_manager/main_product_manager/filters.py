@@ -78,7 +78,7 @@ class MainProductFilter(FilterSet):
       'hx-get':reverse_lazy('mainproducts'),
       'hx-target':'#mainproducts-block',
       'hx-swap':'outerHTML',
-      'hx-trigger':'change',
+      'hx-trigger':'input changed delay:1s, submit',
     }
     self.form.helper.layout = Layout(
         'search',
