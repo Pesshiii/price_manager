@@ -177,7 +177,7 @@ def load_setting(pk):
   for link in links:
     if link.key in df.columns and link.key in SP_NUMBERS:
       df[link.key] = pd.to_numeric(df[link.key], errors='coerce')
-
+      df[link.key] = df[link.key].apply(lambda val: val if val >= 0 else None)
 
   # to do: добавить проверку на наличие каких либо столбцов кроме артикула и названия если есть применять если нет то нет
   df = df.dropna(subset=[link.key for link in links if not link.key=='article' and not link.key =='name' and link.key in df.columns], how='all')
@@ -220,8 +220,8 @@ def load_setting(pk):
   sp_update_fields = [link.key for link in links if not link.key=='article' and not link.key == 'name' and link.key in df.columns]
   sp_update_fields.append('updated_at')
   sps = SupplierProduct.objects.bulk_create(
-    sp_model_instances, 
-    update_conflicts=True, 
+    sp_model_instances,
+    update_conflicts=True,
     update_fields=sp_update_fields,
     unique_fields=['supplier', 'article', 'name'])
   if 'stock' in df.columns:
