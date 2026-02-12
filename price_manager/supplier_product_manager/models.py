@@ -66,7 +66,6 @@ class SupplierProduct(models.Model):
   updated_at = models.DateTimeField(verbose_name='Последнее обновление',
                                     auto_now=True,
       blank=True)
-  
   class Meta:
     constraints = [
       models.UniqueConstraint(
