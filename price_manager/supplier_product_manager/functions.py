@@ -157,20 +157,20 @@ def load_setting(pk):
   sps = SupplierProduct.objects.filter(supplier=setting.supplier)
   s_values = map(tuple, sps.values_list('article', 'name'))
   resolve_conflicts(sps)
-  if not links.filter(Q(value__isnull=False)).exists():
+  if not links.filter(Q(value__isnull=False)|Q(initial__isnull=False)).exists():
     return None
   for link in links:
     if link.value == '' or link.value is None:
-      if link.value == '' or link.value is None:
+      if link.initial == '' or link.initial is None:
         continue
-      else:
-        df[link.key] = link.initial
-    df[link.value] = df[link.value].str.replace(r'\s+', ' ', regex=True)
-    if link.initial:
-      df[link.value] = df[link.value].fillna(link.initial)
+      df[link.key] = link.initial
+    else:
+      df = df.rename(columns={link.value : link.key})
+      if not link.initial == '' and not link.initial is None:
+        df[link.key] = df[link.key].fillna(link.initial)
+    df[link.key] = df[link.key].str.replace(r'\s+', ' ', regex=True)
     for dict in link.dicts.all():
-      df[link.value] = df[link.value].replace(dict.key, dict.value)
-    df = df.rename(columns={link.value : link.key})
+      df[link.key] = df[link.key].replace(dict.key, dict.value)
   if not 'article' in df.columns: return None
   df = df.loc[:,[link.key for link in links if not link.key=='' and link.key in df.columns]]
   df = df.dropna(subset=['article'])
