@@ -56,7 +56,7 @@ class SupplierDetail(SingleTableMixin, FilterView):
   def get(self, request, *args, **kwargs):
     self.supplier = Supplier.objects.get(pk=self.kwargs.get('pk', None))
     if self.request.htmx:
-      self.template_name = 'supplier\partials\detail_products_table_partial.html#table'
+      self.template_name = 'supplier\partials\detail_products_table_partial.html'
     return super().get(request, *args, **kwargs)
   def post(self, request, *args, **kwargs):
     self.supplier = Supplier.objects.get(pk=self.kwargs.get('pk', None))
@@ -84,10 +84,13 @@ class SupplierDetail(SingleTableMixin, FilterView):
     return context
 
 def copy_to_main(request, pk, state):
+  if not request.htmx:
+    redirect('supplier-update', pk=pk)
   if state == 0:
     url = reverse('supplier-copymain', kwargs={'pk':pk, 'state':1})
     return render(request, 'supplier_product/partials/load_partial.html', {'url':url})
-  products = SupplierProductFilter(request,pk=pk).queryset.select_related('main_product', 'supplier').filter(supplier=pk)
+  products = SupplierProductFilter(request.GET,pk=pk).qs.select_related('main_product', 'supplier').filter(supplier=pk)
+  print(products.all())
   to_create = products.filter(main_product__isnull=True).count()
   def get_mp(sp: SupplierProduct):
     mp = MainProduct(supplier=sp.supplier, article=sp.article, name=sp.name, manufacturer=sp.manufacturer)
@@ -99,7 +102,7 @@ def copy_to_main(request, pk, state):
   products.bulk_update(products, fields=['main_product'])
   recalculate_search_vectors(mps)
   messages.info(request, f'Обработано товаров ГП {len(mps)}. Создано новых: {to_create}')
-  return HttpResponseClientRefresh()
+  return HttpResponseClientRedirect(reverse('supplier-detail', kwargs={'pk':pk}))
 
 # Обработка настройки
 class UploadSupplierFile(CreateView):
