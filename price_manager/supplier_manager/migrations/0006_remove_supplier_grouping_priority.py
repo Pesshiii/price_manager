@@ -10,8 +10,15 @@ class Migration(migrations.Migration):
     ]
 
     operations = [
-        migrations.RemoveField(
-            model_name='supplier',
-            name='grouping_priority',
+        migrations.SeparateDatabaseAndState(
+            state_operations=[
+                migrations.RemoveField(
+                    model_name='supplier',
+                    name='grouping_priority',
+                ),
+            ],
+            # Column was never added at the DB level in 0005 (state-only migration),
+            # so there is nothing to remove physically from the database.
+            database_operations=[],
         ),
     ]
