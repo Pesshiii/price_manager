@@ -1,0 +1,39 @@
+{% extends "base.html" %}
+
+{% block title %}{% if object %}Редактирование статьи{% else %}Новая статья{% endif %}{% endblock %}
+
+{% block body %}
+<div class="container py-4" style="max-width: 900px;">
+  <h1 class="h3 mb-3">{% if object %}Редактирование статьи{% else %}Новая статья{% endif %}</h1>
+
+  <form method="post" class="card shadow-sm">
+    {% csrf_token %}
+    <div class="card-body">
+      {% if form.non_field_errors %}
+        <div class="alert alert-danger">{{ form.non_field_errors }}</div>
+      {% endif %}
+
+      <div class="mb-3">
+        <label class="form-label" for="id_title">Заголовок</label>
+        {{ form.title }}
+        {% if form.title.errors %}
+          <div class="text-danger small mt-1">{{ form.title.errors|join:", " }}</div>
+        {% endif %}
+      </div>
+
+      <div class="mb-3">
+        <label class="form-label" for="id_content">Текст</label>
+        {{ form.content }}
+        {% if form.content.errors %}
+          <div class="text-danger small mt-1">{{ form.content.errors|join:", " }}</div>
+        {% endif %}
+      </div>
+    </div>
+    <div class="card-footer bg-white d-flex gap-2 justify-content-end">
+      <a href="{% if object %}{% url 'blogapp:article-detail' object.pk %}{% else %}{% url 'blogapp:article-list' %}{% endif %}"
+         class="btn btn-outline-secondary">Отмена</a>
+      <button type="submit" class="btn btn-primary">Сохранить</button>
+    </div>
+  </form>
+</div>
+{% endblock %}

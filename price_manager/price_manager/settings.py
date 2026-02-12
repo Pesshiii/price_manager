@@ -57,6 +57,7 @@ INSTALLED_APPS = [
     'product_price_manager',
     'main_product_manager',
     'supplier_manager',
+    'blogapp',
 ]
 
 MIDDLEWARE = [
