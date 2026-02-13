@@ -27,15 +27,10 @@ class MainProductFilter(FilterSet):
     )
   )
 
-  available = filters.ChoiceFilter(
-    label='Наличие',
+  available = filters.BooleanFilter(
+    label='Товары в наличии',
     method='available_method',
-    choices=(
-      ('', 'Все товары'),
-      ('in', 'Только в наличии'),
-      ('out', 'Нет в наличии'),
-    ),
-    widget=forms.Select(attrs={'class': 'form-select'})
+    widget=forms.CheckboxInput(attrs={'class': 'form-check-input'})
   )
 
   supplier = filters.ModelMultipleChoiceFilter(
@@ -142,10 +137,8 @@ class MainProductFilter(FilterSet):
     return queryset.annotate(rank=rank).filter(search_vector=query).order_by("-rank")
 
   def available_method(self, queryset, name, value):
-    if value == 'in':
+    if value:
       return queryset.filter(stock__gt=0)
-    if value == 'out':
-      return queryset.filter(Q(stock__lte=0) | Q(stock__isnull=True))
     return queryset
 
   def category_method(self, queryset, name, value):
