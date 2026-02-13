@@ -14,7 +14,7 @@ import re
 class MainProductFilter(FilterSet):
   class Meta:
     model = MainProduct
-    fields = ['search', 'category']
+    fields = ['search', 'category', 'available']
 
   search = filters.CharFilter(
     method='search_method',
@@ -27,17 +27,19 @@ class MainProductFilter(FilterSet):
     )
   )
 
-  supplier_search = filters.CharFilter(
-        method='nothing_search',
-        label='Поиск поставщиков',
-        widget=forms.TextInput(attrs={
-            'placeholder': 'Введите имя поставщика',
-            'class': 'form-control',
-        })
-    )
+  available = filters.ChoiceFilter(
+    label='Наличие',
+    method='available_method',
+    choices=(
+      ('', 'Все товары'),
+      ('in', 'Только в наличии'),
+      ('out', 'Нет в наличии'),
+    ),
+    widget=forms.Select(attrs={'class': 'form-select'})
+  )
 
   supplier = filters.ModelMultipleChoiceFilter(
-    label='',
+    label='Поставщики',
     field_name='supplier',
     queryset=Supplier.objects.none(),
     widget=forms.widgets.CheckboxSelectMultiple(
@@ -45,17 +47,8 @@ class MainProductFilter(FilterSet):
     )
     )
 
-  manufacturer_search = filters.CharFilter(
-        method='nothing_search',
-        label='Поиск производителей',
-        widget=forms.TextInput(attrs={
-            'placeholder': 'Введите имя производителя',
-            'class': 'form-control',
-        })
-    )
-
   manufacturer = filters.ModelMultipleChoiceFilter(
-    label='',
+    label='Производители',
     field_name='manufacturer',
     queryset=Manufacturer.objects.none(),
     widget=forms.widgets.CheckboxSelectMultiple(
@@ -90,12 +83,14 @@ class MainProductFilter(FilterSet):
           css_class='mb-3'
         ),
         Div(
-          Field('supplier_search'),
+          Field('available'),
+          css_class='border rounded p-3 bg-body-tertiary mb-3'
+        ),
+        Div(
           Field('supplier', template='supplier/partials/checkbox_filter_field.html'),
           css_class='border rounded p-3 bg-body-tertiary mb-3'
         ),
         Div(
-          Field('manufacturer_search'),
           Field('manufacturer', template='supplier/partials/checkbox_filter_field.html'),
           css_class='border rounded p-3 bg-body-tertiary mb-3'
         ),
@@ -105,44 +100,30 @@ class MainProductFilter(FilterSet):
         ),
         Div(
           Submit('action', 'Применить', title="Применить", css_class='btn btn-primary flex-grow-1'),
-          HTML('''<a href="{% url 'mainproducts' %}" class="btn btn-outline-secondary" title="Сбросить">Сбросить</a>'''),
+          HTML("""<a href=\"{% url 'mainproducts' %}\" class=\"btn btn-outline-secondary\" title=\"Сбросить\">Сбросить</a>"""),
           css_class='d-flex gap-2 mt-4'
         )
     )
 
   def config_filters(self, queryset):
+    selected_suppliers = self.data.getlist('supplier', None)
+    supplier_queryset = Supplier.objects.filter(pk__in=queryset.values('supplier')).order_by('name')
+    if selected_suppliers:
+      supplier_queryset = Supplier.objects.filter(
+        Q(pk__in=supplier_queryset.values('pk')) | Q(pk__in=selected_suppliers)
+      ).order_by('name')
+    self.filters['supplier'].field.queryset = supplier_queryset
 
-    supplier_search_term = self.data.get('supplier_search', '')
-    sq = Q(pk__in=queryset.values('supplier'))
-    if not supplier_search_term == '':
-      sq &= Q(name__icontains=supplier_search_term)
-    if not self.data.getlist('supplier') == []:
-      self.filters['supplier'].field.queryset = Supplier.objects.filter(
-        Q(pk__in=Supplier.objects.filter(sq)[:10])|Q(pk__in=self.data.getlist('supplier', None))
-        )
-    else:  
-      self.filters['supplier'].field.queryset = Supplier.objects.filter(
-        Q(pk__in=Supplier.objects.filter(sq)[:10])
-        )
-    
+    selected_manufacturers = self.data.getlist('manufacturer', None)
+    manufacturer_queryset = Manufacturer.objects.filter(pk__in=queryset.values('manufacturer')).order_by('name')
+    if selected_manufacturers:
+      manufacturer_queryset = Manufacturer.objects.filter(
+        Q(pk__in=manufacturer_queryset.values('pk')) | Q(pk__in=selected_manufacturers)
+      ).order_by('name')
+    self.filters['manufacturer'].field.queryset = manufacturer_queryset
 
-    manufacturer_search_term = self.data.get('manufacturer_search', '')
-    mq = Q(pk__in=queryset.values('manufacturer'))
-    if not manufacturer_search_term == '':
-      mq &= Q(
-          name__icontains=manufacturer_search_term
-      )
-    if not self.data.getlist('manufacturer') == []:
-      self.filters['manufacturer'].field.queryset = Manufacturer.objects.filter(
-        Q(pk__in=Manufacturer.objects.filter(mq)[:10])|Q(pk__in=self.data.getlist('manufacturer', None))
-        )
-    else:  
-      self.filters['manufacturer'].field.queryset = Manufacturer.objects.filter(
-        Q(pk__in=Manufacturer.objects.filter(mq)[:10])
-        )
-      
     return None
-  
+
 
   def _build_partial_query(self, value):
       value = re.sub(r"[^\w\-\\\/]+", " ", value, flags=re.UNICODE)
@@ -159,11 +140,13 @@ class MainProductFilter(FilterSet):
       return queryset
     rank = SearchRank("search_vector", query)
     return queryset.annotate(rank=rank).filter(search_vector=query).order_by("-rank")
-  
-  def nothing_search(self, queryset, name, value):
-      # This method just stores the search term for filtering suppliers
-      # The actual filtering is done by filter_supplier_choice
-      return queryset
+
+  def available_method(self, queryset, name, value):
+    if value == 'in':
+      return queryset.filter(stock__gt=0)
+    if value == 'out':
+      return queryset.filter(Q(stock__lte=0) | Q(stock__isnull=True))
+    return queryset
 
   def category_method(self, queryset, name, value):
     if list(value) == []:

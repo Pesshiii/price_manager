@@ -55,17 +55,6 @@
 
       const search = block.querySelector('[data-checkbox-filter-search]');
       const items = Array.from(block.querySelectorAll('[data-checkbox-filter-item]'));
-      const selectAllButton = block.querySelector('[data-checkbox-filter-select-all]');
-      const clearButton = block.querySelector('[data-checkbox-filter-clear]');
-      const counter = block.querySelector('[data-selected-counter]');
-
-      const updateCounter = () => {
-        if (!counter) {
-          return;
-        }
-        const checked = block.querySelectorAll('input[type="checkbox"]:checked').length;
-        counter.textContent = `Выбрано: ${checked}`;
-      };
 
       const applySearch = () => {
         if (!search) {
@@ -82,40 +71,7 @@
         search.addEventListener('input', applySearch);
       }
 
-      if (selectAllButton) {
-        selectAllButton.addEventListener('click', () => {
-          items.forEach((item) => {
-            if (item.classList.contains('d-none')) {
-              return;
-            }
-            const checkbox = item.querySelector('input[type="checkbox"]');
-            if (checkbox) {
-              checkbox.checked = true;
-              checkbox.dispatchEvent(new Event('change', { bubbles: true }));
-            }
-          });
-          updateCounter();
-        });
-      }
-
-      if (clearButton) {
-        clearButton.addEventListener('click', () => {
-          block.querySelectorAll('input[type="checkbox"]').forEach((checkbox) => {
-            checkbox.checked = false;
-            checkbox.dispatchEvent(new Event('change', { bubbles: true }));
-          });
-          updateCounter();
-        });
-      }
-
-      block.addEventListener('change', (event) => {
-        if (event.target && event.target.matches('input[type="checkbox"]')) {
-          updateCounter();
-        }
-      });
-
       applySearch();
-      updateCounter();
       block.dataset.enhanced = 'true';
     });
   };
