@@ -18,19 +18,21 @@ class MainProductFilter(FilterSet):
 
   search = filters.CharFilter(
     method='search_method',
-    label='Поиск',
+    label='Поиск товаров',
     widget=forms.TextInput(
        attrs={
-          'placeholder': 'Поиск...'
+          'placeholder': 'Название, артикул или ключевое слово',
+          'class': 'form-control',
        }
     )
   )
 
   supplier_search = filters.CharFilter(
         method='nothing_search',
-        label='Поставщики',
+        label='Поиск поставщиков',
         widget=forms.TextInput(attrs={
-            'placeholder': 'Поиск поставщиков...',
+            'placeholder': 'Введите имя поставщика',
+            'class': 'form-control',
         })
     )
 
@@ -45,9 +47,10 @@ class MainProductFilter(FilterSet):
 
   manufacturer_search = filters.CharFilter(
         method='nothing_search',
-        label='Производители',
+        label='Поиск производителей',
         widget=forms.TextInput(attrs={
-            'placeholder': 'Поиск производителей...',
+            'placeholder': 'Введите имя производителя',
+            'class': 'form-control',
         })
     )
 
@@ -81,16 +84,29 @@ class MainProductFilter(FilterSet):
       'hx-trigger':'input changed delay:1s, submit',
     }
     self.form.helper.layout = Layout(
-        'search',
-        Field('supplier_search'),
-        Field('supplier', template='supplier/partials/checkbox_filter_field.html'),
-        Field('manufacturer_search'),
-        Field('manufacturer', template='supplier/partials/checkbox_filter_field.html'),
-        Field('category', template='supplier/partials/category_filter_field.html'),
+        HTML('<h5 class="mb-3">Фильтры товаров</h5>'),
         Div(
-          Submit('action', 'Поиск', title="Поиск", css_class='btn btn-primary col-5  btn-lg'),
-          HTML('''<a href="{% url 'mainproducts' %}" class="btn btn-secondary col-4 btn-lg" title="Сбросить">Сбросить</a>'''),
-          css_class='d-flex gap-1 mt-4 container'
+          Field('search'),
+          css_class='mb-3'
+        ),
+        Div(
+          Field('supplier_search'),
+          Field('supplier', template='supplier/partials/checkbox_filter_field.html'),
+          css_class='border rounded p-3 bg-body-tertiary mb-3'
+        ),
+        Div(
+          Field('manufacturer_search'),
+          Field('manufacturer', template='supplier/partials/checkbox_filter_field.html'),
+          css_class='border rounded p-3 bg-body-tertiary mb-3'
+        ),
+        Div(
+          Field('category', template='supplier/partials/category_filter_field.html'),
+          css_class='border rounded p-3 bg-body-tertiary'
+        ),
+        Div(
+          Submit('action', 'Применить', title="Применить", css_class='btn btn-primary flex-grow-1'),
+          HTML('''<a href="{% url 'mainproducts' %}" class="btn btn-outline-secondary" title="Сбросить">Сбросить</a>'''),
+          css_class='d-flex gap-2 mt-4'
         )
     )
 
