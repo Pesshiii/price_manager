@@ -20,13 +20,22 @@ urlpatterns = [
     path('', mp_views.MainPage.as_view(), name='mainproducts'),
     path('mainproduct/table_bycat/<int:category_pk>', mp_views.MainProductTableView.as_view(), name='mainproduct-table-bycat'),
     path('mainproduct/table_nocat/', mp_views.MainProductTableView.as_view(), name='mainproduct-table-nocat'),
-    
-    path('instructions/', views.InstructionsView.as_view(), name='instructions'),
+    path('mainproduct/resolve/table_bycat/<int:category_pk>', mp_views.MainProductResolveTableView.as_view(), name='mainproductresolve-table-bycat'),
+    path('mainproduct/resolve/table_nocat/', mp_views.MainProductResolveTableView.as_view(), name='mainproductresolve-table-nocat'),
+
+    path('mainproduct/<int:id>/update', mp_views.MainProductUpdate.as_view(), name='main-product-update'),
+    path('mainproduct/sync', mp_views.sync_main_products, name='mainproducts-sync'),
+    path('mainproduct/<int:pk>/info', mp_views.MainProductInfo.as_view(), name='mainproduct-info'),
+    path('mainproduct/<int:pk>/update', mp_views.MainProductUpdate.as_view(), name='mainproduct-update'),
+    path('mainproduct/<int:pk>/resolve', mp_views.ResolveMainproduct.as_view(), name='mainproduct-resolve'),
+    path('mainproduct/<int:pk>/detail', mp_views.MainProductDetail.as_view(), name='mainproduct-detail'),
+    path('mainproduct/<int:pk>/pricetags', ppm_views.PriceTagList.as_view(), name='pricetag-list'),
+    path('mainproduct/<int:pk>/logs', mp_views.MainProductLogList.as_view(), name='mainproductlog-list'),
 
     # SUPPLIER WORKFRAME
     
     path('supplier/', sm_views.SupplierList.as_view(), name='supplier'),
-
+    
     path('supplier/<int:pk>/update', sm_views.SupplierUpdate.as_view(), name='supplier-update'),
     path('supplier/<int:id>/delete/', sm_views.SupplierDelete.as_view(), name='supplier-delete'),
 
@@ -64,14 +73,6 @@ urlpatterns = [
 
     path('supplier-product/<int:id>/delete/', spm_views.delete_supplier_product, name='supplier-product-delete'),
 
-    path('main-product/<int:id>/update', mp_views.MainProductUpdate.as_view(), name='main-product-update'),
-    path('main-product/sync', mp_views.sync_main_products, name='mainproducts-sync'),
-    path('mainproduct/<int:pk>/info', mp_views.MainProductInfo.as_view(), name='mainproduct-info'),
-    path('mainproduct/<int:pk>/update', mp_views.MainProductUpdate.as_view(), name='mainproduct-update'),
-    path('mainproduct/<int:pk>/detail', mp_views.MainProductDetail.as_view(), name='mainproduct-detail'),
-    path('mainproduct/<int:pk>/pricetags', ppm_views.PriceTagList.as_view(), name='pricetag-list'),
-    path('mainproduct/<int:pk>/logs', mp_views.MainProductLogList.as_view(), name='mainproductlog-list'),
-
 
     path('upload/<str:name>/<int:id>/', fm_views.FileUpload.as_view(), name='upload'),
 
@@ -85,9 +86,9 @@ urlpatterns = [
     path('shopping-tabs/<int:tab_pk>/add/<int:product_id>/', views.ShoppingTabAddProductView.as_view(), name='shopping-tab-add-product'),
 
 
-    path("toasts/", views.toast_messages, name="toast-messages"),
-
     path('blog/', include('blogapp.urls')),
+
+    path("toasts/", views.toast_messages, name="toast-messages"),
 
 ] + static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)
 

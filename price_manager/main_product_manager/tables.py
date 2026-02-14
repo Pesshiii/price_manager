@@ -32,6 +32,7 @@ AVAILABLE_COLUMN_GROUPS = [
       ('sku', 'Артикул товара'),
       ('article', 'Артикул поставщика'),
       ('name', 'Название'),
+      ('description', 'Описание'),
       ('supplier', 'Поставщик'),
       ('manufacturer', 'Производитель'),
       ('category', 'Категория'),
@@ -143,8 +144,9 @@ class MainProductTable(tables.Table):
       'actions',
       'sku',
       'article',
-      'supplier',
       'name',
+      'description',
+      'supplier',
       'category',
       'manufacturer',
       'weight',
@@ -195,6 +197,43 @@ class MainProductTable(tables.Table):
       }
     )
 
+class MainProductResolveTable(tables.Table):
+  class Meta:
+    model = MainProduct
+    fields = [
+      'sku',
+      'article',
+      'name',
+      'supplier'
+    ]
+    template_name = 'core/includes/table_htmx.html'
+    attrs = {
+      'class': 'clickable-rows table table-auto table-stripped table-hover'
+      }
+  def render_stock_msg(self, record):
+    if not record.stock or record.stock == 0:
+      return record.supplier.msg_navailable
+    else:
+      return record.supplier.msg_available
+  
+  def render_delivery_days(self, record):
+    return record.supplier.get_delivery_days_for_stock(record.stock)
+  def render_actions(self, record):
+        return render_to_string(
+            'main/product/actions.html',
+            {
+                'record': record,
+                'request': self.request,
+            },
+            request=self.request,
+        )
+  def render_name(self, record):
+    return render_to_string(
+      'mainproduct/includes/name.html',
+      {
+        'record': record,
+      }
+    )
 
 class CategoryListTable(tables.Table):
   '''Таблица Категорий отображаемая на странице Производители'''

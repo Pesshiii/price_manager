@@ -1,5 +1,6 @@
 from django.contrib import admin
 from .models import Discount, Category
+from django.utils.safestring import mark_safe
 
 @admin.register(Discount)
 class DiscountAdmin(admin.ModelAdmin):

@@ -1,14 +1,18 @@
+{% load crispy_forms_tags %}
+<div class="container p-4">
+    <form hx-post="{% url 'mainproduct-update' mainproduct.pk %}">
 
-<form hx-post="{% url 'mainproduct-update' mainproduct.pk %}">
-
-    {{form.as_p}}
-    <button class="btn btn-success">
-        Обновить
-    </button>
-    <button class="btn btn-error" 
-        hx-get="{% url 'mainproduct-detail' mainproduct.pk%}" 
-        hx-target="#mainproduct-card"
-        hx-push-url="{% url 'mainproduct-detail' mainproduct.pk%}">
-        Отмена
-    </button>
-</form>
+        {{form|crispy}}
+        <div class="mt-4">
+            <button class="btn btn-success">
+                Обновить
+            </button>
+            <button class="btn btn-error" 
+                hx-get="{% url 'mainproduct-detail' mainproduct.pk%}" 
+                hx-target="#mainproduct-card"
+                hx-push-url="{% url 'mainproduct-detail' mainproduct.pk%}">
+                Отмена
+            </button>
+        </div>
+    </form>
+</div>

@@ -30,6 +30,16 @@ class SupplierProduct(models.Model):
   name = models.CharField(verbose_name='Название',
                           null=False,
                           blank=False)
+  description = models.TextField(
+    verbose_name="Описание",
+    null=True,
+    blank=True)
+  category = models.ForeignKey(Category,
+                               on_delete=models.SET_NULL,
+                               verbose_name='Категория',
+                               related_name='supplierproducts',
+                               null=True,
+                               blank=True)
   manufacturer = models.ForeignKey(Manufacturer,
                                    verbose_name='Производитель',
                                    related_name='supplierproducts',
@@ -80,6 +90,8 @@ class SupplierProduct(models.Model):
 LINKS = {'': 'Не включать',
          'article': 'Артикул поставщика',
          'name': 'Название',
+         'description': 'Описание',
+         'category': 'Категория',
          'manufacturer': 'Производитель',
          'discount': 'Группа скидок',
          'stock': 'Остаток',

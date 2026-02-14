@@ -11,13 +11,31 @@
         <p class="">Цена ИМ: {% if mainproduct.m_price %}{{mainproduct.m_price}} тг.{% else %}Отсутствует.{% endif %}</p>
         <p class="">Последнее обновление: {% if mainproduct.price_updated_at %}{{mainproduct.price_updated_at}}{% else %}Отсутствует.{% endif %}</p>
       </div>
-
-      <button class="btn btn-success" 
-          hx-get="{% url 'mainproduct-update' pk=mainproduct.pk %}" 
-          hx-target="#mainproduct-card"
-          hx-push-url="{% url 'mainproduct-update' pk=mainproduct.pk %}">
-          Изменить
-      </button>
+      
+      <div>
+        <button type="button"
+                class="btn btn-primary"
+                title="Изменить"
+                data-bs-toggle="modal"
+                data-bs-target="#modal-container"
+                hx-get="{% url 'mainproduct-update' pk=mainproduct.pk %}"
+                hx-target="#modal-container .modal-content"
+                hx-swap="innerHTML">
+          <i class="bi bi-plus"></i>
+          <span>Изменить</span>
+        </button>
+        <button type="button"
+                class="btn btn-primary"
+                title="Привязать из ГП"
+                data-bs-toggle="modal"
+                data-bs-target="#modal-container"
+                hx-get="{% url 'mainproduct-resolve' pk=mainproduct.pk %}"
+                hx-target="#modal-container .modal-content"
+                hx-swap="innerHTML">
+          <i class="bi bi-plus"></i>
+          <span>Привязать из ГП</span>
+        </button>
+      </div>
     </div>
     <div id="mainproduct-logs" 
         class="row mt-2"

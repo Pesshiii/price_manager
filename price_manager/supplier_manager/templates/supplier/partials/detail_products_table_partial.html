@@ -6,7 +6,7 @@
       <div class="row p-2">
         <div class="d-flex card p-2">
           Копируются только те товары которые попадают под фильтр.<br>
-          Обновляется контент: поле производителя (в дальнейшем описание, категория и т.д.).
+          Обновляется контент: поле описания, категории, производителя.
         </div>
       </div>
     </div>
@@ -26,10 +26,11 @@
               Столбцы
             </button>
             <div class="dropdown-menu dropdown-menu-end p-3" style="min-width: 320px; max-height: 55vh; overflow-y: auto;">
-              <form hx-get="{% url 'supplier-detail' supplier.pk %}"
-                    hx-target="#supplierproduct-table"
-                    hx-swap="outerHTML"
-                    hx-trigger="change from:input[name='columns']">
+              <form method="GET"
+                    hx-get="{% url 'supplier-detail' supplier.pk %}"
+                    hx-target="#products"
+                    hx-swap="innerHTML"
+                    hx-trigger="change from:input[name='columns'] delay:1s">
                 {% for key, values in request.GET.lists %}
                   {% if key != 'columns' and key != 'page' %}
                     {% for value in values %}
@@ -60,7 +61,7 @@
             </div>
           </div>
         </div>
-        <div class="table-responsive overflow-visible">
+        <div class="table-responsive overflow-auto">
           {% load django_tables2 %}
           {% render_table table %}
         </div>

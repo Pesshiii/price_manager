@@ -2,7 +2,7 @@ from import_export import resources, fields
 from import_export.widgets import ForeignKeyWidget, ManyToManyWidget
 from difflib import get_close_matches
 from .models import *
-from supplier_manager.models import ManufacturerDict
+from supplier_manager.models import ManufacturerDict, Discount
 
 class CategoryWidget(ForeignKeyWidget):
     """Категория строкой: 'Инструмент > Ручной инструмент > Отвертки'."""
@@ -115,17 +115,26 @@ class MainProductResource(resources.ModelResource):
         widget=SupplierWidget(Supplier, "name"),
     )
     manufacturer = fields.Field(
-        column_name="manufacturer",
+        column_name="Производитель",
         attribute="manufacturer",
         widget=ManufacturerWidget(Manufacturer, "name"),
     )
     category = fields.Field(
-        column_name="category",
+        column_name="Название_группы",
         attribute="category",
         widget=CategoryWidget(Category, "name"),
     )
     supplier_prices = fields.Field(column_name='Supplier Prices')
-    
+    m_price = fields.Field(
+        column_name="Цена",
+        attribute="m_price")
+    stock = fields.Field(
+        column_name="Количество",
+        attribute="stock")
+    description = fields.Field(
+        column_name='HTML_описание',
+        attribute='description')
+
 
     class Meta:
         model = MainProduct
@@ -157,6 +166,7 @@ class MainProductResource(resources.ModelResource):
             "stock",
             "prime_cost",
             "basic_price",
+            "m_price"
         )
 
         # Какие реально использовать при каждой операции

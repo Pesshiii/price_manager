@@ -3,7 +3,7 @@ from django.utils import timezone
 from django.db.models import ExpressionWrapper, Q, BooleanField, Value
 
 from .models import (SupplierFile, Setting, Link, 
-                     SupplierProduct, Manufacturer, Discount,
+                     SupplierProduct, Manufacturer, Discount, Category,
                      SP_NUMBERS, SP_PRICES)
 from main_product_manager.models import (MainProduct, recalculate_search_vectors)
 
@@ -203,7 +203,20 @@ def load_setting(pk):
     df['manufacturer'] = df['manufacturer'].apply(lambda s: Manufacturer.objects.get_or_create(name=s)[0] if s else None)
   if 'discount' in df.columns:
     df['discount'] = df['discount'].apply(lambda s: Discount.objects.get_or_create(supplier=setting.supplier, name=s)[0] if s else None)
-  print(len(df['name'].unique()))
+  if 'category' in df.columns:
+    def _get_category(value):
+        if not value:
+            return None
+        parts = [p.strip() for p in str(value).split(">") if p and str(p).strip()]
+        parent = None
+        node = None
+        if Category.objects.filter(name=parts[-1]).count() == 1:
+          return Category.objects.filter(name=parts[-1]).first()
+        for name in parts[:10]:
+            node, _ = Category.objects.get_or_create(name=name, parent=parent)
+            parent = node
+        return node
+    df['category'] = df['category'].apply(_get_category)
   def get_spmodel(row):
     data = {
         link.key: Decimal(str(getattr(row, link.key))) if link.key in SP_NUMBERS else getattr(row, link.key)

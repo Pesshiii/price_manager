@@ -90,14 +90,13 @@ def copy_to_main(request, pk, state):
     url = reverse('supplier-copymain', kwargs={'pk':pk, 'state':1})
     return render(request, 'supplier_product/partials/load_partial.html', {'url':url})
   products = SupplierProductFilter(request.GET,pk=pk).qs.select_related('main_product', 'supplier').filter(supplier=pk)
-  print(products.all())
   to_create = products.filter(main_product__isnull=True).count()
   def get_mp(sp: SupplierProduct):
-    mp = MainProduct(supplier=sp.supplier, article=sp.article, name=sp.name, manufacturer=sp.manufacturer)
+    mp = MainProduct(supplier=sp.supplier, article=sp.article, name=sp.name, description=sp.description, manufacturer=sp.manufacturer, category=sp.category)
     sp.main_product = mp
     return mp
   mp_map = map(get_mp, products)
-  mp_list = MainProduct.objects.bulk_create(mp_map, update_conflicts=True, unique_fields=['supplier', 'article', 'name'], update_fields=['manufacturer'])
+  mp_list = MainProduct.objects.bulk_create(mp_map, update_conflicts=True, unique_fields=['supplier', 'article', 'name'], update_fields=['manufacturer', 'category', 'description'])
   mps = MainProduct.objects.filter(pk__in=[mp.pk for mp in mp_list])
   products.bulk_update(products, fields=['main_product'])
   recalculate_search_vectors(mps)

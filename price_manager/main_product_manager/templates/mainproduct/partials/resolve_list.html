@@ -1,0 +1,12 @@
+
+{% partialdef list inline %}
+  <div id="mainproducts-block" class="row gap-2 p-4">
+    
+    <div class="col-3">
+      {% include "mainproduct/partials/filter.html" %}
+    </div>
+    <div class="col-8">
+      {% include 'mainproduct/partials/tables_bycat.html' %}
+    </div>
+  </div>
+{% endpartialdef %}
