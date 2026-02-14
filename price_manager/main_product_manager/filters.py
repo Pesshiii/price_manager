@@ -67,9 +67,9 @@ class MainProductFilter(FilterSet):
     self.form.helper.label_class='mt-2'
     self.form.helper.attrs = {
       'hx-get':reverse_lazy('mainproducts'),
-      'hx-target':'#mainproducts-block',
+      'hx-target':'#mainproducts-table',
       'hx-swap':'outerHTML',
-      'hx-trigger':'input changed delay:1s, submit',
+      'hx-trigger':'input changed, submit',
     }
     self.form.helper.layout = Layout(
         HTML('<h5 class="mb-3">Фильтры товаров</h5>'),
@@ -77,22 +77,27 @@ class MainProductFilter(FilterSet):
           Field('search'),
           css_class='mb-3'
         ),
+        HTML('<hr class="border-secondary">'),
         Div(
           Field('available'),
-          css_class='border rounded p-3 bg-body-tertiary mb-3'
+          css_class='p-3 mb-3'
         ),
+        HTML('<hr class="border-secondary">'),
         Div(
           Field('supplier', template='supplier/partials/checkbox_filter_field.html'),
-          css_class='border rounded p-3 bg-body-tertiary mb-3'
+          css_class='p-3 mb-3'
         ),
+        HTML('<hr class="border-secondary">'),
         Div(
           Field('manufacturer', template='supplier/partials/checkbox_filter_field.html'),
-          css_class='border rounded p-3 bg-body-tertiary mb-3'
+          css_class='p-3 mb-3'
         ),
+        HTML('<hr class="border-secondary">'),
         Div(
           Field('category', template='supplier/partials/category_filter_field.html'),
-          css_class='border rounded p-3 bg-body-tertiary'
+          css_class='p-3'
         ),
+        HTML('<hr class="border-secondary">'),
         Div(
           Submit('action', 'Применить', title="Применить", css_class='btn btn-primary flex-grow-1'),
           HTML("""<a href=\"{% url 'mainproducts' %}\" class=\"btn btn-outline-secondary\" title=\"Сбросить\">Сбросить</a>"""),

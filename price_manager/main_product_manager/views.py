@@ -57,7 +57,7 @@ class MainPage(FilterView):
       if self.request.htmx:
         if not self.request.GET.get('page', 1) == 1:
           return ["mainproduct/partials/tables_bycat.html#category-table"]
-        return [self.template_name+"#list"]
+        return ["mainproduct/partials/tables_bycat.html"]
       return super().get_template_names()
   def get_context_data(self, **kwargs) -> dict[str, Any]:
     context = super().get_context_data(**kwargs)

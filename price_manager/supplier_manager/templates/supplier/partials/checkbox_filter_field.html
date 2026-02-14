@@ -1,5 +1,7 @@
 {# checkbox_select_multiple_advanced.html #}
 {% load crispy_forms_field %}
+{% load crispy_forms_filters %}
+{% load l10n %}
 
 <div id="div_{{ field.auto_id }}"
      class="mb-3{% if field.errors %} has-error{% endif %}"
@@ -22,7 +24,7 @@
 
     {% if field.field.choices %}
         <div class="input-group input-group-sm mb-2">
-            <span class="input-group-text">🔎</span>
+            <span class="input-group-text"><i class="bi bi-search"></i></span>
             <input
                 type="search"
                 class="form-control"
