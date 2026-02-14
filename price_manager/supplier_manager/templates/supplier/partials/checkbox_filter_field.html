@@ -1,9 +1,12 @@
 {# checkbox_select_multiple_advanced.html #}
 {% load crispy_forms_field %}
+{% load crispy_forms_filters %}
+{% load l10n %}
 
-<div id="div_{{ field.auto_id }}" 
-     class="mb-3{% if field.errors %} has-error{% endif %} container">
-    
+<div id="div_{{ field.auto_id }}"
+     class="mb-3{% if field.errors %} has-error{% endif %}"
+     data-checkbox-filter>
+
     {% if field.label %}
         <legend class="form-label fw-bold mb-2">
             {{ field.label }}
@@ -18,35 +21,40 @@
             {{ field.help_text|safe }}
         </p>
     {% endif %}
-    
-    <div class="form-check-group">
-        {%if field.field.choices%}
+
+    {% if field.field.choices %}
+        <div class="input-group input-group-sm mb-2">
+            <span class="input-group-text"><i class="bi bi-search"></i></span>
+            <input
+                type="search"
+                class="form-control"
+                placeholder="Быстрый поиск"
+                data-checkbox-filter-search
+            >
+        </div>
+    {% endif %}
+
+    <div class="form-check-group border rounded p-2 bg-light-subtle" style="max-height: 260px; overflow: auto;">
+        {% if field.field.choices %}
             {% for choice in field.field.choices %}
-                <div class="form-check mb-2">
-                    <input 
-                        type="checkbox" 
-                        name="{{ field.html_name }}" 
-                        value="{{ choice.0 }}" 
+                <div class="form-check mb-2" data-checkbox-filter-item data-checkbox-filter-text="{{ choice.1|lower }}">
+                    <input
+                        type="checkbox"
+                        name="{{ field.html_name }}"
+                        value="{{ choice.0 }}"
                         id="{{ field.auto_id }}_{{ forloop.counter0 }}"
                         class="form-check-input{% if field.errors %} is-invalid{% endif %}"
-                        {% if choice.0|stringformat:'' in field.value%}checked{% endif %}
+                        {% if choice.0|stringformat:'' in field.value %}checked{% endif %}
                     >
-                    <label 
-                        class="form-check-label" 
-                        for="{{ field.auto_id }}_{{ forloop.counter0 }}"
-                    >
+                    <label class="form-check-label" for="{{ field.auto_id }}_{{ forloop.counter0 }}">
                         {{ choice.1 }}
                     </label>
                 </div>
             {% endfor %}
         {% elif field.label %}
-            <div>
-                {{field.label }} не найдены
-            </div>
+            <div>{{ field.label }} не найдены</div>
         {% else %}
-            <div>
-                Нет подходящих
-            </div>
+            <div>Нет подходящих</div>
         {% endif %}
     </div>
 
