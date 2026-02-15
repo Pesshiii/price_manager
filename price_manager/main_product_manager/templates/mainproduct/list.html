@@ -4,12 +4,24 @@
 Главная страница
 {% endblock %}
 
+
+{% block style %}
+  .main-filters-card {
+    position: sticky;
+    top: 88px;
+    max-height: calc(100vh - 110px);
+    overflow: auto;
+  }
+{% endblock %}
+
 {% block body %}
   {% partialdef list inline %}
     <div id="mainproducts-block" class="row gap-2 p-4">
       
       <div class="col-3">
+        <div class="main-filters-card">
         {% include "mainproduct/partials/filter.html" %}
+        </div>
       </div>
       <div class="col-8">
         {% include 'mainproduct/partials/tables_bycat.html' %}

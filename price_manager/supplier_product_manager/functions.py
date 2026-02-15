@@ -3,7 +3,7 @@ from django.utils import timezone
 from django.db.models import ExpressionWrapper, Q, BooleanField, Value
 
 from .models import (SupplierFile, Setting, Link, 
-                     SupplierProduct, Manufacturer, Discount,
+                     SupplierProduct, Manufacturer, Discount, Category,
                      SP_NUMBERS, SP_PRICES)
 from main_product_manager.models import (MainProduct, recalculate_search_vectors)
 
@@ -48,7 +48,10 @@ def get_df(pk, nrows: int | None = 100)->pd.DataFrame|None:
     В противном случае None
   '''
   file = None
-  setting = Setting.objects.get(pk=pk)
+  try:
+    setting = Setting.objects.get(pk=pk)
+  except:
+    return None
   if not SupplierFile.objects.filter(setting=pk).first(): return None
   file = SupplierFile.objects.filter(setting=pk).first().file
   if not file: return None
@@ -72,7 +75,7 @@ def get_dictformset(post, pk, link):
           form_kwargs={'link':link, 'pk':pk},
           prefix=f'{link}-dict'
         )
-  
+
 
 def get_linkformset(post, pk):
   '''
@@ -118,8 +121,7 @@ def get_indicts(post, pk):
           form_kwargs={'link':link, 'pk':pk},
           prefix=f'{link}-dict'
         )
-    initial = InitialForm(post, initial=mlink.initial, prefix=f'{link}-initial', pk=pk)
-    indicts[link] = (initial, dict_formset)
+    initial = InitialForm(post if post else None, initial={'initial':mlink.initial}, prefix=f'{link}-initial', pk=pk)
     if post and dict_formset.is_valid() and post.get('action'):
       action = post.get('action')
       if 'delete-' + link in action:
@@ -155,27 +157,31 @@ def load_setting(pk):
   sps = SupplierProduct.objects.filter(supplier=setting.supplier)
   s_values = map(tuple, sps.values_list('article', 'name'))
   resolve_conflicts(sps)
-  if not links.filter(Q(value__isnull=False)).exists():
+  if not links.filter(Q(value__isnull=False)|Q(initial__isnull=False)).exists():
     return None
   for link in links:
-    if link.value == '' or link.value is None: continue
-    df[link.value] = df[link.value].str.replace(r'\s+', ' ', regex=True)
-    if link.initial:
-      df[link.value] = df[link.value].fillna(link.initial)
+    if link.value == '' or link.value is None:
+      if link.initial == '' or link.initial is None:
+        continue
+      df[link.key] = link.initial
+    else:
+      df = df.rename(columns={link.value : link.key})
+      if not link.initial == '' and not link.initial is None:
+        df[link.key] = df[link.key].fillna(link.initial)
+    df[link.key] = df[link.key].str.replace(r'\s+', ' ', regex=True)
     for dict in link.dicts.all():
-      df[link.value] = df[link.value].replace(dict.key, dict.value)
-    df = df.rename(columns={link.value : link.key})
+      df[link.key] = df[link.key].replace(dict.key, dict.value)
   if not 'article' in df.columns: return None
   df = df.loc[:,[link.key for link in links if not link.key=='' and link.key in df.columns]]
   df = df.dropna(subset=['article'])
   for link in links:
     if link.key in df.columns and link.key in SP_NUMBERS:
       df[link.key] = pd.to_numeric(df[link.key], errors='coerce')
-  
+      df[link.key] = df[link.key].apply(lambda val: val if val >= 0 else None)
 
   # to do: добавить проверку на наличие каких либо столбцов кроме артикула и названия если есть применять если нет то нет
   df = df.dropna(subset=[link.key for link in links if not link.key=='article' and not link.key =='name' and link.key in df.columns], how='all')
-  
+
   if not 'name' in df.columns:
     if setting.create_new:
       return None
@@ -192,12 +198,25 @@ def load_setting(pk):
   if not setting.create_new:
     mask = df[['article', 'name']].apply(tuple, axis=1).isin(s_values)
     df = df[mask]
-  df.drop_duplicates(subset=['article', 'name'], keep='first')
+  df = df.drop_duplicates(subset=['article', 'name'], keep='first')
   if 'manufacturer' in df.columns:
     df['manufacturer'] = df['manufacturer'].apply(lambda s: Manufacturer.objects.get_or_create(name=s)[0] if s else None)
   if 'discount' in df.columns:
     df['discount'] = df['discount'].apply(lambda s: Discount.objects.get_or_create(supplier=setting.supplier, name=s)[0] if s else None)
-  print(len(df['name'].unique()))
+  if 'category' in df.columns:
+    def _get_category(value):
+        if not value:
+            return None
+        parts = [p.strip() for p in str(value).split(">") if p and str(p).strip()]
+        parent = None
+        node = None
+        if Category.objects.filter(name=parts[-1]).count() == 1:
+          return Category.objects.filter(name=parts[-1]).first()
+        for name in parts[:10]:
+            node, _ = Category.objects.get_or_create(name=name, parent=parent)
+            parent = node
+        return node
+    df['category'] = df['category'].apply(_get_category)
   def get_spmodel(row):
     data = {
         link.key: Decimal(str(getattr(row, link.key))) if link.key in SP_NUMBERS else getattr(row, link.key)
@@ -214,8 +233,8 @@ def load_setting(pk):
   sp_update_fields = [link.key for link in links if not link.key=='article' and not link.key == 'name' and link.key in df.columns]
   sp_update_fields.append('updated_at')
   sps = SupplierProduct.objects.bulk_create(
-    sp_model_instances, 
-    update_conflicts=True, 
+    sp_model_instances,
+    update_conflicts=True,
     update_fields=sp_update_fields,
     unique_fields=['supplier', 'article', 'name'])
   if 'stock' in df.columns:

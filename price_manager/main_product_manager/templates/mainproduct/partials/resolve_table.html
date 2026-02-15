@@ -1,0 +1,14 @@
+
+<div class="p-3 shadow-sm overflow-auto border rounded" id="mainproducts-table">
+    <div
+    hx-get="{% url "mainproduct-resolve-table" pk=pk%}{% querystring%}"
+    hx-trigger="load"
+    hx-swap="outerHTML">
+        <span class="placeholder col-12 placeholder-lg bg-light">
+        </span>
+        <span class="placeholder col-12 placeholder-lg bg-light">
+        </span>
+        <span class="placeholder col-12 placeholder-lg bg-light">
+        </span>
+    </div>
+</div>

@@ -11,15 +11,9 @@ class Migration(migrations.Migration):
 
     operations = [
         
-        migrations.SeparateDatabaseAndState(
-            state_operations=[
-                migrations.RemoveField(
-                    model_name='setting',
-                    name='update_main',
-                ),
-            ],
-            # Table already exists. See core\migrations\0045_remove_link_setting_remove_setting_supplier_and_more.py
-            database_operations=[],
+        migrations.RemoveField(
+            model_name='setting',
+            name='update_main',
         ),
         
         migrations.SeparateDatabaseAndState(

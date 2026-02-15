@@ -66,8 +66,8 @@ class SupplierList(TemplateView):
       return Q(**{f'{price}__isnull':True})|Q(**{f'{price}':0})
     # queryset = Paginator(Supplier.objects.all(), 5).page(1).object_list.prefetch_related('main_products')
     queryset = Supplier.objects.all()
-    context["suppliers"] = list(
-       map(lambda obj: {
+    def get_row(obj):
+      return {
           'pk': obj.pk,
           'name':obj.name,
           'danger':  obj.stock_updated_at and timedelta(weeks=TIME_FREQ[obj.stock_update_rate]) <= now - obj.stock_updated_at or
@@ -79,7 +79,9 @@ class SupplierList(TemplateView):
           'wholesale_price': obj.main_products.filter(price_filter('wholesale_price')).count(),
           'm_price': obj.main_products.filter(price_filter('m_price')).count(),
           'prime_cost': obj.main_products.filter(price_filter('prime_cost')).count(),
-        }, queryset))
+        }
+    context["suppliers"] = list(
+       map(get_row, queryset))
     return context
 
 

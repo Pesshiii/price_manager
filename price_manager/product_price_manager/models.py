@@ -439,11 +439,15 @@ def update_prices():
   time_query = (Q(date_from__lt=now)|Q(date_from__isnull=True))&(Q(date_to__gt=now)|Q(date_to__isnull=True))
   for pm in pms.filter(~Q(time_query)).all():
     dcount += pm.deprecate()
-  for pm in pms.filter(time_query).all():
+  for pm in pms.filter(time_query).filter(source__in=SP_PRICES):
+    count += pm.apply()
+  for pm in pms.filter(time_query).filter(source__in=MP_PRICES):
     count += pm.apply()
   dmps = map(lambda pt: pt.deprecate(),PriceTag.objects.filter(p_manager__isnull=True).filter(~Q(time_query)).select_related('mp'))
   dcount += MainProduct.objects.bulk_update([_ for _ in dmps if _], fields=[*MP_PRICES, 'price_updated_at'])
-  mps = map(lambda pt: pt.get_mp(),PriceTag.objects.filter(p_manager__isnull=True).filter(time_query).select_related('mp'))
+  mps = map(lambda pt: pt.get_mp(),PriceTag.objects.filter(p_manager__isnull=True).filter(time_query).filter(source__in=SP_PRICES).select_related('mp'))
+  count += MainProduct.objects.bulk_update(mps, fields=[*MP_PRICES, 'price_updated_at'])
+  mps = map(lambda pt: pt.get_mp(),PriceTag.objects.filter(p_manager__isnull=True).filter(time_query).filter(source__in=MP_PRICES).select_related('mp'))
   count += MainProduct.objects.bulk_update(mps, fields=[*MP_PRICES, 'price_updated_at'])
 
   return (count, dcount)

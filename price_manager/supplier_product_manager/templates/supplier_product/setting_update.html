@@ -22,10 +22,10 @@
               </h2>
               <div id="dict-{{name}}" class="accordion-collapse collapse">
                 <div class="accordion-body">
-                  {%crispy item.initial %}
+                  {%crispy item.initial item.initial.helper %}
                   {{item.dict_formset.management_form|crispy}}
                   {% for form in item.dict_formset %}
-                    {%crispy form%}
+                    {%crispy form form.helper%}
                   {% endfor %}
                 <button type="submit" class="btn btn-primary" value="add-{{name}}" name="action">
                     <i class="bi bi-plus-lg"></i>

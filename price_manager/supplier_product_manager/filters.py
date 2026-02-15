@@ -3,6 +3,8 @@ from django_filters import filters, FilterSet
 from .models import SupplierProduct
 from django import forms
 from django.urls import reverse_lazy, reverse
+from django.utils.safestring import mark_safe
+
 
 from crispy_forms.helper import FormHelper
 from crispy_forms.layout import Submit, Layout, Field, Div, HTML
@@ -24,9 +26,10 @@ class SupplierProductFilter(FilterSet):
     self.form.helper.form_method = 'GET'
     self.form.helper.attrs = {
       'hx-get':reverse('supplier-detail', kwargs={'pk': pk}),
-      'hx-target':'#supplierproduct-table',
-      'hx-swap':'outerHTML',
+      'hx-target':'#products',
+      'hx-swap':'innerHTML',
       'hx-trigger':'submit, change',
+      'hx-push-url':"true",
       'class': 'card p-3',
     }
     self.form.helper.layout = Layout(
@@ -40,7 +43,7 @@ class SupplierProductFilter(FilterSet):
                       title="Загрузка"
                       data-bs-toggle="modal"
                       data-bs-target="#modal-container"
-                      hx-get="{% url 'supplier-copymain' supplier.pk 0%}{% querystring%}"
+                      hx-get="{% url 'supplier-copymain' supplier.pk 0%}{% querystring %}"
                       hx-target="#modal-container .modal-content"
                       hx-swap="innerHTML">
                 <span>Копировать в ГП</span>

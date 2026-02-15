@@ -18,7 +18,8 @@ from django.contrib.auth.mixins import LoginRequiredMixin
 from django.urls import reverse, reverse_lazy
 from typing import Optional, Any, Dict, Iterable
 from collections import defaultdict, OrderedDict
-from django.db.models import Count, Prefetch, F, Q, Value, Max, Subquery, OuterRef, IntegerField, ExpressionWrapper, DateTimeField
+from django.db.models import Count, Prefetch, F, Q, Value, Max, Subquery, OuterRef, IntegerField, ExpressionWrapper
+from django.db import transaction
 from django.contrib.postgres.search import SearchVector
 # Импорты из сторонних приложений
 from django_tables2 import SingleTableView, RequestConfig, SingleTableMixin
@@ -42,6 +43,7 @@ from .forms import *
 from .tables import *
 from .filters import *
 from product_price_manager.views import update_prices
+from supplier_product_manager.views import UploadSupplierFile
 
 # Импорты сторонних библиотек
 from decimal import Decimal, InvalidOperation
@@ -57,8 +59,13 @@ class MainPage(FilterView):
       if self.request.htmx:
         if not self.request.GET.get('page', 1) == 1:
           return ["mainproduct/partials/tables_bycat.html#category-table"]
-        return [self.template_name+"#list"]
+        return ["mainproduct/partials/tables_bycat.html"]
       return super().get_template_names()
+  def get_filterset_kwargs(self, filterset_class):
+      kwargs = super().get_filterset_kwargs(filterset_class)
+      # Add your custom kwarg here
+      kwargs['url'] = reverse_lazy('mainproducts') 
+      return kwargs
   def get_context_data(self, **kwargs) -> dict[str, Any]:
     context = super().get_context_data(**kwargs)
     queryset = context['object_list']
@@ -150,6 +157,7 @@ def sync_main_products(request, **kwargs):
 
 
 
+
 class MainProductInfo(DetailView):
   template_name='mainproduct/partials/info.html'
   model=MainProduct
@@ -183,7 +191,7 @@ class MainProductUpdate(UpdateView):
   def form_valid(self, form):
     if form.is_valid():
       form.save()
-      return redirect(reverse('mainproduct-detail', kwargs=self.kwargs))
+      return HttpResponseClientRedirect(reverse('mainproduct-detail', kwargs=self.kwargs))
     else:
       return redirect(reverse('mainproduct-update', kwargs=self.kwargs))
 
@@ -197,4 +205,47 @@ class MainProductLogList(SingleTableView):
     if not self.request.htmx:
       return redirect(reverse('mainproduct-info', kwargs=self.kwargs))
     return super().get(request, *args, **kwargs)
+
+
+class ResolveMainproduct(FilterView):
+  model = MainProduct
+  filterset_class = MainProductFilter
+  template_name = 'mainproduct/partials/resolve_list.html'
+  def get(self, request, *args, **kwargs):
+    if not self.request.htmx:
+      return HttpResponseClientRedirect(reverse('mainproduct-detail', kwargs={'pk':self.kwargs.get('pk')}))
+    return super().get(request, *args, **kwargs)
+  def get_filterset_kwargs(self, filterset_class):
+      kwargs = super().get_filterset_kwargs(filterset_class)
+      # Add your custom kwarg here
+      kwargs['url'] = reverse('mainproduct-resolve-table', kwargs={'pk': self.kwargs.get('pk')}) 
+      return kwargs
+  def get_context_data(self, **kwargs) -> dict[str, Any]:
+      context = super().get_context_data(**kwargs)
+      context["pk"] = self.kwargs.get('pk')
+      return context
   
+
+
+
+class MainProductResolveTableView(SingleTableView):
+  table_class=MainProductResolveTable
+  template_name='mainproduct/partials/table.html'
+  model = MainProduct
+  def get(self, request, *args, **kwargs):
+    if not self.request.htmx:
+      return HttpResponseClientRedirect(reverse_lazy('mainproducts'))
+    return super().get(request, *args, **kwargs)
+  def get_context_data(self, **kwargs) -> dict[str, Any]:
+      context = super().get_context_data(**kwargs)
+      context["pk"] = self.kwargs.get('pk')
+      return context
+  
+  def get_table(self, **kwargs):
+    return super().get_table(
+      **kwargs,
+      request=self.request,
+      url=reverse('mainproduct-resolve-table', kwargs={'pk':self.kwargs.get('pk')})
+    )
+  def get_table_data(self):
+    return MainProductFilter(self.request.GET).qs

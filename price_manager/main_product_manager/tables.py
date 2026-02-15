@@ -32,6 +32,7 @@ AVAILABLE_COLUMN_GROUPS = [
       ('sku', 'Артикул товара'),
       ('article', 'Артикул поставщика'),
       ('name', 'Название'),
+      ('description', 'Описание'),
       ('supplier', 'Поставщик'),
       ('manufacturer', 'Производитель'),
       ('category', 'Категория'),
@@ -143,8 +144,9 @@ class MainProductTable(tables.Table):
       'actions',
       'sku',
       'article',
-      'supplier',
       'name',
+      'description',
+      'supplier',
       'category',
       'manufacturer',
       'weight',
@@ -195,15 +197,29 @@ class MainProductTable(tables.Table):
       }
     )
 
+class MainProductResolveTable(tables.Table):
+  class Meta:
+    model = MainProduct
+    fields = [
+      'sku',
+      'article',
+      'name',
+      'supplier'
+    ]
+    template_name = 'core/includes/table_htmx.html'
+    attrs = {
+      'class': 'clickable-rows table table-auto table-stripped table-hover'
+      }
+    
+  def __init__(self, *args, **kwargs):
+    self.request = kwargs.pop('request')
+    self.url = kwargs.pop('url', None)
+    if not self.url:
+      self.url = self.request.path_info
+    super().__init__(*args, **kwargs)
 
 class CategoryListTable(tables.Table):
   '''Таблица Категорий отображаемая на странице Производители'''
-  # actions = tables.TemplateColumn(
-  #   template_name='manufacturer/actions.html',
-  #   orderable=False,
-  #   verbose_name='Действия',
-  #   attrs = {'td': {'class': 'text-right'}}
-  # )
   class Meta:
     model = Category
     fields = ['parent', 'name']
@@ -211,7 +227,6 @@ class CategoryListTable(tables.Table):
     attrs = {
       'class': 'table table-auto table-stripped table-hover clickable-rows'
       }
-    
 
 class MainProductLogTable(tables.Table):
   class Meta:

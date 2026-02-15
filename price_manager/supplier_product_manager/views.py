@@ -56,7 +56,7 @@ class SupplierDetail(SingleTableMixin, FilterView):
   def get(self, request, *args, **kwargs):
     self.supplier = Supplier.objects.get(pk=self.kwargs.get('pk', None))
     if self.request.htmx:
-      self.template_name = 'supplier\partials\detail_products_table_partial.html#table'
+      self.template_name = 'supplier\partials\detail_products_table_partial.html'
     return super().get(request, *args, **kwargs)
   def post(self, request, *args, **kwargs):
     self.supplier = Supplier.objects.get(pk=self.kwargs.get('pk', None))
@@ -84,22 +84,24 @@ class SupplierDetail(SingleTableMixin, FilterView):
     return context
 
 def copy_to_main(request, pk, state):
+  if not request.htmx:
+    redirect('supplier-update', pk=pk)
   if state == 0:
     url = reverse('supplier-copymain', kwargs={'pk':pk, 'state':1})
     return render(request, 'supplier_product/partials/load_partial.html', {'url':url})
-  products = SupplierProductFilter(request,pk=pk).queryset.select_related('main_product', 'supplier').filter(supplier=pk)
+  products = SupplierProductFilter(request.GET,pk=pk).qs.select_related('main_product', 'supplier').filter(supplier=pk)
   to_create = products.filter(main_product__isnull=True).count()
   def get_mp(sp: SupplierProduct):
-    mp = MainProduct(supplier=sp.supplier, article=sp.article, name=sp.name, manufacturer=sp.manufacturer)
+    mp = MainProduct(supplier=sp.supplier, article=sp.article, name=sp.name, description=sp.description, manufacturer=sp.manufacturer, category=sp.category)
     sp.main_product = mp
     return mp
   mp_map = map(get_mp, products)
-  mp_list = MainProduct.objects.bulk_create(mp_map, update_conflicts=True, unique_fields=['supplier', 'article', 'name'], update_fields=['manufacturer'])
+  mp_list = MainProduct.objects.bulk_create(mp_map, update_conflicts=True, unique_fields=['supplier', 'article', 'name'], update_fields=['manufacturer', 'category', 'description'])
   mps = MainProduct.objects.filter(pk__in=[mp.pk for mp in mp_list])
   products.bulk_update(products, fields=['main_product'])
   recalculate_search_vectors(mps)
   messages.info(request, f'Обработано товаров ГП {len(mps)}. Создано новых: {to_create}')
-  return HttpResponseClientRefresh()
+  return HttpResponseClientRedirect(reverse('supplier-detail', kwargs={'pk':pk}))
 
 # Обработка настройки
 class UploadSupplierFile(CreateView):
@@ -180,7 +182,7 @@ class XMLTableView(TemplateView):
       context['pk'] = pk
       context['items'] = items
       context['columns'] = get_df_sheet_names(pk=pk)
-      context["page"] = page
+      context['page'] = page
       return context
   
 class SettingUpdate(UpdateView):
@@ -244,7 +246,7 @@ class SettingUpdate(UpdateView):
     if not link_formset.is_valid() :
       messages.error(self.request, f'Что-то пошло не так')
       return HttpResponseClientRefresh()
-    keys = [item['key'] for item in link_formset.cleaned_data if not item['key']=='']
+    keys = [item['key'] for item in link_formset.cleaned_data if not item['key'] is None and not item['key']=='']
     if not len(set(keys)) == len(keys):
       messages.error(self.request, f'Неоднозначная связь: Столбец\\знаение')
       return self.form_invalid(form)
@@ -254,14 +256,15 @@ class SettingUpdate(UpdateView):
       key = link_formset.cleaned_data[i]['key']
       if not key or key=='' : continue
       link = Link.objects.get_or_create(setting=setting, key=key)[0]
-      if indicts[key]['initial'].is_valid():
-        link.initial = indicts[key]['initial'].cleaned_data['initial']
       link.value = df.columns[i]
       link.save()
     for link, value in LINKS.items():
       if link == '': continue
       if indicts[link]['dict_formset'].is_valid():
         mlink = Link.objects.get_or_create(setting=setting, key=link)[0]
+        if indicts[link]['initial'].is_valid() and not indicts[link]['initial'].cleaned_data['initial'] == '':
+          mlink.initial = indicts[link]['initial'].cleaned_data['initial']
+          mlink.save()
         DictItem.objects.filter(link=mlink).delete()
         for item in indicts[link]['dict_formset'].cleaned_data:
           if item['key'] == '': continue

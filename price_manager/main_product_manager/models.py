@@ -118,6 +118,10 @@ class MainProduct(models.Model):
   stock_updated_at = models.DateTimeField(verbose_name='Последнее обновление остатка',
                                     null=True)
   search_vector = SearchVectorField(null=True, editable=False, unique=False, verbose_name="Вектор поиска")
+  description = models.TextField(
+    verbose_name="Описание",
+    null=True,
+    blank=True)
   def __str__(self):
     return self.sku if self.sku else 'Не указан'
   def _build_search_text(self) -> str:
@@ -126,6 +130,7 @@ class MainProduct(models.Model):
         self.sku or "",
         self.article or "",
         self.name or "",
+        self.description or "",
         ' '.join(self.category.get_ancestors(include_self=True).values_list('name', flat=True) if self.category else ""),
         getattr(self.supplier, "name", ""),
         getattr(self.manufacturer, "name", ""),

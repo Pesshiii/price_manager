@@ -1,7 +1,9 @@
 from django.db import models
 from mptt.models import MPTTModel, TreeForeignKey
 
-TIME_FREQ = {'Каждый день': 1,
+TIME_FREQ = {
+             '': 0,
+             'Каждый день': 1,
              'Каждую неделю': 7,
              'Каждые три недели': 21}
 

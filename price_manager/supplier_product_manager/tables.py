@@ -29,6 +29,8 @@ SP_AVAILABLE_COLUMN_GROUPS = [
       ('actions', 'Действия'),
       ('article', 'Артикул поставщика'),
       ('name', 'Название'),
+      ('description', 'Описание'),
+      ('category', 'Категория'),
       ('manufacturer', 'Производитель'),
       ('discount', 'Группа скидок'),
       ('stock', 'Остаток'),
@@ -135,6 +137,8 @@ class SupplierProductListTable(tables.Table):
       'actions',
       'article',
       'name',
+      'description',
+      'category',
       'manufacturer',
       'discount',
       'stock',
@@ -143,7 +147,7 @@ class SupplierProductListTable(tables.Table):
       'discount_price',
       'updated_at',
     ]
-    template_name = 'django_tables2/bootstrap5.html'
+    template_name = 'core/includes/table_scrollbartop.html'
     attrs = {
       'class': 'table table-auto table-stripped table-hover clickable-rows'
       }
@@ -169,7 +173,6 @@ class SupplierProductPriceManagerTable(tables.Table):
     attrs = {
       'class': 'table table-auto table-stripped table-hover clickable-rows'
       }
-    
 
 class DictFormTable(tables.Table):
   key = tables.TemplateColumn('''{% load special_tags %}{{ record|get:'key' }}''',   verbose_name="Если", orderable=False)
