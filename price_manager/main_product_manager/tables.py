@@ -87,6 +87,7 @@ AVAILABLE_COLUMN_MAP = dict(AVAILABLE_COLUMN_CHOICES)
 
 class MainProductTable(tables.Table):
   '''Таблица Главного прайса отображаемая на главной странице'''
+  merge_select = tables.Column(empty_values=(), orderable=False, verbose_name='')
   actions = tables.Column(empty_values=(),
                          orderable=False,
                          verbose_name='')
@@ -104,10 +105,16 @@ class MainProductTable(tables.Table):
   def __init__(self, *args, **kwargs):
     self.request = kwargs.pop('request')
     self.url = kwargs.pop('url', None)
+    self.enable_merge = kwargs.pop('enable_merge', False)
+    self.resolve_target_pk = kwargs.pop('resolve_target_pk', None)
     selected_columns = kwargs.pop('selected_columns', None) or []
     if not selected_columns:
       selected_columns = DEFAULT_VISIBLE_COLUMNS
+    if self.enable_merge and 'merge_select' not in selected_columns:
+      selected_columns = ['merge_select', *selected_columns]
     self.selected_columns = [column for column in selected_columns if column in AVAILABLE_COLUMN_MAP]
+    if self.enable_merge and 'merge_select' not in self.selected_columns:
+      self.selected_columns = ['merge_select', *self.selected_columns]
     if not self.selected_columns:
       self.selected_columns = DEFAULT_VISIBLE_COLUMNS
 
@@ -195,6 +202,13 @@ class MainProductTable(tables.Table):
       {
         'record': record,
       }
+    )
+  def render_merge_select(self, record):
+    disabled = self.resolve_target_pk and record.pk == self.resolve_target_pk
+    return format_html(
+      '<input class="form-check-input" type="checkbox" name="merge_ids" value="{}" {}>',
+      record.pk,
+      'disabled' if disabled else '',
     )
 
 class MainProductResolveTable(tables.Table):

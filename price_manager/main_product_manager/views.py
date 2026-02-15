@@ -236,7 +236,27 @@ class ResolveMainproduct(FilterView):
     context['column_groups'] = AVAILABLE_COLUMN_GROUPS
     selected_columns = self.request.GET.getlist('columns')
     context['selected_columns'] = selected_columns if selected_columns else DEFAULT_VISIBLE_COLUMNS
+    context['resolve_target_pk'] = self.kwargs.get('pk')
     return context
+  def post(self, request, *args, **kwargs):
+    target_product = get_object_or_404(MainProduct, pk=self.kwargs.get('pk'))
+    merge_ids = [int(pk) for pk in request.POST.getlist('merge_ids') if pk.isdigit()]
+    merge_ids = [pk for pk in merge_ids if pk != target_product.pk]
+
+    if not merge_ids:
+      messages.warning(request, 'Выберите товары для объединения.')
+      return HttpResponseClientRedirect(reverse('mainproduct-detail', kwargs={'pk': target_product.pk}))
+
+    with transaction.atomic():
+      source_products = MainProduct.objects.filter(pk__in=merge_ids)
+      moved_count = SupplierProduct.objects.filter(main_product__in=source_products).update(main_product=target_product)
+      deleted_count, _ = source_products.delete()
+
+    messages.success(
+      request,
+      f'Объединение завершено: перенесено товаров поставщика — {moved_count}, удалено записей — {deleted_count}.',
+    )
+    return HttpResponseClientRedirect(reverse('mainproduct-detail', kwargs={'pk': target_product.pk}))
   def render_to_response(self, context, **response_kwargs):
     response = super().render_to_response(context, **response_kwargs)
     if self.request.htmx and self.request.GET.get('page', 1) == 1:
@@ -246,7 +266,7 @@ class ResolveMainproduct(FilterView):
 
 
 class MainProductResolveTableView(SingleTableView):
-  table_class=MainProductResolveTable
+  table_class=MainProductTable
   template_name='mainproduct/partials/table.html'
   model = MainProduct
   def get(self, request, *args, **kwargs):
@@ -256,9 +276,17 @@ class MainProductResolveTableView(SingleTableView):
   def get_table(self, **kwargs):
     self.category_pk = self.kwargs.get('category_pk', None)
     selected_columns = self.request.GET.getlist('columns')
+    if self.category_pk:
+      url = reverse('mainproductresolve-table-bycat',kwargs={'category_pk': self.category_pk})
+    else:
+      url = reverse('mainproductresolve-table-nocat')
     return super().get_table(
       **kwargs,
       request=self.request,
+      url=url,
+      enable_merge=True,
+      resolve_target_pk=self.kwargs.get('pk') or self.request.GET.get('resolve_target_pk'),
+      selected_columns=selected_columns,
       prefix=f'{self.category_pk if self.category_pk else 0}-'
     )
   def get_table_data(self):
