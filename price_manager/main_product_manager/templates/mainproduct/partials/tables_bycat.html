@@ -6,14 +6,6 @@
     <div class="col-4 mb-3 d-flex justify-content-end gap-2">
       {% include "mainproduct/partials/fields_selector.html" %}
       <button type="button"
-              class="btn btn-outline-danger"
-              title="Объединить дубли по названию"
-              hx-get="{% url 'mainproducts-merge-by-name' %}"
-              hx-swap="none"
-              hx-confirm="Объединить товары главного прайса с одинаковым названием? Дубли будут удалены.">
-        Объединить дубли
-      </button>
-      <button type="button"
               class="btn btn-primary"
               title="Обновить"
               data-bs-toggle="modal"

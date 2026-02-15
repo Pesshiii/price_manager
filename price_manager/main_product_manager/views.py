@@ -151,56 +151,6 @@ def sync_main_products(request, **kwargs):
   return HttpResponseClientRedirect(reverse('mainproducts'))
 
 
-def merge_main_products_by_name(request, **kwargs):
-  """Объединяет продукты главного прайса с одинаковым названием."""
-  duplicate_names = (
-    MainProduct.objects
-    .values('name')
-    .annotate(products_count=Count('id'))
-    .filter(products_count__gt=1)
-    .values_list('name', flat=True)
-  )
-
-  merged_groups = 0
-  deleted_products = 0
-  moved_supplier_products = 0
-
-  with transaction.atomic():
-    for name in duplicate_names:
-      products = list(
-        MainProduct.objects
-        .filter(name=name)
-        .order_by('id')
-        .only('id')
-      )
-      if len(products) < 2:
-        continue
-
-      keep_product = products[0]
-      duplicate_ids = [product.id for product in products[1:]]
-      if not duplicate_ids:
-        continue
-
-      moved_supplier_products += SupplierProduct.objects.filter(
-        main_product_id__in=duplicate_ids
-      ).update(main_product=keep_product)
-      deleted_products += MainProduct.objects.filter(id__in=duplicate_ids).delete()[0]
-      merged_groups += 1
-
-  if merged_groups:
-    messages.success(
-      request,
-      (
-        f"Объединено {merged_groups} групп дублей. "
-        f"Удалено {deleted_products} товаров главного прайса. "
-        f"Перенесено {moved_supplier_products} товаров поставщиков."
-      ),
-    )
-  else:
-    messages.info(request, "Дубли по названию не найдены.")
-
-  return HttpResponseClientRedirect(reverse('mainproducts'))
-
 
 
 class MainProductInfo(DetailView):
