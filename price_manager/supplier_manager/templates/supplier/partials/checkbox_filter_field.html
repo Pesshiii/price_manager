@@ -66,3 +66,38 @@
         </div>
     {% endif %}
 </div>
+
+<script>
+  const initCheckboxFilters = () => {
+    const filterBlocks = document.querySelectorAll('[data-checkbox-filter]');
+    filterBlocks.forEach((block) => {
+      if (block.dataset.enhanced === 'true') {
+        return;
+      }
+
+      const search = block.querySelector('[data-checkbox-filter-search]');
+      const items = Array.from(block.querySelectorAll('[data-checkbox-filter-item]'));
+
+      const applySearch = () => {
+        if (!search) {
+          return;
+        }
+        const term = search.value.trim().toLowerCase();
+        items.forEach((item) => {
+          const name = (item.dataset.checkboxFilterText || '').toLowerCase();
+          item.classList.toggle('d-none', term && !name.includes(term));
+        });
+      };
+
+      if (search) {
+        search.addEventListener('input', applySearch);
+      }
+
+      applySearch();
+      block.dataset.enhanced = 'true';
+    });
+  };
+
+  document.addEventListener('DOMContentLoaded', initCheckboxFilters);
+  document.body.addEventListener('htmx:afterSwap', initCheckboxFilters);
+</script>

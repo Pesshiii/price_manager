@@ -58,7 +58,7 @@ class MainProductFilter(FilterSet):
     label='Категории'
   )
 
-  def __init__(self, *args, **kwargs):
+  def __init__(self, *args, url=None, **kwargs):
     super().__init__(*args, **kwargs)
     self.config_filters(self.search_method(self.queryset, '', value=self.data.get('search', '')))
     self.form.helper = FormHelper(self.form)
@@ -66,10 +66,10 @@ class MainProductFilter(FilterSet):
     self.form.helper.form_method = 'GET'
     self.form.helper.label_class='mt-2'
     self.form.helper.attrs = {
-      'hx-get':reverse_lazy('mainproducts'),
+      'hx-get':url,
       'hx-target':'#mainproducts-table',
-      'hx-swap':'outerHTML',
-      'hx-trigger':'input changed, submit',
+      'hx-swap':'innerHTML',
+      'hx-trigger':'input changed, change, submit',
     }
     self.form.helper.layout = Layout(
         HTML('<h5 class="mb-3">Фильтры товаров</h5>'),
@@ -100,7 +100,7 @@ class MainProductFilter(FilterSet):
         HTML('<hr class="border-secondary">'),
         Div(
           Submit('action', 'Применить', title="Применить", css_class='btn btn-primary flex-grow-1'),
-          HTML("""<a href=\"{% url 'mainproducts' %}\" class=\"btn btn-outline-secondary\" title=\"Сбросить\">Сбросить</a>"""),
+          HTML(f"""<a href=\"{url}\" class=\"btn btn-outline-secondary\" title=\"Сбросить\">Сбросить</a>"""),
           css_class='d-flex gap-2 mt-4'
         )
     )

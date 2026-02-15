@@ -28,6 +28,7 @@ urlpatterns = [
     path('mainproduct/<int:pk>/info', mp_views.MainProductInfo.as_view(), name='mainproduct-info'),
     path('mainproduct/<int:pk>/update', mp_views.MainProductUpdate.as_view(), name='mainproduct-update'),
     path('mainproduct/<int:pk>/resolve', mp_views.ResolveMainproduct.as_view(), name='mainproduct-resolve'),
+    path('mainproduct/<int:pk>/resolve/table', mp_views.MainProductResolveTableView.as_view(), name='mainproduct-resolve-table'),
     path('mainproduct/<int:pk>/detail', mp_views.MainProductDetail.as_view(), name='mainproduct-detail'),
     path('mainproduct/<int:pk>/pricetags', ppm_views.PriceTagList.as_view(), name='pricetag-list'),
     path('mainproduct/<int:pk>/logs', mp_views.MainProductLogList.as_view(), name='mainproductlog-list'),

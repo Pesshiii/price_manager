@@ -210,39 +210,16 @@ class MainProductResolveTable(tables.Table):
     attrs = {
       'class': 'clickable-rows table table-auto table-stripped table-hover'
       }
-  def render_stock_msg(self, record):
-    if not record.stock or record.stock == 0:
-      return record.supplier.msg_navailable
-    else:
-      return record.supplier.msg_available
-  
-  def render_delivery_days(self, record):
-    return record.supplier.get_delivery_days_for_stock(record.stock)
-  def render_actions(self, record):
-        return render_to_string(
-            'main/product/actions.html',
-            {
-                'record': record,
-                'request': self.request,
-            },
-            request=self.request,
-        )
-  def render_name(self, record):
-    return render_to_string(
-      'mainproduct/includes/name.html',
-      {
-        'record': record,
-      }
-    )
+    
+  def __init__(self, *args, **kwargs):
+    self.request = kwargs.pop('request')
+    self.url = kwargs.pop('url', None)
+    if not self.url:
+      self.url = self.request.path_info
+    super().__init__(*args, **kwargs)
 
 class CategoryListTable(tables.Table):
   '''Таблица Категорий отображаемая на странице Производители'''
-  # actions = tables.TemplateColumn(
-  #   template_name='manufacturer/actions.html',
-  #   orderable=False,
-  #   verbose_name='Действия',
-  #   attrs = {'td': {'class': 'text-right'}}
-  # )
   class Meta:
     model = Category
     fields = ['parent', 'name']
@@ -250,7 +227,6 @@ class CategoryListTable(tables.Table):
     attrs = {
       'class': 'table table-auto table-stripped table-hover clickable-rows'
       }
-    
 
 class MainProductLogTable(tables.Table):
   class Meta:

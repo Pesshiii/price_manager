@@ -4,6 +4,15 @@
   Информация о продукте
 {% endblock title %}
 
+{% block style %}
+  .main-filters-card {
+    position: sticky;
+    top: 88px;
+    max-height: calc(100vh - 110px);
+    overflow: auto;
+  }
+{% endblock %}
+
 {% block body %}
 
 {%partialdef partial inline%}

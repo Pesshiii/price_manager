@@ -61,6 +61,11 @@ class MainPage(FilterView):
           return ["mainproduct/partials/tables_bycat.html#category-table"]
         return ["mainproduct/partials/tables_bycat.html"]
       return super().get_template_names()
+  def get_filterset_kwargs(self, filterset_class):
+      kwargs = super().get_filterset_kwargs(filterset_class)
+      # Add your custom kwarg here
+      kwargs['url'] = reverse_lazy('mainproducts') 
+      return kwargs
   def get_context_data(self, **kwargs) -> dict[str, Any]:
     context = super().get_context_data(**kwargs)
     queryset = context['object_list']
@@ -208,40 +213,18 @@ class ResolveMainproduct(FilterView):
   template_name = 'mainproduct/partials/resolve_list.html'
   def get(self, request, *args, **kwargs):
     if not self.request.htmx:
-      print(HttpResponseClientRedirect(reverse('mainproduct-detail', kwargs={'pk':self.kwargs.get('pk')})))
       return HttpResponseClientRedirect(reverse('mainproduct-detail', kwargs={'pk':self.kwargs.get('pk')}))
     return super().get(request, *args, **kwargs)
-  def get_template_names(self) -> list[str]:
-      if self.request.htmx:
-        if not self.request.GET.get('page', 1) == 1:
-          return ["mainproduct/partials/tables_bycat.html#category-table"]
-        return [self.template_name+"#list"]
-      return super().get_template_names()
+  def get_filterset_kwargs(self, filterset_class):
+      kwargs = super().get_filterset_kwargs(filterset_class)
+      # Add your custom kwarg here
+      kwargs['url'] = reverse('mainproduct-resolve-table', kwargs={'pk': self.kwargs.get('pk')}) 
+      return kwargs
   def get_context_data(self, **kwargs) -> dict[str, Any]:
-    context = super().get_context_data(**kwargs)
-    queryset = context['object_list']
-    categories = Paginator(
-        Category.objects.filter(
-        pk__in=queryset.prefetch_related('category').values_list('category__pk')
-      ).prefetch_related(
-        'mainproducts'
-      ).annotate(
-        mps_count=Count(F('mainproducts'))
-      ).filter(~Q(mps_count=0)),
-      5
-    ).page(self.request.GET.get('page', 1))
-    context['categories'] =  categories
-    context['has_nulled'] = queryset.filter(category__isnull=True).exists()
-    context['nulled_mp_count'] = queryset.filter(category__isnull=True).count()
-    context['column_groups'] = AVAILABLE_COLUMN_GROUPS
-    selected_columns = self.request.GET.getlist('columns')
-    context['selected_columns'] = selected_columns if selected_columns else DEFAULT_VISIBLE_COLUMNS
-    return context
-  def render_to_response(self, context, **response_kwargs):
-    response = super().render_to_response(context, **response_kwargs)
-    if self.request.htmx and self.request.GET.get('page', 1) == 1:
-      response['Hx-Push'] = self.request.build_absolute_uri()
-    return response
+      context = super().get_context_data(**kwargs)
+      context["pk"] = self.kwargs.get('pk')
+      return context
+  
 
 
 
@@ -253,21 +236,16 @@ class MainProductResolveTableView(SingleTableView):
     if not self.request.htmx:
       return HttpResponseClientRedirect(reverse_lazy('mainproducts'))
     return super().get(request, *args, **kwargs)
+  def get_context_data(self, **kwargs) -> dict[str, Any]:
+      context = super().get_context_data(**kwargs)
+      context["pk"] = self.kwargs.get('pk')
+      return context
+  
   def get_table(self, **kwargs):
-    self.category_pk = self.kwargs.get('category_pk', None)
-    selected_columns = self.request.GET.getlist('columns')
     return super().get_table(
       **kwargs,
       request=self.request,
-      prefix=f'{self.category_pk if self.category_pk else 0}-'
+      url=reverse('mainproduct-resolve-table', kwargs={'pk':self.kwargs.get('pk')})
     )
   def get_table_data(self):
-    qs = MainProductFilter(self.request.GET).qs.prefetch_related('category')
-    if not self.category_pk:
-      return qs.filter(category__isnull=True)
-    return qs.filter(category=Category.objects.get(pk=self.category_pk))
-  def get_context_data(self, **kwargs) -> dict[str, Any]:
-      context = super().get_context_data(**kwargs)
-      if self.category_pk:
-        context["category"] = Category.objects.get(pk=self.category_pk)
-      return context
+    return MainProductFilter(self.request.GET).qs
