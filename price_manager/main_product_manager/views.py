@@ -59,7 +59,7 @@ class MainPage(FilterView):
       if self.request.htmx:
         if not self.request.GET.get('page', 1) == 1:
           return ["mainproduct/partials/tables_bycat.html#category-table"]
-        return ["mainproduct/partials/tables_bycat.html"]
+        return ["mainproduct/list.html#list"]
       return super().get_template_names()
   def get_filterset_kwargs(self, filterset_class):
       kwargs = super().get_filterset_kwargs(filterset_class)
@@ -218,7 +218,7 @@ class ResolveMainproduct(FilterView):
   def get_filterset_kwargs(self, filterset_class):
       kwargs = super().get_filterset_kwargs(filterset_class)
       # Add your custom kwarg here
-      kwargs['url'] = reverse('mainproduct-resolve-table', kwargs={'pk': self.kwargs.get('pk')}) 
+      kwargs['url'] = reverse('mainproduct-resolve', kwargs={'pk': self.kwargs.get('pk')}) 
       return kwargs
   def get_context_data(self, **kwargs) -> dict[str, Any]:
       context = super().get_context_data(**kwargs)

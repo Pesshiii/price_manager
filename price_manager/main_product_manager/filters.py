@@ -67,9 +67,9 @@ class MainProductFilter(FilterSet):
     self.form.helper.label_class='mt-2'
     self.form.helper.attrs = {
       'hx-get':url,
-      'hx-target':'#mainproducts-table',
+      'hx-target':'#mainproducts-block',
       'hx-swap':'innerHTML',
-      'hx-trigger':'input changed, change, submit',
+      'hx-trigger':'input changed delay:1s, change, submit',
     }
     self.form.helper.layout = Layout(
         HTML('<h5 class="mb-3">Фильтры товаров</h5>'),
