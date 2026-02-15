@@ -1,12 +1,19 @@
 
 {% partialdef list inline %}
   <div id="mainproducts-block" class="row gap-2 p-4">
-    
+
     <div class="col-3">
       {% include "mainproduct/partials/filter.html" %}
     </div>
     <div class="col-8">
-      {% include 'mainproduct/partials/tables_bycat.html' %}
+      <form
+        hx-post="{% url 'mainproduct-resolve' pk=resolve_target_pk %}"
+        hx-target="#modal-container .modal-content"
+        hx-swap="innerHTML"
+      >
+        {% csrf_token %}
+        {% include 'mainproduct/partials/tables_bycat.html' with resolve_mode=True %}
+      </form>
     </div>
   </div>
 {% endpartialdef %}

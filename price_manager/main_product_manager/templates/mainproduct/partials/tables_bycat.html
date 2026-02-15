@@ -5,16 +5,22 @@
     <h1 class="mb-4 col-8">Главный прайс</h1>
     <div class="col-4 mb-3 d-flex justify-content-end gap-2">
       {% include "mainproduct/partials/fields_selector.html" %}
-      <button type="button"
-              class="btn btn-primary"
-              title="Обновить"
-              data-bs-toggle="modal"
-              data-bs-target="#modal-container"
-              hx-get="{% url 'mainproducts-sync'%}"
-              hx-target="#modal-container .modal-content"
-              hx-swap="innerHTML">
-        Обновить
-      </button>
+      {% if resolve_mode %}
+        <button type="submit" class="btn btn-primary" title="Объединить">
+          Объединить
+        </button>
+      {% else %}
+        <button type="button"
+                class="btn btn-primary"
+                title="Обновить"
+                data-bs-toggle="modal"
+                data-bs-target="#modal-container"
+                hx-get="{% url 'mainproducts-sync'%}"
+                hx-target="#modal-container .modal-content"
+                hx-swap="innerHTML">
+          Обновить
+        </button>
+      {% endif %}
     </div>
   </div>
   {% if categories or has_nulled %}
@@ -29,7 +35,7 @@
             </span>
           </div>
           <div
-          hx-get="{% url "mainproduct-table-nocat"%}{% querystring%}"
+          hx-get="{% if resolve_mode %}{% url "mainproductresolve-table-nocat" %}{% querystring resolve_target_pk=resolve_target_pk %}{% else %}{% url "mainproduct-table-nocat"%}{% querystring%}{% endif %}"
           hx-trigger="load"
           hx-swap="outerHTML">
               <span class="placeholder col-12 placeholder-lg bg-light">
@@ -63,7 +69,7 @@
               </span>
             </div>
             <div 
-            hx-get="{% url "mainproduct-table-bycat" category_pk=category.pk %}{% querystring %}"
+            hx-get="{% if resolve_mode %}{% url "mainproductresolve-table-bycat" category_pk=category.pk %}{% querystring resolve_target_pk=resolve_target_pk %}{% else %}{% url "mainproduct-table-bycat" category_pk=category.pk %}{% querystring %}{% endif %}"
             hx-trigger="load"
             hx-swap="outerHTML">
               <span class="placeholder col-12 placeholder-lg bg-light">
