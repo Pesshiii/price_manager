@@ -183,7 +183,7 @@ MESSAGE_TAGS = {
 }
 
 LOGIN_URL = 'login'
-LOGIN_REDIRECT_URL = 'main'
+LOGIN_REDIRECT_URL = 'mainproducts'
 LOGOUT_REDIRECT_URL = 'login'
 LOGIN_EXEMPT_URLS = (
     'login',
