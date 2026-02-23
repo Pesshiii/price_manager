@@ -7,7 +7,8 @@ from django.db.models import Q
 
 from django.urls import reverse_lazy
 from crispy_forms.helper import FormHelper
-from crispy_forms.layout import Submit, Layout, Field, Div, HTML
+from crispy_forms.layout import Submit, Layout, Field, Div, HTML, Hidden
+from core.crispy_fields import CustomCheckbox
 
 import re
 
@@ -58,7 +59,7 @@ class MainProductFilter(FilterSet):
     label='Категории'
   )
 
-  def __init__(self, *args, url=None, **kwargs):
+  def __init__(self, *args, url=None, bound_ignore=False, **kwargs):
     super().__init__(*args, **kwargs)
     self.config_filters(self.search_method(self.queryset, '', value=self.data.get('search', '')))
     self.form.helper = FormHelper(self.form)
@@ -67,50 +68,59 @@ class MainProductFilter(FilterSet):
     self.form.helper.label_class='mt-2'
     self.form.helper.attrs = {
       'hx-get':url,
-      'hx-target':'#mainproducts-block',
+      'hx-target':'#mainproducts-table',
       'hx-swap':'innerHTML',
-      'hx-trigger':'input changed delay:1s, change, submit',
+      'hx-trigger':'input changed delay:2s, change delay:2s, submit',
+      'hx-push-url':'true'
     }
-    self.form.helper.layout = Layout(
-        HTML('<h5 class="mb-3">Фильтры товаров</h5>'),
-        Div(
-          Field('search'),
-          css_class='mb-3'
-        ),
-        HTML('<hr class="border-secondary">'),
-        Div(
-          Field('available'),
-          css_class='p-3 mb-3'
-        ),
-        HTML('<hr class="border-secondary">'),
-        Div(
-          Field('supplier', template='supplier/partials/checkbox_filter_field.html'),
-          css_class='p-3 mb-3'
-        ),
-        HTML('<hr class="border-secondary">'),
-        Div(
-          Field('manufacturer', template='supplier/partials/checkbox_filter_field.html'),
-          css_class='p-3 mb-3'
-        ),
-        HTML('<hr class="border-secondary">'),
-        Div(
-          Field('category', template='supplier/partials/category_filter_field.html'),
-          css_class='p-3'
-        ),
-        HTML('<hr class="border-secondary">'),
-        Div(
-          Submit('action', 'Применить', title="Применить", css_class='btn btn-primary flex-grow-1'),
-          HTML(f"""<a href=\"{url}\" class=\"btn btn-outline-secondary\" title=\"Сбросить\">Сбросить</a>"""),
-          css_class='d-flex gap-2 mt-4'
-        )
-    )
+    if not self.data.get('bound', None) or bound_ignore:
+      self.form.helper.layout = Layout(
+          Hidden('bound', 'true'),
+          HTML('<h5 class="mb-3">Фильтры товаров</h5>'),
+          Div(
+            Field('search'),
+            css_class='mb-3'
+          ),
+          HTML('<hr class="border-secondary">'),
+          Div(
+            Field('available'),
+            css_class='p-3 mb-3'
+          ),
+          HTML('<hr class="border-secondary">'),
+          Div(
+            Field('supplier', template='core/includes/checkbox_field.html'),
+            css_class='p-3 mb-3'
+          ),
+          HTML('<hr class="border-secondary">'),
+          Div(
+            Field('manufacturer', template='core/includes/checkbox_field.html'),
+            css_class='p-3 mb-3'
+          ),
+          HTML('<hr class="border-secondary">'),
+          Div(
+            Field('category', template='supplier/partials/category_filter_field.html'),
+            css_class='p-3'
+          ),
+          HTML('<hr class="border-secondary">'),
+          Div(
+            Submit('action', 'Применить', title="Применить", css_class='btn btn-primary flex-grow-1'),
+            HTML(f"""<a href=\"{url}\" class=\"btn btn-outline-secondary\" title=\"Сбросить\">Сбросить</a>"""),
+            css_class='d-flex gap-2 mt-4'
+          )
+      )
+    else:
+      self.form.helper.form_tag = False
+      self.form.helper.layout=Layout(
+          Field('supplier', template='core/includes/checkbox_field.html#checkboxes'),
+          Field('manufacturer', template='core/includes/checkbox_field.html#checkboxes'),
+          Field('category', template='supplier/partials/category_filter_field.html'),)
 
   def config_filters(self, queryset):
     selected_suppliers = self.data.getlist('supplier', None)
     supplier_queryset = Supplier.objects.filter(pk__in=queryset.values('supplier')).order_by('name')
     if selected_suppliers:
       supplier_queryset = Supplier.objects.filter(
-        Q(pk__in=supplier_queryset.values('pk')) | Q(pk__in=selected_suppliers)
+        Q(pk__in=supplier_queryset) | Q(pk__in=selected_suppliers)
       ).order_by('name')
     self.filters['supplier'].field.queryset = supplier_queryset
 
@@ -118,9 +128,17 @@ class MainProductFilter(FilterSet):
     manufacturer_queryset = Manufacturer.objects.filter(pk__in=queryset.values('manufacturer')).order_by('name')
     if selected_manufacturers:
       manufacturer_queryset = Manufacturer.objects.filter(
-        Q(pk__in=manufacturer_queryset.values('pk')) | Q(pk__in=selected_manufacturers)
+        Q(pk__in=manufacturer_queryset) | Q(pk__in=selected_manufacturers)
       ).order_by('name')
     self.filters['manufacturer'].field.queryset = manufacturer_queryset
+
+    selected_categories = Category.objects.filter(pk__in=self.data.getlist('category', None))
+    category_queryset = Category.objects.filter(pk__in=queryset.values('category')).order_by('name')
+    if selected_categories:
+      category_queryset = Category.objects.filter(
+        Q(pk__in=category_queryset.get_descendants(include_self=True)) | Q(pk__in=selected_categories.get_descendants(include_self=True))
+      ).order_by('name')
+    self.filters['category'].field.queryset = category_queryset
 
     return None
 

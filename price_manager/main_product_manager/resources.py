@@ -146,6 +146,7 @@ class MainProductResource(resources.ModelResource):
             "supplier",
             "article",
             "name",
+            "description",
             "category",
             "manufacturer",
             "stock",

@@ -59,12 +59,14 @@ class MainPage(FilterView):
       if self.request.htmx:
         if not self.request.GET.get('page', 1) == 1:
           return ["mainproduct/partials/tables_bycat.html#category-table"]
-        return ["mainproduct/list.html#list"]
+        return ["mainproduct/partials/tables_bycat.html"]
       return super().get_template_names()
   def get_filterset_kwargs(self, filterset_class):
       kwargs = super().get_filterset_kwargs(filterset_class)
       # Add your custom kwarg here
-      kwargs['url'] = reverse_lazy('mainproducts') 
+      kwargs['url'] = reverse_lazy('mainproducts')
+      if not self.request.htmx:
+        kwargs['bound_ignore']=True
       return kwargs
   def get_context_data(self, **kwargs) -> dict[str, Any]:
     context = super().get_context_data(**kwargs)
@@ -207,45 +209,35 @@ class MainProductLogList(SingleTableView):
     return super().get(request, *args, **kwargs)
 
 
-class ResolveMainproduct(FilterView):
+class ResolveMainproduct(SingleTableMixin, FilterView):
   model = MainProduct
   filterset_class = MainProductFilter
+  table_class=MainProductResolveTable
   template_name = 'mainproduct/partials/resolve_list.html'
+  def get_template_names(self) -> list[str]:
+      if not self.request.GET.get('page', None):
+        if not self.request.GET.get('bound', None):
+          return [self.template_name]
+        else:
+          return [self.template_name + '#partialtableblock']
+      return [self.template_name + '#partialtable']
   def get(self, request, *args, **kwargs):
     if not self.request.htmx:
       return HttpResponseClientRedirect(reverse('mainproduct-detail', kwargs={'pk':self.kwargs.get('pk')}))
     return super().get(request, *args, **kwargs)
   def get_filterset_kwargs(self, filterset_class):
       kwargs = super().get_filterset_kwargs(filterset_class)
-      # Add your custom kwarg here
-      kwargs['url'] = reverse('mainproduct-resolve', kwargs={'pk': self.kwargs.get('pk')}) 
+      url=reverse('mainproduct-resolve', kwargs={'pk':self.kwargs.get('pk')})
+      kwargs['url'] = url
       return kwargs
+  def get_table_kwargs(self):
+    kwargs = super().get_table_kwargs()
+    kwargs['request'] = self.request
+    kwargs['url'] = reverse('mainproduct-resolve', kwargs={'pk':self.kwargs.get('pk')})
+    return kwargs
   def get_context_data(self, **kwargs) -> dict[str, Any]:
       context = super().get_context_data(**kwargs)
       context["pk"] = self.kwargs.get('pk')
+      context["bound"] = self.request.GET.get('bound', None) is not None
       return context
   
-
-
-
-class MainProductResolveTableView(SingleTableView):
-  table_class=MainProductResolveTable
-  template_name='mainproduct/partials/table.html'
-  model = MainProduct
-  def get(self, request, *args, **kwargs):
-    if not self.request.htmx:
-      return HttpResponseClientRedirect(reverse_lazy('mainproducts'))
-    return super().get(request, *args, **kwargs)
-  def get_context_data(self, **kwargs) -> dict[str, Any]:
-      context = super().get_context_data(**kwargs)
-      context["pk"] = self.kwargs.get('pk')
-      return context
-  
-  def get_table(self, **kwargs):
-    return super().get_table(
-      **kwargs,
-      request=self.request,
-      url=reverse('mainproduct-resolve-table', kwargs={'pk':self.kwargs.get('pk')})
-    )
-  def get_table_data(self):
-    return MainProductFilter(self.request.GET).qs
