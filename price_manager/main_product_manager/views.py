@@ -18,7 +18,7 @@ from django.contrib.auth.mixins import LoginRequiredMixin
 from django.urls import reverse, reverse_lazy
 from typing import Optional, Any, Dict, Iterable
 from collections import defaultdict, OrderedDict
-from django.db.models import Count, Prefetch, F, Q, Value, Max, Subquery, OuterRef, IntegerField, ExpressionWrapper
+from django.db.models import Count, Prefetch, F, Q, Value, Max, Min, Subquery, OuterRef, IntegerField, ExpressionWrapper
 from django.db import transaction
 from django.contrib.postgres.search import SearchVector
 # Импорты из сторонних приложений
@@ -240,4 +240,131 @@ class ResolveMainproduct(SingleTableMixin, FilterView):
       context["pk"] = self.kwargs.get('pk')
       context["bound"] = self.request.GET.get('bound', None) is not None
       return context
+
+
+class MainProductDuplicatesView(FilterView):
+  model = MainProduct
+  filterset_class = MainProductFilter
+  template_name = 'mainproduct/duplicates.html'
+
+  COMPARISON_FIELD_LABELS = {
+    'article': 'артиклю',
+    'supplier': 'поставщику',
+    'name': 'названию',
+  }
+
+  def get_filterset_kwargs(self, filterset_class):
+    kwargs = super().get_filterset_kwargs(filterset_class)
+    kwargs['url'] = reverse_lazy('mainproduct-duplicates')
+    return kwargs
+
+  def post(self, request, *args, **kwargs):
+    selected_products = [int(pk) for pk in request.POST.getlist('selected_products') if pk.isdigit()]
+    if len(selected_products) < 2:
+      messages.warning(request, 'Выберите минимум два товара для объединения.')
+      return redirect(reverse_lazy('mainproduct-duplicates'))
+
+    merged_data = merge_selected_main_products(selected_products)
+    if merged_data is None:
+      messages.warning(request, 'Не удалось объединить выбранные товары.')
+      return redirect(reverse_lazy('mainproduct-duplicates'))
+
+    keep_product, deleted_products, moved_supplier_products, moved_logs = merged_data
+    messages.success(
+      request,
+      (
+        f'Товары объединены в "{keep_product.name}" (ID: {keep_product.id}). '
+        f'Удалено дублей: {deleted_products}. '
+        f'Перенесено товаров поставщиков: {moved_supplier_products}. '
+        f'Перенесено логов: {moved_logs}.'
+      ),
+    )
+    return redirect(reverse_lazy('mainproduct-duplicates'))
+
+  def get_context_data(self, **kwargs) -> dict[str, Any]:
+    context = super().get_context_data(**kwargs)
+
+    selected_compare_fields = [
+      field for field in self.COMPARISON_FIELD_LABELS.keys()
+      if self.request.GET.get(field) == 'on'
+    ]
+    context['selected_compare_fields'] = selected_compare_fields
+
+    duplicates_groups: list[list[MainProduct]] = []
+    if selected_compare_fields:
+      base_queryset = context['filter'].qs.order_by('id')
+      grouped_values = (
+        base_queryset
+        .values(*selected_compare_fields)
+        .annotate(products_count=Count('id'))
+        .filter(products_count__gt=1)
+      )
+
+      for group_data in grouped_values:
+        query = Q()
+        for field in selected_compare_fields:
+          query &= Q(**{field: group_data[field]})
+        duplicates_groups.append(
+          list(
+            base_queryset
+            .filter(query)
+            .select_related('supplier', 'manufacturer', 'category')
+            .annotate(oldest_log_at=Min('mp_log__update_time'))
+            .order_by(F('oldest_log_at').asc(nulls_last=True), 'id')
+          )
+        )
+
+    context['duplicates_groups'] = duplicates_groups
+    context['comparison_labels'] = [
+      self.COMPARISON_FIELD_LABELS[field] for field in selected_compare_fields
+    ]
+    return context
+
+
+def merge_selected_main_products(selected_ids: list[int]):
+  products = list(
+    MainProduct.objects
+    .filter(id__in=selected_ids)
+    .annotate(oldest_log_at=Min('mp_log__update_time'))
+    .order_by(F('oldest_log_at').asc(nulls_last=True), 'id')
+  )
+  if len(products) < 2:
+    return None
+
+  keep_product = products[0]
+  duplicate_ids = [product.id for product in products[1:]]
+  if not duplicate_ids:
+    return None
+
+  with transaction.atomic():
+    moved_supplier_products = SupplierProduct.objects.filter(
+      main_product_id__in=duplicate_ids
+    ).update(main_product=keep_product)
+
+    duplicate_logs = MainProductLog.objects.filter(
+      main_product_id__in=duplicate_ids,
+    ).values(
+      'update_time',
+      'price',
+      'price_type',
+      'stock',
+    )
+
+    moved_logs = MainProductLog.objects.bulk_create(
+      [
+        MainProductLog(
+          update_time=log['update_time'],
+          main_product=keep_product,
+          price=log['price'],
+          price_type=log['price_type'],
+          stock=log['stock'],
+        )
+        for log in duplicate_logs
+      ],
+      ignore_conflicts=True,
+    )
+
+    deleted_products = MainProduct.objects.filter(id__in=duplicate_ids).delete()[0]
+
+  return (keep_product, deleted_products, moved_supplier_products, len(moved_logs))
   
