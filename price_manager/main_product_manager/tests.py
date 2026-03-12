@@ -48,7 +48,7 @@ from django.utils import timezone
 from supplier_manager.models import Currency, Supplier
 from supplier_product_manager.models import SupplierProduct
 from .models import MainProduct, MainProductLog
-from .views import merge_selected_main_products
+from .views import build_duplicates_groups, merge_selected_main_products
 
 
 class MergeSelectedMainProductsTests(TestCase):
@@ -116,3 +116,60 @@ class MergeSelectedMainProductsTests(TestCase):
         result = merge_selected_main_products([product.id])
 
         self.assertIsNone(result)
+
+
+class BuildDuplicatesGroupsTests(TestCase):
+    def setUp(self):
+        self.currency = Currency.objects.create(name='KZT', value=1)
+        self.supplier = Supplier.objects.create(
+            name='Test supplier',
+            currency=self.currency,
+            price_update_rate='',
+            stock_update_rate='',
+            delivery_days_available=1,
+            delivery_days_navailable=2,
+        )
+
+    def test_groups_by_partial_name_match(self):
+        p1 = MainProduct.objects.create(
+            supplier=self.supplier,
+            article='A-1',
+            name='Bosch GSB 13',
+        )
+        p2 = MainProduct.objects.create(
+            supplier=self.supplier,
+            article='A-2',
+            name='Bosch GSB',
+        )
+        p3 = MainProduct.objects.create(
+            supplier=self.supplier,
+            article='A-3',
+            name='Makita DF',
+        )
+
+        groups = build_duplicates_groups([p1, p2, p3], ['name'])
+
+        self.assertEqual(len(groups), 1)
+        self.assertEqual(sorted([product.id for product in groups[0]]), sorted([p1.id, p2.id]))
+
+    def test_groups_by_exact_fields_and_partial_name(self):
+        p1 = MainProduct.objects.create(
+            supplier=self.supplier,
+            article='A-1',
+            name='Milwaukee M12 Fuel',
+        )
+        p2 = MainProduct.objects.create(
+            supplier=self.supplier,
+            article='A-1',
+            name='Milwaukee M12',
+        )
+        p3 = MainProduct.objects.create(
+            supplier=self.supplier,
+            article='A-2',
+            name='Milwaukee M12',
+        )
+
+        groups = build_duplicates_groups([p1, p2, p3], ['article', 'name'])
+
+        self.assertEqual(len(groups), 1)
+        self.assertEqual(sorted([product.id for product in groups[0]]), sorted([p1.id, p2.id]))

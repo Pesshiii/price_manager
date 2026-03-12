@@ -51,6 +51,76 @@ import pandas as pd
 import re
 import math
 
+
+def _normalize_compare_string(value: Optional[str]) -> str:
+  return re.sub(r'\s+', ' ', (value or '').strip().lower())
+
+
+def _names_partially_match(left_name: Optional[str], right_name: Optional[str]) -> bool:
+  left_normalized = _normalize_compare_string(left_name)
+  right_normalized = _normalize_compare_string(right_name)
+  if not left_normalized or not right_normalized:
+    return False
+  return (
+    left_normalized in right_normalized
+    or right_normalized in left_normalized
+  )
+
+
+def build_duplicates_groups(
+  products: list['MainProduct'],
+  selected_compare_fields: list[str],
+) -> list[list['MainProduct']]:
+  if not selected_compare_fields:
+    return []
+
+  if 'name' not in selected_compare_fields:
+    grouped_products: OrderedDict[tuple, list[MainProduct]] = OrderedDict()
+    for product in products:
+      group_key = tuple(getattr(product, field) for field in selected_compare_fields)
+      grouped_products.setdefault(group_key, []).append(product)
+    return [group for group in grouped_products.values() if len(group) > 1]
+
+  exact_fields = [field for field in selected_compare_fields if field != 'name']
+  grouped_by_exact_fields: OrderedDict[tuple, list[MainProduct]] = OrderedDict()
+  for product in products:
+    group_key = tuple(getattr(product, field) for field in exact_fields)
+    grouped_by_exact_fields.setdefault(group_key, []).append(product)
+
+  duplicates_groups: list[list[MainProduct]] = []
+  for exact_group_products in grouped_by_exact_fields.values():
+    if len(exact_group_products) < 2:
+      continue
+
+    visited = set()
+    for index, product in enumerate(exact_group_products):
+      if index in visited:
+        continue
+
+      stack = [index]
+      component_indexes = []
+      while stack:
+        current_index = stack.pop()
+        if current_index in visited:
+          continue
+        visited.add(current_index)
+        component_indexes.append(current_index)
+
+        current_product = exact_group_products[current_index]
+        for other_index, other_product in enumerate(exact_group_products):
+          if other_index in visited:
+            continue
+          if _names_partially_match(current_product.name, other_product.name):
+            stack.append(other_index)
+
+      if len(component_indexes) > 1:
+        duplicates_groups.append([
+          exact_group_products[component_index]
+          for component_index in sorted(component_indexes)
+        ])
+
+  return duplicates_groups
+
 class MainPage(FilterView):
   model = MainProduct
   filterset_class = MainProductFilter
@@ -292,27 +362,13 @@ class MainProductDuplicatesView(FilterView):
 
     duplicates_groups: list[list[MainProduct]] = []
     if selected_compare_fields:
-      base_queryset = context['filter'].qs.order_by('id')
-      grouped_values = (
-        base_queryset
-        .values(*selected_compare_fields)
-        .annotate(products_count=Count('id'))
-        .filter(products_count__gt=1)
+      products = list(
+        context['filter'].qs
+        .select_related('supplier', 'manufacturer', 'category')
+        .annotate(oldest_log_at=Min('mp_log__update_time'))
+        .order_by(F('oldest_log_at').asc(nulls_last=True), 'id')
       )
-
-      for group_data in grouped_values:
-        query = Q()
-        for field in selected_compare_fields:
-          query &= Q(**{field: group_data[field]})
-        duplicates_groups.append(
-          list(
-            base_queryset
-            .filter(query)
-            .select_related('supplier', 'manufacturer', 'category')
-            .annotate(oldest_log_at=Min('mp_log__update_time'))
-            .order_by(F('oldest_log_at').asc(nulls_last=True), 'id')
-          )
-        )
+      duplicates_groups = build_duplicates_groups(products, selected_compare_fields)
 
     context['duplicates_groups'] = duplicates_groups
     context['comparison_labels'] = [
