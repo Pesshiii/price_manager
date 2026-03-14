@@ -17,9 +17,10 @@ from django.views.generic import (View,
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.urls import reverse, reverse_lazy
 from typing import Optional, Any, Dict, Iterable
-from collections import defaultdict, OrderedDict
-from django.db.models import Count, Prefetch, F, Q, Value, Max, Min, Subquery, OuterRef, IntegerField, ExpressionWrapper
+from collections import defaultdict
+from django.db.models import Count, Prefetch, F, Q, Value, Max, Min, Subquery, OuterRef, IntegerField, ExpressionWrapper, Exists
 from django.db import transaction
+from django.db.models.functions import Lower, Trim, StrIndex
 from django.contrib.postgres.search import SearchVector
 # Импорты из сторонних приложений
 from django_tables2 import SingleTableView, RequestConfig, SingleTableMixin
@@ -67,57 +68,100 @@ def _names_partially_match(left_name: Optional[str], right_name: Optional[str]) 
   )
 
 
+def _build_name_pair_query(products: list['MainProduct']) -> list[list['MainProduct']]:
+  duplicates_groups: list[list[MainProduct]] = []
+  visited_ids = set()
+  product_by_id = {product.id: product for product in products}
+
+  for product in products:
+    if product.id in visited_ids:
+      continue
+
+    stack = [product.id]
+    component_ids = set()
+    while stack:
+      current_id = stack.pop()
+      if current_id in component_ids:
+        continue
+      component_ids.add(current_id)
+      current_product = product_by_id[current_id]
+
+      for candidate in products:
+        if candidate.id in component_ids:
+          continue
+        if _names_partially_match(current_product.normalized_name, candidate.normalized_name):
+          stack.append(candidate.id)
+
+    if len(component_ids) > 1:
+      visited_ids.update(component_ids)
+      duplicates_groups.append([
+        product_by_id[product_id] for product_id in sorted(component_ids)
+      ])
+
+  return duplicates_groups
+
+
 def build_duplicates_groups(
-  products: list['MainProduct'],
+  base_queryset,
   selected_compare_fields: list[str],
 ) -> list[list['MainProduct']]:
   if not selected_compare_fields:
     return []
 
   if 'name' not in selected_compare_fields:
-    grouped_products: OrderedDict[tuple, list[MainProduct]] = OrderedDict()
-    for product in products:
-      group_key = tuple(getattr(product, field) for field in selected_compare_fields)
-      grouped_products.setdefault(group_key, []).append(product)
-    return [group for group in grouped_products.values() if len(group) > 1]
+    grouped_values = (
+      base_queryset
+      .values(*selected_compare_fields)
+      .annotate(products_count=Count('id'))
+      .filter(products_count__gt=1)
+    )
+
+    duplicates_groups = []
+    for group_data in grouped_values:
+      query = Q()
+      for field in selected_compare_fields:
+        query &= Q(**{field: group_data[field]})
+      duplicates_groups.append(list(base_queryset.filter(query)))
+    return duplicates_groups
 
   exact_fields = [field for field in selected_compare_fields if field != 'name']
-  grouped_by_exact_fields: OrderedDict[tuple, list[MainProduct]] = OrderedDict()
-  for product in products:
-    group_key = tuple(getattr(product, field) for field in exact_fields)
-    grouped_by_exact_fields.setdefault(group_key, []).append(product)
+  grouped_values = (
+    base_queryset
+    .values(*exact_fields)
+    .annotate(products_count=Count('id'))
+    .filter(products_count__gt=1)
+  )
 
   duplicates_groups: list[list[MainProduct]] = []
-  for exact_group_products in grouped_by_exact_fields.values():
-    if len(exact_group_products) < 2:
-      continue
+  for group_data in grouped_values:
+    group_query = Q()
+    for field in exact_fields:
+      group_query &= Q(**{field: group_data[field]})
 
-    visited = set()
-    for index, product in enumerate(exact_group_products):
-      if index in visited:
-        continue
+    group_queryset = base_queryset.filter(group_query)
 
-      stack = [index]
-      component_indexes = []
-      while stack:
-        current_index = stack.pop()
-        if current_index in visited:
-          continue
-        visited.add(current_index)
-        component_indexes.append(current_index)
+    related_products = MainProduct.objects.annotate(
+      normalized_name=Lower(Trim(F('name')))
+    ).filter(group_query).exclude(pk=OuterRef('pk'))
 
-        current_product = exact_group_products[current_index]
-        for other_index, other_product in enumerate(exact_group_products):
-          if other_index in visited:
-            continue
-          if _names_partially_match(current_product.name, other_product.name):
-            stack.append(other_index)
+    has_partial_name_match = Exists(
+      related_products.annotate(
+        reverse_match_position=StrIndex(OuterRef('normalized_name'), F('normalized_name')),
+      ).filter(
+        Q(normalized_name__contains=OuterRef('normalized_name')) |
+        Q(reverse_match_position__gt=0)
+      )
+    )
 
-      if len(component_indexes) > 1:
-        duplicates_groups.append([
-          exact_group_products[component_index]
-          for component_index in sorted(component_indexes)
-        ])
+    group_products = list(
+      group_queryset
+      .annotate(normalized_name=Lower(Trim(F('name'))))
+      .annotate(has_partial_name_match=has_partial_name_match)
+      .filter(has_partial_name_match=True)
+    )
+
+    if len(group_products) > 1:
+      duplicates_groups.extend(_build_name_pair_query(group_products))
 
   return duplicates_groups
 
@@ -362,13 +406,13 @@ class MainProductDuplicatesView(FilterView):
 
     duplicates_groups: list[list[MainProduct]] = []
     if selected_compare_fields:
-      products = list(
+      base_queryset = (
         context['filter'].qs
         .select_related('supplier', 'manufacturer', 'category')
         .annotate(oldest_log_at=Min('mp_log__update_time'))
         .order_by(F('oldest_log_at').asc(nulls_last=True), 'id')
       )
-      duplicates_groups = build_duplicates_groups(products, selected_compare_fields)
+      duplicates_groups = build_duplicates_groups(base_queryset, selected_compare_fields)
 
     context['duplicates_groups'] = duplicates_groups
     context['comparison_labels'] = [

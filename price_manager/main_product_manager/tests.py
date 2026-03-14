@@ -147,7 +147,7 @@ class BuildDuplicatesGroupsTests(TestCase):
             name='Makita DF',
         )
 
-        groups = build_duplicates_groups([p1, p2, p3], ['name'])
+        groups = build_duplicates_groups(MainProduct.objects.filter(id__in=[p1.id, p2.id, p3.id]), ['name'])
 
         self.assertEqual(len(groups), 1)
         self.assertEqual(sorted([product.id for product in groups[0]]), sorted([p1.id, p2.id]))
@@ -169,7 +169,7 @@ class BuildDuplicatesGroupsTests(TestCase):
             name='Milwaukee M12',
         )
 
-        groups = build_duplicates_groups([p1, p2, p3], ['article', 'name'])
+        groups = build_duplicates_groups(MainProduct.objects.filter(id__in=[p1.id, p2.id, p3.id]), ['article', 'name'])
 
         self.assertEqual(len(groups), 1)
         self.assertEqual(sorted([product.id for product in groups[0]]), sorted([p1.id, p2.id]))
