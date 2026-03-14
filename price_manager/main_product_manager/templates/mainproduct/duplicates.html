@@ -9,19 +9,19 @@
 <div class="container-fluid p-4">
   <h2 class="mb-3">Дубликаты товаров</h2>
 
-  <form method="get" class="card p-3 mb-3">
+  <form method="get" hx-get="{% url "mainproduct-duplicates" %}{% querystring carticle=None cname=None csupplier=None%}" hx-trigger="submit, change" hx-push-url="true" class="card p-3 mb-3">
     <h5 class="mb-3">Параметры сравнения</h5>
     <div class="d-flex flex-wrap gap-4 align-items-center">
       <div class="form-check">
-        <input class="form-check-input" type="checkbox" id="compare-article" name="article" {% if request.GET.article == 'on' %}checked{% endif %}>
+        <input class="form-check-input" type="checkbox" id="compare-article" name="carticle" {% if request.GET.carticle == 'on' %}checked{% endif %}>
         <label class="form-check-label" for="compare-article">Сравнивать по артиклю</label>
       </div>
       <div class="form-check">
-        <input class="form-check-input" type="checkbox" id="compare-supplier" name="supplier" {% if request.GET.supplier == 'on' %}checked{% endif %}>
+        <input class="form-check-input" type="checkbox" id="compare-supplier" name="csupplier" {% if request.GET.csupplier == 'on' %}checked{% endif %}>
         <label class="form-check-label" for="compare-supplier">Сравнивать по поставщику</label>
       </div>
       <div class="form-check">
-        <input class="form-check-input" type="checkbox" id="compare-name" name="name" {% if request.GET.name == 'on' %}checked{% endif %}>
+        <input class="form-check-input" type="checkbox" id="compare-name" name="cname" {% if request.GET.cname == 'on' %}checked{% endif %}>
         <label class="form-check-label" for="compare-name">Сравнивать по названию</label>
       </div>
       <button type="submit" class="btn btn-primary">Найти дубликаты</button>
@@ -37,54 +37,12 @@
     <div class="col-9">
       {% if not selected_compare_fields %}
         <div class="alert alert-info">Выберите хотя бы одно поле сравнения сверху.</div>
-      {% elif not duplicates_groups %}
-        <div class="alert alert-secondary">Дубликаты по выбранным параметрам не найдены.</div>
       {% else %}
-        <form method="post">
-          {% csrf_token %}
           <div class="d-flex justify-content-between align-items-center mb-3">
             <p class="mb-0">Критерии сравнения: <strong>{{ comparison_labels|join:", " }}</strong>.</p>
             <button type="submit" class="btn btn-success">Объединить выбранные товары</button>
           </div>
-
-          {% for group in duplicates_groups %}
-            <div class="card mb-3">
-              <div class="card-header">
-                Группа дубликатов #{{ forloop.counter }} ({{ group|length }} шт.)
-              </div>
-              <div class="card-body p-0">
-                <div class="table-responsive">
-                  <table class="table table-hover mb-0">
-                    <thead>
-                      <tr>
-                        <th></th>
-                        <th>ID</th>
-                        <th>Артикул</th>
-                        <th>Поставщик</th>
-                        <th>Название</th>
-                        <th>Самый старый лог</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {% for product in group %}
-                        <tr>
-                          <td>
-                            <input class="form-check-input" type="checkbox" name="selected_products" value="{{ product.id }}">
-                          </td>
-                          <td>{{ product.id }}</td>
-                          <td>{{ product.article }}</td>
-                          <td>{{ product.supplier.name }}</td>
-                          <td>{{ product.name }}</td>
-                          <td>{% if product.oldest_log_at %}{{ product.oldest_log_at }}{% else %}—{% endif %}</td>
-                        </tr>
-                      {% endfor %}
-                    </tbody>
-                  </table>
-                </div>
-              </div>
-            </div>
-          {% endfor %}
-        </form>
+          <div hx-get="{% url "mainproduct-duplicate" id=id %}{% querystring %}" hx-trigger="load" hx-target="this"></div>
       {% endif %}
     </div>
   </div>

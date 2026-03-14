@@ -59,7 +59,7 @@ class MainProductFilter(FilterSet):
     label='Категории'
   )
 
-  def __init__(self, *args, url=None, bound_ignore=False, **kwargs):
+  def __init__(self, *args, url=None, bound_ignore=False, hx_target:str|None='#mainproducts-table', **kwargs):
     super().__init__(*args, **kwargs)
     self.config_filters(self.search_method(self.queryset, '', value=self.data.get('search', '')))
     self.form.helper = FormHelper(self.form)
@@ -68,11 +68,12 @@ class MainProductFilter(FilterSet):
     self.form.helper.label_class='mt-2'
     self.form.helper.attrs = {
       'hx-get':url,
-      'hx-target':'#mainproducts-table',
       'hx-swap':'innerHTML',
       'hx-trigger':'input changed delay:2s, change delay:2s, submit',
       'hx-push-url':'true'
     }
+    if hx_target:
+      self.form.helper.attrs['hx-target']=hx_target
     if not self.data.get('bound', None) or bound_ignore:
       self.form.helper.layout = Layout(
           Hidden('bound', 'true'),

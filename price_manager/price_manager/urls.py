@@ -17,21 +17,11 @@ urlpatterns = [
     path('accounts/login/', views.AppLoginView.as_view(), name='login'),
     path('accounts/logout/', views.AppLogoutView.as_view(), name='logout'),
 
-    path('', mp_views.MainPage.as_view(), name='mainproducts'),
-    path('mainproduct/table_bycat/<int:category_pk>', mp_views.MainProductTableView.as_view(), name='mainproduct-table-bycat'),
-    path('mainproduct/table_nocat/', mp_views.MainProductTableView.as_view(), name='mainproduct-table-nocat'),
-
-    path('mainproduct/<int:id>/update', mp_views.MainProductUpdate.as_view(), name='main-product-update'),
-    path('mainproduct/sync', mp_views.sync_main_products, name='mainproducts-sync'),
-    path('mainproduct/<int:pk>/info', mp_views.MainProductInfo.as_view(), name='mainproduct-info'),
-    path('mainproduct/<int:pk>/update', mp_views.MainProductUpdate.as_view(), name='mainproduct-update'),
-    path('mainproduct/<int:pk>/resolve', mp_views.ResolveMainproduct.as_view(), name='mainproduct-resolve'),
-    path('mainproduct/duplicates/', mp_views.MainProductDuplicatesView.as_view(), name='mainproduct-duplicates'),
-    path('mainproduct/<int:pk>/detail', mp_views.MainProductDetail.as_view(), name='mainproduct-detail'),
-    path('mainproduct/<int:pk>/pricetags', ppm_views.PriceTagList.as_view(), name='pricetag-list'),
-    path('mainproduct/<int:pk>/logs', mp_views.MainProductLogList.as_view(), name='mainproductlog-list'),
+    path('', views.mainpage, name='mainpage'),
 
     # SUPPLIER WORKFRAME
+
+    path('mainproduct/', include('main_product_manager.urls')),
     
     path('supplier/', sm_views.SupplierList.as_view(), name='supplier'),
     
