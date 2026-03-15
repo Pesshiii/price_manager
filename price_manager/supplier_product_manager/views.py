@@ -56,7 +56,7 @@ class SupplierDetail(SingleTableMixin, FilterView):
   def get(self, request, *args, **kwargs):
     self.supplier = Supplier.objects.get(pk=self.kwargs.get('pk', None))
     if self.request.htmx:
-      self.template_name = 'supplier\partials\detail_products_table_partial.html'
+      self.template_name = 'supplier/partials/detail_products_table_partial.html'
     return super().get(request, *args, **kwargs)
   def post(self, request, *args, **kwargs):
     self.supplier = Supplier.objects.get(pk=self.kwargs.get('pk', None))
