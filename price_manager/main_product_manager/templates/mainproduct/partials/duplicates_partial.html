@@ -1,4 +1,4 @@
-
+{% if id %}
 <div class="card mb-3">
     <div class="card-header">
     Группа дубликатов ({{ products.count }} шт.)
@@ -34,4 +34,7 @@
     </div>
     </div>
 </div>
-<div hx-get="{% url "mainproduct-duplicate" id=id%}{% querystring %}" hx-trigger="revealed" hx-swap="afterend"></div>
+<div hx-get="{% url "mainproduct-duplicate" id=id%}{% querystring %}" hx-trigger="load" hx-swap="afterend"></div>
+{% else %}
+    <div class="alert alert-info">The fin.</div>
+{% endif %}

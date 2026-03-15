@@ -10,9 +10,9 @@ class Migration(migrations.Migration):
     ]
 
     operations = [
-        migrations.AlterField(
-            model_name='setting',
-            name='update_main',
-            field=models.BooleanField(default=True, verbose_name='Обновлять товары ГП'),
-        ),
+        # migrations.AlterField(
+        #     model_name='setting',
+        #     name='update_main',
+        #     field=models.BooleanField(default=True, verbose_name='Обновлять товары ГП'),
+        # ),
     ]

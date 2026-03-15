@@ -52,7 +52,7 @@ class Migration(migrations.Migration):
                         ('name', models.CharField(verbose_name='Название')),
                         ('sheet_name', models.CharField(verbose_name='Название листа')),
                         ('priced_only', models.BooleanField(default=True, verbose_name='Не включать поля без цены')),
-                        ('update_main', models.BooleanField(default=True, verbose_name='Обновлять главный прайс')),
+                        # ('update_main', models.BooleanField(default=True, verbose_name='Обновлять главный прайс')),
                         ('differ_by_name', models.BooleanField(default=True, verbose_name='Различать по имени')),
                         ('supplier', models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, to='core.supplier')),
                     ],

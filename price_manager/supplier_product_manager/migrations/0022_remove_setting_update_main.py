@@ -11,10 +11,10 @@ class Migration(migrations.Migration):
 
     operations = [
         
-        migrations.RemoveField(
-            model_name='setting',
-            name='update_main',
-        ),
+        # migrations.RemoveField(
+        #     model_name='setting',
+        #     name='update_main',
+        # ),
         
         migrations.SeparateDatabaseAndState(
             state_operations=[

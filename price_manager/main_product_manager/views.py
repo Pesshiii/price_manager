@@ -307,7 +307,9 @@ class MainProductDuplicatesView(FilterView):
 
 def mainproductdupe(request, id):
     if id == None:
-        return HttpResponse('')
+        messages.info(request, 'Все товары обработаны')
+        return render(request, 'mainproduct/partials/duplicates_partial.html', context={'products':None, 'id':id})
+    
     qfilter = MainProductFilter(request.GET)
     COMPARISON_FIELD_LABELS = {
         'article': 'артиклю',
@@ -319,24 +321,29 @@ def mainproductdupe(request, id):
       if request.GET.get('c' + field) == 'on'
     ]
     if selected_compare_fields == []:
-        return HttpResponse('')
-    base_queryset = qfilter.qs.filter(id__gte=id).order_by('id')
+        return render(request, 'mainproduct/partials/duplicates_partial.html', context={'products':None, 'id':None})
+    found = False
+    base_queryset = qfilter.qs.order_by('id')
     next_id = base_queryset.filter(id__gt=id).first().id if base_queryset.count() > 1 else None
-    buffer_queryset = base_queryset
-    print('1')
-    if 'article' in selected_compare_fields:
-        buffer_queryset = buffer_queryset.filter(article=buffer_queryset.first().article)
-    if 'supplier' in selected_compare_fields:
-        buffer_queryset = buffer_queryset.filter(supplier=buffer_queryset.first().supplier)
-    if 'name' in selected_compare_fields:
-        buffer_queryset = buffer_queryset.filter(name__icontains=buffer_queryset.first().name)
-    if buffer_queryset.count() == 1:
-        return redirect(f"{reverse('mainproduct-duplicate', kwargs={'id':next_id})}?{request.META['QUERY_STRING']}")
-    print('2')
-    base_queryset = base_queryset.filter(id__gt=id).exclude(pk__in=buffer_queryset)
-    next_id = base_queryset.first().id if base_queryset.exists() else None
-    print('3')
-    print(buffer_queryset.values(*['article','name']))
+    item = base_queryset.get(id=id)
+    while not found:
+        if next_id is None:
+            messages.info(request, 'Все товары обработаны')
+            return render(request, 'mainproduct/partials/duplicates_partial.html', context={'products':None, 'id':None})
+        buffer_queryset = base_queryset
+        if 'article' in selected_compare_fields:
+            buffer_queryset = buffer_queryset.filter(article=item.article)
+        if 'supplier' in selected_compare_fields:
+            buffer_queryset = buffer_queryset.filter(supplier=item.supplier)
+        if 'name' in selected_compare_fields:
+            buffer_queryset = buffer_queryset.filter(name__icontains=item.name)
+        next_item = base_queryset.filter(id__gt=id).exclude(pk__in=buffer_queryset).first()
+        next_id = next_item.id if next_item else None
+        if buffer_queryset.filter(id__lt=id).exists() or buffer_queryset.count() == 1:
+            item = next_item
+            id = next_id
+            continue
+        found = True
     return render(request, 'mainproduct/partials/duplicates_partial.html', context={'products':buffer_queryset, 'id':next_id})
 
 def merge_selected_main_products(selected_ids: list[int]):
