@@ -191,6 +191,8 @@ class MainProductUpdate(UpdateView):
       return redirect(reverse('mainproduct-info', kwargs=self.kwargs))
     return super().get(request, *args, **kwargs)
   def form_valid(self, form):
+    if self.request.POST.get('cancel-btn'):
+       return HttpResponseClientRedirect(reverse('mainproduct-detail', kwargs=self.kwargs))
     if form.is_valid():
       form.save()
       return HttpResponseClientRedirect(reverse('mainproduct-detail', kwargs=self.kwargs))
