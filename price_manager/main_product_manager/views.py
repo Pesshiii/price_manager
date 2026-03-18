@@ -42,6 +42,7 @@ from core.functions import *
 from .forms import *
 from .tables import *
 from .filters import *
+from .functions import *
 from product_price_manager.views import update_prices
 from supplier_product_manager.views import UploadSupplierFile
 
@@ -278,7 +279,52 @@ class MainProductDuplicatesView(FilterView):
                 ),
             )
         return HttpResponseClientRedirect(f"{reverse('mainproduct-duplicates')}?{request.META['QUERY_STRING']}")
+    def post(self, request, *args, **kwargs):
+        selected_products = [int(pk) for pk in request.POST.getlist('selected_products') if pk.isdigit()]
+        selected_groups = [int(pk) for pk in request.POST.getlist('selected_groups') if pk.isdigit()]
+        if len(selected_products) < 2 and len(selected_groups) < 1:
+            messages.warning(request, 'Выберите минимум два товара для объединения. Или хотя бы одну группу.')
+            return redirect(reverse_lazy('mainproduct-duplicates'))
+        if len(selected_products) > 1:
+            merged_data = merge_selected_main_products(selected_products)
+            if merged_data is None:
+                messages.warning(request, 'Не удалось объединить выбранные товары.')
+                return redirect(reverse_lazy('mainproduct-duplicates'))
 
+            keep_product, deleted_products, moved_supplier_products, moved_logs = merged_data
+            messages.success(
+                request,
+                (
+                    f'Товары объединены в "{keep_product.name}" (ID: {keep_product.id}). '
+                    f'Удалено дублей: {deleted_products}. '
+                    f'Перенесено товаров поставщиков: {moved_supplier_products}. '
+                    f'Перенесено логов: {moved_logs}.'
+                ),
+            )
+        if len(selected_groups) > 0:
+            selected_compare_fields = [
+                field for field in self.COMPARISON_FIELD_LABELS.keys()
+                if self.request.GET.get('c' + field) == 'on'
+            ]
+            for id in selected_groups:
+                try:
+                    merged_data = merge_selected_main_products(get_dupes(id, selected_compare_fields, MainProductFilter(request.GET).qs)[1])
+                    keep_product, deleted_products, moved_supplier_products, moved_logs = merged_data
+                    messages.success(
+                        request,
+                        (
+                            f'Группа для "{keep_product.name}" (ID: {keep_product.id}). '
+                            f'Удалено дублей: {deleted_products}. '
+                            f'Перенесено товаров поставщиков: {moved_supplier_products}. '
+                            f'Перенесено логов: {moved_logs}.'
+                        ),
+                    )
+                except:
+                   messages.warning(
+                        request,
+                        f'Что-то пошло не так для продукта с ID:{id}'
+                    )
+        return redirect(f"{reverse('mainproduct-duplicates')}?{request.META['QUERY_STRING']}")
     def get_filterset_kwargs(self, filterset_class):
         selected_compare_fields = [
             field for field in self.COMPARISON_FIELD_LABELS.keys()
@@ -294,12 +340,12 @@ class MainProductDuplicatesView(FilterView):
         context = super().get_context_data(**kwargs)
         context["id"] = self.filterset.qs.first().id
         selected_compare_fields = [
-        field for field in self.COMPARISON_FIELD_LABELS.keys()
+        field for field in COMPARISON_FIELD_LABELS.keys()
         if self.request.GET.get('c' + field) == 'on'
         ]
         context['selected_compare_fields'] = selected_compare_fields
         context['comparison_labels'] = [
-            self.COMPARISON_FIELD_LABELS[field] for field in selected_compare_fields
+            COMPARISON_FIELD_LABELS[field] for field in selected_compare_fields
         ]
         return context
   
@@ -311,39 +357,18 @@ def mainproductdupe(request, id):
         return render(request, 'mainproduct/partials/duplicates_partial.html', context={'products':None, 'id':id})
     
     qfilter = MainProductFilter(request.GET)
-    COMPARISON_FIELD_LABELS = {
-        'article': 'артиклю',
-        'supplier': 'поставщику',
-        'name': 'названию',
-    }
     selected_compare_fields = [
       field for field in COMPARISON_FIELD_LABELS.keys()
       if request.GET.get('c' + field) == 'on'
     ]
     if selected_compare_fields == []:
         return render(request, 'mainproduct/partials/duplicates_partial.html', context={'products':None, 'id':None})
-    found = False
     base_queryset = qfilter.qs.order_by('id')
-    next_id = base_queryset.filter(id__gt=id).first().id if base_queryset.count() > 1 else None
-    item = base_queryset.get(id=id)
-    while not found:
-        if next_id is None:
-            messages.info(request, 'Все товары обработаны')
-            return render(request, 'mainproduct/partials/duplicates_partial.html', context={'products':None, 'id':None})
-        buffer_queryset = base_queryset
-        if 'article' in selected_compare_fields:
-            buffer_queryset = buffer_queryset.filter(article=item.article)
-        if 'supplier' in selected_compare_fields:
-            buffer_queryset = buffer_queryset.filter(supplier=item.supplier)
-        if 'name' in selected_compare_fields:
-            buffer_queryset = buffer_queryset.filter(name__icontains=item.name)
-        next_item = base_queryset.filter(id__gt=id).exclude(pk__in=buffer_queryset).first()
-        next_id = next_item.id if next_item else None
-        if buffer_queryset.filter(id__lt=id).exists() or buffer_queryset.count() == 1:
-            item = next_item
-            id = next_id
-            continue
-        found = True
+    next_id, buffer_queryset = get_dupes(id, selected_compare_fields, base_queryset)
+    if next_id is None:
+        messages.info(request, 'Все товары обработаны')
+        return render(request, 'mainproduct/partials/duplicates_partial.html', context={'products':None, 'id':None})
+    buffer_queryset = buffer_queryset.annotate(oldest_log_at=Min('mp_log__update_time'))
     return render(request, 'mainproduct/partials/duplicates_partial.html', context={'products':buffer_queryset, 'id':next_id})
 
 def merge_selected_main_products(selected_ids: list[int]):
