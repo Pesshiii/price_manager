@@ -1,6 +1,6 @@
 # Database backups for Docker initialization
 
-Положите сюда файл бэкапа PostgreSQL перед первым запуском `docker compose up`.
+Положите сюда файл бэкапа PostgreSQL перед первым запуском `docker compose up --build`.
 
 Поддерживаемые форматы:
 - `.sql`
@@ -20,3 +20,5 @@
 docker compose down -v
 docker compose up --build
 ```
+
+Скрипт инициализации теперь встраивается в образ Postgres во время сборки, поэтому после изменения Docker-конфигурации или init-скриптов запускайте контейнер с `--build`.

@@ -13,11 +13,13 @@ services:
     env_file:
       - .env
   db:
-    image: postgres:17
+    build:
+      context: .
+      dockerfile: docker/postgres/Dockerfile
+    image: price-manager-postgres:17
     container_name: postgres_db
     volumes:
       - postgres_db:/var/lib/postgresql/data
-      - ./docker/db/init:/docker-entrypoint-initdb.d:ro
       - ./db_backups:/project_backups:ro
     environment:
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
