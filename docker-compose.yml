@@ -17,7 +17,7 @@ services:
     container_name: postgres_db
     volumes:
       - postgres_db:/var/lib/postgresql/data
-      - ./docker/db/init/01-restore-backup.sh:/docker-entrypoint-initdb.d/01-restore-backup.sh:ro
+      - ./docker/db/init:/docker-entrypoint-initdb.d:ro
       - ./db_backups:/project_backups:ro
     environment:
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
