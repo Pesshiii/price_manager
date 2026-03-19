@@ -313,3 +313,121 @@ class BasicLoadTests(TestCase):
         self.supplier.refresh_from_db()
         self.assertIsNotNone(self.supplier.stock_updated_at)
         self.assertIsNotNone(self.supplier.price_updated_at)
+
+    def test_ignorename_on_create(self):
+        setting = Setting.objects.create(
+            name="Загрузка артикул",
+            supplier=self.supplier,
+            sheet_name="Sheet1",
+            create_new=True,
+        )
+        Link.objects.create(setting=setting, key="article", value="Артикул")
+        Link.objects.create(setting=setting, key="name", value="Название")
+        Link.objects.create(setting=setting, key="supplier_price", value="Цена")
+        Link.objects.create(setting=setting, key="rrp", value="РРЦ")
+        Link.objects.create(setting=setting, key="stock", value="Остаток")
+        Link.objects.create(setting=setting, key="manufacturer", value="Производитель")
+
+        uppload_df_initial = pd.DataFrame(
+                [
+                    {"Артикул": "А-1", "Название": "Товар 1", "Цена": "1", "РРЦ":"1", "Остаток":"1", "Производитель": "Производитель 1"},
+                    {"Артикул": "А-1", "Название": "Товар 3", "Цена": "1", "РРЦ":"1", "Остаток":"1", "Производитель": "Производитель 1"},
+                ]
+            )
+
+        self._create_supplier_file(
+            setting,
+            uppload_df_initial,
+        )
+        load_setting(setting.pk)
+        setting.ignore_name = True
+        setting.save()
+
+
+        uppload_df = pd.DataFrame(
+                [
+                    {"Артикул": "А-1", "Название":"Товар 2", "Цена": "0", "РРЦ":"1", "Остаток":"1", "Производитель": "Производитель 1"},
+                    {"Артикул": "А-2", "Название":"Товар 2", "Цена": "1", "РРЦ":"1", "Остаток":"1", "Производитель": "Производитель 1"},
+                ]
+            )
+        
+        correct_values = [
+                {"article": "А-1", "name": "Товар 1", "supplier_price": 0, "rrp":1, "stock":1, "manufacturer": Manufacturer.objects.get_or_create(name="Производитель 1")[0]},
+                {"article": "А-1", "name": "Товар 3", "supplier_price": 0, "rrp":1, "stock":1, "manufacturer": Manufacturer.objects.get_or_create(name="Производитель 1")[0]},
+                {"article": "А-2", "name": "Товар 2", "supplier_price": 1, "rrp":1, "stock":1, "manufacturer": Manufacturer.objects.get_or_create(name="Производитель 1")[0]},
+            ]
+        
+
+        self._create_supplier_file(
+            setting,
+            uppload_df,
+        )
+        result = load_setting(setting.pk)
+
+        self.assertIsNotNone(result)
+        self.assertEqual(SupplierProduct.objects.filter(supplier=self.supplier).count(), 3)
+        for product_value, correct_value, attr in self._get_asserts_articlename(correct_values):
+            self.assertEqual(
+                product_value,
+                correct_value,
+                attr
+            )
+        self.supplier.refresh_from_db()
+        self.assertIsNotNone(self.supplier.stock_updated_at)
+        self.assertIsNotNone(self.supplier.price_updated_at)
+    def test_setnull_for_missing(self):
+        setting = Setting.objects.create(
+            name="Загрузка артикул",
+            supplier=self.supplier,
+            sheet_name="Sheet1",
+            create_new=True,
+        )
+        Link.objects.create(setting=setting, key="article", value="Артикул")
+        Link.objects.create(setting=setting, key="name", value="Название")
+        Link.objects.create(setting=setting, key="supplier_price", value="Цена")
+        Link.objects.create(setting=setting, key="rrp", value="РРЦ")
+        Link.objects.create(setting=setting, key="stock", value="Остаток")
+        Link.objects.create(setting=setting, key="manufacturer", value="Производитель")
+
+        uppload_df_initial = pd.DataFrame(
+                [
+                    {"Артикул": "А-1", "Название": "Товар 1", "Цена": "1", "РРЦ":"1", "Остаток":"1", "Производитель": "Производитель 1"},
+                ]
+            )
+
+        self._create_supplier_file(
+            setting,
+            uppload_df_initial,
+        )
+        load_setting(setting.pk)
+        Link.objects.get(setting=setting, key="supplier_price").delete()
+
+
+        uppload_df = pd.DataFrame(
+                [
+                    {"Артикул": "А-2", "Название": "Товар 1", "Цена": "1", "РРЦ":"1", "Остаток":"1", "Производитель": "Производитель 1"},
+                ]
+            )
+        
+        correct_values = [
+                {"article": "А-1", "name": "Товар 1", "supplier_price": 1, "rrp":None, "stock":None, "manufacturer": Manufacturer.objects.get_or_create(name="Производитель 1")[0]},
+            ]
+        
+
+        self._create_supplier_file(
+            setting,
+            uppload_df,
+        )
+        result = load_setting(setting.pk)
+
+        self.assertIsNotNone(result)
+        self.assertEqual(SupplierProduct.objects.filter(supplier=self.supplier).count(), 2)
+        for product_value, correct_value, attr in self._get_asserts_articlename(correct_values):
+            self.assertEqual(
+                product_value,
+                correct_value,
+                attr
+            )
+        self.supplier.refresh_from_db()
+        self.assertIsNotNone(self.supplier.stock_updated_at)
+        self.assertIsNotNone(self.supplier.price_updated_at)

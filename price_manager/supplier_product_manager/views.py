@@ -235,6 +235,9 @@ class SettingUpdate(UpdateView):
     if not setting.create_new == form.cleaned_data['create_new']:
       setting.create_new = form.cleaned_data['create_new']
       setting.save()
+    if not setting.ignore_name == form.cleaned_data['ignore_name']:
+      setting.ignore_name = form.cleaned_data['ignore_name']
+      setting.save()
     
     df = get_df(pk)
     if df is None:

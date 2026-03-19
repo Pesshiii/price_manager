@@ -156,6 +156,8 @@ def load_setting(pk):
     df = get_df(pk, nrows=None)
     sps = SupplierProduct.objects.filter(supplier=setting.supplier)
     s_values = map(tuple, sps.values_list('article', 'name'))
+    if setting.ignore_name:
+        s_articles = sps.values_list('article', flat=True)
     resolve_conflicts(sps)
     if not links.filter(Q(value__isnull=False)|Q(initial__isnull=False)).exists():
         return None
@@ -191,6 +193,16 @@ def load_setting(pk):
         _df = _df[_df['name'].apply(len) > 0]
         _df = _df.explode('name', ignore_index=True)
         df = _df
+
+    if setting.create_new and setting.ignore_name:
+        _df = df.copy()
+        names = _df['article'].apply(lambda article: sps.filter(article=article).values_list('name', flat=True))
+        _df['names_indb'] = names
+        _df = _df.explode('names_indb', ignore_index=True)
+        _df['name'] = _df['names_indb'].fillna(_df['name'])
+        _df.drop('names_indb', axis=1)
+        df = _df
+
     df = df.dropna(subset=['name'])
 
     df = df.replace({pd.NA: None, float('nan'): None, '': None, 'NaN':None})
@@ -198,6 +210,11 @@ def load_setting(pk):
     if not setting.create_new:
         mask = df[['article', 'name']].apply(tuple, axis=1).isin(s_values)
         df = df[mask]
+    
+       
+        
+    #    м.б. так что есть товары которые уже в бд но с другим именем и есть совершенно новые товары
+
 
     df = df.drop_duplicates(subset=['article', 'name'], keep='first')
 
@@ -238,7 +255,6 @@ def load_setting(pk):
     sp_model_instances = map(get_spmodel, df.itertuples(index=False))
     sp_update_fields = [link.key for link in links if not link.key=='article' and not link.key == 'name' and link.key in df.columns]
     sp_update_fields.append('updated_at')
-    
     sps = SupplierProduct.objects.bulk_create(
         sp_model_instances,
         update_conflicts=True,
