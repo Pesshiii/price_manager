@@ -2,11 +2,13 @@ from io import BytesIO
 from decimal import Decimal
 
 import pandas as pd
+from django.core.cache import cache
 from django.core.files.uploadedfile import SimpleUploadedFile
-from django.test import TestCase
+from django.test import TestCase, override_settings
 
 from supplier_manager.models import Currency, Supplier, Manufacturer
-from supplier_product_manager.functions import load_setting
+from supplier_product_manager.functions import get_df_sheet_names, invalidate_setting_cache, load_setting
+from supplier_product_manager.tasks import load_setting_task
 from supplier_product_manager.models import Link, Setting, SupplierFile, SupplierProduct
 
 
@@ -313,3 +315,39 @@ class BasicLoadTests(TestCase):
         self.supplier.refresh_from_db()
         self.assertIsNotNone(self.supplier.stock_updated_at)
         self.assertIsNotNone(self.supplier.price_updated_at)
+
+class CacheAndCeleryIntegrationTests(BasicLoadTests):
+    def test_sheet_names_are_cached_and_can_be_invalidated(self):
+        setting = Setting.objects.create(
+            name="Кэш листов",
+            supplier=self.supplier,
+            sheet_name="Sheet1",
+            create_new=True,
+        )
+        self._create_supplier_file(setting, pd.DataFrame([{"Артикул": "A-1", "Название": "Name"}]))
+
+        sheet_names = get_df_sheet_names(setting.pk)
+        self.assertEqual(sheet_names, ["Sheet1"])
+        self.assertEqual(cache.get(f"supplier-setting:{setting.pk}:sheet-names"), ["Sheet1"])
+
+        invalidate_setting_cache(setting.pk)
+        self.assertIsNone(cache.get(f"supplier-setting:{setting.pk}:sheet-names"))
+
+    @override_settings(CELERY_TASK_ALWAYS_EAGER=True, CELERY_BROKER_URL='memory://', CELERY_RESULT_BACKEND='cache+memory://')
+    def test_load_setting_task_executes_in_eager_mode(self):
+        setting = Setting.objects.create(
+            name="Celery загрузка",
+            supplier=self.supplier,
+            sheet_name="Sheet1",
+            create_new=True,
+        )
+        Link.objects.create(setting=setting, key="article", value="Артикул")
+        Link.objects.create(setting=setting, key="name", value="Название")
+        Link.objects.create(setting=setting, key="supplier_price", value="Цена")
+        self._create_supplier_file(setting, pd.DataFrame([{"Артикул": "A-1", "Название": "Name", "Цена": "15"}]))
+
+        result = load_setting_task.delay(setting.pk)
+
+        self.assertTrue(result.successful())
+        self.assertEqual(result.result["processed"], 1)
+        self.assertEqual(SupplierProduct.objects.get(supplier=self.supplier, article="A-1", name="Name").supplier_price, Decimal("15"))

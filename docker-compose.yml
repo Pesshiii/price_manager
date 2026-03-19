@@ -10,8 +10,31 @@ services:
       db:
         condition: service_healthy
         restart: true
+      redis:
+        condition: service_started
     env_file:
       - .env
+
+  worker:
+    build: .
+    container_name: price_manager_worker
+    command: celery -A price_manager worker -l info
+    volumes:
+      - ./price_manager:/app
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_started
+    env_file:
+      - .env
+
+  redis:
+    image: redis:7-alpine
+    container_name: price_manager_redis
+    ports:
+      - 6379:6379
+
   db:
     image: postgres:17
     container_name: postgres_db
@@ -25,10 +48,8 @@ services:
       test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
       interval: 10s
       retries: 5
-
       start_period: 30s
       timeout: 10s
-
 
 volumes:
   postgres_db:

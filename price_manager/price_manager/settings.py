@@ -13,9 +13,15 @@ https://docs.djangoproject.com/en/5.2/ref/settings/
 from pathlib import Path
 
 import os
+from urllib.parse import urlparse
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
+
+
+REDIS_URL = os.environ.get('REDIS_URL', 'redis://redis:6379/1')
+parsed_redis_url = urlparse(REDIS_URL)
+USE_REDIS_CACHE = parsed_redis_url.scheme.startswith('redis')
 
 
 # Quick-start development settings - unsuitable for production
@@ -136,6 +142,27 @@ DATABASES = {
 }
 DATA_UPLOAD_MAX_NUMBER_FIELDS = 50000
 
+if USE_REDIS_CACHE:
+    CACHES = {
+        'default': {
+            'BACKEND': 'django_redis.cache.RedisCache',
+            'LOCATION': REDIS_URL,
+            'OPTIONS': {
+                'CLIENT_CLASS': 'django_redis.client.DefaultClient',
+            },
+            'KEY_PREFIX': 'price_manager',
+            'TIMEOUT': int(os.environ.get('CACHE_TIMEOUT', 60 * 30)),
+        }
+    }
+else:
+    CACHES = {
+        'default': {
+            'BACKEND': 'django.core.cache.backends.locmem.LocMemCache',
+            'LOCATION': 'price-manager-local-cache',
+            'TIMEOUT': int(os.environ.get('CACHE_TIMEOUT', 60 * 30)),
+        }
+    }
+
 
 # Password validation
 # https://docs.djangoproject.com/en/5.2/ref/settings/#auth-password-validators
@@ -166,6 +193,17 @@ TIME_ZONE = 'Asia/Almaty'
 USE_I18N = True
 
 USE_TZ = True
+
+CELERY_BROKER_URL = os.environ.get('CELERY_BROKER_URL', REDIS_URL)
+CELERY_RESULT_BACKEND = os.environ.get('CELERY_RESULT_BACKEND', REDIS_URL)
+CELERY_ACCEPT_CONTENT = ['json']
+CELERY_TASK_SERIALIZER = 'json'
+CELERY_RESULT_SERIALIZER = 'json'
+CELERY_TIMEZONE = TIME_ZONE
+CELERY_TASK_TRACK_STARTED = True
+CELERY_TASK_TIME_LIMIT = int(os.environ.get('CELERY_TASK_TIME_LIMIT', 60 * 20))
+CELERY_TASK_ALWAYS_EAGER = os.environ.get('CELERY_TASK_ALWAYS_EAGER', '0') == '1'
+CELERY_TASK_EAGER_PROPAGATES = True
 
 
 # Static files (CSS, JavaScript, Images)
