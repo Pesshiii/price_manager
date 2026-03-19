@@ -147,101 +147,115 @@ def get_indicts(post, pk):
 
 
 def load_setting(pk):
-  '''
-    Возвращает обработанные товары ПП\\
-    Если не найден файл возвращает None
-  '''
-  setting = Setting.objects.get(pk=pk)
-  links = Link.objects.filter(setting=setting)
-  df = get_df(pk, nrows=None)
-  sps = SupplierProduct.objects.filter(supplier=setting.supplier)
-  s_values = map(tuple, sps.values_list('article', 'name'))
-  resolve_conflicts(sps)
-  if not links.filter(Q(value__isnull=False)|Q(initial__isnull=False)).exists():
-    return None
-  for link in links:
-    if link.value == '' or link.value is None:
-      if link.initial == '' or link.initial is None:
-        continue
-      df[link.key] = link.initial
-    else:
-      df = df.rename(columns={link.value : link.key})
-      if not link.initial == '' and not link.initial is None:
-        df[link.key] = df[link.key].fillna(link.initial)
-    df[link.key] = df[link.key].str.replace(r'\s+', ' ', regex=True)
-    for dict in link.dicts.all():
-      df[link.key] = df[link.key].replace(dict.key, dict.value)
-  if not 'article' in df.columns: return None
-  df = df.loc[:,[link.key for link in links if not link.key=='' and link.key in df.columns]]
-  df = df.dropna(subset=['article'])
-  for link in links:
-    if link.key in df.columns and link.key in SP_NUMBERS:
-      df[link.key] = pd.to_numeric(df[link.key], errors='coerce')
-      df[link.key] = df[link.key].apply(lambda val: val if val >= 0 else None)
+    '''
+        Возвращает обработанные товары ПП\\
+        Если не найден файл возвращает None
+    '''
+    setting = Setting.objects.get(pk=pk)
+    links = Link.objects.filter(setting=setting)
+    df = get_df(pk, nrows=None)
+    sps = SupplierProduct.objects.filter(supplier=setting.supplier)
+    s_values = map(tuple, sps.values_list('article', 'name'))
+    resolve_conflicts(sps)
+    if not links.filter(Q(value__isnull=False)|Q(initial__isnull=False)).exists():
+        return None
+    for link in links:
+        if link.value == '' or link.value is None:
+            if link.initial == '' or link.initial is None:
+                continue
+            df[link.key] = link.initial
+        else:
+            df = df.rename(columns={link.value : link.key})
+            if not link.initial == '' and not link.initial is None:
+                df[link.key] = df[link.key].fillna(link.initial)
+        df[link.key] = df[link.key].str.replace(r'\s+', ' ', regex=True)
+        for dict in link.dicts.all():
+            df[link.key] = df[link.key].replace(dict.key, dict.value)
+            if not 'article' in df.columns: return None
+            df = df.loc[:,[link.key for link in links if not link.key=='' and link.key in df.columns]]
+            df = df.dropna(subset=['article'])
+    for link in links:
+        if link.key in df.columns and link.key in SP_NUMBERS:
+            df[link.key] = pd.to_numeric(df[link.key], errors='coerce')
+            df[link.key] = df[link.key].apply(lambda val: val if val >= 0 else None)
 
-  # to do: добавить проверку на наличие каких либо столбцов кроме артикула и названия если есть применять если нет то нет
-  df = df.dropna(subset=[link.key for link in links if not link.key=='article' and not link.key =='name' and link.key in df.columns], how='all')
+    # to do: добавить проверку на наличие каких либо столбцов кроме артикула и названия если есть применять если нет то нет
+    df = df.dropna(subset=[link.key for link in links if not link.key=='article' and not link.key =='name' and link.key in df.columns], how='all')
 
-  if not 'name' in df.columns:
-    if setting.create_new:
-      return None
-    _df = df.copy()
-    names = _df['article'].apply(lambda article: sps.filter(article=article).values_list('name', flat=True))
-    _df['name'] = names
-    _df = _df[_df['name'].apply(len) > 0]
-    _df = _df.explode('name', ignore_index=True)
-    df = _df
-  df = df.dropna(subset=['name'])
-
-  df = df.replace({pd.NA: None, float('nan'): None, '': None, 'NaN':None})
-  
-  if not setting.create_new:
-    mask = df[['article', 'name']].apply(tuple, axis=1).isin(s_values)
-    df = df[mask]
-  df = df.drop_duplicates(subset=['article', 'name'], keep='first')
-  if 'manufacturer' in df.columns:
-    df['manufacturer'] = df['manufacturer'].apply(lambda s: Manufacturer.objects.get_or_create(name=s)[0] if s else None)
-  if 'discount' in df.columns:
-    df['discount'] = df['discount'].apply(lambda s: Discount.objects.get_or_create(supplier=setting.supplier, name=s)[0] if s else None)
-  if 'category' in df.columns:
-    def _get_category(value):
-        if not value:
+    if not 'name' in df.columns:
+        if setting.create_new:
             return None
-        parts = [p.strip() for p in str(value).split(">") if p and str(p).strip()]
-        parent = None
-        node = None
-        if Category.objects.filter(name=parts[-1]).count() == 1:
-          return Category.objects.filter(name=parts[-1]).first()
-        for name in parts[:10]:
-            node, _ = Category.objects.get_or_create(name=name, parent=parent)
-            parent = node
-        return node
-    df['category'] = df['category'].apply(_get_category)
-  def get_spmodel(row):
-    data = {
-        link.key: Decimal(str(getattr(row, link.key))) if link.key in SP_NUMBERS else getattr(row, link.key)
-        for link in links 
-        if not link.key=='article' and not link.key == 'name' and link.key in df.columns
-        and getattr(row, link.key) is not None
-      }
-    return SupplierProduct(
-      supplier=setting.supplier,
-      article=row.article,
-      name=row.name,
-      **data)
-  sp_model_instances = map(get_spmodel, df.itertuples(index=False))
-  sp_update_fields = [link.key for link in links if not link.key=='article' and not link.key == 'name' and link.key in df.columns]
-  sp_update_fields.append('updated_at')
-  sps = SupplierProduct.objects.bulk_create(
-    sp_model_instances,
-    update_conflicts=True,
-    update_fields=sp_update_fields,
-    unique_fields=['supplier', 'article', 'name'])
-  if 'stock' in df.columns:
-    setting.supplier.stock_updated_at = timezone.now()
-  if not set(SP_PRICES).intersection(set(df.columns)) == set():
-    setting.supplier.price_updated_at = timezone.now()
-  setting.supplier.save()
-  return sps
+        _df = df.copy()
+        names = _df['article'].apply(lambda article: sps.filter(article=article).values_list('name', flat=True))
+        _df['name'] = names
+        _df = _df[_df['name'].apply(len) > 0]
+        _df = _df.explode('name', ignore_index=True)
+        df = _df
+    df = df.dropna(subset=['name'])
+
+    df = df.replace({pd.NA: None, float('nan'): None, '': None, 'NaN':None})
+  
+    if not setting.create_new:
+        mask = df[['article', 'name']].apply(tuple, axis=1).isin(s_values)
+        df = df[mask]
+
+    df = df.drop_duplicates(subset=['article', 'name'], keep='first')
+
+    if 'manufacturer' in df.columns:
+        df['manufacturer'] = df['manufacturer'].apply(lambda s: Manufacturer.objects.get_or_create(name=s)[0] if s else None)
+    if 'discount' in df.columns:
+        df['discount'] = df['discount'].apply(lambda s: Discount.objects.get_or_create(supplier=setting.supplier, name=s)[0] if s else None)
+    if 'category' in df.columns:
+        def _get_category(value):
+            if not value:
+                return None
+            parts = [p.strip() for p in str(value).split(">") if p and str(p).strip()]
+            parent = None
+            node = None
+            if Category.objects.filter(name=parts[-1]).count() == 1:
+                return Category.objects.filter(name=parts[-1]).first()
+            for name in parts[:10]:
+                node, _ = Category.objects.get_or_create(name=name, parent=parent)
+                parent = node
+            return node
+    
+        df['category'] = df['category'].apply(_get_category)
+
+    def get_spmodel(row):
+        data = {
+            link.key: Decimal(str(getattr(row, link.key))) if link.key in SP_NUMBERS else getattr(row, link.key)
+            for link in links 
+            if not link.key=='article' and not link.key == 'name' and link.key in df.columns
+            and getattr(row, link.key) is not None
+        }
+        return SupplierProduct(
+            supplier=setting.supplier,
+            article=row.article,
+            name=row.name,
+            **data
+            )
+    
+    sp_model_instances = map(get_spmodel, df.itertuples(index=False))
+    sp_update_fields = [link.key for link in links if not link.key=='article' and not link.key == 'name' and link.key in df.columns]
+    sp_update_fields.append('updated_at')
+    
+    sps = SupplierProduct.objects.bulk_create(
+        sp_model_instances,
+        update_conflicts=True,
+        update_fields=sp_update_fields,
+        unique_fields=['supplier', 'article', 'name'])
+
+    missing_sps = SupplierProduct.objects.filter(supplier=setting.supplier).exclude(pk__in=map(lambda sp: sp.pk, sps))
+
+    if 'stock' in df.columns:
+        setting.supplier.stock_updated_at = timezone.now()
+        missing_sps.update(stock=None)
+    if not set(SP_PRICES).intersection(set(df.columns)) == set():
+        setting.supplier.price_updated_at = timezone.now()
+        for column in df.columns:
+           if column in SP_PRICES:
+              missing_sps.update(**{column:None})
+    setting.supplier.save()
+    return sps
 
 
