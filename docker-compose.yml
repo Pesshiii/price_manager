@@ -10,8 +10,11 @@ services:
       db:
         condition: service_healthy
         restart: true
+      db_restore:
+        condition: service_completed_successfully
     env_file:
       - .env
+
   db:
     image: postgres:17
     container_name: postgres_db
@@ -25,10 +28,23 @@ services:
       test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
       interval: 10s
       retries: 5
-
       start_period: 30s
       timeout: 10s
 
+  db_restore:
+    image: postgres:17
+    depends_on:
+      db:
+        condition: service_healthy
+    env_file:
+      - .env
+    volumes:
+      - .:/workspace:ro
+      - restore_state:/restore-state
+      - ./docker/db/restore.sh:/restore.sh:ro
+    entrypoint: ["/bin/sh", "/restore.sh"]
+    restart: "no"
 
 volumes:
   postgres_db:
+  restore_state:
