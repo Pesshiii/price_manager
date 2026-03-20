@@ -1,6 +1,5 @@
 from django.db import transaction
-from django.db.models import Min
-
+from django.db.models import Min, F
 from .models import MainProduct, MainProductLog
 from supplier_product_manager.models import SupplierProduct
 
@@ -14,7 +13,7 @@ def get_dupes(id, selected_compare_fields:list[str], base_queryset):
     found = False
     next_id = base_queryset.filter(id__gt=id).first().id if base_queryset.count() > 1 else None
     item = base_queryset.get(id=id)
-    while not found:
+    for i in range(MainProduct.objects.count()):
         if next_id is None:
             return (next_id, None)
         buffer_queryset = base_queryset
@@ -26,13 +25,22 @@ def get_dupes(id, selected_compare_fields:list[str], base_queryset):
             buffer_queryset = buffer_queryset.filter(name__icontains=item.name)
         next_item = base_queryset.filter(id__gt=id).exclude(pk__in=buffer_queryset).first()
         next_id = next_item.id if next_item else None
-        if buffer_queryset.filter(id__lt=id).exists() or buffer_queryset.count() == 1:
+        if buffer_queryset.count() == 1:
             item = next_item
             id = next_id
             continue
-        base_queryset=buffer_queryset
-        found = True
-    return (next_id, base_queryset)
+        if buffer_queryset.filter(id__lt=id).exists():
+            for product in buffer_queryset.filter(id__lt=id):
+                included = False
+                if id in get_dupes(product.id, selected_compare_fields, base_queryset)[1].values_list('id', flat=True):
+                    item = next_item
+                    id = next_id
+                    included = True
+                    break
+            if included:
+                continue
+        return (next_id, buffer_queryset)
+    return (next_id, None)
 
 
 
