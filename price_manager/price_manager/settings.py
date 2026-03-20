@@ -137,6 +137,19 @@ DATABASES = {
 DATA_UPLOAD_MAX_NUMBER_FIELDS = 50000
 
 
+REDIS_URL = os.environ.get('REDIS_URL', 'redis://redis:6379')
+CACHES = {
+    'default': {
+        'BACKEND': 'django_redis.cache.RedisCache',
+        'LOCATION': REDIS_URL,
+        'OPTIONS': {
+            'CLIENT_CLASS': 'django_redis.client.DefaultClient',
+        },
+        'KEY_PREFIX': 'price_manager',
+        'TIMEOUT': None,
+    }
+}
+
 # Password validation
 # https://docs.djangoproject.com/en/5.2/ref/settings/#auth-password-validators
 

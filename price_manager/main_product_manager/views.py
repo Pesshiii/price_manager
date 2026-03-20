@@ -42,6 +42,7 @@ from core.functions import *
 from .forms import *
 from .tables import *
 from .filters import *
+from .functions import load_user_columns, save_user_columns
 from product_price_manager.views import update_prices
 from supplier_product_manager.views import UploadSupplierFile
 
@@ -86,6 +87,12 @@ class MainPage(FilterView):
     context['nulled_mp_count'] = queryset.filter(category__isnull=True).count()
     context['column_groups'] = AVAILABLE_COLUMN_GROUPS
     selected_columns = self.request.GET.getlist('columns')
+    if selected_columns:
+      selected_columns = save_user_columns(self.request.user, selected_columns)
+    if not selected_columns:
+        selected_columns = load_user_columns(self.request.user)
+    if not selected_columns:
+        selected_columns = DEFAULT_VISIBLE_COLUMNS
     context['selected_columns'] = selected_columns if selected_columns else DEFAULT_VISIBLE_COLUMNS
     return context
   def render_to_response(self, context, **response_kwargs):
@@ -109,7 +116,7 @@ class MainProductTableView(SingleTableView):
       url = reverse('mainproduct-table-bycat',kwargs={'category_pk': self.category_pk})
     else:
       url = reverse('mainproduct-table-nocat')
-    selected_columns = self.request.GET.getlist('columns')
+    selected_columns = load_user_columns(self.request.user)
     return super().get_table(
       **kwargs,
       request=self.request,
