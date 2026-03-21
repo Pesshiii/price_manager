@@ -43,15 +43,20 @@ def get_dupes(id, selected_compare_fields:list[str], base_queryset):
 
 
 
-def merge_selected_main_products(selected_ids: list[int]):
+def merge_selected_main_products(selected_ids: list[int], keep_product_id: int | None = None):
     products = (MainProduct.objects
         .filter(id__in=selected_ids)
         .annotate(oldest_log_at=Min('mp_log__update_time'))
         .order_by(F('oldest_log_at').asc(nulls_last=True), 'id'))
     if products.count() < 2:
         return None
-    keep_product = products.first()
 
+    if keep_product_id is None:
+        keep_product = products.first()
+    else:
+        keep_product = products.filter(id=keep_product_id).first()
+        if keep_product is None:
+            return None
 
     with transaction.atomic():
         moved_supplier_products = SupplierProduct.objects.exclude(

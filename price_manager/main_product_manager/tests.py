@@ -116,3 +116,67 @@ class MergeSelectedMainProductsTests(TestCase):
         result = merge_selected_main_products([product.id])
 
         self.assertIsNone(result)
+
+
+class DuplicateSelectionFlowTests(TestCase):
+    def setUp(self):
+        self.currency = Currency.objects.get_or_create(name='KZT', value=1)[0]
+        self.supplier = Supplier.objects.create(
+            name='Flow supplier',
+            currency=self.currency,
+            price_update_rate='',
+            stock_update_rate='',
+            delivery_days_available=1,
+            delivery_days_navailable=2,
+        )
+        self.product_1 = MainProduct.objects.create(supplier=self.supplier, article='D-1', name='Шуруповерт')
+        self.product_2 = MainProduct.objects.create(supplier=self.supplier, article='D-2', name='Шуруповерт')
+
+    def test_merge_can_keep_explicitly_selected_product(self):
+        MainProductLog.objects.create(
+            main_product=self.product_1,
+            update_time=timezone.now() - timedelta(days=10),
+            stock=5,
+        )
+        MainProductLog.objects.create(
+            main_product=self.product_2,
+            update_time=timezone.now() - timedelta(days=1),
+            stock=2,
+        )
+
+        keep_product, deleted_products, moved_supplier_products, moved_logs = merge_selected_main_products(
+            [self.product_1.id, self.product_2.id],
+            keep_product_id=self.product_2.id,
+        )
+
+        self.assertEqual(keep_product.id, self.product_2.id)
+        self.assertEqual(deleted_products, 1)
+        self.assertEqual(moved_supplier_products, 0)
+        self.assertEqual(moved_logs, 1)
+        self.assertFalse(MainProduct.objects.filter(id=self.product_1.id).exists())
+
+    def test_post_redirects_to_keep_selection_page(self):
+        response = self.client.post(
+            '/duplicates/?cname=on',
+            {'selected_products': [self.product_1.id, self.product_2.id]},
+        )
+
+        self.assertEqual(response.status_code, 302)
+        self.assertIn('/duplicates/select-keep/', response.url)
+        self.assertIn(f'selected_products={self.product_1.id}', response.url)
+        self.assertIn(f'selected_products={self.product_2.id}', response.url)
+
+    def test_keep_selection_page_merges_using_selected_product(self):
+        response = self.client.post(
+            '/duplicates/select-keep/',
+            {
+                'selected_products': [self.product_1.id, self.product_2.id],
+                'keep_product_id': str(self.product_2.id),
+                'redirect_query': 'cname=on',
+            },
+        )
+
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(response.url, '/duplicates/?cname=on')
+        self.assertTrue(MainProduct.objects.filter(id=self.product_2.id).exists())
+        self.assertFalse(MainProduct.objects.filter(id=self.product_1.id).exists())
