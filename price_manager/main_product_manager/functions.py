@@ -9,7 +9,7 @@ COMPARISON_FIELD_LABELS = {
         'name': 'названию',
     }
 
-def get_dupes(id, selected_compare_fields:list[str], base_queryset):
+def get_dupes(id, selected_compare_fields:list[str], base_queryset, once=False):
     next_id = base_queryset.filter(id__gt=id).first().id if base_queryset.count() > 1 else None
     item = base_queryset.get(id=id)
     for i in range(MainProduct.objects.count()):
@@ -22,6 +22,8 @@ def get_dupes(id, selected_compare_fields:list[str], base_queryset):
             buffer_queryset = buffer_queryset.filter(supplier=item.supplier)
         if 'name' in selected_compare_fields:
             buffer_queryset = buffer_queryset.filter(name__icontains=item.name)
+        if once:
+            return (None, buffer_queryset)
         next_item = base_queryset.filter(id__gt=id).exclude(pk__in=buffer_queryset).first()
         next_id = next_item.id if next_item else None
         if buffer_queryset.count() == 1:
@@ -31,7 +33,7 @@ def get_dupes(id, selected_compare_fields:list[str], base_queryset):
         if buffer_queryset.filter(id__lt=id).exists():
             for product in buffer_queryset.filter(id__lt=id):
                 included = False
-                if id in get_dupes(product.id, selected_compare_fields, base_queryset)[1].values_list('id', flat=True):
+                if id in get_dupes(product.id, selected_compare_fields, base_queryset, once=True)[1].values_list('id', flat=True):
                     item = next_item
                     id = next_id
                     included = True
@@ -50,43 +52,26 @@ def merge_selected_main_products(selected_ids: list[int], keep_product_id: int |
         .order_by(F('oldest_log_at').asc(nulls_last=True), 'id'))
     if products.count() < 2:
         return None
-
+    
     if keep_product_id is None:
         keep_product = products.first()
     else:
         keep_product = products.filter(id=keep_product_id).first()
         if keep_product is None:
             return None
-
+    
     with transaction.atomic():
         moved_supplier_products = SupplierProduct.objects.exclude(
         main_product__id=keep_product.id
         ).filter(main_product__id__in=products.exclude(id=keep_product.id)).update(main_product=keep_product)
-
-        duplicate_logs = MainProductLog.objects.exclude(
-        main_product__id=keep_product.id,
-        ).values(
-        'update_time',
-        'price',
-        'price_type',
-        'stock',
-        )
-
-        moved_logs = MainProductLog.objects.bulk_create(
-            [
-                MainProductLog(
-                update_time=log['update_time'],
-                main_product=keep_product,
-                price=log['price'],
-                price_type=log['price_type'],
-                stock=log['stock'],
-                )
-                for log in duplicate_logs
-            ],
-            ignore_conflicts=True,
-        )
-        MainProductLog.objects.exclude(main_product__id=keep_product.id).filter(main_product__id__in=selected_ids).delete()
+        
+        moved_logs = (MainProductLog
+                      .objects.select_related('main_product')
+                      .filter(main_product__id__in=selected_ids)
+                      .exclude(main_product=keep_product).update(main_product=keep_product))
+        
         deleted_products, _ = products.exclude(id=keep_product.id).delete()
 
-    return (keep_product, deleted_products, moved_supplier_products, len(moved_logs))
+    
+    return (keep_product, deleted_products, moved_supplier_products, moved_logs)
   

@@ -174,10 +174,10 @@ class MainProductLog(models.Model):
   class Meta:
     verbose_name = 'Изменения Главных продуктов'
     constraints = [
-      models.UniqueConstraint(
-        fields=['update_time', 'main_product'],
-        name='mpl_unique_date_mp'
-      )
+    #   models.UniqueConstraint(
+    #     fields=['update_time', 'main_product'],
+    #     name='mpl_unique_date_mp'
+    #   )
     ]
     ordering = ['-update_time']
 

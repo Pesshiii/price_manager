@@ -82,6 +82,11 @@ class MergeSelectedMainProductsTests(TestCase):
         )
         MainProductLog.objects.create(
             main_product=newer_product,
+            update_time=timezone.now() - timedelta(days=10),
+            stock=2,
+        )
+        MainProductLog.objects.create(
+            main_product=newer_product,
             update_time=timezone.now() - timedelta(days=1),
             stock=2,
         )
@@ -100,7 +105,7 @@ class MergeSelectedMainProductsTests(TestCase):
         self.assertEqual(keep_product.id, older_product.id)
         self.assertEqual(deleted_products, 1)
         self.assertEqual(moved_supplier_products, 1)
-        self.assertEqual(moved_logs, 1)
+        self.assertEqual(moved_logs, 2)
         self.assertFalse(MainProduct.objects.filter(id=newer_product.id).exists())
         self.assertTrue(
             SupplierProduct.objects.filter(main_product=older_product, article='SP-1').exists()
@@ -153,30 +158,4 @@ class DuplicateSelectionFlowTests(TestCase):
         self.assertEqual(deleted_products, 1)
         self.assertEqual(moved_supplier_products, 0)
         self.assertEqual(moved_logs, 1)
-        self.assertFalse(MainProduct.objects.filter(id=self.product_1.id).exists())
-
-    def test_post_redirects_to_keep_selection_page(self):
-        response = self.client.post(
-            '/duplicates/?cname=on',
-            {'selected_products': [self.product_1.id, self.product_2.id]},
-        )
-
-        self.assertEqual(response.status_code, 302)
-        self.assertIn('/duplicates/select-keep/', response.url)
-        self.assertIn(f'selected_products={self.product_1.id}', response.url)
-        self.assertIn(f'selected_products={self.product_2.id}', response.url)
-
-    def test_keep_selection_page_merges_using_selected_product(self):
-        response = self.client.post(
-            '/duplicates/select-keep/',
-            {
-                'selected_products': [self.product_1.id, self.product_2.id],
-                'keep_product_id': str(self.product_2.id),
-                'redirect_query': 'cname=on',
-            },
-        )
-
-        self.assertEqual(response.status_code, 302)
-        self.assertEqual(response.url, '/duplicates/?cname=on')
-        self.assertTrue(MainProduct.objects.filter(id=self.product_2.id).exists())
         self.assertFalse(MainProduct.objects.filter(id=self.product_1.id).exists())

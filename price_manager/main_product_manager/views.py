@@ -254,31 +254,18 @@ class MainProductDuplicatesView(FilterView):
         'name': 'названию',
     }
     def get(self, request, *args, **kwargs):
+        
         if not request.htmx:
             return super().get(request, *args, **kwargs)
 
         return HttpResponseClientRedirect(f"{reverse('mainproduct-duplicates')}?{request.META['QUERY_STRING']}")
     def post(self, request, *args, **kwargs):
         selected_products = [int(pk) for pk in request.POST.getlist('selected_products') if pk.isdigit()]
-        selected_groups = [int(pk) for pk in request.POST.getlist('selected_groups') if pk.isdigit()]
-        if len(selected_products) < 2 and len(selected_groups) < 1:
+        if len(selected_products) < 2:
             messages.warning(request, 'Выберите минимум два товара для объединения. Или хотя бы одну группу.')
             return redirect(reverse_lazy('mainproduct-duplicates'))
 
-        selected_compare_fields = [
-            field for field in self.COMPARISON_FIELD_LABELS.keys()
-            if self.request.GET.get('c' + field) == 'on'
-        ]
-
-        selected_ids = selected_products.copy()
-        if len(selected_groups) > 0:
-            base_queryset = MainProductFilter(request.GET).qs.order_by('id')
-            for group_id in selected_groups:
-                _, group_queryset = get_dupes(group_id, selected_compare_fields, base_queryset)
-                if group_queryset is not None:
-                    selected_ids.extend(group_queryset.values_list('id', flat=True))
-
-        selected_ids = list(dict.fromkeys(selected_ids))
+        selected_ids = list(dict.fromkeys(selected_products))
         if len(selected_ids) < 2:
             messages.warning(request, 'Не удалось собрать минимум два товара для объединения.')
             return redirect(f"{reverse('mainproduct-duplicates')}?{request.META['QUERY_STRING']}")
@@ -302,9 +289,9 @@ class MainProductDuplicatesView(FilterView):
         context = super().get_context_data(**kwargs)
         context["id"] = self.filterset.qs.first().id
         selected_compare_fields = [
-        field for field in COMPARISON_FIELD_LABELS.keys()
-        if self.request.GET.get('c' + field) == 'on'
-        ]
+                field for field in COMPARISON_FIELD_LABELS.keys()
+                if self.request.GET.get('c' + field) == 'on'
+            ]
         context['selected_compare_fields'] = selected_compare_fields
         context['comparison_labels'] = [
             COMPARISON_FIELD_LABELS[field] for field in selected_compare_fields
@@ -315,10 +302,9 @@ class MainProductDuplicatesView(FilterView):
 class MainProductDuplicateSelectionView(TemplateView):
     template_name = 'mainproduct/duplicate_selection.html'
 
-    @staticmethod
-    def build_return_query(querydict):
+    def build_return_query(self, querydict):
         query_copy = querydict.copy()
-        for key in ['selected_products', 'selected_groups', 'keep_product_id', 'redirect_query']:
+        for key in ['selected_products', 'keep_product_id', 'redirect_query']:
             query_copy.pop(key, None)
         return query_copy.urlencode()
 
@@ -348,20 +334,21 @@ class MainProductDuplicateSelectionView(TemplateView):
     def post(self, request, *args, **kwargs):
         selected_products = [int(pk) for pk in request.POST.getlist('selected_products') if pk.isdigit()]
         keep_product_id = request.POST.get('keep_product_id')
-
+        
         if len(selected_products) < 2:
             messages.warning(request, 'Выберите минимум два товара для объединения.')
             return redirect(reverse_lazy('mainproduct-duplicates'))
-
+        
         if not keep_product_id or not keep_product_id.isdigit():
             messages.warning(request, 'Выберите товар, который нужно оставить.')
             return redirect(f"{reverse('mainproduct-duplicate-select-keep')}?{request.POST.urlencode()}")
-
+        
         merged_data = merge_selected_main_products(selected_products, keep_product_id=int(keep_product_id))
         if merged_data is None:
+            
             messages.warning(request, 'Не удалось объединить выбранные товары.')
+            
             return redirect(reverse_lazy('mainproduct-duplicates'))
-
         keep_product, deleted_products, moved_supplier_products, moved_logs = merged_data
         messages.success(
             request,
