@@ -48,12 +48,12 @@ from django.utils import timezone
 from supplier_manager.models import Currency, Supplier
 from supplier_product_manager.models import SupplierProduct
 from .models import MainProduct, MainProductLog
-from .views import merge_selected_main_products
+from .functions import merge_selected_main_products
 
 
 class MergeSelectedMainProductsTests(TestCase):
     def setUp(self):
-        self.currency = Currency.objects.create(name='KZT', value=1)
+        self.currency = Currency.objects.get_or_create(name='KZT', value=1)[0]
         self.supplier = Supplier.objects.create(
             name='Test supplier',
             currency=self.currency,
