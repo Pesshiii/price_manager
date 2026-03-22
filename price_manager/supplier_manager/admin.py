@@ -1,6 +1,10 @@
 from django.contrib import admin
-from .models import Discount, Category
+from .models import Discount, Category, Manufacturer
+from main_product_manager.models import MainProduct
 from django.utils.safestring import mark_safe
+from django.contrib.postgres.search import SearchQuery
+from django.contrib import messages
+import re
 
 @admin.register(Discount)
 class DiscountAdmin(admin.ModelAdmin):
@@ -31,3 +35,30 @@ class CategoryAdmin(admin.ModelAdmin):
         indent = "&nbsp;" * 4 * depth + ("— " if depth else "")
         return mark_safe(f"{indent}{obj.name}")
     indented_name.short_description = "Категория"
+
+
+@admin.register(Manufacturer)
+class ManufacturerAdmin(admin.ModelAdmin):
+    list_display = ['id', 'name']
+    list_filter = ['name']
+    search_fields = ['name']
+    actions = ['resolve_manufacturer']
+
+    def _build_partial_query(self, value):
+      value = re.sub(r"[^\w\-\\\/]+", " ", value, flags=re.UNICODE)
+      terms = [bit for bit in value.split() if bit]
+      if not terms:
+        return None
+      query = SearchQuery('')
+      for term in terms:
+        query &= SearchQuery(f'{term}:*', search_type='raw', config='russian')
+      return query
+    @admin.action(description="Добавить производителя в ГП")
+    def resolve_manufacturer(self, request, queryset):
+        updated = 0
+        for man in queryset:
+            query = self._build_partial_query(man.name)
+            if query is None:
+                return queryset
+            updated += MainProduct.objects.filter(search_vector=query).update(manufacturer=man)
+        messages.info(request, f'Обновлено товаров: {updated}')

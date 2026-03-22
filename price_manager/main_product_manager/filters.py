@@ -132,12 +132,11 @@ class MainProductFilter(FilterSet):
       ).order_by('name')
     self.filters['manufacturer'].field.queryset = manufacturer_queryset
 
+    category_queryset = Category.objects.filter(pk__in=queryset.values('category')).get_ancestors(include_self=True)
     selected_categories = Category.objects.filter(pk__in=self.data.getlist('category', None))
-    category_queryset = Category.objects.filter(pk__in=queryset.values('category')).order_by('name')
     if selected_categories:
-      category_queryset = Category.objects.filter(
-        Q(pk__in=category_queryset.get_descendants(include_self=True)) | Q(pk__in=selected_categories.get_descendants(include_self=True))
-      ).order_by('name')
+      category_queryset = Category.objects.filter(Q(pk__in=category_queryset)|Q(pk__in=selected_categories))
+
     self.filters['category'].field.queryset = category_queryset
 
     return None
