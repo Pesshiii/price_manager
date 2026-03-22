@@ -6,6 +6,16 @@
     <div class="col-4 mb-3 d-flex justify-content-end gap-2">
       {% include "mainproduct/partials/fields_selector.html" %}
       <button type="button"
+              class="btn btn-outline-primary"
+              title="Добавить категорию"
+              data-bs-toggle="modal"
+              data-bs-target="#modal-container"
+              hx-get="{% url 'mainproduct-bulk-category' %}{% querystring %}"
+              hx-target="#modal-container .modal-content"
+              hx-swap="innerHTML">
+        Добавить категорию
+      </button>
+      <button type="button"
               class="btn btn-primary"
               title="Обновить"
               data-bs-toggle="modal"

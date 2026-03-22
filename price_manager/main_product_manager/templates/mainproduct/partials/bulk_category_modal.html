@@ -1,0 +1,23 @@
+{% load crispy_forms_tags %}
+<div class="container p-4">
+  <h2 class="h4 mb-3">Добавить категорию</h2>
+  <p class="text-muted mb-4">
+    Выберите категорию, которая будет назначена всем товарам в текущей выборке: {{ products_count }} шт.
+  </p>
+  <form
+    method="post"
+    hx-post="{% url 'mainproduct-bulk-category' %}{% if query_string %}?{{ query_string }}{% endif %}"
+    hx-target="#modal-container .modal-content"
+    hx-swap="innerHTML">
+    {% csrf_token %}
+    {{ form|crispy }}
+    <div class="d-flex gap-2 mt-4">
+      <button class="btn btn-primary" type="submit">
+        Сохранить
+      </button>
+      <button class="btn btn-outline-secondary" type="button" data-bs-dismiss="modal">
+        Отмена
+      </button>
+    </div>
+  </form>
+</div>
