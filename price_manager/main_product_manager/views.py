@@ -218,6 +218,42 @@ class MainProductLogList(SingleTableView):
     return super().get(request, *args, **kwargs)
 
 
+class MainProductBulkCategoryView(FormView):
+  form_class = MainProductBulkCategoryForm
+  template_name = 'mainproduct/partials/bulk_category_modal.html'
+
+  def get(self, request, *args, **kwargs):
+    if not self.request.htmx:
+      return redirect(reverse('mainproducts'))
+    return super().get(request, *args, **kwargs)
+
+  def get_context_data(self, **kwargs):
+    context = super().get_context_data(**kwargs)
+    queryset = MainProductFilter(self.request.GET).qs
+    context['products_count'] = queryset.count()
+    context['query_string'] = self.request.GET.urlencode()
+    return context
+
+  def form_valid(self, form):
+    queryset = MainProductFilter(self.request.GET).qs
+    category = form.cleaned_data['category']
+    updated_ids = list(queryset.values_list('pk', flat=True))
+    updated_count = len(updated_ids)
+    if updated_count:
+      MainProduct.objects.filter(pk__in=updated_ids).update(category=category)
+      recalculate_search_vectors(
+        MainProduct.objects.filter(pk__in=updated_ids).select_related('supplier', 'category', 'manufacturer')
+      )
+    messages.success(
+      self.request,
+      f'Категория «{category.name}» назначена для {updated_count} товар(ов).'
+    )
+    url = reverse('mainproducts')
+    if self.request.GET:
+      url = f'{url}?{self.request.GET.urlencode()}'
+    return HttpResponseClientRedirect(url)
+
+
 class ResolveMainproduct(SingleTableMixin, FilterView):
   model = MainProduct
   filterset_class = MainProductFilter

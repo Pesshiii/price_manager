@@ -23,6 +23,7 @@ urlpatterns = [
 
     path('mainproduct/<int:id>/update', mp_views.MainProductUpdate.as_view(), name='main-product-update'),
     path('mainproduct/sync', mp_views.sync_main_products, name='mainproducts-sync'),
+    path('mainproduct/bulk-category', mp_views.MainProductBulkCategoryView.as_view(), name='mainproduct-bulk-category'),
     path('mainproduct/<int:pk>/info', mp_views.MainProductInfo.as_view(), name='mainproduct-info'),
     path('mainproduct/<int:pk>/update', mp_views.MainProductUpdate.as_view(), name='mainproduct-update'),
     path('mainproduct/<int:pk>/resolve', mp_views.ResolveMainproduct.as_view(), name='mainproduct-resolve'),
