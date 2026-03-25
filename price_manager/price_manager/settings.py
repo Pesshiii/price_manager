@@ -111,10 +111,23 @@ MEDIA_URL = '/media/'
 # Database
 # https://docs.djangoproject.com/en/5.2/ref/settings/#databases
 
+# БД для основного сервера
+# DATABASES = {
+#     'default': {
+#         'ENGINE': 'django.db.backends.postgresql',
+#         'NAME': 'price_manager',
+#         'USER': 'priceuser',
+#         'PASSWORD': 'postgres',
+#         'HOST': 'localhost',
+#         'PORT': '5432',
+#     }
+# }
+
+# БД для локального сервера
 DATABASES = {
     'default': {
         'ENGINE': 'django.db.backends.postgresql',
-        'NAME': 'price_manager',
+        'NAME': 'Price_Nikita',
         'USER': 'priceuser',
         'PASSWORD': 'postgres',
         'HOST': 'localhost',
