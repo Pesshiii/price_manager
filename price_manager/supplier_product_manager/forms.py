@@ -74,7 +74,7 @@ class UploadFileForm(forms.ModelForm):
 class SettingForm(forms.ModelForm):
   class Meta:
     model = Setting
-    fields = ['name', 'sheet_name', 'create_new']
+    fields = ['name', 'sheet_name', 'create_new', 'ignore_name']
 
   sheet_name = forms.ChoiceField(
     required=False,
@@ -96,11 +96,13 @@ class SettingForm(forms.ModelForm):
       Field('name', css_class="form-control mb-4"),
       Field('sheet_name', css_class="form-select mb-4"),
       Field('create_new', css_class="form-select mb-4"),
+      Field('ignore_name', css_class="mb-4"),
       HTML('''
         <div class="row p-2">
           <ul>
             <li>Поле "Добавлять новые товары в ПП" указывает поведение при наличии в файле товаров которых нет в ПП,<br>
             Создавать новые товары в пп или игнорировать<br>(для создания товаров необходимо поле названий)</li>
+            <li>"Игнорировать название при загрузке"-вкл. Создает новые товары только если артикула нет в базе</li>
             <li>В случае если внутри файла есть дубликаты, данные беруться только из одного(первого по порядку) ряда</li>
             <li>Если не указано наименование, то находятся все товары с указанным артиклем и данные копируются во все найденные товары</li>
           </ul>

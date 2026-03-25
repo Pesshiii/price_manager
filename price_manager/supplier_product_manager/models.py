@@ -109,6 +109,9 @@ class Setting(models.Model):
                               on_delete=models.CASCADE,
                               blank=False)
   sheet_name = models.CharField(verbose_name='Название листа')
+  ignore_name = models.BooleanField(
+    verbose_name='Игнорировать название при создании',
+    default=False)
   create_new = models.BooleanField(verbose_name='Создавать если нет',
                                    default=False)
   class Meta:
