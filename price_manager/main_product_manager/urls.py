@@ -16,6 +16,7 @@ urlpatterns = [
     path('<int:pk>/resolve', ResolveMainproduct.as_view(), name='mainproduct-resolve'),
     path('duplicates/', MainProductDuplicatesView.as_view(), name='mainproduct-duplicates'),
     path('duplicates/select-keep/', MainProductDuplicateSelectionView.as_view(), name='mainproduct-duplicate-select-keep'),
+    path('mainproduct/bulk-category', MainProductBulkCategoryView.as_view(), name='mainproduct-bulk-category'),
     path('duplicates/table/<int:id>', mainproductdupe, name='mainproduct-duplicate'),
     path('<int:pk>/detail', MainProductDetail.as_view(), name='mainproduct-detail'),
     path('<int:pk>/pricetags', ppm_views.PriceTagList.as_view(), name='pricetag-list'),
