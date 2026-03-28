@@ -156,8 +156,6 @@ def load_setting(pk):
     df = get_df(pk, nrows=None)
     sps = SupplierProduct.objects.filter(supplier=setting.supplier)
     s_values = map(tuple, sps.values_list('article', 'name'))
-    if setting.ignore_name:
-        s_articles = sps.values_list('article', flat=True)
     resolve_conflicts(sps)
     if not links.filter(Q(value__isnull=False)|Q(initial__isnull=False)).exists():
         return None
@@ -211,9 +209,7 @@ def load_setting(pk):
         mask = df[['article', 'name']].apply(tuple, axis=1).isin(s_values)
         df = df[mask]
     
-       
-        
-    #    м.б. так что есть товары которые уже в бд но с другим именем и есть совершенно новые товары
+
 
 
     df = df.drop_duplicates(subset=['article', 'name'], keep='first')
