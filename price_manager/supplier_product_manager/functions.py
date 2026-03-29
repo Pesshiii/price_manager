@@ -53,19 +53,20 @@ def get_df(pk, nrows: int | None = 100)->pd.DataFrame|None:
     setting = Setting.objects.get(pk=pk)
   except:
     return None
-  cached_df=cache.get(f'setting<{pk}>::dataframe::<{Setting.sheet_name}>')
+  sf = SupplierFile.objects.filter(setting=pk).first()
+  if not sf: return None
+  file = sf.file
+  if not file: return None
+  cached_df=cache.get(f'setting<{pk}>::dataframe<{sf.pk}>::<{Setting.sheet_name}>')
   if not cached_df is None:
      return cached_df
-  if not SupplierFile.objects.filter(setting=pk).first(): return None
-  file = SupplierFile.objects.filter(setting=pk).first().file
-  if not file: return None
   df = pd.read_excel(file, engine='calamine', dtype=str, sheet_name=setting.sheet_name, index_col=None, na_values=['']).dropna(axis=0, how='all').dropna(axis=1, how='all')
   file.close()
   for column in df.columns:
     df[column] = df[column].str.replace(r'\s+', ' ', regex=True)
   if df.shape[0] == 0:
     return None
-  cache.set(f'setting<{setting.pk}>::dataframe', df, timeout=60*60*24)
+  cache.set(f'setting<{pk}>::dataframe<{sf.pk}>::<{Setting.sheet_name}>', df, timeout=60*30)
   return df
 
 def get_dictformset(post, pk, link):
