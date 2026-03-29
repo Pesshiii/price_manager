@@ -133,6 +133,12 @@ DATABASES = {
         'PASSWORD': os.environ['POSTGRES_PASSWORD'],
         'HOST': os.environ['DB_HOST'],
         'PORT': os.environ['DB_PORT'],
+        'CONN_MAX_AGE': int(os.environ.get('DB_CONN_MAX_AGE', '0')),
+        'OPTIONS': {
+            # Защищает от psycopg2.errors.InvalidCursorName при ленивой
+            # итерации queryset (например, ModelChoiceField в формах).
+            'DISABLE_SERVER_SIDE_CURSORS': True,
+        },
     }
 }
 DATA_UPLOAD_MAX_NUMBER_FIELDS = 50000
