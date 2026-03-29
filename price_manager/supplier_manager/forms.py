@@ -30,6 +30,42 @@ class SupplierForm(forms.ModelForm):
       'hx-swap':'outerHTML',
       'hx-trigger':'submit',
     }
+    action_buttons = [
+      Submit('action', 'Сохранить', title="Сохранить", css_class='btn btn-primary btn-lg me-2')
+    ]
+    if self.instance and self.instance.pk:
+      delete_url = reverse_lazy('supplier-delete', kwargs={'id': self.instance.pk})
+      action_buttons.append(
+        HTML(f'''
+          <button type="button"
+                  class="btn btn-outline-danger btn-lg"
+                  data-bs-toggle="modal"
+                  data-bs-target="#deleteSupplierModal">
+            Удалить поставщика
+          </button>
+          <div class="modal fade" id="deleteSupplierModal" tabindex="-1" aria-hidden="true">
+            <div class="modal-dialog modal-dialog-centered">
+              <div class="modal-content">
+                <div class="modal-header">
+                  <h5 class="modal-title">Подтвердите удаление</h5>
+                  <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <div class="modal-body">
+                  Будут удалены товары поставщика и сам поставщик. Продолжить?
+                </div>
+                <div class="modal-footer">
+                  <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Отмена</button>
+                  <form method="post" action="{delete_url}">
+                    <input type="hidden" name="csrfmiddlewaretoken" value="{{{{ csrf_token }}}}">
+                    <button type="submit" class="btn btn-danger">Удалить</button>
+                  </form>
+                </div>
+              </div>
+            </div>
+          </div>
+        ''')
+      )
+
     self.helper.layout = Layout(
       Div(
         Div('name', css_class='col-8'),
@@ -65,7 +101,7 @@ class SupplierForm(forms.ModelForm):
         css_class='row mb-4'
       ),
       HTML('<hr class="my-4 border-secondary col-8">'),
-      Submit('action', 'Сохранить', title="Поиск", css_class='btn btn-primary col-5 mt-4 btn-lg')
+      Div(*action_buttons, css_class='d-flex align-items-center gap-2 mt-4')
     )
 
 class ManufacturerDictForm(forms.ModelForm):

@@ -152,6 +152,14 @@ class SupplierDelete(DeleteView):
   pk_url_kwarg = 'id'
   template_name = 'supplier/confirm_delete.html'
 
+  def post(self, request, *args, **kwargs):
+    supplier = self.get_object()
+    supplier.main_products.all().delete()
+    supplier.supplierproducts.all().delete()
+    supplier.delete()
+    messages.success(request, f'Поставщик "{supplier.name}" и его товары удалены.')
+    return redirect(self.success_url)
+
 class SupplierUpdate(UpdateView):
   '''Таблица  обновления Поставщиков <<supplier/update/>>'''
   model = Supplier
