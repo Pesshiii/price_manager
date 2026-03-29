@@ -1,5 +1,5 @@
 from django.db import models
-from django.core.validators import MinValueValidator
+from django.core.validators import (MinValueValidator, MaxValueValidator)
 from supplier_manager.models import Supplier, Discount, Category
 from supplier_product_manager.models import SupplierProduct, SP_PRICES
 from main_product_manager.models import MainProduct, PRICE_TYPES, MP_PRICES, update_logs, MainProductLog
@@ -27,7 +27,7 @@ class PriceManager(models.Model):
     dest (CharField): Целевая цена, которую необходимо рассчитать (выбор из предопределённых вариантов).
     price_from (DecimalField): Нижняя граница цены для применения менеджера цен.
     price_to (DecimalField): Верхняя граница цены для применения менеджера цен.
-    markup (DecimalField): Процентная накрутка на цену (минимум -100, верхняя граница не ограничена).
+    markup (DecimalField): Процентная накрутка на цену (от -100 до 100).
     increase (DecimalField): Фиксированная надбавка к цене.
   Методы:
     __str__: Возвращает название менеджера цен.
@@ -114,8 +114,8 @@ class PriceManager(models.Model):
   markup = models.DecimalField(
       verbose_name='Накрутка',
       decimal_places=2,
-      max_digits=20,
-      validators=[MinValueValidator(-100)],
+      max_digits=5,
+      validators=[MinValueValidator(-100), MaxValueValidator(100)],
       default=0)
   increase = models.DecimalField(
       verbose_name='Надбавка',
@@ -364,8 +364,8 @@ class PriceTag(models.Model):
   markup = models.DecimalField(
       verbose_name='Накрутка',
       decimal_places=2,
-      max_digits=20,
-      validators=[MinValueValidator(-100)],
+      max_digits=5,
+      validators=[MinValueValidator(-100), MaxValueValidator(100)],
       default=0)
   increase = models.DecimalField(
       verbose_name='Надбавка',
