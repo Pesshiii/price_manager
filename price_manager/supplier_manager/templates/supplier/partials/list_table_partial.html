@@ -5,13 +5,55 @@
         <thead>
           <tr>
             <th scope="col" class="ps-3" style="width: 72px;"></th>
-            <th scope="col">Поставщик</th>
-            <th scope="col">Обновление цен</th>
-            <th scope="col">Обновление остатков</th>
-            <th scope="col">Базовая цена</th>
-            <th scope="col">Себестоимость</th>
-            <th scope="col">Цена ИМ</th>
-            <th scope="col" class="pe-3">Оптовая цена</th>
+            <th scope="col">
+              <a class="text-decoration-none text-body"
+                 href="?sort=name&dir={% if sort_by == 'name' and sort_dir == 'asc' %}desc{% else %}asc{% endif %}">
+                Поставщик
+                {% if sort_by == 'name' %}{% if sort_dir == 'asc' %}↑{% else %}↓{% endif %}{% endif %}
+              </a>
+            </th>
+            <th scope="col">
+              <a class="text-decoration-none text-body"
+                 href="?sort=price_updated_at&dir={% if sort_by == 'price_updated_at' and sort_dir == 'asc' %}desc{% else %}asc{% endif %}">
+                Обновление цен
+                {% if sort_by == 'price_updated_at' %}{% if sort_dir == 'asc' %}↑{% else %}↓{% endif %}{% endif %}
+              </a>
+            </th>
+            <th scope="col">
+              <a class="text-decoration-none text-body"
+                 href="?sort=stock_updated_at&dir={% if sort_by == 'stock_updated_at' and sort_dir == 'asc' %}desc{% else %}asc{% endif %}">
+                Обновление остатков
+                {% if sort_by == 'stock_updated_at' %}{% if sort_dir == 'asc' %}↑{% else %}↓{% endif %}{% endif %}
+              </a>
+            </th>
+            <th scope="col">
+              <a class="text-decoration-none text-body"
+                 href="?sort=basic_price&dir={% if sort_by == 'basic_price' and sort_dir == 'asc' %}desc{% else %}asc{% endif %}">
+                Базовая цена
+                {% if sort_by == 'basic_price' %}{% if sort_dir == 'asc' %}↑{% else %}↓{% endif %}{% endif %}
+              </a>
+            </th>
+            <th scope="col">
+              <a class="text-decoration-none text-body"
+                 href="?sort=prime_cost&dir={% if sort_by == 'prime_cost' and sort_dir == 'asc' %}desc{% else %}asc{% endif %}">
+                Себестоимость
+                {% if sort_by == 'prime_cost' %}{% if sort_dir == 'asc' %}↑{% else %}↓{% endif %}{% endif %}
+              </a>
+            </th>
+            <th scope="col">
+              <a class="text-decoration-none text-body"
+                 href="?sort=m_price&dir={% if sort_by == 'm_price' and sort_dir == 'asc' %}desc{% else %}asc{% endif %}">
+                Цена ИМ
+                {% if sort_by == 'm_price' %}{% if sort_dir == 'asc' %}↑{% else %}↓{% endif %}{% endif %}
+              </a>
+            </th>
+            <th scope="col" class="pe-3">
+              <a class="text-decoration-none text-body"
+                 href="?sort=wholesale_price&dir={% if sort_by == 'wholesale_price' and sort_dir == 'asc' %}desc{% else %}asc{% endif %}">
+                Оптовая цена
+                {% if sort_by == 'wholesale_price' %}{% if sort_dir == 'asc' %}↑{% else %}↓{% endif %}{% endif %}
+              </a>
+            </th>
           </tr>
         </thead>
         <tbody>
@@ -37,10 +79,14 @@
                 </div>
               </td>
               <td>
-                <span class="small text-body-secondary">{{ supplier.price_updated_at }}</span>
+                <span class="small {% if supplier.price_outdated %}text-danger fw-semibold{% else %}text-success{% endif %}">
+                  {{ supplier.price_updated_at }}
+                </span>
               </td>
               <td>
-                <span class="small text-body-secondary">{{ supplier.stock_updated_at }}</span>
+                <span class="small {% if supplier.stock_outdated %}text-danger fw-semibold{% else %}text-success{% endif %}">
+                  {{ supplier.stock_updated_at }}
+                </span>
               </td>
 
               <td>
