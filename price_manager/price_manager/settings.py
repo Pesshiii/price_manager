@@ -145,6 +145,8 @@ CACHES = {
         'LOCATION': REDIS_URL,
         'OPTIONS': {
             'CLIENT_CLASS': 'django_redis.client.DefaultClient',
+            "PICKLE_VERSION": -1,  # Use highest protocol for efficiency
+            "COMPRESSOR": "django_redis.compressors.zlib.ZlibCompressor",  # Optional compression
         },
         'KEY_PREFIX': 'price_manager',
         'TIMEOUT': None,

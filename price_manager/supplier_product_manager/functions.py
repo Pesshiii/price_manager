@@ -1,6 +1,7 @@
 
 from django.utils import timezone
 from django.db.models import ExpressionWrapper, Q, BooleanField, Value
+from django.core.cache import cache
 
 from .models import (SupplierFile, Setting, Link, 
                      SupplierProduct, Manufacturer, Discount, Category,
@@ -52,13 +53,19 @@ def get_df(pk, nrows: int | None = 100)->pd.DataFrame|None:
     setting = Setting.objects.get(pk=pk)
   except:
     return None
+  cached_df=cache.get(f'setting<{pk}>::dataframe::<{Setting.sheet_name}>')
+  if not cached_df is None:
+     return cached_df
   if not SupplierFile.objects.filter(setting=pk).first(): return None
   file = SupplierFile.objects.filter(setting=pk).first().file
   if not file: return None
-  df = pd.read_excel(file, engine='calamine', dtype=str, sheet_name=setting.sheet_name, nrows=nrows, index_col=None, na_values=['']).dropna(axis=0, how='all').dropna(axis=1, how='all')
+  df = pd.read_excel(file, engine='calamine', dtype=str, sheet_name=setting.sheet_name, index_col=None, na_values=['']).dropna(axis=0, how='all').dropna(axis=1, how='all')
   file.close()
+  for column in df.columns:
+    df[column] = df[column].str.replace(r'\s+', ' ', regex=True)
   if df.shape[0] == 0:
     return None
+  cache.set(f'setting<{setting.pk}>::dataframe', df, timeout=60*60*24)
   return df
 
 def get_dictformset(post, pk, link):
@@ -168,18 +175,20 @@ def load_setting(pk):
             df = df.rename(columns={link.value : link.key})
             if not link.initial == '' and not link.initial is None:
                 df[link.key] = df[link.key].fillna(link.initial)
-        df[link.key] = df[link.key].str.replace(r'\s+', ' ', regex=True)
-        for dict in link.dicts.all():
-            df[link.key] = df[link.key].replace(dict.key, dict.value)
-            if not 'article' in df.columns: return None
-            df = df.loc[:,[link.key for link in links if not link.key=='' and link.key in df.columns]]
-            df = df.dropna(subset=['article'])
+    if not 'article' in df.columns: return None
     for link in links:
+        if not link.key in df.columns: continue
+        for dict in link.dicts.all():
+                df[link.key] = df[link.key].str.replace(dict.key, dict.value)
+                df = df.loc[:,[link.key for link in links if not link.key=='' and link.key in df.columns]]
         if link.key in df.columns and link.key in SP_NUMBERS:
+            print(df[link.key].head())
             df[link.key] = pd.to_numeric(df[link.key], errors='coerce')
+            print(df[link.key].head())
             df[link.key] = df[link.key].apply(lambda val: val if val >= 0 else None)
 
     # to do: добавить проверку на наличие каких либо столбцов кроме артикула и названия если есть применять если нет то нет
+    df = df.dropna(subset=['article'])
     df = df.dropna(subset=[link.key for link in links if not link.key=='article' and not link.key =='name' and link.key in df.columns], how='all')
 
     if not 'name' in df.columns:
