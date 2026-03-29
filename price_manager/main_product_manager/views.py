@@ -331,7 +331,8 @@ class MainProductDuplicatesView(FilterView):
   
     def get_context_data(self, **kwargs) -> dict[str, Any]:
         context = super().get_context_data(**kwargs)
-        context["id"] = self.filterset.qs.first().id
+        qs = self.filterset.qs.order_by('id').first()
+        context["id"] = qs.id if not qs is None else None
         selected_compare_fields = [
                 field for field in COMPARISON_FIELD_LABELS.keys()
                 if self.request.GET.get('c' + field) == 'on'
@@ -425,6 +426,7 @@ def mainproductdupe(request, id):
     next_id, buffer_queryset = get_dupes(id, selected_compare_fields, base_queryset)
     if next_id is None:
         messages.info(request, 'Все товары обработаны')
+    if buffer_queryset is None or not buffer_queryset.count() < 2:
         return render(request, 'mainproduct/partials/duplicates_partial.html', context={'products':None, 'id':None})
     buffer_queryset = buffer_queryset.annotate(oldest_log_at=Min('mp_log__update_time'))
     return render(request, 'mainproduct/partials/duplicates_partial.html', context={'products':buffer_queryset, 'id':next_id})

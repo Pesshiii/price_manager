@@ -44,7 +44,11 @@
             <p class="mb-0">Критерии сравнения: <strong>{{ comparison_labels|join:", " }}</strong>.</p>
             <button type="submit" class="btn btn-success">Объединить выбранные товары</button>
           </div>
-          <div hx-get="{% url "mainproduct-duplicate" id=id %}{% querystring %}" hx-trigger="load" hx-target="this"></div>
+          {% if id %}
+            <div hx-get="{% url "mainproduct-duplicate" id=id %}{% querystring %}" hx-trigger="load" hx-target="this"></div>
+          {% else %}
+            <div class="alert alert-info">The fin.</div>
+          {% endif %}
         </form>
       {% endif %}
     </div>

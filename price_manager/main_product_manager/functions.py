@@ -32,7 +32,7 @@ COMPARISON_FIELD_LABELS = {
     }
 
 def get_dupes(id, selected_compare_fields:list[str], base_queryset, once=False):
-    next_id = base_queryset.filter(id__gt=id).first().id if base_queryset.count() > 1 else None
+    next_id = base_queryset.filter(id__gt=id).first().id if base_queryset.filter(id__gt=id).exists() else None
     item = base_queryset.get(id=id)
     for i in range(MainProduct.objects.count()):
         if next_id is None:
