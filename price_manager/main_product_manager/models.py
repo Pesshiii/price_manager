@@ -26,7 +26,7 @@ PRICE_TYPES = {
 class MainProduct(models.Model):
   class Meta:
     verbose_name = 'Главный продукт'
-    ordering = ['article', 'name']
+    ordering = ['id']
     constraints = [
       models.UniqueConstraint(
         fields=['supplier', 'article', 'name'],
