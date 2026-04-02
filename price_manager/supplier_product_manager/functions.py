@@ -43,7 +43,7 @@ def get_df_sheet_names(pk):
   file.close()
   return columns
 
-def get_df(pk, nrows: int | None = 100)->pd.DataFrame|None:
+def get_df(pk, recache=False)->pd.DataFrame|None:
   '''
     Возвращает pd.Dataframe из файла настройки если он есть\\
     В противном случае None
@@ -58,9 +58,9 @@ def get_df(pk, nrows: int | None = 100)->pd.DataFrame|None:
   file = sf.file
   if not file: return None
   cached_df=cache.get(f'setting<{pk}>::dataframe<{sf.pk}>::<{Setting.sheet_name}>')
-  if not cached_df is None:
+  if not recache and not cached_df is None:
      return cached_df
-  df = pd.read_excel(file, engine='calamine', dtype=str, sheet_name=setting.sheet_name, index_col=None, na_values=['']).dropna(axis=0, how='all').dropna(axis=1, how='all')
+  df = pd.read_excel(file, engine='calamine', dtype=str, skiprows=setting.index_row, sheet_name=setting.sheet_name, index_col=None, na_values=['']).dropna(axis=0, how='all').dropna(axis=1, how='all')
   file.close()
   for column in df.columns:
     df[column] = df[column].str.replace(r'\s+', ' ', regex=True)

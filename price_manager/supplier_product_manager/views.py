@@ -224,7 +224,6 @@ class SettingUpdate(UpdateView):
       setting.delete()
       return HttpResponseClientRefresh()
 
-    
     if not setting.name == form.cleaned_data['name']:
       setting.name = form.cleaned_data['name']
       setting.save()
@@ -238,8 +237,15 @@ class SettingUpdate(UpdateView):
     if not setting.ignore_name == form.cleaned_data['ignore_name']:
       setting.ignore_name = form.cleaned_data['ignore_name']
       setting.save()
-    
-    df = get_df(pk)
+      
+    change = False
+    if not setting.index_row == form.cleaned_data['index_row']:
+        setting.index_row = form.cleaned_data['index_row']
+        setting.save()
+        change = True
+      
+
+    df = get_df(pk, recache=change)
     if df is None:
       messages.error(self.request, f'Пустой лист или неподходящая структура')
       return self.form_invalid(form)

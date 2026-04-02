@@ -74,7 +74,7 @@ class UploadFileForm(forms.ModelForm):
 class SettingForm(forms.ModelForm):
   class Meta:
     model = Setting
-    fields = ['name', 'sheet_name', 'create_new', 'ignore_name']
+    fields = ['name', 'sheet_name', 'create_new', 'ignore_name', 'index_row']
 
   sheet_name = forms.ChoiceField(
     required=False,
@@ -97,6 +97,7 @@ class SettingForm(forms.ModelForm):
       Field('sheet_name', css_class="form-select mb-4"),
       Field('create_new', css_class="form-select mb-4"),
       Field('ignore_name', css_class="mb-4"),
+      Field('index_row', css_class="form-control mb-4"),
       HTML('''
         <div class="row p-2">
           <ul>

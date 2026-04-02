@@ -114,6 +114,8 @@ class Setting(models.Model):
     default=False)
   create_new = models.BooleanField(verbose_name='Создавать если нет',
                                    default=False)
+  index_row = models.IntegerField(verbose_name='Ряд для индексации',
+                                   null=True, blank=True)
   class Meta:
     constraints = [models.UniqueConstraint(fields=['name', 'supplier'], name='name_supplier_constraint')]
   def __str__(self):
