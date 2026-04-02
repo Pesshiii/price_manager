@@ -426,7 +426,7 @@ def mainproductdupe(request, id):
     next_id, buffer_queryset = get_dupes(id, selected_compare_fields, base_queryset)
     if next_id is None:
         messages.info(request, 'Все товары обработаны')
-        if buffer_queryset is None or not buffer_queryset.count() < 2:
+        if buffer_queryset is None or buffer_queryset.count() < 2:
             return render(request, 'mainproduct/partials/duplicates_partial.html', context={'products':None, 'id':None})
     buffer_queryset = buffer_queryset.annotate(oldest_log_at=Min('mp_log__update_time'))
     return render(request, 'mainproduct/partials/duplicates_partial.html', context={'products':buffer_queryset, 'id':next_id})
