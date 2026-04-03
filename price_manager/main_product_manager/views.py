@@ -303,7 +303,75 @@ class MainProductDuplicatesView(FilterView):
             return super().get(request, *args, **kwargs)
 
         return HttpResponseClientRedirect(f"{reverse('mainproduct-duplicates')}?{request.META['QUERY_STRING']}")
+    def _get_selected_compare_fields(self, request):
+        return [
+            field for field in self.COMPARISON_FIELD_LABELS.keys()
+            if request.GET.get('c' + field) == 'on'
+        ]
+
+    def _collect_duplicate_groups(self, request, selected_compare_fields):
+        if not selected_compare_fields:
+            return []
+        base_queryset = MainProductFilter(request.GET).qs.order_by('id')
+        first_product = base_queryset.first()
+        if first_product is None:
+            return []
+
+        groups = []
+        next_id = first_product.id
+        while next_id is not None:
+            next_id, buffer_queryset = get_dupes(next_id, selected_compare_fields, base_queryset)
+            if buffer_queryset is not None and buffer_queryset.count() >= 2:
+                groups.append(list(buffer_queryset.values_list('id', flat=True)))
+        return groups
+
     def post(self, request, *args, **kwargs):
+        selected_compare_fields = self._get_selected_compare_fields(request)
+        merge_mode = request.POST.get('merge_mode', 'selected')
+        if merge_mode == 'all':
+            if not selected_compare_fields:
+                messages.warning(request, 'Сначала выберите хотя бы одно поле сравнения.')
+                return redirect(f"{reverse('mainproduct-duplicates')}?{request.META['QUERY_STRING']}")
+
+            duplicate_groups = self._collect_duplicate_groups(request, selected_compare_fields)
+            if not duplicate_groups:
+                messages.info(request, 'Группы дубликатов по текущему фильтру не найдены.')
+                return redirect(f"{reverse('mainproduct-duplicates')}?{request.META['QUERY_STRING']}")
+
+            merged_groups = 0
+            deleted_products_total = 0
+            moved_supplier_products_total = 0
+            moved_logs_total = 0
+            processed_ids = set()
+
+            for group_ids in duplicate_groups:
+                clean_group_ids = [pid for pid in group_ids if pid not in processed_ids]
+                if len(clean_group_ids) < 2:
+                    continue
+                merged_data = merge_selected_main_products(clean_group_ids)
+                if merged_data is None:
+                    continue
+                _, deleted_products, moved_supplier_products, moved_logs = merged_data
+                merged_groups += 1
+                deleted_products_total += deleted_products
+                moved_supplier_products_total += moved_supplier_products
+                moved_logs_total += moved_logs
+                processed_ids.update(clean_group_ids)
+
+            if merged_groups == 0:
+                messages.info(request, 'Не удалось объединить найденные группы дубликатов.')
+            else:
+                messages.success(
+                    request,
+                    (
+                        f'Объединено групп: {merged_groups}. '
+                        f'Удалено дублей: {deleted_products_total}. '
+                        f'Перенесено товаров поставщиков: {moved_supplier_products_total}. '
+                        f'Перенесено логов: {moved_logs_total}.'
+                    ),
+                )
+            return redirect(f"{reverse('mainproduct-duplicates')}?{request.META['QUERY_STRING']}")
+
         selected_products = [int(pk) for pk in request.POST.getlist('selected_products') if pk.isdigit()]
         if len(selected_products) < 2:
             messages.warning(request, 'Выберите минимум два товара для объединения. Или хотя бы одну группу.')
@@ -319,10 +387,7 @@ class MainProductDuplicatesView(FilterView):
             selection_query = f"{selection_query}&{request.META['QUERY_STRING']}"
         return redirect(f"{reverse('mainproduct-duplicate-select-keep')}?{selection_query}")
     def get_filterset_kwargs(self, filterset_class):
-        selected_compare_fields = [
-            field for field in self.COMPARISON_FIELD_LABELS.keys()
-            if self.request.GET.get('c' + field) == 'on'
-        ]
+        selected_compare_fields = self._get_selected_compare_fields(self.request)
         kwargs = super().get_filterset_kwargs(filterset_class)
         kwargs['url'] = f"{reverse('mainproduct-duplicates')}?{'&'.join(['c' + lable + '=on' for lable in selected_compare_fields])}"
         kwargs['hx_target']=None
@@ -333,10 +398,7 @@ class MainProductDuplicatesView(FilterView):
         context = super().get_context_data(**kwargs)
         qs = self.filterset.qs.order_by('id').first()
         context["id"] = qs.id if not qs is None else None
-        selected_compare_fields = [
-                field for field in COMPARISON_FIELD_LABELS.keys()
-                if self.request.GET.get('c' + field) == 'on'
-            ]
+        selected_compare_fields = self._get_selected_compare_fields(self.request)
         context['selected_compare_fields'] = selected_compare_fields
         context['comparison_labels'] = [
             COMPARISON_FIELD_LABELS[field] for field in selected_compare_fields

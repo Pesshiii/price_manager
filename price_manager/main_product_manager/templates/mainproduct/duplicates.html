@@ -42,7 +42,10 @@
           {% csrf_token %}
           <div class="d-flex justify-content-between align-items-center mb-3">
             <p class="mb-0">Критерии сравнения: <strong>{{ comparison_labels|join:", " }}</strong>.</p>
-            <button type="submit" class="btn btn-success">Объединить выбранные товары</button>
+            <div class="d-flex gap-2">
+              <button type="submit" name="merge_mode" value="selected" class="btn btn-success">Объединить выбранные товары</button>
+              <button type="submit" name="merge_mode" value="all" class="btn btn-outline-success">Объеденить все</button>
+            </div>
           </div>
           {% if id %}
             <div hx-get="{% url "mainproduct-duplicate" id=id %}{% querystring %}" hx-trigger="load" hx-target="this"></div>
