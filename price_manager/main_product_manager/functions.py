@@ -5,7 +5,7 @@ from django.db.models import Value, OuterRef, Subquery, Q, F, Sum
 from django.utils import timezone
 from django.contrib.postgres.search import SearchVectorField, SearchVector 
 
-from .models import MainProduct, MainProductLog, MainProductDuplicate, MP_PRICES
+from .models import MainProduct, MainProductLog, MP_PRICES
 from .tables import AVAILABLE_COLUMN_MAP, DEFAULT_VISIBLE_COLUMNS
 
 from supplier_product_manager.models import SupplierProduct
