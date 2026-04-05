@@ -36,7 +36,7 @@
 </div>
 {% endif %}
 {% if id %}
-<div hx-get="{% url "mainproduct-duplicate" id=id%}{% querystring %}" hx-trigger="load" hx-swap="afterend"></div>
+<div hx-get="{% url "mainproduct-duplicate" id=id%}{% querystring %}" hx-trigger="intersect once" hx-swap="afterend"></div>
 {% else %}
 <div class="alert alert-info">The fin.</div>
 {% endif %}

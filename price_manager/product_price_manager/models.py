@@ -2,7 +2,7 @@ from django.db import models
 from django.core.validators import (MinValueValidator, MaxValueValidator)
 from supplier_manager.models import Supplier, Discount, Category
 from supplier_product_manager.models import SupplierProduct, SP_PRICES
-from main_product_manager.models import MainProduct, PRICE_TYPES, MP_PRICES, update_logs, MainProductLog
+from main_product_manager.models import MainProduct, PRICE_TYPES, MP_PRICES, MainProductLog
 from django.db.models import (F, ExpressionWrapper, 
                               fields, Func, 
                               Value, Min, Max,
