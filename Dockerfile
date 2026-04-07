@@ -23,4 +23,4 @@ COPY price_manager/ .
 
 EXPOSE 8000
 
-CMD ["gunicorn", "--bind", "0.0.0.0:8000", "price_manager.wsgi:application"]
+CMD ["sh", "price_manager/entrypoint.sh"]
