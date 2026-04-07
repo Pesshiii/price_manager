@@ -1,26 +1,51 @@
-# Импортирует сборку питона на машине linux
-FROM python:3.13.3-slim-bookworm
-
-# предотварщает создание c файлов и сдандарныей cout cin
-ENV PYTHONDONTWRITEBYTECODE=1 \
-PYTHONUNBUFFERED=1
-
+# Stage 1: Base build stage
+FROM python:3.13-slim AS builder
+ 
+# Create the app directory
+RUN mkdir /app
+ 
+# Set the working directory
 WORKDIR /app
-
-RUN apt-get update && apt-get install -y curl
-
-# Установка uv болле быстрый менеджер чем pip
-COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /bin/
-
-# Установка звисимостей(отдельно от импорта проекта для избежания повторной установки после любых изменений в проекте)
-# Перестраивается только если есть изменения зависимостей
-COPY price_manager/requirements.txt .
-
-RUN uv pip install -r requirements.txt --system
-
-# Импорт и запуск проекта
-COPY price_manager/ .
-
-EXPOSE 8000
-
-CMD ["sh", "price_manager/entrypoint.sh"]
+ 
+# Set environment variables to optimize Python
+ENV PYTHONDONTWRITEBYTECODE=1
+ENV PYTHONUNBUFFERED=1 
+ 
+# Upgrade pip and install dependencies
+RUN pip install --upgrade pip 
+ 
+# Copy the requirements file first (better caching)
+COPY price_manager/requirements.txt /app/
+ 
+# Install Python dependencies
+RUN pip install --no-cache-dir -r requirements.txt
+ 
+# Stage 2: Production stage
+FROM python:3.13-slim
+ 
+RUN useradd -m -r appuser && \
+   mkdir /app && \
+   chown -R appuser /app
+ 
+# Copy the Python dependencies from the builder stage
+COPY --from=builder /usr/local/lib/python3.13/site-packages/ /usr/local/lib/python3.13/site-packages/
+COPY --from=builder /usr/local/bin/ /usr/local/bin/
+ 
+# Set the working directory
+WORKDIR /app
+ 
+# Copy application code
+COPY --chown=appuser:appuser price_manager/. .
+ 
+# Set environment variables to optimize Python
+ENV PYTHONDONTWRITEBYTECODE=1
+ENV PYTHONUNBUFFERED=1 
+ 
+# Switch to non-root user
+USER appuser
+ 
+# Expose the application port
+EXPOSE 8000 
+ 
+# Start the application using Gunicorn
+CMD ["gunicorn", "--bind", "0.0.0.0:8000", "--workers", "3", "my_docker_django_app.wsgi:application"]

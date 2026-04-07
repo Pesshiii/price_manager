@@ -11,4 +11,4 @@ python manage.py migrate
 # docker compose up --build
 
 echo "Starting server..."
-gunicorn --bind 0.0.0.0:8000 price_manager.wsgi:application
+gunicorn --bind 0.0.0.0:$PORT price_manager.wsgi:application
