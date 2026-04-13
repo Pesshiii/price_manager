@@ -156,15 +156,16 @@ class PriceManager(models.Model):
         return Q()
 
     price_manager = self
-    mps = MainProduct.objects.all().prefetch_related('supplierproducts')
-    products = SupplierProduct.objects.all().prefetch_related('main_product')
-    products = products.filter(
-      supplier=price_manager.supplier)
+    products = SupplierProduct.objects.filter(
+      supplier=price_manager.supplier
+    ).prefetch_related('main_product')
     if not price_manager.has_rrp is None:
       if price_manager.has_rrp:
         products = products.filter(rrp__gt=0)
       else:
         products = products.filter(Q(rrp=0)|Q(rrp__isnull=True))
+    if price_manager.discounts.exists():
+      products = products.filter(discount__in=price_manager.discounts.all())
 
 
     if price_manager.source in SP_PRICES:
@@ -172,8 +173,6 @@ class PriceManager(models.Model):
         price_manager.price_from,
         price_manager.price_to,
         price_manager.source))
-      if price_manager.discounts.exists():
-        products = products.filter(discount__in=price_manager.discounts.all())
     elif price_manager.source in MP_PRICES:
       products = products.filter(get_price_querry(
         price_manager.price_from,
@@ -185,7 +184,13 @@ class PriceManager(models.Model):
       mps = mps.filter(category__in=price_manager.categories.all())
     source = price_manager.source
     if price_manager.source in SP_PRICES:
-      mps = mps.annotate(source_price=Min(f'supplierproducts__{price_manager.source}'))
+      filtered_source_price = (
+        products.filter(main_product=OuterRef('pk'))
+        .values('main_product')
+        .annotate(source_price=Min(price_manager.source))
+        .values('source_price')[:1]
+      )
+      mps = mps.annotate(source_price=Subquery(filtered_source_price, output_field=DecimalField()))
       source = 'source_price'
       calc_qs = (
         mps.filter(pk=OuterRef("pk"))
