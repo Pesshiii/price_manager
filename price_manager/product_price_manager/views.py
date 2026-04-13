@@ -79,14 +79,20 @@ class PriceManagerCreate(CreateView):
     has_rrp_map = {True: 'Да', False: 'Нет', None: 'Без разницы'}
     discounts = cleaned_data.get('discounts')
     discount_value = ','.join(sorted(discounts.values_list('name', flat=True))) if discounts else 'Все'
-    base_name = ' - '.join([
-      supplier.name,
-      PRICE_TYPES.get(cleaned_data.get('dest')),
-      PRICE_TYPES.get(source),
-      f'РРЦ {has_rrp_map.get(has_rrp_value)}',
-      discount_value,
-      self._format_value(cleaned_data.get('price_from')),
-      self._format_value(cleaned_data.get('price_to')),
+    dest_label = PRICE_TYPES.get(cleaned_data.get('dest'))
+    source_label = PRICE_TYPES.get(source)
+    price_range_label = f'{self._format_value(cleaned_data.get("price_from"))}..{self._format_value(cleaned_data.get("price_to"))}'
+    if source == 'fixed_price':
+      formula_label = f'фикс {self._format_value(cleaned_data.get("fixed_price"))} тг'
+    else:
+      formula_label = f'+{self._format_value(cleaned_data.get("markup"))}% + {self._format_value(cleaned_data.get("increase"))} тг'
+    base_name = ' | '.join([
+      f'{supplier.name}',
+      f'{dest_label} ← {source_label}',
+      f'РРЦ: {has_rrp_map.get(has_rrp_value)}',
+      f'Скидки: {discount_value}',
+      f'Диапазон: {price_range_label}',
+      f'Расчет: {formula_label}',
     ])
     generated_name = base_name
     suffix = 2

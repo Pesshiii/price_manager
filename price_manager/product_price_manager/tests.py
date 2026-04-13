@@ -322,3 +322,4 @@ class PriceManagerNameGenerationTests(TestCase):
         self.assertIn('VIP', generated_name)
         self.assertIn('100', generated_name)
         self.assertIn('200', generated_name)
+        self.assertIn('Расчет:', generated_name)
