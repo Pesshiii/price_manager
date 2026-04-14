@@ -6,7 +6,7 @@ from main_product_manager.models import MainProduct
 from supplier_manager.models import Currency, Discount, Supplier
 from supplier_product_manager.models import SupplierProduct
 
-from .models import PriceManager
+from .models import PriceManager, PriceTag, update_prices
 
 
 class PriceManagerDiscountFilteringTests(TestCase):
@@ -145,3 +145,73 @@ class PriceManagerDiscountFilteringTests(TestCase):
         self.assertEqual(fitting.count(), 1)
         self.assertEqual(fitting.first().source_price, Decimal('10'))
         self.assertEqual(fitting.first().changed_price, Decimal('10'))
+
+
+class FixedPricePriorityTests(TestCase):
+    def setUp(self):
+        self.currency = Currency.objects.create(name='KZT', value=Decimal('1'))
+        self.supplier = Supplier.objects.create(
+            name='Supplier Fixed',
+            currency=self.currency,
+            price_update_rate='',
+            stock_update_rate='',
+            delivery_days_available=1,
+            delivery_days_navailable=2,
+        )
+        self.mp = MainProduct.objects.create(
+            supplier=self.supplier,
+            article='MP-FIX-1',
+            name='Main product fixed',
+        )
+        SupplierProduct.objects.create(
+            main_product=self.mp,
+            supplier=self.supplier,
+            article='SP-FIX-1',
+            name='Supplier row',
+            supplier_price=Decimal('100'),
+        )
+
+    def test_fixed_pricetag_has_priority_over_price_manager_result(self):
+        PriceManager.objects.create(
+            name='PM-CALC-1',
+            supplier=self.supplier,
+            source='supplier_price',
+            dest='m_price',
+            markup=Decimal('0'),
+            increase=Decimal('0'),
+        )
+        PriceTag.objects.create(
+            mp=self.mp,
+            source='fixed_price',
+            dest='m_price',
+            fixed_price=Decimal('150'),
+            markup=Decimal('0'),
+            increase=Decimal('0'),
+        )
+
+        update_prices()
+        self.mp.refresh_from_db()
+        self.assertEqual(self.mp.m_price, Decimal('150'))
+
+    def test_fixed_price_manager_has_priority_over_calculated_manager(self):
+        PriceManager.objects.create(
+            name='PM-CALC-2',
+            supplier=self.supplier,
+            source='supplier_price',
+            dest='basic_price',
+            markup=Decimal('0'),
+            increase=Decimal('0'),
+        )
+        PriceManager.objects.create(
+            name='PM-FIXED-2',
+            supplier=self.supplier,
+            source='fixed_price',
+            dest='basic_price',
+            fixed_price=Decimal('200'),
+            markup=Decimal('0'),
+            increase=Decimal('0'),
+        )
+
+        update_prices()
+        self.mp.refresh_from_db()
+        self.assertEqual(self.mp.basic_price, Decimal('200'))

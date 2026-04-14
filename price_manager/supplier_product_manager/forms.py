@@ -61,11 +61,16 @@ class InitialForm(forms.Form):
                             empty_value='')
   
 class UploadFileForm(forms.ModelForm):
-  def __init__(self, **kwargs):
+  def __init__(self, *args, **kwargs):
     pk = kwargs.pop('pk', None)
-    if not pk: return None
-    super().__init__(**kwargs)
-    self.fields['setting'] = forms.ModelChoiceField(queryset=Setting.objects.filter(supplier=pk), empty_label='Новая настройка', required=False)
+    super().__init__(*args, **kwargs)
+    queryset = Setting.objects.none()
+    if pk:
+      queryset = Setting.objects.filter(supplier=pk).only('id', 'name')
+    self.fields['setting'] = forms.ModelChoiceField(
+      queryset=queryset,
+      empty_label='Новая настройка',
+      required=False)
   class Meta:
     model = SupplierFile
     fields = ['file', 'setting']

@@ -458,21 +458,31 @@ def update_prices():
   time_query = (Q(date_from__lt=now)|Q(date_from__isnull=True))&(Q(date_to__gt=now)|Q(date_to__isnull=True))
   for pm in pms.filter(~Q(time_query)).all():
     dcount += pm.deprecate()
-  for pm in pms.filter(time_query).filter(source__in=SP_PRICES):
+  active_pms = pms.filter(time_query)
+  for pm in active_pms.filter(source__in=SP_PRICES):
     count += pm.apply()
-  for pm in pms.filter(time_query).filter(source__in=MP_PRICES):
+  for pm in active_pms.filter(source__in=MP_PRICES):
+    count += pm.apply()
+  # Фиксированные цены должны применяться в последнюю очередь и
+  # перекрывать цены, рассчитанные из наценок.
+  for pm in active_pms.filter(source='fixed_price'):
     count += pm.apply()
   dmps = map(lambda pt: pt.deprecate(),PriceTag.objects.filter(p_manager__isnull=True).filter(~Q(time_query)).select_related('mp'))
   deprecated_mps = [_ for _ in dmps if _]
   if deprecated_mps:
     dcount += MainProduct.objects.bulk_update(deprecated_mps, fields=[*MP_PRICES, 'price_updated_at'])
-  mps = map(lambda pt: pt.get_mp(),PriceTag.objects.filter(p_manager__isnull=True).filter(time_query).filter(source__in=SP_PRICES).select_related('mp'))
+  active_tags = PriceTag.objects.filter(p_manager__isnull=True).filter(time_query).select_related('mp')
+  mps = map(lambda pt: pt.get_mp(), active_tags.filter(source__in=SP_PRICES))
   sp_mps = [_ for _ in mps if _]
   if sp_mps:
     count += MainProduct.objects.bulk_update(sp_mps, fields=[*MP_PRICES, 'price_updated_at'])
-  mps = map(lambda pt: pt.get_mp(),PriceTag.objects.filter(p_manager__isnull=True).filter(time_query).filter(source__in=MP_PRICES).select_related('mp'))
+  mps = map(lambda pt: pt.get_mp(), active_tags.filter(source__in=MP_PRICES))
   mp_mps = [_ for _ in mps if _]
   if mp_mps:
     count += MainProduct.objects.bulk_update(mp_mps, fields=[*MP_PRICES, 'price_updated_at'])
+  mps = map(lambda pt: pt.get_mp(), active_tags.filter(source='fixed_price'))
+  fixed_mps = [_ for _ in mps if _]
+  if fixed_mps:
+    count += MainProduct.objects.bulk_update(fixed_mps, fields=[*MP_PRICES, 'price_updated_at'])
 
   return (count, dcount)
