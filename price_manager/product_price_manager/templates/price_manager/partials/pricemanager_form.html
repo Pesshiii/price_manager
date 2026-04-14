@@ -5,7 +5,10 @@
             <div class="row">
               <div class="row">
                 {{form.name|add_label_class:"form-lable mb-1 mt-4"}}
-                {% render_field form.name class="form-control mb-4"%}
+                {% render_field form.name class="form-control mb-1" readonly="readonly" placeholder="Название будет сформировано автоматически при сохранении"%}
+                {% if form.name.help_text %}
+                  <small class="text-muted mb-3 d-block">{{ form.name.help_text }}</small>
+                {% endif %}
               </div>
               <div class="row">
                 {{form.has_rrp|add_label_class:"form-lable mb-1 mt-4"}}

@@ -4,6 +4,11 @@ from .models import PriceManager, PriceTag
 
 
 class PriceManagerForm(forms.ModelForm):
+  name = forms.CharField(
+    label='Название',
+    required=False,
+    help_text='Будет сгенерировано автоматически при сохранении на основе выбранных настроек.'
+  )
   price_fixed = forms.BooleanField(widget=forms.widgets.CheckboxInput(), label='Фиксированная цена', required=False)
   source = forms.CharField(widget=forms.widgets.Select(choices=(
     (None, 'Не указано'),

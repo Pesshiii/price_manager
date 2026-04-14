@@ -35,7 +35,7 @@ from django_htmx.http import HttpResponseClientRefresh
 from .models import PriceManager
 from file_manager.models import FileModel
 from core.functions import *
-from main_product_manager.models import MainProduct, MainProductLog, MP_PRICES
+from main_product_manager.models import MainProduct, MainProductLog, MP_PRICES, PRICE_TYPES
 from .forms import *
 from .tables import *
 from .filters import *
@@ -71,6 +71,35 @@ class PriceManagerCreate(CreateView):
   template_name = 'price_manager/partials/create.html'
   def get_success_url(self):
     return resolve_url('pricemanager-create', self.kwargs.get('pk', None))
+  def _format_value(self, value):
+    return str(value) if not value is None else '—'
+  def _build_generated_name(self, supplier, cleaned_data):
+    source = 'fixed_price' if cleaned_data.get('price_fixed') else cleaned_data.get('source')
+    has_rrp_value = cleaned_data.get('has_rrp')
+    has_rrp_map = {True: 'Да', False: 'Нет', None: 'Без разницы'}
+    discounts = cleaned_data.get('discounts')
+    discount_value = ','.join(sorted(discounts.values_list('name', flat=True))) if discounts else 'Все'
+    dest_label = PRICE_TYPES.get(cleaned_data.get('dest'))
+    source_label = PRICE_TYPES.get(source)
+    price_range_label = f'{self._format_value(cleaned_data.get("price_from"))}..{self._format_value(cleaned_data.get("price_to"))}'
+    if source == 'fixed_price':
+      formula_label = f'фикс {self._format_value(cleaned_data.get("fixed_price"))} тг'
+    else:
+      formula_label = f'+{self._format_value(cleaned_data.get("markup"))}% + {self._format_value(cleaned_data.get("increase"))} тг'
+    base_name = ' | '.join([
+      f'{supplier.name}',
+      f'{dest_label} ← {source_label}',
+      f'РРЦ: {has_rrp_map.get(has_rrp_value)}',
+      f'Скидки: {discount_value}',
+      f'Диапазон: {price_range_label}',
+      f'Расчет: {formula_label}',
+    ])
+    generated_name = base_name
+    suffix = 2
+    while PriceManager.objects.filter(name=generated_name).exists():
+      generated_name = f'{base_name} ({suffix})'
+      suffix += 1
+    return generated_name
   def get_context_data(self, **kwargs) -> dict[str, Any]:
     context = super().get_context_data(**kwargs)
     supplier = Supplier.objects.get(pk=self.kwargs.get('pk'))
@@ -99,9 +128,11 @@ class PriceManagerCreate(CreateView):
         form.add_error(field=None, error='Неверный диапозон цены')
         return self.form_invalid(form)
     instance = form.save(commit=False)
-    instance.supplier = Supplier.objects.get(pk=self.kwargs.get('pk'))
+    supplier = Supplier.objects.get(pk=self.kwargs.get('pk'))
+    instance.supplier = supplier
     if cd['price_fixed']:
       instance.source = 'fixed_price'
+    instance.name = self._build_generated_name(supplier, cd)
     instance.save()
     for discount in instance.discounts.filter(~Q(pk__in=cd['discounts'])):
       instance.discounts.remove(discount)
