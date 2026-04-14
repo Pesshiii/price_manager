@@ -452,6 +452,15 @@ class PriceTag(models.Model):
 def update_prices():
   count = 0
   dcount = 0
+
+  def apply_tags(tags):
+    updated = 0
+    for pt in tags:
+      mp = pt.get_mp()
+      if mp:
+        mp.save(update_fields=[pt.dest, 'price_updated_at'])
+        updated += 1
+    return updated
   
   pms = PriceManager.objects.filter(deprecated=False)
   now = timezone.now()
@@ -472,17 +481,8 @@ def update_prices():
   if deprecated_mps:
     dcount += MainProduct.objects.bulk_update(deprecated_mps, fields=[*MP_PRICES, 'price_updated_at'])
   active_tags = PriceTag.objects.filter(p_manager__isnull=True).filter(time_query).select_related('mp')
-  mps = map(lambda pt: pt.get_mp(), active_tags.filter(source__in=SP_PRICES))
-  sp_mps = [_ for _ in mps if _]
-  if sp_mps:
-    count += MainProduct.objects.bulk_update(sp_mps, fields=[*MP_PRICES, 'price_updated_at'])
-  mps = map(lambda pt: pt.get_mp(), active_tags.filter(source__in=MP_PRICES))
-  mp_mps = [_ for _ in mps if _]
-  if mp_mps:
-    count += MainProduct.objects.bulk_update(mp_mps, fields=[*MP_PRICES, 'price_updated_at'])
-  mps = map(lambda pt: pt.get_mp(), active_tags.filter(source='fixed_price'))
-  fixed_mps = [_ for _ in mps if _]
-  if fixed_mps:
-    count += MainProduct.objects.bulk_update(fixed_mps, fields=[*MP_PRICES, 'price_updated_at'])
+  count += apply_tags(active_tags.filter(source__in=SP_PRICES))
+  count += apply_tags(active_tags.filter(source__in=MP_PRICES))
+  count += apply_tags(active_tags.filter(source='fixed_price'))
 
   return (count, dcount)

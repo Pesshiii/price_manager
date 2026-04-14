@@ -215,3 +215,26 @@ class FixedPricePriorityTests(TestCase):
         update_prices()
         self.mp.refresh_from_db()
         self.assertEqual(self.mp.basic_price, Decimal('200'))
+
+    def test_multiple_fixed_tags_update_multiple_dest_fields_for_same_product(self):
+        PriceTag.objects.create(
+            mp=self.mp,
+            source='fixed_price',
+            dest='m_price',
+            fixed_price=Decimal('150'),
+            markup=Decimal('0'),
+            increase=Decimal('0'),
+        )
+        PriceTag.objects.create(
+            mp=self.mp,
+            source='fixed_price',
+            dest='basic_price',
+            fixed_price=Decimal('250'),
+            markup=Decimal('0'),
+            increase=Decimal('0'),
+        )
+
+        update_prices()
+        self.mp.refresh_from_db()
+        self.assertEqual(self.mp.m_price, Decimal('150'))
+        self.assertEqual(self.mp.basic_price, Decimal('250'))
