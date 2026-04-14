@@ -8,6 +8,7 @@ from supplier_product_manager.models import SupplierProduct
 
 from .models import PriceManager, PriceTag
 from .views import PriceManagerCreate
+from .models import PriceManager
 
 
 class PriceManagerDiscountFilteringTests(TestCase):
