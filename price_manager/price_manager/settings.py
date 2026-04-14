@@ -133,6 +133,9 @@ DATABASES = {
         'PASSWORD': os.environ['POSTGRES_PASSWORD'],
         'HOST': os.environ['DB_HOST'],
         'PORT': os.environ['DB_PORT'],
+        # Используем обычные курсоры, чтобы избежать ошибок с именованными
+        # курсорами при работе через пулеры соединений (например, PgBouncer).
+        'DISABLE_SERVER_SIDE_CURSORS': True,
     }
 }
 DATA_UPLOAD_MAX_NUMBER_FIELDS = 50000
