@@ -200,6 +200,8 @@ if not DEBUG:
     # If behind a proxy (Railway), trust forwarded protocol/host headers.
     # Railway/edge proxy must send: X-Forwarded-Proto: https
     USE_X_FORWARDED_HOST = True
+    CSRF_COOKIE_SECURE = True
+    SESSION_COOKIE_SECURE = True
     SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')
 else:
     DEBUG = True
