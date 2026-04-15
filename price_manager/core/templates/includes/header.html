@@ -36,6 +36,21 @@
       <div class="d-flex align-items-center gap-2">
         <a class="btn btn-link" href="{% url 'admin:index' %}">Админ</a>
         {% if user.is_authenticated %}
+          <button
+            class="btn btn-outline-secondary position-relative"
+            type="button"
+            data-bs-toggle="offcanvas"
+            data-bs-target="#persistentNotificationsOffcanvas"
+            aria-controls="persistentNotificationsOffcanvas"
+          >
+            <i class="bi bi-bell"></i>
+            <span class="ms-1">Оповещения</span>
+            {% if persistent_notifications|length %}
+              <span class="position-absolute top-0 start-100 translate-middle badge rounded-pill bg-danger">
+                {{ persistent_notifications|length }}
+              </span>
+            {% endif %}
+          </button>
           <span class="navbar-text">{{ user.get_username }}</span>
           <form action="{% url 'logout' %}" method="post">
             {% csrf_token %}
