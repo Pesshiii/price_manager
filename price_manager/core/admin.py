@@ -14,3 +14,30 @@ class PersistentNotificationAdmin(admin.ModelAdmin):
     list_filter = ("level", "created_at")
     search_fields = ("user__username", "message")
     ordering = ("-created_at",)
+
+
+@admin.register(TaskRunHistory)
+class TaskRunHistoryAdmin(admin.ModelAdmin):
+    list_display = (
+        "id",
+        "task_name",
+        "status",
+        "updated_count",
+        "duration_ms",
+        "started_at",
+        "finished_at",
+    )
+    list_filter = ("status", "task_name", "started_at")
+    search_fields = ("task_name", "error")
+    readonly_fields = (
+        "task_name",
+        "status",
+        "updated_count",
+        "duration_ms",
+        "details",
+        "error",
+        "started_at",
+        "finished_at",
+        "created_at",
+    )
+    ordering = ("-started_at",)

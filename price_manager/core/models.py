@@ -57,3 +57,29 @@ class PersistentNotification(models.Model):
 
   def __str__(self):
     return f"{self.user}: {self.message[:40]}"
+
+
+class TaskRunHistory(models.Model):
+  STATUS_CHOICES = [
+    ('success', 'Успешно'),
+    ('error', 'Ошибка'),
+    ('skipped', 'Пропущено (lock)'),
+  ]
+
+  task_name = models.CharField(max_length=255, verbose_name='Имя задачи', db_index=True)
+  status = models.CharField(max_length=16, choices=STATUS_CHOICES, verbose_name='Статус')
+  started_at = models.DateTimeField(verbose_name='Начало выполнения')
+  finished_at = models.DateTimeField(verbose_name='Окончание выполнения')
+  duration_ms = models.PositiveIntegerField(verbose_name='Длительность, мс')
+  updated_count = models.IntegerField(default=0, verbose_name='Обновлено записей')
+  details = models.JSONField(default=dict, blank=True, verbose_name='Детали')
+  error = models.TextField(null=True, blank=True, verbose_name='Ошибка')
+  created_at = models.DateTimeField(auto_now_add=True)
+
+  class Meta:
+    ordering = ('-started_at',)
+    verbose_name = 'История запуска задачи'
+    verbose_name_plural = 'История запусков задач'
+
+  def __str__(self):
+    return f"{self.task_name} [{self.status}]"
