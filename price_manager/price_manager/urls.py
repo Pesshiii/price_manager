@@ -78,5 +78,6 @@ urlpatterns = [
     path('blog/', include('blogapp.urls')),
 
     path("toasts/", views.toast_messages, name="toast-messages"),
+    path('notifications/<int:pk>/delete/', views.PersistentNotificationDeleteView.as_view(), name='persistent-notification-delete'),
 
 ] + static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)

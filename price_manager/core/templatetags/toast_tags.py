@@ -48,3 +48,18 @@ def do_toaster(parser, token):
     nodelist = parser.parse(("endtoaster",))
     parser.delete_first_token()
     return ToasterNode(nodelist=nodelist, tag_kwargs=tag_kwargs)
+
+@register.simple_tag(takes_context=True)
+def persist_notification(context, message):
+    request = context.get("request")
+    if request is None or not request.user.is_authenticated:
+        return ""
+
+    from core.models import PersistentNotification
+
+    PersistentNotification.objects.create(
+        user=request.user,
+        level=message.level_tag,
+        message=str(message),
+    )
+    return ""

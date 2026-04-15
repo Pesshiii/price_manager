@@ -31,3 +31,29 @@ class ShopingTab(models.Model):
   class Meta:
     verbose_name = 'Заявка'
     constraints = [models.UniqueConstraint(fields=['user', 'name'], name='user_name_constraint')]
+
+class PersistentNotification(models.Model):
+  LEVEL_CHOICES = [
+    ('info', 'Инфо'),
+    ('success', 'Успех'),
+    ('warning', 'Предупреждение'),
+    ('danger', 'Ошибка'),
+  ]
+
+  user = models.ForeignKey(
+    'auth.User',
+    verbose_name='Пользователь',
+    on_delete=models.CASCADE,
+    related_name='persistent_notifications',
+  )
+  level = models.CharField(max_length=16, choices=LEVEL_CHOICES, default='info')
+  message = models.TextField(verbose_name='Сообщение')
+  created_at = models.DateTimeField(auto_now_add=True)
+
+  class Meta:
+    ordering = ('-created_at',)
+    verbose_name = 'Постоянное уведомление'
+    verbose_name_plural = 'Постоянные уведомления'
+
+  def __str__(self):
+    return f"{self.user}: {self.message[:40]}"

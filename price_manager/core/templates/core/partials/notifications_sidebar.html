@@ -1,0 +1,27 @@
+<div class="notifications-sidebar" aria-label="Постоянные уведомления">
+  <div class="d-flex justify-content-between align-items-center mb-3">
+    <h6 class="mb-0">Оповещения</h6>
+    <span class="badge text-bg-secondary">{{ persistent_notifications|length }}</span>
+  </div>
+
+  <div class="notifications-list">
+    {% for notification in persistent_notifications %}
+      <div class="alert alert-{{ notification.level }} py-2 px-3 mb-2 d-flex align-items-start gap-2" id="notification-{{ notification.pk }}">
+        <div class="flex-grow-1">
+          <div class="small">{{ notification.message|safe }}</div>
+          <div class="text-muted small mt-1">{{ notification.created_at|date:"d.m.Y H:i" }}</div>
+        </div>
+        <button
+          type="button"
+          class="btn-close"
+          aria-label="Удалить"
+          hx-post="{% url 'persistent-notification-delete' notification.pk %}"
+          hx-target="#notification-{{ notification.pk }}"
+          hx-swap="outerHTML"
+        ></button>
+      </div>
+    {% empty %}
+      <div class="text-muted small">Нет сохранённых уведомлений.</div>
+    {% endfor %}
+  </div>
+</div>
