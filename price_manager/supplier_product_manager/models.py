@@ -159,6 +159,18 @@ def setting_dir(instance, filename):
   return f'setting_{instance.setting.supplier.pk}/{filename}'
 
 class SupplierFile(models.Model):
+  STATUS_QUEUED = 0
+  STATUS_RUNNING = 2
+  STATUS_SUCCESS = 1
+  STATUS_ERROR = -1
+
+  STATUS_CHOICES = [
+    (STATUS_QUEUED, 'В очереди'),
+    (STATUS_RUNNING, 'В процессе'),
+    (STATUS_SUCCESS, 'Успешно'),
+    (STATUS_ERROR, 'Ошибка'),
+  ]
+
   setting = models.ForeignKey(Setting,
                               null=True,
                               blank=True,
@@ -171,11 +183,7 @@ class SupplierFile(models.Model):
                           validators=[FileExtensionValidator(allowed_extensions=['xls', 'xlsx', 'xlsm'])],
                           null=False)
   status = models.IntegerField(verbose_name="Статус загрузки",
-                               choices=[
-                                 (0, 'Не загружен'),
-                                 (1, 'Загружен'),
-                                 (-1, 'Ошибка')
-                               ],
-                               default=0,
+                               choices=STATUS_CHOICES,
+                               default=STATUS_QUEUED,
                                blank=True)
   logs = models.CharField(verbose_name="Журнал загрузки", null=True, blank=True)
