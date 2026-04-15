@@ -49,6 +49,12 @@ def toast_messages(request):
     return trigger_client_event(response, "toasts:initialize", after="swap")
 
 
+class PersistentNotificationDeleteView(LoginRequiredMixin, View):
+    def post(self, request, pk):
+        notification = get_object_or_404(PersistentNotification, pk=pk, user=request.user)
+        notification.delete()
+        return HttpResponse("")
+
 class AppLoginView(LoginView):
     template_name = 'registration/login.html'
     redirect_authenticated_user = True

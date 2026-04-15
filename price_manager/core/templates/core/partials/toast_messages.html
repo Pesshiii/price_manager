@@ -1,6 +1,7 @@
 {% load toast_tags %}
 {% if messages %}
 {% for message in messages %}
+{% persist_notification message %}
 {% toaster level=message.level_tag %}
 <div class="toast align-items-center {{ toast.color_class }}" role="alert" aria-live="assertive" aria-atomic="true">
   <div class="d-flex">
