@@ -98,7 +98,7 @@ class MainPage(FilterView):
   def render_to_response(self, context, **response_kwargs):
     response = super().render_to_response(context, **response_kwargs)
     if self.request.htmx and self.request.GET.get('page', 1) == 1:
-      response['Hx-Push'] = self.request.build_absolute_uri()
+      response['Hx-Push'] = self.request.get_full_path()
     return response
 
 

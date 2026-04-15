@@ -28,7 +28,7 @@ SECRET_KEY = os.environ.get('SECRET_KEY','django-insecure-q_sht-smtwbq$s_j8*f!u#
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = os.environ.get('DEBUG',True)
 
-ALLOWED_HOSTS = ["*"]
+ALLOWED_HOSTS = os.environ.get("ALLOWED_HOSTS", "*").split(",")
 
 
 # Application definition
@@ -189,9 +189,10 @@ if not DEBUG:
     SECURE_HSTS_SECONDS = 31536000  # 1 year
     SECURE_HSTS_INCLUDE_SUBDOMAINS = True
     SECURE_HSTS_PRELOAD = True
-    # If behind a proxy (Railway)
+    # If behind a proxy (Railway), trust forwarded protocol/host headers.
+    # Railway/edge proxy must send: X-Forwarded-Proto: https
     USE_X_FORWARDED_HOST = True
-    SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', None)
+    SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')
 else:
     DEBUG = True
 
