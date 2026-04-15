@@ -43,7 +43,7 @@ from .forms import *
 from .tables import *
 from .filters import *
 from .functions import *
-from product_price_manager.views import update_prices
+from .tasks import sync_main_products_task
 from supplier_product_manager.views import UploadSupplierFile
 
 # Импорты сторонних библиотек
@@ -153,15 +153,9 @@ class MainProductTableView(SingleTableView):
 # Обработка продуктов главного прайса
 
 def sync_main_products(request, **kwargs):
-  """Обновляет остатки и применяет наценки в MainProduct из SupplierProduct"""
-  Category.objects.rebuild()
-  messages.info(
-    request, 
-    f"Векторы поиска обновлены у {recalculate_search_vectors(MainProduct.objects.filter(search_vector__isnull=True)) or 0} товаров")
-  count, dcount = update_prices()
-  messages.info(request, f"Цены обновлены у {count} товаров. Обнулены у {dcount} товаров.")
-  messages.info(request, f"Остатки обновлены у {update_stocks()} товаров")
-  
+  """Запускает асинхронную синхронизацию MainProduct."""
+  sync_main_products_task(request.user.id)
+  messages.info(request, "Синхронизация запущена")
   return HttpResponseClientRedirect(reverse('mainproducts'))
 
 
