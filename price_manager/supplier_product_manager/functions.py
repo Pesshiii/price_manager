@@ -12,6 +12,7 @@ from main_product_manager.functions import recalculate_search_vectors
 from .forms import (DictFormset, LinkFormset,
                     InitialForm,
                     LINKS,)
+from price_manager.settings import DEBUG
 import pandas as pd
 import numpy as np
 from decimal import Decimal
@@ -58,16 +59,18 @@ def get_df(pk, recache=False)->pd.DataFrame|None:
   if not sf: return None
   file = sf.file
   if not file: return None
-  cached_df=cache.get(f'setting<{pk}>::dataframe<{sf.pk}>::<{Setting.sheet_name}>')
-  if not recache and not cached_df is None:
-     return cached_df
+  if not DEBUG:
+    cached_df=cache.get(f'setting<{pk}>::dataframe<{sf.pk}>::<{Setting.sheet_name}>')
+    if not recache and not cached_df is None:
+        return cached_df
   df = pd.read_excel(file, engine='calamine', dtype=str, skiprows=setting.index_row, sheet_name=setting.sheet_name, index_col=None, na_values=['']).dropna(axis=0, how='all').dropna(axis=1, how='all')
   file.close()
   for column in df.columns:
     df[column] = df[column].str.replace(r'\s+', ' ', regex=True)
   if df.shape[0] == 0:
     return None
-  cache.set(f'setting<{pk}>::dataframe<{sf.pk}>::<{Setting.sheet_name}>', df, timeout=60*30)
+  if not DEBUG:
+    cache.set(f'setting<{pk}>::dataframe<{sf.pk}>::<{Setting.sheet_name}>', df, timeout=60*30)
   return df
 
 def get_dictformset(post, pk, link):
