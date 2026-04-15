@@ -1,10 +1,20 @@
 from celery import shared_task
+from django.db.models import Q
+from django.http import QueryDict
 from django.utils import timezone
 
 from core.models import PersistentNotification
+from main_product_manager.functions import recalculate_search_vectors
+from main_product_manager.models import MainProduct
 
 from .functions import load_setting
-from .models import Setting, SupplierFile
+from .filters import SupplierProductFilter
+from .models import (
+    CopySupplierProductsToMainRun,
+    Setting,
+    SupplierFile,
+    SupplierProduct,
+)
 
 
 def _append_supplier_file_log(supplier_file: SupplierFile | None, message: str) -> None:
@@ -103,3 +113,161 @@ def process_supplier_file_import(setting_id: int, user_id: int) -> dict:
 def process_setting_upload(setting_id: int, user_id: int) -> dict:
     """Совместимость со старым названием задачи."""
     return process_supplier_file_import(setting_id, user_id)
+
+
+def _restore_querydict(filter_params: dict | None) -> QueryDict:
+    query_dict = QueryDict("", mutable=True)
+    if not filter_params:
+        return query_dict
+    for key, value in filter_params.items():
+        if isinstance(value, list):
+            query_dict.setlist(key, [str(v) for v in value if v is not None])
+        elif value is not None:
+            query_dict[key] = str(value)
+    return query_dict
+
+
+def _chunked(iterable, chunk_size: int):
+    chunk = []
+    for item in iterable:
+        chunk.append(item)
+        if len(chunk) >= chunk_size:
+            yield chunk
+            chunk = []
+    if chunk:
+        yield chunk
+
+
+@shared_task
+def copy_supplier_products_to_main_task(
+    supplier_id: int,
+    filter_params: dict | None,
+    user_id: int,
+    run_id: int | None = None,
+    batch_size: int = 1000,
+) -> dict:
+    started_at = timezone.now()
+    run = None
+
+    if run_id:
+        run = CopySupplierProductsToMainRun.objects.filter(pk=run_id).first()
+        if run:
+            run.status = CopySupplierProductsToMainRun.STATUS_STARTED
+            run.error = None
+            run.save(update_fields=["status", "error"])
+
+    try:
+        query_data = _restore_querydict(filter_params)
+        products_qs = (
+            SupplierProductFilter(query_data, pk=supplier_id)
+            .qs.select_related("main_product", "supplier", "manufacturer", "category")
+            .filter(supplier_id=supplier_id)
+            .order_by("pk")
+        )
+
+        created_count = products_qs.filter(main_product__isnull=True).count()
+        processed_count = 0
+        updated_links_count = 0
+        touched_main_product_ids = set()
+
+        for batch in _chunked(products_qs.iterator(chunk_size=batch_size), batch_size):
+            processed_count += len(batch)
+            keys = {(sp.article, sp.name) for sp in batch}
+            if not keys:
+                continue
+
+            sp_by_key = {(sp.article, sp.name): sp for sp in batch}
+            mps_to_create = [
+                MainProduct(
+                    supplier_id=supplier_id,
+                    article=article,
+                    name=name,
+                    description=sp_by_key[(article, name)].description,
+                    manufacturer=sp_by_key[(article, name)].manufacturer,
+                    category=sp_by_key[(article, name)].category,
+                )
+                for article, name in keys
+            ]
+            MainProduct.objects.bulk_create(
+                mps_to_create,
+                update_conflicts=True,
+                unique_fields=["supplier", "article", "name"],
+                update_fields=["manufacturer", "category", "description"],
+                batch_size=batch_size,
+            )
+
+            key_filter = Q()
+            for article, name in keys:
+                key_filter |= Q(article=article, name=name)
+            mps = MainProduct.objects.filter(supplier_id=supplier_id).filter(key_filter)
+            mp_by_key = {(mp.article, mp.name): mp.id for mp in mps}
+
+            supplier_products_to_update = []
+            for sp in batch:
+                mp_id = mp_by_key.get((sp.article, sp.name))
+                if not mp_id:
+                    continue
+                touched_main_product_ids.add(mp_id)
+                if sp.main_product_id != mp_id:
+                    sp.main_product_id = mp_id
+                    supplier_products_to_update.append(sp)
+
+            if supplier_products_to_update:
+                SupplierProduct.objects.bulk_update(
+                    supplier_products_to_update,
+                    fields=["main_product"],
+                    batch_size=batch_size,
+                )
+                updated_links_count += len(supplier_products_to_update)
+
+        for ids_chunk in _chunked(list(touched_main_product_ids), batch_size):
+            recalculate_search_vectors(MainProduct.objects.filter(pk__in=ids_chunk))
+
+        duration_seconds = round((timezone.now() - started_at).total_seconds(), 2)
+        message = (
+            f"Копирование товаров поставщика завершено: обработано {processed_count}, "
+            f"создано новых {created_count}, обновлено связей {updated_links_count}, "
+            f"длительность {duration_seconds} сек."
+        )
+
+        if run:
+            run.status = CopySupplierProductsToMainRun.STATUS_SUCCESS
+            run.processed_count = processed_count
+            run.created_count = created_count
+            run.updated_links_count = updated_links_count
+            run.finished_at = timezone.now()
+            run.save(
+                update_fields=[
+                    "status",
+                    "processed_count",
+                    "created_count",
+                    "updated_links_count",
+                    "finished_at",
+                ]
+            )
+
+        PersistentNotification.objects.create(
+            user_id=user_id,
+            level="success",
+            message=message,
+        )
+        return {
+            "status": "ok",
+            "processed_count": processed_count,
+            "created_count": created_count,
+            "updated_links_count": updated_links_count,
+            "duration_seconds": duration_seconds,
+            "message": message,
+        }
+    except Exception as exc:
+        if run:
+            run.status = CopySupplierProductsToMainRun.STATUS_ERROR
+            run.error = str(exc)
+            run.finished_at = timezone.now()
+            run.save(update_fields=["status", "error", "finished_at"])
+        PersistentNotification.objects.create(
+            user_id=user_id,
+            level="danger",
+            message=f"Ошибка копирования товаров поставщика: {exc}",
+        )
+        raise
