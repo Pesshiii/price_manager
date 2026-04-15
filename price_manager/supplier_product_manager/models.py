@@ -1,5 +1,6 @@
 from django.db import models
 from django.core.validators import FileExtensionValidator
+from django.conf import settings
 
 
 from main_product_manager.models import MainProduct
@@ -187,3 +188,47 @@ class SupplierFile(models.Model):
                                default=STATUS_QUEUED,
                                blank=True)
   logs = models.CharField(verbose_name="Журнал загрузки", null=True, blank=True)
+
+
+class CopySupplierProductsToMainRun(models.Model):
+  STATUS_STARTED = "started"
+  STATUS_SUCCESS = "success"
+  STATUS_ERROR = "error"
+
+  STATUS_CHOICES = [
+    (STATUS_STARTED, "Выполняется"),
+    (STATUS_SUCCESS, "Успешно"),
+    (STATUS_ERROR, "Ошибка"),
+  ]
+
+  supplier = models.ForeignKey(
+    Supplier,
+    verbose_name="Поставщик",
+    related_name="copy_to_main_runs",
+    on_delete=models.CASCADE,
+  )
+  user = models.ForeignKey(
+    settings.AUTH_USER_MODEL,
+    verbose_name="Пользователь",
+    related_name="copy_to_main_runs",
+    on_delete=models.CASCADE,
+  )
+  status = models.CharField(
+    verbose_name="Статус",
+    max_length=16,
+    choices=STATUS_CHOICES,
+    default=STATUS_STARTED,
+    db_index=True,
+  )
+  filter_params = models.JSONField(verbose_name="Параметры фильтра", default=dict, blank=True)
+  processed_count = models.PositiveIntegerField(verbose_name="Обработано записей", default=0)
+  created_count = models.PositiveIntegerField(verbose_name="Создано новых записей ГП", default=0)
+  updated_links_count = models.PositiveIntegerField(verbose_name="Обновлено связей", default=0)
+  error = models.TextField(verbose_name="Ошибка", null=True, blank=True)
+  started_at = models.DateTimeField(verbose_name="Начало", auto_now_add=True)
+  finished_at = models.DateTimeField(verbose_name="Окончание", null=True, blank=True)
+
+  class Meta:
+    ordering = ("-started_at",)
+    verbose_name = "Копирование товаров поставщика в ГП"
+    verbose_name_plural = "Копирование товаров поставщика в ГП"

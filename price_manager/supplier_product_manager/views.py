@@ -27,7 +27,7 @@ from crispy_forms.utils import render_crispy_form
 from product_price_manager.models import PriceManager, PriceTag
 from core.functions import extract_initial_from_post
 from supplier_manager.forms import SupplierForm
-from .models import DictItem, SupplierFile
+from .models import CopySupplierProductsToMainRun, DictItem, SupplierFile
 from .forms import *
 from .tables import *
 from .filters import *
@@ -38,7 +38,7 @@ import pandas as pd
 import re
 
 from .functions import *
-from .tasks import process_supplier_file_import
+from .tasks import process_supplier_file_import, copy_supplier_products_to_main_task
 
 class SupplierDetail(SingleTableMixin, FilterView):
   '''
@@ -90,18 +90,20 @@ def copy_to_main(request, pk, state):
   if state == 0:
     url = reverse('supplier-copymain', kwargs={'pk':pk, 'state':1})
     return render(request, 'supplier_product/partials/load_partial.html', {'url':url})
-  products = SupplierProductFilter(request.GET,pk=pk).qs.select_related('main_product', 'supplier').filter(supplier=pk)
-  to_create = products.filter(main_product__isnull=True).count()
-  def get_mp(sp: SupplierProduct):
-    mp = MainProduct(supplier=sp.supplier, article=sp.article, name=sp.name, description=sp.description, manufacturer=sp.manufacturer, category=sp.category)
-    sp.main_product = mp
-    return mp
-  mp_map = map(get_mp, products)
-  mp_list = MainProduct.objects.bulk_create(mp_map, update_conflicts=True, unique_fields=['supplier', 'article', 'name'], update_fields=['manufacturer', 'category', 'description'])
-  mps = MainProduct.objects.filter(pk__in=[mp.pk for mp in mp_list])
-  products.bulk_update(products, fields=['main_product'])
-  recalculate_search_vectors(mps)
-  messages.info(request, f'Обработано товаров ГП {len(mps)}. Создано новых: {to_create}')
+  filter_params = dict(request.GET.lists())
+  copy_run = CopySupplierProductsToMainRun.objects.create(
+    supplier_id=pk,
+    user=request.user,
+    status=CopySupplierProductsToMainRun.STATUS_STARTED,
+    filter_params=filter_params,
+  )
+  copy_supplier_products_to_main_task.delay(
+    supplier_id=pk,
+    filter_params=filter_params,
+    user_id=request.user.pk,
+    run_id=copy_run.pk,
+  )
+  messages.info(request, 'Копирование товаров в ГП запущено в фоне. Уведомление придет после завершения.')
   return HttpResponseClientRedirect(reverse('supplier-detail', kwargs={'pk':pk}))
 
 # Обработка настройки
