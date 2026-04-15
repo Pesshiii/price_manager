@@ -38,6 +38,7 @@ import pandas as pd
 import re
 
 from .functions import *
+from .tasks import process_setting_upload
 
 class SupplierDetail(SingleTableMixin, FilterView):
   '''
@@ -159,11 +160,13 @@ def setting_upload(request, pk, state):
     url = reverse('setting-upload', kwargs={'pk':pk, 'state':1})
     return render(request, 'supplier_product/partials/load_partial.html', {'url':url})
   if setting.is_bound():
-    products = load_setting(pk)
-    if products is None:
-      messages.info(request, "Нет связок")
-    else:
-      messages.info(request, f"Загрузка файла через настройку {setting.name}. Обработано {len(products)} товаров.")
+    supplier_file = setting.supplierfiles.order_by('-pk').first()
+    if supplier_file:
+      supplier_file.status = 0
+      supplier_file.logs = "Загрузка запущена"
+      supplier_file.save(update_fields=['status', 'logs'])
+    process_setting_upload.delay(pk, request.user.pk)
+    messages.info(request, f"Запущена фоновая загрузка через настройку {setting.name}")
   else:
     messages.error(request, f'Не указано поле артикула и\\или наименования')
   return HttpResponseClientRefresh()
