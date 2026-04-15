@@ -26,48 +26,6 @@
         /* Ensure the table is wide enough to cause overflow, e.g., min-width: 1500px; */
       }
       
-      .notifications-sidebar {
-        position: fixed;
-        top: 72px;
-        right: 0;
-        width: 340px;
-        max-width: 92vw;
-        height: calc(100vh - 72px);
-        overflow-y: auto;
-        background: #fff;
-        border-left: 1px solid #dee2e6;
-        padding: 1rem;
-        z-index: 1020;
-      }
-
-      .notifications-body-offset {
-        margin-right: 340px;
-      }
-
-      @media (max-width: 1200px) {
-        .notifications-sidebar {
-          width: 280px;
-        }
-
-        .notifications-body-offset {
-          margin-right: 280px;
-        }
-      }
-
-      @media (max-width: 992px) {
-        .notifications-sidebar {
-          position: static;
-          width: 100%;
-          height: auto;
-          border-left: 0;
-          border-top: 1px solid #dee2e6;
-        }
-
-        .notifications-body-offset {
-          margin-right: 0;
-        }
-      }
-
       {% block style %} {% endblock %}
     </style>
 </head>
@@ -76,7 +34,7 @@
     <div data-toasts-container hx-get='{% url "toast-messages" %}' hx-trigger="toasts:fetch from:body" hx-swap="afterbegin" class="toast-container top-0 end-0 p-3">
         {% include "core/partials/toast_messages.html" %}
     </div>
-    <main class="notifications-body-offset">
+    <main>
         {% block body %}{% endblock %}
     </main>
     {% if request.user.is_authenticated %}
