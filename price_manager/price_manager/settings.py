@@ -276,4 +276,24 @@ CELERY_TASK_TIME_LIMIT = 30 * 60
 CELERY_BROKER_URL = os.environ.get('CELERY_BROKER_URL', REDIS_URL)
 CELERY_RESULT_BACKEND = os.environ.get('CELERY_RESULT_BACKEND', REDIS_URL)
 
+
+CELERY_PRICE_UPDATE_MINUTES = int(os.environ.get('CELERY_PRICE_UPDATE_MINUTES', 30))
+CELERY_STOCK_UPDATE_MINUTES = int(os.environ.get('CELERY_STOCK_UPDATE_MINUTES', 15))
+CELERY_LOG_UPDATE_MINUTES = int(os.environ.get('CELERY_LOG_UPDATE_MINUTES', 60))
+
+CELERY_BEAT_SCHEDULE = {
+    'update-prices': {
+        'task': 'main_product_manager.update_prices',
+        'schedule': CELERY_PRICE_UPDATE_MINUTES * 60,
+    },
+    'update-stocks': {
+        'task': 'main_product_manager.update_stocks',
+        'schedule': CELERY_STOCK_UPDATE_MINUTES * 60,
+    },
+    'update-logs': {
+        'task': 'main_product_manager.update_logs',
+        'schedule': CELERY_LOG_UPDATE_MINUTES * 60,
+    },
+}
+
 app.autodiscover_tasks()
