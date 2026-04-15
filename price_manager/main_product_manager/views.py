@@ -292,11 +292,6 @@ class MainProductDuplicatesView(FilterView):
     filterset_class = MainProductFilter
     template_name = 'mainproduct/duplicates.html'
 
-    COMPARISON_FIELD_LABELS = {
-        'article': 'артиклю',
-        'supplier': 'поставщику',
-        'name': 'названию',
-    }
     def get(self, request, *args, **kwargs):
         
         if not request.htmx:
@@ -305,25 +300,10 @@ class MainProductDuplicatesView(FilterView):
         return HttpResponseClientRedirect(f"{reverse('mainproduct-duplicates')}?{request.META['QUERY_STRING']}")
     def _get_selected_compare_fields(self, request):
         return [
-            field for field in self.COMPARISON_FIELD_LABELS.keys()
+            field for field in DUPLICATE_LOOKUPS.keys()
             if request.GET.get('c' + field) == 'on'
         ]
 
-    def _collect_duplicate_groups(self, request, selected_compare_fields):
-        if not selected_compare_fields:
-            return []
-        base_queryset = MainProductFilter(request.GET).qs.order_by('id')
-        first_product = base_queryset.first()
-        if first_product is None:
-            return []
-
-        groups = []
-        next_id = first_product.id
-        while next_id is not None:
-            next_id, buffer_queryset = get_dupes(next_id, selected_compare_fields, base_queryset)
-            if buffer_queryset is not None and buffer_queryset.count() >= 2:
-                groups.append(list(buffer_queryset.values_list('id', flat=True)))
-        return groups
 
     def post(self, request, *args, **kwargs):
         selected_compare_fields = self._get_selected_compare_fields(request)
@@ -333,8 +313,13 @@ class MainProductDuplicatesView(FilterView):
                 messages.warning(request, 'Сначала выберите хотя бы одно поле сравнения.')
                 return redirect(f"{reverse('mainproduct-duplicates')}?{request.META['QUERY_STRING']}")
 
-            duplicate_groups = self._collect_duplicate_groups(request, selected_compare_fields)
-            if not duplicate_groups:
+
+            duplicate_values = (
+                MainProductFilter(request.GET).qs.values(*selected_compare_fields)
+                .annotate(Count('id')).filter(id__count__gt=1).order_by(*selected_compare_fields)
+            )
+
+            if not duplicate_values.exists():
                 messages.info(request, 'Группы дубликатов по текущему фильтру не найдены.')
                 return redirect(f"{reverse('mainproduct-duplicates')}?{request.META['QUERY_STRING']}")
 
@@ -344,11 +329,12 @@ class MainProductDuplicatesView(FilterView):
             moved_logs_total = 0
             processed_ids = set()
 
-            for group_ids in duplicate_groups:
-                clean_group_ids = [pid for pid in group_ids if pid not in processed_ids]
-                if len(clean_group_ids) < 2:
-                    continue
-                merged_data = merge_selected_main_products(clean_group_ids)
+            for value in duplicate_values:
+                query = Q()
+                for field in selected_compare_fields:
+                    query &= Q(**{field:value[field]})
+                buffer_queryset = MainProduct.objects.filter(query).annotate(oldest_log_at=Min('mp_log__update_time')).order_by('oldest_log_at')
+                merged_data = merge_selected_main_products(buffer_queryset.values_list('id', flat=True))
                 if merged_data is None:
                     continue
                 _, deleted_products, moved_supplier_products, moved_logs = merged_data
@@ -356,8 +342,7 @@ class MainProductDuplicatesView(FilterView):
                 deleted_products_total += deleted_products
                 moved_supplier_products_total += moved_supplier_products
                 moved_logs_total += moved_logs
-                processed_ids.update(clean_group_ids)
-
+                processed_ids.update(buffer_queryset.values_list('id', flat=True))
             if merged_groups == 0:
                 messages.info(request, 'Не удалось объединить найденные группы дубликатов.')
             else:
@@ -396,12 +381,10 @@ class MainProductDuplicatesView(FilterView):
   
     def get_context_data(self, **kwargs) -> dict[str, Any]:
         context = super().get_context_data(**kwargs)
-        qs = self.filterset.qs.order_by('id').first()
-        context["id"] = qs.id if not qs is None else None
         selected_compare_fields = self._get_selected_compare_fields(self.request)
         context['selected_compare_fields'] = selected_compare_fields
         context['comparison_labels'] = [
-            COMPARISON_FIELD_LABELS[field] for field in selected_compare_fields
+            DUPLICATE_LOOKUPS[field]['verbose_name'] for field in selected_compare_fields
         ]
         return context
 
@@ -479,16 +462,20 @@ def mainproductdupe(request, id):
     
     qfilter = MainProductFilter(request.GET)
     selected_compare_fields = [
-      field for field in COMPARISON_FIELD_LABELS.keys()
+      field for field in DUPLICATE_LOOKUPS.keys()
       if request.GET.get('c' + field) == 'on'
     ]
     if selected_compare_fields == []:
         return render(request, 'mainproduct/partials/duplicates_partial.html', context={'products':None, 'id':None})
-    base_queryset = qfilter.qs.order_by('id')
-    next_id, buffer_queryset = get_dupes(id, selected_compare_fields, base_queryset)
-    if next_id is None:
+    duplicate_values = (
+            qfilter.qs.values(*selected_compare_fields)
+            .annotate(Count('id')).filter(id__count__gt=1).order_by(*selected_compare_fields)
+        )[id:]
+    if not duplicate_values.exists():
         messages.info(request, 'Все товары обработаны')
-        if buffer_queryset is None or buffer_queryset.count() < 2:
-            return render(request, 'mainproduct/partials/duplicates_partial.html', context={'products':None, 'id':None})
-    buffer_queryset = buffer_queryset.annotate(oldest_log_at=Min('mp_log__update_time'))
-    return render(request, 'mainproduct/partials/duplicates_partial.html', context={'products':buffer_queryset, 'id':next_id})
+        return render(request, 'mainproduct/partials/duplicates_partial.html', context={'products':None, 'id':None})
+    query = Q()
+    for field in selected_compare_fields:
+       query &= Q(**{field:duplicate_values.first()[field]})
+    buffer_queryset = MainProduct.objects.filter(query).annotate(oldest_log_at=Min('mp_log__update_time'))
+    return render(request, 'mainproduct/partials/duplicates_partial.html', context={'products':buffer_queryset, 'id':id+1})

@@ -6,7 +6,8 @@ from django.core.cache import cache
 from .models import (SupplierFile, Setting, Link, 
                      SupplierProduct, Manufacturer, Discount, Category,
                      SP_NUMBERS, SP_PRICES)
-from main_product_manager.models import (MainProduct, recalculate_search_vectors)
+from main_product_manager.models import MainProduct
+from main_product_manager.functions import recalculate_search_vectors
 
 from .forms import (DictFormset, LinkFormset,
                     InitialForm,

@@ -9,7 +9,7 @@
 <div class="container-fluid p-4">
   <h2 class="mb-3">Дубликаты товаров</h2>
 
-  <form method="get" hx-get="{% url "mainproduct-duplicates" %}{% querystring carticle=None cname=None csupplier=None%}" hx-trigger="submit, change" hx-push-url="true" class="card p-3 mb-3">
+  <form method="get" hx-get="{% url "mainproduct-duplicates" %}{% querystring carticle=None cname=None csupplier__id=None%}" hx-trigger="submit, change" hx-push-url="true" class="card p-3 mb-3">
     <h5 class="mb-3">Параметры сравнения</h5>
     <div class="d-flex flex-wrap gap-4 align-items-center">
       <div class="form-check">
@@ -17,7 +17,7 @@
         <label class="form-check-label" for="compare-article">Сравнивать по артиклю</label>
       </div>
       <div class="form-check">
-        <input class="form-check-input" type="checkbox" id="compare-supplier" name="csupplier" {% if request.GET.csupplier == 'on' %}checked{% endif %}>
+        <input class="form-check-input" type="checkbox" id="compare-supplier" name="csupplier__id" {% if request.GET.csupplier__id == 'on' %}checked{% endif %}>
         <label class="form-check-label" for="compare-supplier">Сравнивать по поставщику</label>
       </div>
       <div class="form-check">
@@ -47,11 +47,7 @@
               <button type="submit" name="merge_mode" value="all" class="btn btn-outline-success">Объединить все</button>
             </div>
           </div>
-          {% if id %}
-            <div hx-get="{% url "mainproduct-duplicate" id=id %}{% querystring %}" hx-trigger="load" hx-target="this"></div>
-          {% else %}
-            <div class="alert alert-info">The fin.</div>
-          {% endif %}
+          <div hx-get="{% url "mainproduct-duplicate" id=0 %}{% querystring %}" hx-trigger="load" hx-target="this"></div>
         </form>
       {% endif %}
     </div>
