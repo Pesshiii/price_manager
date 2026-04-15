@@ -27,7 +27,7 @@ from crispy_forms.utils import render_crispy_form
 from product_price_manager.models import PriceManager, PriceTag
 from core.functions import extract_initial_from_post
 from supplier_manager.forms import SupplierForm
-from .models import DictItem
+from .models import DictItem, SupplierFile
 from .forms import *
 from .tables import *
 from .filters import *
@@ -38,7 +38,7 @@ import pandas as pd
 import re
 
 from .functions import *
-from .tasks import process_setting_upload
+from .tasks import process_supplier_file_import
 
 class SupplierDetail(SingleTableMixin, FilterView):
   '''
@@ -162,10 +162,10 @@ def setting_upload(request, pk, state):
   if setting.is_bound():
     supplier_file = setting.supplierfiles.order_by('-pk').first()
     if supplier_file:
-      supplier_file.status = 0
-      supplier_file.logs = "Загрузка запущена"
+      supplier_file.status = SupplierFile.STATUS_QUEUED
+      supplier_file.logs = "Поставлена в очередь на обработку"
       supplier_file.save(update_fields=['status', 'logs'])
-    process_setting_upload.delay(pk, request.user.pk)
+    process_supplier_file_import.delay(pk, request.user.pk)
     messages.info(request, f"Запущена фоновая загрузка через настройку {setting.name}")
   else:
     messages.error(request, f'Не указано поле артикула и\\или наименования')
