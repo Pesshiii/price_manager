@@ -184,7 +184,14 @@ AUTH_PASSWORD_VALIDATORS = [
 
 if not DEBUG:
 
-    CSRF_TRUSTED_ORIGINS=[os.environ.get('CSRF_TRUSTED_ORIGINS', 'http://localhost:8000')]
+    CSRF_TRUSTED_ORIGINS = [
+        origin.strip()
+        for origin in os.environ.get(
+            "CSRF_TRUSTED_ORIGINS",
+            "https://localhost:8000,http://localhost:8000",
+        ).split(",")
+        if origin.strip()
+    ]
 
     SECURE_SSL_REDIRECT = True
     SECURE_HSTS_SECONDS = 31536000  # 1 year
