@@ -23,7 +23,7 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 # See https://docs.djangoproject.com/en/5.2/howto/deployment/checklist/
 
 # SECURITY WARNING: keep the secret key used in production secret!
-SECRET_KEY = os.environ.get('SECRET_KEY',None)
+SECRET_KEY = os.environ.get('SECRET_KEY','django-insecure-q_sht-smtwbq$s_j8*f!u#z-)fmfne5^uk8x9edm_z6j=z^5qo')
 
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = os.environ.get('DEBUG',True)
@@ -129,30 +129,38 @@ MEDIA_URL = '/media/'
 DATABASES = {
     'default': {
         'ENGINE': 'django.db.backends.postgresql',
-        'NAME': os.environ['POSTGRES_DB'],
-        'USER': os.environ['POSTGRES_USER'],
-        'PASSWORD': os.environ['POSTGRES_PASSWORD'],
-        'HOST': os.environ['DB_HOST'],
-        'PORT': os.environ['DB_PORT'],
+        'NAME': os.environ.get('POSTGRES_DB','price_manager'),
+        'USER': os.environ.get('POSTGRES_USER','priceuser'),
+        'PASSWORD': os.environ.get('POSTGRES_PASSWORD','postgres'),
+        'HOST': os.environ.get('DB_HOST','localhost'),
+        'PORT': os.environ.get('DB_PORT','5432'),
     }
 }
 DATA_UPLOAD_MAX_NUMBER_FIELDS = 50000
 
 
-REDIS_URL = os.environ.get('REDIS_URL', 'redis://redis:6379')
-CACHES = {
-    'default': {
-        'BACKEND': 'django_redis.cache.RedisCache',
-        'LOCATION': REDIS_URL,
-        'OPTIONS': {
-            'CLIENT_CLASS': 'django_redis.client.DefaultClient',
-            "PICKLE_VERSION": -1,  # Use highest protocol for efficiency
-            "COMPRESSOR": "django_redis.compressors.zlib.ZlibCompressor",  # Optional compression
-        },
-        'KEY_PREFIX': 'price_manager',
-        'TIMEOUT': None,
+REDIS_URL = os.environ.get('REDIS_URL', None)
+if not REDIS_URL is None:
+    CACHES = {
+        'default': {
+            'BACKEND': 'django_redis.cache.RedisCache',
+            'LOCATION': REDIS_URL,
+            'OPTIONS': {
+                'CLIENT_CLASS': 'django_redis.client.DefaultClient',
+                "PICKLE_VERSION": -1,  # Use highest protocol for efficiency
+                "COMPRESSOR": "django_redis.compressors.zlib.ZlibCompressor",  # Optional compression
+            },
+            'KEY_PREFIX': 'price_manager',
+            'TIMEOUT': None,
+        }
     }
-}
+else:
+    CACHES = {
+        'default': {
+            'BACKEND': 'django.core.cache.backends.locmem.LocMemCache',
+            'LOCATION': 'unique-snowflake',
+        }
+    }
 
 # Password validation
 # https://docs.djangoproject.com/en/5.2/ref/settings/#auth-password-validators
@@ -172,16 +180,25 @@ AUTH_PASSWORD_VALIDATORS = [
     },
 ]
 
-CSRF_TRUSTED_ORIGINS=[os.environ.get('CSRF_TRUSTED_ORIGINS', None)]
 
-SECURE_SSL_REDIRECT = True
-SECURE_HSTS_SECONDS = 31536000  # 1 year
-SECURE_HSTS_INCLUDE_SUBDOMAINS = True
-SECURE_HSTS_PRELOAD = True
+if not DEBUG:
 
-# If behind a proxy (Railway)
-USE_X_FORWARDED_HOST = True
-SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')
+    CSRF_TRUSTED_ORIGINS=[os.environ.get('CSRF_TRUSTED_ORIGINS', 'http://localhost:8000')]
+
+    SECURE_SSL_REDIRECT = True
+    SECURE_HSTS_SECONDS = 31536000  # 1 year
+    SECURE_HSTS_INCLUDE_SUBDOMAINS = True
+    SECURE_HSTS_PRELOAD = True
+    # If behind a proxy (Railway)
+    USE_X_FORWARDED_HOST = True
+    SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', None)
+else:
+    DEBUG = True
+
+    SECURE_SSL_REDIRECT = False         
+    SESSION_COOKIE_SECURE = False         
+    CSRF_COOKIE_SECURE = False          
+
 # Internationalization
 # https://docs.djangoproject.com/en/5.2/topics/i18n/
 
