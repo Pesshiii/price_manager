@@ -45,8 +45,9 @@ def get_df_sheet_names(pk):
     В противном случае None
   '''
   file = None
-  if not SupplierFile.objects.filter(setting=pk).first(): return None
-  file = SupplierFile.objects.filter(setting=pk).first().file
+  sf = SupplierFile.objects.filter(setting=pk).order_by('-pk').first()
+  if not sf: return None
+  file = sf.file
   if not file: return None
   columns = pd.ExcelFile(file, engine='calamine').sheet_names
   file.close()
@@ -62,7 +63,7 @@ def get_df(pk, recache=False)->pd.DataFrame|None:
     setting = Setting.objects.get(pk=pk)
   except:
     return None
-  sf = SupplierFile.objects.filter(setting=pk).first()
+  sf = SupplierFile.objects.filter(setting=pk).order_by('-pk').first()
   if not sf: return None
   validated_file = sf.file
   if not validated_file or not validated_file.name:
