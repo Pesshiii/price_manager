@@ -32,10 +32,11 @@ from .forms import *
 from .tables import *
 from .filters import *
 
-import io, os
+import io
 from typing import Dict, Any
 import pandas as pd
 import re
+from pathlib import Path
 
 from .functions import *
 from .tasks import process_supplier_file_import, copy_supplier_products_to_main_task
@@ -130,7 +131,7 @@ class UploadSupplierFile(CreateView):
         try:
           anti_copy = f'({number})' if not number == 0 else ''
           setting = Setting.objects.create(
-            name = os.path.splitext(os.path.basename(instance.file.path))[0] + anti_copy, 
+            name = Path(instance.file.name).stem + anti_copy, 
             supplier = Supplier.objects.get(pk=self.kwargs.get('pk')))
           setting.sheet_name = pd.ExcelFile(instance.file, engine='calamine').sheet_names[0]
           setting.save()
