@@ -295,7 +295,21 @@ class SettingUpdate(UpdateView):
     if not link_formset.is_valid() :
       messages.error(self.request, f'Что-то пошло не так')
       return HttpResponseClientRefresh()
-    keys = [item['key'] for item in link_formset.cleaned_data if not item['key'] is None and not item['key']=='']
+
+    selected_keys = [
+      item['key'] for item in link_formset.cleaned_data
+      if item['key'] is not None and item['key'] != ''
+    ]
+    if change or not selected_keys:
+      detected_keys = auto_detect_link_keys(df.columns)
+      for idx, detected_key in enumerate(detected_keys):
+        link_formset.cleaned_data[idx]['key'] = detected_key
+      selected_keys = [
+        item['key'] for item in link_formset.cleaned_data
+        if item['key'] is not None and item['key'] != ''
+      ]
+
+    keys = selected_keys
     if not len(set(keys)) == len(keys):
       messages.error(self.request, f'Неоднозначная связь: Столбец\\знаение')
       return self.form_invalid(form)

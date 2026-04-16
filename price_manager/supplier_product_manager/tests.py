@@ -7,7 +7,13 @@ from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import TestCase, override_settings
 
 from supplier_manager.models import Currency, Supplier, Manufacturer
-from supplier_product_manager.functions import get_sps, get_df, get_df_sheet_names, load_setting
+from supplier_product_manager.functions import (
+    auto_detect_link_keys,
+    get_sps,
+    get_df,
+    get_df_sheet_names,
+    load_setting,
+)
 from supplier_product_manager.models import Link, Setting, SupplierFile, SupplierProduct
 
 
@@ -537,3 +543,16 @@ class SupplierFileSelectionTests(TestCase):
 
         sheet_names = get_df_sheet_names(setting.pk)
         self.assertEqual(sheet_names, ["LatestSheet"])
+
+
+class AutoDetectLinkKeysTests(TestCase):
+    def test_detects_standard_ru_columns(self):
+        detected = auto_detect_link_keys(["Артикул", "Название", "Цена", "РРЦ", "Остаток", "Производитель"])
+        self.assertEqual(
+            detected,
+            ["article", "name", "supplier_price", "rrp", "stock", "manufacturer"],
+        )
+
+    def test_does_not_duplicate_same_target_key(self):
+        detected = auto_detect_link_keys(["Цена", "Цена со скидкой"])
+        self.assertEqual(detected, ["supplier_price", "discount_price"])
