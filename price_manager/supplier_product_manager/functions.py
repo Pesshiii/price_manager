@@ -17,6 +17,24 @@ import pandas as pd
 import numpy as np
 from decimal import Decimal
 import re
+import hashlib
+import json
+
+SPS_CACHE_TTL_SECONDS = 60 * 30
+SPS_JSON_SCHEMA_VERSION = "1.0"
+SPS_JSON_FIELDS = (
+    "article",
+    "name",
+    "description",
+    "category",
+    "manufacturer",
+    "discount",
+    "stock",
+    "supplier_price",
+    "rrp",
+    "discount_price",
+)
+SPS_JSON_REQUIRED_FIELDS = ("article", "name")
 
 def resolve_conflicts(qs):
   def resolve(item):
@@ -158,18 +176,79 @@ def get_indicts(post, pk):
   return indicts
 
 
-def load_setting(pk):
-    '''
-        Возвращает обработанные товары ПП\\
-        Если не найден файл возвращает None
-    '''
-    setting = Setting.objects.get(pk=pk)
+def _get_setting_signature(setting: Setting) -> str:
+    supplier_file = setting.supplierfiles.order_by("-pk").first()
+    links = (
+        setting.links.prefetch_related("dicts")
+        .all()
+        .order_by("key", "value", "initial", "pk")
+    )
+    payload = {
+        "setting": {
+            "id": setting.pk,
+            "sheet_name": setting.sheet_name,
+            "ignore_name": setting.ignore_name,
+            "create_new": setting.create_new,
+            "index_row": setting.index_row,
+        },
+        "supplier_file": {
+            "id": supplier_file.pk if supplier_file else None,
+            "name": supplier_file.file.name if supplier_file and supplier_file.file else None,
+            "size": supplier_file.file.size if supplier_file and supplier_file.file else None,
+        },
+        "links": [
+            {
+                "key": link.key,
+                "value": link.value,
+                "initial": link.initial,
+                "dicts": list(
+                    link.dicts.all().order_by("key", "value", "pk").values_list("key", "value")
+                ),
+            }
+            for link in links
+        ],
+    }
+    encoded = json.dumps(payload, sort_keys=True, ensure_ascii=False, separators=(",", ":"))
+    return hashlib.sha256(encoded.encode("utf-8")).hexdigest()
+
+
+def _get_sps_cache_key(setting: Setting, signature: str) -> str:
+    return f"setting<{setting.pk}>::sps::v<{SPS_JSON_SCHEMA_VERSION}>::sig<{signature}>"
+
+
+def _to_canonical_sps(df: pd.DataFrame) -> list[dict]:
+    records: list[dict] = []
+    for row in df.to_dict(orient="records"):
+        item = {field: row.get(field) for field in SPS_JSON_FIELDS}
+        records.append(item)
+    return records
+
+
+def get_sps(setting_or_pk: Setting | int, recache: bool = False) -> list[dict] | None:
+    """
+    Возвращает каноничные товары поставщика в JSON-виде:
+    required: article(str), name(str)
+    optional: description(str|null), category(str|null), manufacturer(str|null), discount(str|null),
+              stock(int|null), supplier_price(str|null), rrp(str|null), discount_price(str|null)
+    """
+    setting = (
+        setting_or_pk
+        if isinstance(setting_or_pk, Setting)
+        else Setting.objects.get(pk=setting_or_pk)
+    )
+    signature = _get_setting_signature(setting)
+    cache_key = _get_sps_cache_key(setting, signature)
+    if not DEBUG and not recache:
+        cached_payload = cache.get(cache_key)
+        if cached_payload is not None:
+            return cached_payload
+
     links = Link.objects.filter(setting=setting)
-    df = get_df(pk)
+    df = get_df(setting.pk)
     sps = SupplierProduct.objects.filter(supplier=setting.supplier)
     s_values = map(tuple, sps.values_list('article', 'name'))
     resolve_conflicts(sps)
-    if not links.filter(Q(value__isnull=False)|Q(initial__isnull=False)).exists():
+    if df is None or not links.filter(Q(value__isnull=False) | Q(initial__isnull=False)).exists():
         return None
     for link in links:
         if link.value == '' or link.value is None:
@@ -177,24 +256,26 @@ def load_setting(pk):
                 continue
             df[link.key] = link.initial
         else:
-            df = df.rename(columns={link.value : link.key})
+            df = df.rename(columns={link.value: link.key})
             if not link.initial == '' and not link.initial is None:
                 df[link.key] = df[link.key].fillna(link.initial)
-    if not 'article' in df.columns: return None
+    if not 'article' in df.columns:
+        return None
     for link in links:
-        if not link.key in df.columns: continue
+        if not link.key in df.columns:
+            continue
         for dict in link.dicts.all():
-                df[link.key] = df[link.key].str.replace(dict.key, dict.value)
-                df = df.loc[:,[link.key for link in links if not link.key=='' and link.key in df.columns]]
+            df[link.key] = df[link.key].str.replace(dict.key, dict.value)
+            df = df.loc[:, [link.key for link in links if not link.key == '' and link.key in df.columns]]
         if link.key in df.columns and link.key in SP_NUMBERS:
-            print(df[link.key].head())
             df[link.key] = pd.to_numeric(df[link.key], errors='coerce')
-            print(df[link.key].head())
             df[link.key] = df[link.key].apply(lambda val: val if val >= 0 else None)
 
-    # to do: добавить проверку на наличие каких либо столбцов кроме артикула и названия если есть применять если нет то нет
     df = df.dropna(subset=['article'])
-    df = df.dropna(subset=[link.key for link in links if not link.key=='article' and not link.key =='name' and link.key in df.columns], how='all')
+    df = df.dropna(
+        subset=[link.key for link in links if not link.key == 'article' and not link.key == 'name' and link.key in df.columns],
+        how='all'
+    )
 
     if not 'name' in df.columns:
         if setting.create_new:
@@ -216,22 +297,42 @@ def load_setting(pk):
         df = _df
 
     df = df.dropna(subset=['name'])
+    df = df.replace({pd.NA: None, float('nan'): None, '': None, 'NaN': None})
 
-    df = df.replace({pd.NA: None, float('nan'): None, '': None, 'NaN':None})
-  
     if not setting.create_new:
         mask = df[['article', 'name']].apply(tuple, axis=1).isin(s_values)
         df = df[mask]
-    
-
-
 
     df = df.drop_duplicates(subset=['article', 'name'], keep='first')
+    for required_field in SPS_JSON_REQUIRED_FIELDS:
+        if required_field not in df.columns:
+            return None
+    payload = _to_canonical_sps(df)
+    if not DEBUG:
+        cache.set(cache_key, payload, timeout=SPS_CACHE_TTL_SECONDS)
+    return payload
+
+
+def load_setting(pk):
+    '''
+        Возвращает обработанные товары ПП\\
+        Если не найден файл возвращает None
+    '''
+    setting = Setting.objects.get(pk=pk)
+    links = Link.objects.filter(setting=setting)
+    sps_payload = get_sps(setting)
+    if sps_payload is None:
+        return None
+    df = pd.DataFrame(sps_payload)
 
     if 'manufacturer' in df.columns:
-        df['manufacturer'] = df['manufacturer'].apply(lambda s: Manufacturer.objects.get_or_create(name=s)[0] if s else None)
+        df['manufacturer'] = df['manufacturer'].apply(
+            lambda s: Manufacturer.objects.get_or_create(name=s)[0] if s else None
+        )
     if 'discount' in df.columns:
-        df['discount'] = df['discount'].apply(lambda s: Discount.objects.get_or_create(supplier=setting.supplier, name=s)[0] if s else None)
+        df['discount'] = df['discount'].apply(
+            lambda s: Discount.objects.get_or_create(supplier=setting.supplier, name=s)[0] if s else None
+        )
     if 'category' in df.columns:
         def _get_category(value):
             if not value:
@@ -283,5 +384,3 @@ def load_setting(pk):
               missing_sps.update(**{column:None})
     setting.supplier.save()
     return sps
-
-
