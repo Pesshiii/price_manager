@@ -7,7 +7,7 @@ from core.models import PersistentNotification
 from main_product_manager.functions import recalculate_search_vectors
 from main_product_manager.models import MainProduct
 
-from .functions import load_setting
+from .functions import load_setting, SupplierFileStorageMissingError
 from .filters import SupplierProductFilter
 from .models import (
     CopySupplierProductsToMainRun,
@@ -90,6 +90,28 @@ def process_supplier_file_import(setting_id: int, user_id: int) -> dict:
             "errors": errors_count,
             "duration_seconds": duration_seconds,
             "message": message,
+        }
+    except SupplierFileStorageMissingError as exc:
+        duration_seconds = round((timezone.now() - started_at).total_seconds(), 2)
+        error_message = (
+            f"Импорт «{setting.name}» завершен с ошибкой: обработано строк 0, ошибок 1, "
+            f"длительность {duration_seconds} сек. Причина: Файл настройки отсутствует в media-хранилище."
+        )
+        _append_supplier_file_log(supplier_file, f"{error_message} ({exc})")
+        if supplier_file:
+            supplier_file.status = SupplierFile.STATUS_ERROR
+            supplier_file.save(update_fields=["status"])
+        PersistentNotification.objects.create(
+            user_id=user_id,
+            level="danger",
+            message=error_message,
+        )
+        return {
+            "status": "error",
+            "processed_rows": 0,
+            "errors": 1,
+            "duration_seconds": duration_seconds,
+            "message": error_message,
         }
     except Exception as exc:
         duration_seconds = round((timezone.now() - started_at).total_seconds(), 2)
