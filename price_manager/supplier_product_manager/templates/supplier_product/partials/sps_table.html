@@ -1,0 +1,33 @@
+{% if error %}
+  <div class="alert alert-danger" role="alert">
+    Ошибка загрузки результирующих товаров: {{ error }}
+  </div>
+{% elif not items %}
+  <div class="alert alert-warning" role="alert">
+    Список результирующих товаров пуст.
+  </div>
+{% else %}
+  <table class="table table-bordered table-hover">
+    <thead>
+      <tr>
+        {% for column in columns %}
+          <th class="text-nowrap">{{ column }}</th>
+        {% endfor %}
+      </tr>
+    </thead>
+    <tbody>
+      <tr
+        hx-get="{% url "setting-sps-table" pk=pk %}{% querystring page=1 %}"
+        hx-trigger="load"
+        hx-swap="outerHTML"
+        hx-target="this"
+      >
+      </tr>
+      <tr id="result-products-placeholder" class="htmx-indicator">
+        {% for column in columns %}
+          <td><span class="placeholder col-6"></span></td>
+        {% endfor %}
+      </tr>
+    </tbody>
+  </table>
+{% endif %}

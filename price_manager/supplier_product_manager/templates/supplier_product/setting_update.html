@@ -38,32 +38,70 @@
         </div>
       </div>
     </div>
-    <div class="row overflow-auto scrollbar-top">
-      {%partialdef table inline=True%}
-        {{link_formset.management_form|crispy}}
-        <table class="table table-bordered table-hover">
-          <thead>
-            {% for form in link_formset %}
-              <th class="text-nowrap">{{form.name}}<br>{% crispy form %}</th>
-            {% endfor %}
-          </thead>
-          <tbody>
-            <tr 
-              hx-get="{% url "setting-table" pk=setting.pk%}{% querystring page=1 %}"
-              hx-trigger="load"
-              hx-swap="outerHTML"
-              hx-target="this">
-            </tr>
-            <tr  id="placeholder" class="htmx-indicator">
-              {% for column in columns %}
-              <td>
-                <span class="placeholder col-6"></span>
-              </td>
-              {% endfor %}
-            </tr>
-          </tbody>
-        </table>
-        {%endpartialdef%}
+    <div class="row">
+      <ul class="nav nav-tabs mb-3" id="settingDataTabs" role="tablist">
+        <li class="nav-item" role="presentation">
+          <button class="nav-link active" id="source-table-tab" data-bs-toggle="tab" data-bs-target="#source-table-pane" type="button" role="tab" aria-controls="source-table-pane" aria-selected="true">
+            Таблица загрузки
+          </button>
+        </li>
+        <li class="nav-item" role="presentation">
+          <button
+            class="nav-link"
+            id="result-products-tab"
+            data-bs-toggle="tab"
+            data-bs-target="#result-products-pane"
+            type="button"
+            role="tab"
+            aria-controls="result-products-pane"
+            aria-selected="false"
+            hx-get="{% url "setting-sps-table" pk=setting.pk %}"
+            hx-target="#result-products-content"
+            hx-swap="innerHTML"
+            hx-trigger="click once"
+            hx-indicator="#result-products-loading"
+          >
+            Результирующие товары
+          </button>
+        </li>
+      </ul>
+      <div class="tab-content p-0">
+        <div class="tab-pane fade show active overflow-auto scrollbar-top" id="source-table-pane" role="tabpanel" aria-labelledby="source-table-tab" tabindex="0">
+          {%partialdef table inline=True%}
+            {{link_formset.management_form|crispy}}
+            <table class="table table-bordered table-hover">
+              <thead>
+                {% for form in link_formset %}
+                  <th class="text-nowrap">{{form.name}}<br>{% crispy form %}</th>
+                {% endfor %}
+              </thead>
+              <tbody>
+                <tr 
+                  hx-get="{% url "setting-table" pk=setting.pk%}{% querystring page=1 %}"
+                  hx-trigger="load"
+                  hx-swap="outerHTML"
+                  hx-target="this">
+                </tr>
+                <tr  id="placeholder" class="htmx-indicator">
+                  {% for column in columns %}
+                  <td>
+                    <span class="placeholder col-6"></span>
+                  </td>
+                  {% endfor %}
+                </tr>
+              </tbody>
+            </table>
+          {%endpartialdef%}
+        </div>
+        <div class="tab-pane fade" id="result-products-pane" role="tabpanel" aria-labelledby="result-products-tab" tabindex="0">
+          <div id="result-products-loading" class="htmx-indicator alert alert-light mb-0">
+            Загрузка результирующих товаров...
+          </div>
+          <div id="result-products-content" class="overflow-auto scrollbar-top">
+            <div class="alert alert-secondary mb-0">Откройте вкладку, чтобы загрузить результаты.</div>
+          </div>
+        </div>
+      </div>
     </div>
   </form>
 </div>
