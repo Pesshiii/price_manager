@@ -190,6 +190,23 @@ class XMLTableView(TemplateView):
       context['columns'] = get_df_sheet_names(pk=pk)
       context['page'] = page
       return context
+
+
+class SettingSPSTableView(TemplateView):
+  template_name = 'supplier_product/partials/sps_table.html'
+
+  def get_context_data(self, **kwargs) -> dict[str, Any]:
+      context = super().get_context_data(**kwargs)
+      pk = self.kwargs.get('pk')
+      context['columns'] = list(SPS_JSON_FIELDS)
+      try:
+        items = get_sps(pk)
+      except BaseException as ex:
+        context['error'] = str(ex)
+        context['items'] = []
+        return context
+      context['items'] = items or []
+      return context
   
 class SettingUpdate(UpdateView):
   model = Setting

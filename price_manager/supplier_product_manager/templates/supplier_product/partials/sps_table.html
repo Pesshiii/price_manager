@@ -1,0 +1,35 @@
+{% if error %}
+  <div class="alert alert-danger" role="alert">
+    Ошибка загрузки результирующих товаров: {{ error }}
+  </div>
+{% elif not items %}
+  <div class="alert alert-warning" role="alert">
+    Список результирующих товаров пуст.
+  </div>
+{% else %}
+  <table class="table table-bordered table-hover">
+    <thead>
+      <tr>
+        {% for column in columns %}
+          <th class="text-nowrap">{{ column }}</th>
+        {% endfor %}
+      </tr>
+    </thead>
+    <tbody>
+      {% for item in items %}
+        <tr>
+          <td>{{ item.article|default_if_none:'' }}</td>
+          <td>{{ item.name|default_if_none:'' }}</td>
+          <td>{{ item.description|default_if_none:'' }}</td>
+          <td>{{ item.category|default_if_none:'' }}</td>
+          <td>{{ item.manufacturer|default_if_none:'' }}</td>
+          <td>{{ item.discount|default_if_none:'' }}</td>
+          <td>{{ item.stock|default_if_none:'' }}</td>
+          <td>{{ item.supplier_price|default_if_none:'' }}</td>
+          <td>{{ item.rrp|default_if_none:'' }}</td>
+          <td>{{ item.discount_price|default_if_none:'' }}</td>
+        </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+{% endif %}
