@@ -190,6 +190,40 @@ class XMLTableView(TemplateView):
       context['columns'] = get_df_sheet_names(pk=pk)
       context['page'] = page
       return context
+
+
+class SettingSPSTableView(TemplateView):
+  template_name = 'supplier_product/partials/sps_table.html'
+  rows_template_name = 'supplier_product/partials/sps_table_rows.html'
+
+  def get_template_names(self):
+      if self.request.GET.get('page'):
+        return [self.rows_template_name]
+      return [self.template_name]
+
+  def get_context_data(self, **kwargs) -> dict[str, Any]:
+      context = super().get_context_data(**kwargs)
+      pk = self.kwargs.get('pk')
+      context['pk'] = pk
+      context['columns'] = list(SPS_JSON_FIELDS)
+      try:
+        items = get_sps(pk) or []
+      except BaseException as ex:
+        context['error'] = str(ex)
+        context['items'] = []
+        return context
+      page = self.request.GET.get('page')
+      if page:
+        try:
+          page_number = int(page)
+          context['items'] = Paginator(items, per_page=50).page(page_number)
+          context['page'] = page_number
+        except BaseException as ex:
+          context['error'] = str(ex)
+          context['items'] = []
+        return context
+      context['items'] = items
+      return context
   
 class SettingUpdate(UpdateView):
   model = Setting
