@@ -2,11 +2,12 @@ from io import BytesIO
 from decimal import Decimal
 
 import pandas as pd
+from django.core.cache import cache
 from django.core.files.uploadedfile import SimpleUploadedFile
-from django.test import TestCase
+from django.test import TestCase, override_settings
 
 from supplier_manager.models import Currency, Supplier, Manufacturer
-from supplier_product_manager.functions import get_df, get_df_sheet_names, load_setting
+from supplier_product_manager.functions import get_sps, get_df, get_df_sheet_names, load_setting
 from supplier_product_manager.models import Link, Setting, SupplierFile, SupplierProduct
 
 
@@ -432,6 +433,47 @@ class BasicLoadTests(TestCase):
         self.supplier.refresh_from_db()
         self.assertIsNotNone(self.supplier.stock_updated_at)
         self.assertIsNotNone(self.supplier.price_updated_at)
+
+
+@override_settings(DEBUG=False)
+class GetSpsCacheTests(BasicLoadTests):
+    def setUp(self):
+        super().setUp()
+        cache.clear()
+
+    def test_get_sps_uses_cache_and_invalidates_on_setting_change(self):
+        setting = Setting.objects.create(
+            name="Кэширование sps",
+            supplier=self.supplier,
+            sheet_name="Sheet1",
+            create_new=True,
+        )
+        Link.objects.create(setting=setting, key="article", value="Артикул")
+        Link.objects.create(setting=setting, key="name", value="Название")
+        Link.objects.create(setting=setting, key="supplier_price", value="Цена")
+
+        self._create_supplier_file(
+            setting,
+            pd.DataFrame([{"Артикул": "А-1", "Название": "Товар 1", "Цена": "10"}]),
+        )
+
+        first_payload = get_sps(setting.pk)
+        self.assertEqual(first_payload[0]["supplier_price"], 10.0)
+
+        self._create_supplier_file(
+            setting,
+            pd.DataFrame([{"Артикул": "А-1", "Название": "Товар 1", "Цена": "50"}]),
+        )
+        cached_payload = get_sps(setting.pk)
+        self.assertEqual(cached_payload[0]["supplier_price"], 10.0)
+
+        price_link = Link.objects.get(setting=setting, key="supplier_price")
+        price_link.value = None
+        price_link.initial = "7"
+        price_link.save()
+        recached_payload = get_sps(setting.pk)
+        self.assertEqual(recached_payload[0]["supplier_price"], 7.0)
+
 
 class SupplierFileSelectionTests(TestCase):
     def setUp(self):

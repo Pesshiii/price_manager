@@ -1,4 +1,5 @@
 <div class="container p-5">
+  {{ sps_json_schema|json_script:"sps-json-schema" }}
   <form 
     method="POST"
     hx-post="{% url "setting-update" pk=setting.pk %}"

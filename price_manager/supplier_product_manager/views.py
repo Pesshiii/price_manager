@@ -293,6 +293,12 @@ class SettingUpdate(UpdateView):
     post = self.request.POST
     context['links'] = get_indicts(post, pk)
     context["link_formset"] = get_linkformset(post, pk)
+    context["sps_json_schema"] = {
+      "version": SPS_JSON_SCHEMA_VERSION,
+      "fields": list(SPS_JSON_FIELDS),
+      "required": list(SPS_JSON_REQUIRED_FIELDS),
+      "optional": [field for field in SPS_JSON_FIELDS if field not in SPS_JSON_REQUIRED_FIELDS],
+    }
     return context
 
 class SettingList(SingleTableView):
