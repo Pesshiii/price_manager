@@ -165,7 +165,7 @@ def load_setting(pk):
     '''
     setting = Setting.objects.get(pk=pk)
     links = Link.objects.filter(setting=setting)
-    df = get_df(pk, nrows=None)
+    df = get_df(pk)
     sps = SupplierProduct.objects.filter(supplier=setting.supplier)
     s_values = map(tuple, sps.values_list('article', 'name'))
     resolve_conflicts(sps)
