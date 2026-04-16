@@ -39,9 +39,74 @@ SPS_JSON_REQUIRED_FIELDS = ("article", "name")
 
 logger = logging.getLogger(__name__)
 
+AUTO_LINK_ALIASES = {
+    "article": ("article", "артикул", "код", "sku", "vendorcode"),
+    "name": ("name", "название", "наименование", "товар"),
+    "description": ("description", "описание"),
+    "category": ("category", "категория", "группа", "раздел"),
+    "manufacturer": ("manufacturer", "brand", "бренд", "производитель"),
+    "discount": ("discount", "скидка", "группа скидок"),
+    "stock": ("stock", "остаток", "количество", "наличие", "qty"),
+    "supplier_price": ("supplierprice", "supplier_price", "цена поставщика", "закупочная цена", "price"),
+    "rrp": ("rrp", "ррц", "розничная цена"),
+    "discount_price": ("discountprice", "discount_price", "цена со скидкой", "скидочная цена"),
+}
+
 
 class SupplierFileStorageMissingError(FileNotFoundError):
   """Файл настройки отсутствует в storage backend."""
+
+
+def _normalize_column_name(value: str | None) -> str:
+  if value is None:
+    return ""
+  normalized = re.sub(r"[\W_]+", "", str(value).strip().lower())
+  return normalized
+
+
+def auto_detect_link_keys(columns) -> list[str | None]:
+  """
+  Возвращает список ключей LINK для списка столбцов.
+  Один ключ назначается не более одного раза.
+  """
+  normalized_columns = [_normalize_column_name(column) for column in columns]
+  detected_keys: list[str | None] = [None] * len(normalized_columns)
+  used_keys: set[str] = set()
+
+  alias_map = {
+    key: {_normalize_column_name(alias) for alias in aliases if alias}
+    for key, aliases in AUTO_LINK_ALIASES.items()
+  }
+
+  for key, verbose_name in LINKS.items():
+    if key == "":
+      continue
+    alias_map.setdefault(key, set()).add(_normalize_column_name(verbose_name))
+    alias_map[key].add(_normalize_column_name(key))
+
+  for idx, column_name in enumerate(normalized_columns):
+    if not column_name:
+      continue
+    for key, aliases in alias_map.items():
+      if key in used_keys:
+        continue
+      if column_name in aliases:
+        detected_keys[idx] = key
+        used_keys.add(key)
+        break
+
+  for idx, column_name in enumerate(normalized_columns):
+    if detected_keys[idx] is not None or not column_name:
+      continue
+    for key, aliases in alias_map.items():
+      if key in used_keys:
+        continue
+      if any(alias and alias in column_name for alias in aliases):
+        detected_keys[idx] = key
+        used_keys.add(key)
+        break
+
+  return detected_keys
 
 def resolve_conflicts(qs):
   def resolve(item):
