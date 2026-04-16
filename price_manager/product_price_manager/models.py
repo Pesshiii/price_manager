@@ -187,7 +187,7 @@ class PriceManager(models.Model):
       filtered_source_price = (
         products.filter(main_product=OuterRef('pk'))
         .values('main_product')
-        .annotate(source_price=Max(Coalesce(price_manager.source, Value(0))))
+        .annotate(source_price=Max(Coalesce(F(price_manager.source), Value(Decimal('0')), output_field=DecimalField())))
         .values('source_price')[:1]
       )
       mps = mps.annotate(source_price=Subquery(filtered_source_price, output_field=DecimalField()))
