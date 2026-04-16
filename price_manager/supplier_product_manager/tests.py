@@ -6,7 +6,7 @@ from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import TestCase
 
 from supplier_manager.models import Currency, Supplier, Manufacturer
-from supplier_product_manager.functions import load_setting
+from supplier_product_manager.functions import get_df, get_df_sheet_names, load_setting
 from supplier_product_manager.models import Link, Setting, SupplierFile, SupplierProduct
 
 
@@ -95,6 +95,7 @@ class BasicLoadTests(TestCase):
         self.supplier.refresh_from_db()
         self.assertIsNotNone(self.supplier.stock_updated_at)
         self.assertIsNotNone(self.supplier.price_updated_at)
+
 
     def test_basicupload_article(self):
         setting = Setting.objects.create(
@@ -431,3 +432,66 @@ class BasicLoadTests(TestCase):
         self.supplier.refresh_from_db()
         self.assertIsNotNone(self.supplier.stock_updated_at)
         self.assertIsNotNone(self.supplier.price_updated_at)
+
+class SupplierFileSelectionTests(TestCase):
+    def setUp(self):
+        self.currency = Currency.objects.get(name="KZT")
+        self.supplier = Supplier.objects.create(
+            name="Test supplier for latest file",
+            currency=self.currency,
+            price_update_rate="Каждый день",
+            stock_update_rate="Каждый день",
+            delivery_days_available=1,
+            delivery_days_navailable=3,
+        )
+
+    def _create_supplier_file(
+        self,
+        setting: Setting,
+        dataframe: pd.DataFrame,
+        filename: str = "supplier.xlsx",
+        sheet_name: str = "Sheet1",
+        delete_existing: bool = True,
+    ):
+        if delete_existing:
+            setting.supplierfiles.all().delete()
+        excel_buffer = BytesIO()
+        with pd.ExcelWriter(excel_buffer, engine="openpyxl") as writer:
+            dataframe.to_excel(writer, index=False, sheet_name=sheet_name)
+        excel_buffer.seek(0)
+        uploaded_file = SimpleUploadedFile(
+            filename,
+            excel_buffer.read(),
+            content_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        )
+        return SupplierFile.objects.create(setting=setting, file=uploaded_file)
+
+    def test_get_df_and_sheet_names_use_latest_supplier_file(self):
+        setting = Setting.objects.create(
+            name="Latest file selection",
+            supplier=self.supplier,
+            sheet_name="LatestSheet",
+            create_new=True,
+        )
+
+        self._create_supplier_file(
+            setting=setting,
+            dataframe=pd.DataFrame([{"marker": "old"}]),
+            filename="old_file.xlsx",
+            sheet_name="OldSheet",
+            delete_existing=False,
+        )
+        self._create_supplier_file(
+            setting=setting,
+            dataframe=pd.DataFrame([{"marker": "new"}]),
+            filename="new_file.xlsx",
+            sheet_name="LatestSheet",
+            delete_existing=False,
+        )
+
+        df = get_df(setting.pk, recache=True)
+        self.assertIsNotNone(df)
+        self.assertEqual(df.iloc[0]["marker"], "new")
+
+        sheet_names = get_df_sheet_names(setting.pk)
+        self.assertEqual(sheet_names, ["LatestSheet"])
