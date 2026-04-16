@@ -17,6 +17,13 @@ import pandas as pd
 import numpy as np
 from decimal import Decimal
 import re
+import logging
+
+logger = logging.getLogger(__name__)
+
+
+class SupplierFileStorageMissingError(FileNotFoundError):
+  """Файл настройки отсутствует в storage backend."""
 
 def resolve_conflicts(qs):
   def resolve(item):
@@ -57,14 +64,27 @@ def get_df(pk, recache=False)->pd.DataFrame|None:
     return None
   sf = SupplierFile.objects.filter(setting=pk).first()
   if not sf: return None
-  file = sf.file
-  if not file: return None
+  validated_file = sf.file
+  if not validated_file or not validated_file.name:
+    return None
+  if not validated_file.storage.exists(validated_file.name):
+    logger.error(
+      "Supplier file is missing in storage (setting_id=%s, file_name=%s)",
+      pk,
+      validated_file.name,
+    )
+    raise SupplierFileStorageMissingError(
+      f"Файл настройки отсутствует в media-хранилище: setting_id={pk}, file={validated_file.name}"
+    )
   if not DEBUG:
     cached_df=cache.get(f'setting<{pk}>::dataframe<{sf.pk}>::<{Setting.sheet_name}>')
     if not recache and not cached_df is None:
         return cached_df
-  df = pd.read_excel(file, engine='calamine', dtype=str, skiprows=setting.index_row, sheet_name=setting.sheet_name, index_col=None, na_values=['']).dropna(axis=0, how='all').dropna(axis=1, how='all')
-  file.close()
+  validated_file.open('rb')
+  try:
+    df = pd.read_excel(validated_file, engine='calamine', dtype=str, skiprows=setting.index_row, sheet_name=setting.sheet_name, index_col=None, na_values=['']).dropna(axis=0, how='all').dropna(axis=1, how='all')
+  finally:
+    validated_file.close()
   for column in df.columns:
     df[column] = df[column].str.replace(r'\s+', ' ', regex=True)
   if df.shape[0] == 0:
@@ -283,5 +303,3 @@ def load_setting(pk):
               missing_sps.update(**{column:None})
     setting.supplier.save()
     return sps
-
-
