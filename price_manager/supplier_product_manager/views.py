@@ -71,15 +71,26 @@ class SupplierDetail(SingleTableMixin, FilterView):
     return redirect(f"{reverse('supplier-detail', kwargs={'pk': self.supplier.pk})}#supplier-settings")
   def get_table_data(self):
     return super().get_table_data().filter(supplier=self.supplier)
-  def get_table(self, **kwargs):
+  def _resolve_selected_columns(self):
+    if hasattr(self, '_selected_columns'):
+      return self._selected_columns
     selected_columns = self.request.GET.getlist('columns')
+    if selected_columns:
+      selected_columns = save_user_sp_columns(self.request.user, selected_columns)
+    else:
+      selected_columns = load_user_sp_columns(self.request.user)
+    if not selected_columns:
+      selected_columns = SP_DEFAULT_VISIBLE_COLUMNS
+    self._selected_columns = selected_columns
+    return self._selected_columns
+  def get_table(self, **kwargs):
+    selected_columns = self._resolve_selected_columns()
     return super().get_table(**kwargs, selected_columns=selected_columns)
   def get_context_data(self, **kwargs):
     context = super().get_context_data(**kwargs)
     context['supplier'] = self.supplier
     context['column_groups'] = SP_AVAILABLE_COLUMN_GROUPS
-    selected_columns = self.request.GET.getlist('columns')
-    context['selected_columns'] = selected_columns if selected_columns else SP_DEFAULT_VISIBLE_COLUMNS
+    context['selected_columns'] = self._resolve_selected_columns()
     context['supplier_form'] = SupplierForm(instance=self.supplier)
     pms = PriceManager.objects.filter(supplier=self.supplier)
     context['pricemanagers'] = pms
