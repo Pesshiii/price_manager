@@ -6,6 +6,7 @@ from django.core.cache import cache
 from .models import (SupplierFile, Setting, Link, 
                      SupplierProduct, Manufacturer, Discount, Category,
                      SP_NUMBERS, SP_PRICES)
+from .tables import SP_AVAILABLE_COLUMN_MAP, SP_DEFAULT_VISIBLE_COLUMNS
 from main_product_manager.models import MainProduct
 from main_product_manager.functions import recalculate_search_vectors
 
@@ -22,6 +23,7 @@ import json
 import logging
 
 SPS_CACHE_TTL_SECONDS = 60 * 30
+CACHE_TTL = 60 * 60 * 24 * 30  # 30 дней
 SPS_JSON_SCHEMA_VERSION = "1.0"
 SPS_JSON_FIELDS = (
     "article",
@@ -38,6 +40,29 @@ SPS_JSON_FIELDS = (
 SPS_JSON_REQUIRED_FIELDS = ("article", "name")
 
 logger = logging.getLogger(__name__)
+
+
+def _cache_key(user_id: int) -> str:
+  return f"supplierdetail:selected_columns:user:{user_id}"
+
+
+def normalize_columns(columns):
+  valid = [column for column in columns if column in SP_AVAILABLE_COLUMN_MAP]
+  return valid or SP_DEFAULT_VISIBLE_COLUMNS
+
+
+def save_user_sp_columns(user, columns):
+  normalized_columns = normalize_columns(columns)
+  if not user.is_authenticated:
+    return normalized_columns
+  cache.set(_cache_key(user.id), normalized_columns, CACHE_TTL)
+  return normalized_columns
+
+
+def load_user_sp_columns(user):
+  if not user.is_authenticated:
+    return SP_DEFAULT_VISIBLE_COLUMNS
+  return cache.get(_cache_key(user.id), SP_DEFAULT_VISIBLE_COLUMNS)
 
 AUTO_LINK_ALIASES = {
     "article": ("article", "артикул", "код", "sku", "vendorcode"),
