@@ -275,12 +275,14 @@ class SettingUpdate(UpdateView):
       setting.delete()
       return HttpResponseClientRefresh()
 
+    change = False
     if not setting.name == form.cleaned_data['name']:
       setting.name = form.cleaned_data['name']
       setting.save()
     if not setting.sheet_name == form.cleaned_data['sheet_name']:
       setting.sheet_name = form.cleaned_data['sheet_name']
       setting.save()
+      change = True
       return redirect(reverse('setting-update', kwargs={'pk': pk}))
     if not setting.create_new == form.cleaned_data['create_new']:
       setting.create_new = form.cleaned_data['create_new']
@@ -289,7 +291,6 @@ class SettingUpdate(UpdateView):
       setting.ignore_name = form.cleaned_data['ignore_name']
       setting.save()
       
-    change = False
     if not setting.index_row == form.cleaned_data['index_row']:
         setting.index_row = form.cleaned_data['index_row']
         setting.save()
