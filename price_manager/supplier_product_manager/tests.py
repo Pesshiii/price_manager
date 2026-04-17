@@ -2,11 +2,15 @@ from io import BytesIO
 from decimal import Decimal
 
 import pandas as pd
+from django import forms
 from django.core.cache import cache
 from django.core.files.uploadedfile import SimpleUploadedFile
+from django.http import QueryDict
 from django.test import TestCase, override_settings
+from django.utils import timezone
 
-from supplier_manager.models import Currency, Supplier, Manufacturer
+from supplier_manager.models import Category, Currency, Discount, Supplier, Manufacturer
+from supplier_product_manager.filters import SupplierProductFilter
 from supplier_product_manager.functions import (
     auto_detect_link_keys,
     get_sps,
@@ -556,3 +560,64 @@ class AutoDetectLinkKeysTests(TestCase):
     def test_does_not_duplicate_same_target_key(self):
         detected = auto_detect_link_keys(["Цена", "Цена со скидкой"])
         self.assertEqual(detected, ["supplier_price", "discount_price"])
+
+
+class SupplierProductFilterTests(TestCase):
+    def setUp(self):
+        self.currency = Currency.objects.get(name="KZT")
+        self.supplier = Supplier.objects.create(
+            name="Filter supplier",
+            currency=self.currency,
+            price_update_rate="Каждый день",
+            stock_update_rate="Каждый день",
+            delivery_days_available=1,
+            delivery_days_navailable=3,
+        )
+        self.category_a = Category.objects.create(name="Категория A")
+        self.category_b = Category.objects.create(name="Категория B")
+        self.manufacturer_a = Manufacturer.objects.create(name="Производитель A")
+        self.manufacturer_b = Manufacturer.objects.create(name="Производитель B")
+        self.discount_a = Discount.objects.create(name="Скидка A")
+        self.discount_b = Discount.objects.create(name="Скидка B")
+
+        SupplierProduct.objects.create(
+            supplier=self.supplier,
+            article="A1",
+            name="Товар A1",
+            category=self.category_a,
+            manufacturer=self.manufacturer_a,
+            discount=self.discount_a,
+            updated_at=timezone.now(),
+        )
+        SupplierProduct.objects.create(
+            supplier=self.supplier,
+            article="B1",
+            name="Товар B1",
+            category=self.category_b,
+            manufacturer=self.manufacturer_b,
+            discount=self.discount_b,
+            updated_at=timezone.now(),
+        )
+
+    def test_related_querysets_are_limited_by_other_filters(self):
+        data = QueryDict("category=%s" % self.category_a.pk, mutable=True)
+        filterset = SupplierProductFilter(
+            data=data,
+            queryset=SupplierProduct.objects.all(),
+            pk=self.supplier.pk,
+        )
+
+        manufacturer_ids = list(filterset.filters["manufacturer"].field.queryset.values_list("pk", flat=True))
+        discount_ids = list(filterset.filters["discount"].field.queryset.values_list("pk", flat=True))
+
+        self.assertEqual(manufacturer_ids, [self.manufacturer_a.pk])
+        self.assertEqual(discount_ids, [self.discount_a.pk])
+
+    def test_filter_uses_checkbox_widgets_for_dict_filters(self):
+        filterset = SupplierProductFilter(
+            data=QueryDict("", mutable=True),
+            queryset=SupplierProduct.objects.filter(supplier=self.supplier),
+            pk=self.supplier.pk,
+        )
+        self.assertIsInstance(filterset.filters["manufacturer"].field.widget, forms.CheckboxSelectMultiple)
+        self.assertIsInstance(filterset.filters["discount"].field.widget, forms.CheckboxSelectMultiple)
