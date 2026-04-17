@@ -2,6 +2,7 @@ from django import forms
 from django.db.models import Q
 from django.urls import reverse
 from django_filters import FilterSet, filters
+from django_filters.widgets import RangeWidget
 
 from crispy_forms.helper import FormHelper
 from crispy_forms.layout import Div, Field, HTML, Layout, Submit
@@ -26,13 +27,13 @@ class SupplierProductFilter(FilterSet):
     field_name='manufacturer',
     queryset=Manufacturer.objects.none(),
     label='Производитель',
-    widget=forms.SelectMultiple(attrs={'class': 'form-select'}),
+    widget=forms.widgets.CheckboxSelectMultiple(),
   )
   discount = filters.ModelMultipleChoiceFilter(
     field_name='discount',
     queryset=Discount.objects.none(),
     label='Группа скидок',
-    widget=forms.SelectMultiple(attrs={'class': 'form-select'}),
+    widget=forms.widgets.CheckboxSelectMultiple(),
   )
 
   stock_min = filters.NumberFilter(field_name='stock', lookup_expr='gte', label='Остаток от')
@@ -44,7 +45,11 @@ class SupplierProductFilter(FilterSet):
   discount_price_min = filters.NumberFilter(field_name='discount_price', lookup_expr='gte', label='Цена со скидкой от')
   discount_price_max = filters.NumberFilter(field_name='discount_price', lookup_expr='lte', label='Цена со скидкой до')
 
-  updated_at = filters.DateFromToRangeFilter(field_name='updated_at', label='Обновлено')
+  updated_at = filters.DateFromToRangeFilter(
+    field_name='updated_at',
+    label='Обновлено',
+    widget=RangeWidget(attrs={'type': 'date', 'class': 'form-control'}),
+  )
   is_tied = filters.BooleanFilter(
     field_name='main_product',
     label='Связан с ГП',
@@ -89,19 +94,19 @@ class SupplierProductFilter(FilterSet):
       filter_name='category',
       model=Category,
       ids_key='category',
-      queryset=queryset,
+      queryset=self._apply_current_filters(queryset, excluded_key='category'),
     )
     self._setup_related_queryset(
       filter_name='manufacturer',
       model=Manufacturer,
       ids_key='manufacturer',
-      queryset=queryset,
+      queryset=self._apply_current_filters(queryset, excluded_key='manufacturer'),
     )
     self._setup_related_queryset(
       filter_name='discount',
       model=Discount,
       ids_key='discount',
-      queryset=queryset,
+      queryset=self._apply_current_filters(queryset, excluded_key='discount'),
     )
 
     self.form.helper = FormHelper(self.form)
@@ -116,22 +121,24 @@ class SupplierProductFilter(FilterSet):
       'class': 'card p-3',
     }
     self.form.helper.layout = Layout(
-      HTML('<h6 class="mb-2">Текстовые поля</h6>'),
+      HTML('<details class="mb-3" open><summary class="fw-semibold mb-2">Текстовые поля</summary>'),
       Div(
         Field('article', label_class='mt-2'),
         Field('name', label_class='mt-2'),
         Field('description', label_class='mt-2'),
         css_class='mb-3',
       ),
-      HTML('<h6 class="mb-2">Справочники</h6>'),
+      HTML('</details>'),
+      HTML('<details class="mb-3" open><summary class="fw-semibold mb-2">Справочники</summary>'),
       Div(
-        Field('category', css_class='form-select'),
-        Field('manufacturer', css_class='form-select'),
-        Field('discount', css_class='form-select'),
+        Field('category', template='supplier/partials/category_filter_field.html'),
+        Field('manufacturer', template='core/includes/checkbox_field.html'),
+        Field('discount', template='core/includes/checkbox_field.html'),
         Field('is_tied', css_class='form-select'),
         css_class='mb-3',
       ),
-      HTML('<h6 class="mb-2">Числовые значения</h6>'),
+      HTML('</details>'),
+      HTML('<details class="mb-3" open><summary class="fw-semibold mb-2">Числовые значения</summary>'),
       Div(
         Div(Field('stock_min'), Field('stock_max'), css_class='row d-flex flex-column gap-2'),
         Div(Field('supplier_price_min'), Field('supplier_price_max'), css_class='row d-flex flex-column gap-2'),
@@ -139,11 +146,13 @@ class SupplierProductFilter(FilterSet):
         Div(Field('discount_price_min'), Field('discount_price_max'), css_class='row d-flex flex-column gap-2'),
         css_class='row g-2 mb-3',
       ),
-      HTML('<h6 class="mb-2">Дата обновления</h6>'),
+      HTML('</details>'),
+      HTML('<details class="mb-3" open><summary class="fw-semibold mb-2">Дата обновления</summary>'),
       Div(
         Field('updated_at'),
         css_class='mb-3',
       ),
+      HTML('</details>'),
       Div(
         Submit('action', 'Поиск', css_class='btn btn-primary btn-md'),
         HTML('''
@@ -167,3 +176,56 @@ class SupplierProductFilter(FilterSet):
     if selected_ids:
       base_queryset = model.objects.filter(Q(pk__in=base_queryset) | Q(pk__in=selected_ids)).distinct().order_by('name')
     self.filters[filter_name].field.queryset = base_queryset
+
+  def _apply_current_filters(self, queryset, excluded_key=None):
+    data = self.data
+
+    def get_value(name):
+      if excluded_key == name:
+        return None
+      value = data.get(name)
+      return value.strip() if isinstance(value, str) else value
+
+    def get_list(name):
+      if excluded_key == name:
+        return []
+      return [value for value in data.getlist(name) if value]
+
+    for field_name in ('article', 'name', 'description'):
+      value = get_value(field_name)
+      if value:
+        queryset = queryset.filter(**{f'{field_name}__icontains': value})
+
+    for relation in ('category', 'manufacturer', 'discount'):
+      ids = get_list(relation)
+      if ids:
+        queryset = queryset.filter(**{f'{relation}__in': ids})
+
+    range_filters = (
+      ('stock', 'stock_min', 'stock_max'),
+      ('supplier_price', 'supplier_price_min', 'supplier_price_max'),
+      ('rrp', 'rrp_min', 'rrp_max'),
+      ('discount_price', 'discount_price_min', 'discount_price_max'),
+    )
+    for field_name, min_name, max_name in range_filters:
+      min_value = get_value(min_name)
+      max_value = get_value(max_name)
+      if min_value:
+        queryset = queryset.filter(**{f'{field_name}__gte': min_value})
+      if max_value:
+        queryset = queryset.filter(**{f'{field_name}__lte': max_value})
+
+    updated_after = get_value('updated_at_after')
+    updated_before = get_value('updated_at_before')
+    if updated_after:
+      queryset = queryset.filter(updated_at__date__gte=updated_after)
+    if updated_before:
+      queryset = queryset.filter(updated_at__date__lte=updated_before)
+
+    is_tied = get_value('is_tied')
+    if is_tied == 'true':
+      queryset = queryset.filter(main_product__isnull=False)
+    elif is_tied == 'false':
+      queryset = queryset.filter(main_product__isnull=True)
+
+    return queryset
