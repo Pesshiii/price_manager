@@ -9,7 +9,7 @@ from django.db.models import (F, ExpressionWrapper,
                               Q, DecimalField,
                               OuterRef, Subquery, Prefetch,
                               Case, When)
-from django.db.models.functions import Ceil
+from django.db.models.functions import Ceil, Coalesce
 from django.utils import timezone
 
 # Импорты сторонних библиотек
@@ -187,7 +187,7 @@ class PriceManager(models.Model):
       filtered_source_price = (
         products.filter(main_product=OuterRef('pk'))
         .values('main_product')
-        .annotate(source_price=Min(price_manager.source))
+        .annotate(source_price=Max(Coalesce(F(price_manager.source), Value(Decimal('0')), output_field=DecimalField())))
         .values('source_price')[:1]
       )
       mps = mps.annotate(source_price=Subquery(filtered_source_price, output_field=DecimalField()))
@@ -403,13 +403,11 @@ class PriceTag(models.Model):
     if self.source == 'fixed_price':
       return self.fixed_price
     if self.source in SP_PRICES:
-      prices = self.mp.supplierproducts.filter(
-        **{f'{self.source}__isnull':False}
-      ).values_list(self.source, flat=True)
-      prices = list(prices)
+      prices = list(self.mp.supplierproducts.values_list(self.source, flat=True))
       if not prices:
         return None
-      return self.get_aggfunc()(prices) * self.mp.supplier.currency.value
+      normalized_prices = [price if price is not None else Decimal('0') for price in prices]
+      return self.get_aggfunc()(normalized_prices) * self.mp.supplier.currency.value
     if self.source in MP_PRICES:
       return getattr(self.mp, self.source)
     return None

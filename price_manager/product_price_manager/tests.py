@@ -267,6 +267,78 @@ class PriceTagAndPriceManagerRuntimeTests(TestCase):
         self.assertIsNotNone(mp.price_updated_at)
         self.assertEqual(mp.basic_price, Decimal('200'))
 
+
+    def test_pricetag_sp_source_treats_null_as_zero(self):
+        mp = self.create_mp('M-NULL', 'NULL source')
+        SupplierProduct.objects.create(
+            main_product=mp,
+            supplier=self.supplier,
+            article='S-NULL-1',
+            name='SP null',
+            supplier_price=None,
+        )
+        pt = PriceTag.objects.create(
+            mp=mp,
+            source='supplier_price',
+            dest='basic_price',
+            markup=Decimal('0'),
+            increase=Decimal('0'),
+        )
+
+        self.assertEqual(pt.get_sprice(), Decimal('0'))
+        self.assertEqual(pt.get_dprice(), Decimal('0'))
+
+    def test_pricemanager_apply_sets_zero_when_only_null_source_prices(self):
+        mp = self.create_mp('M-ZERO', 'Zero price apply', basic_price=Decimal('999'))
+        SupplierProduct.objects.create(
+            main_product=mp,
+            supplier=self.supplier,
+            article='S-ZERO-1',
+            name='SP null',
+            supplier_price=None,
+        )
+        manager = PriceManager.objects.create(
+            name='PM-ZERO-FROM-NULL',
+            supplier=self.supplier,
+            source='supplier_price',
+            dest='basic_price',
+            markup=Decimal('0'),
+            increase=Decimal('0'),
+        )
+
+        manager.apply()
+        mp.refresh_from_db()
+        self.assertEqual(mp.basic_price, Decimal('0'))
+
+    def test_pricemanager_with_duplicate_supplier_products_prefers_positive_value(self):
+        mp = self.create_mp('M-DUP', 'Duplicate rows', basic_price=Decimal('777'))
+        SupplierProduct.objects.create(
+            main_product=mp,
+            supplier=self.supplier,
+            article='S-DUP-1',
+            name='SP zero',
+            supplier_price=Decimal('0'),
+        )
+        SupplierProduct.objects.create(
+            main_product=mp,
+            supplier=self.supplier,
+            article='S-DUP-2',
+            name='SP positive',
+            supplier_price=Decimal('12'),
+        )
+        manager = PriceManager.objects.create(
+            name='PM-DUP-POSITIVE',
+            supplier=self.supplier,
+            source='supplier_price',
+            dest='basic_price',
+            markup=Decimal('0'),
+            increase=Decimal('0'),
+        )
+
+        manager.apply()
+        mp.refresh_from_db()
+        self.assertEqual(mp.basic_price, Decimal('24'))
+
     def test_no_crash_when_source_price_missing(self):
         mp = self.create_mp('M-5', 'Missing source')
         SupplierProduct.objects.create(
@@ -284,9 +356,12 @@ class PriceTagAndPriceManagerRuntimeTests(TestCase):
             increase=Decimal('5'),
         )
 
-        self.assertIsNone(pt.get_sprice())
-        self.assertIsNone(pt.get_dprice())
-        self.assertIsNone(pt.get_mp())
+        self.assertEqual(pt.get_sprice(), Decimal('0'))
+        self.assertEqual(pt.get_dprice(), Decimal('5'))
+
+        changed_mp = pt.get_mp()
+        self.assertIsNotNone(changed_mp)
+        self.assertEqual(changed_mp.basic_price, Decimal('5'))
 
 
 class PriceManagerNameGenerationTests(TestCase):

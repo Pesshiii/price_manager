@@ -487,11 +487,11 @@ def load_setting(pk):
 
     if 'stock' in df.columns:
         setting.supplier.stock_updated_at = timezone.now()
-        missing_sps.update(stock=None)
+        missing_sps.update(stock=0)
     if not set(SP_PRICES).intersection(set(df.columns)) == set():
         setting.supplier.price_updated_at = timezone.now()
         for column in df.columns:
            if column in SP_PRICES:
-              missing_sps.update(**{column:None})
+              missing_sps.update(**{column:0})
     setting.supplier.save()
     return sps

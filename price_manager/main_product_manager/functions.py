@@ -1,9 +1,10 @@
 from django.db import transaction
 from django.db.models import Min, Max, F
 from django.core.cache import cache
-from django.db.models import Value, OuterRef, Subquery, Q, F, Sum
+from django.db.models import Value, OuterRef, Subquery, Q, F, Sum, IntegerField
 from django.utils import timezone
 from django.contrib.postgres.search import SearchVectorField, SearchVector 
+from django.db.models.functions import Coalesce
 
 from .models import MainProduct, MainProductLog, MP_PRICES
 from .tables import AVAILABLE_COLUMN_MAP, DEFAULT_VISIBLE_COLUMNS
@@ -110,10 +111,14 @@ def update_stocks():
   query = MainProduct.objects.filter(
     pk=OuterRef('pk')
     ).prefetch_related('supplierproducts').annotate(
-      new_stock=Sum(F('supplierproducts__stock'))).values('new_stock')
-  mps = MainProduct.objects.prefetch_related('supplierproducts').annotate(new_stock=Subquery(query))
-  mps = mps.filter(Q(stock__isnull=False)|Q(new_stock__isnull=False))
-  mps = mps.filter(~Q(stock=F('new_stock')))
+      new_stock=Coalesce(Sum(F('supplierproducts__stock')), Value(0), output_field=IntegerField())
+    ).values('new_stock')
+  mps = MainProduct.objects.prefetch_related('supplierproducts').annotate(
+    new_stock=Subquery(query, output_field=IntegerField())
+  )
+  mps = mps.annotate(
+    current_stock_safe=Coalesce('stock', Value(0), output_field=IntegerField())
+  ).filter(~Q(current_stock_safe=F('new_stock')))
   mps.bulk_update(mps, fields=['stock_updated_at'])
   print(mps.values_list('stock', 'new_stock'))
   mpls = map(lambda mp: MainProductLog(main_product=mp, stock=mp.new_stock),  mps)
