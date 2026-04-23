@@ -103,9 +103,14 @@ class PriceManagerCreate(CreateView):
   def get_context_data(self, **kwargs) -> dict[str, Any]:
     context = super().get_context_data(**kwargs)
     supplier = Supplier.objects.get(pk=self.kwargs.get('pk'))
+    form = context['form']
     context['supplier'] = supplier
-    context['form'].fields['discounts'].queryset = supplier.discounts
-    context['form'].fields['categories'].queryset = Category.objects.filter(pk__in=MainProduct.objects.select_related('supplierproducts', 'category').filter(supplierproducts__in=supplier.supplierproducts.all()).values('category'))
+    form.fields['discounts'].queryset = supplier.discounts.all()
+    form.fields['categories'].queryset = Category.objects.filter(pk__in=MainProduct.objects.select_related('supplierproducts', 'category').filter(supplierproducts__in=supplier.supplierproducts.all()).values('category'))
+    if form.is_bound:
+      context['selected_discount_ids'] = form.data.getlist(form.add_prefix('discounts'))
+    else:
+      context['selected_discount_ids'] = []
     return context
   def form_invalid(self, form):
     messages.error(self.request, 'Ошибка')
@@ -167,8 +172,13 @@ class PriceManagerUpdate(SingleTableMixin, UpdateView):
     return super().post(request, *args, **kwargs)
   def get_context_data(self, **kwargs) -> dict[str, Any]:
     context = super().get_context_data(**kwargs)
-    context['form'].initial['price_fixed'] = self.instance.source=='fixed_price'
-    context['form'].fields['discounts'].queryset = self.instance.supplier.discounts
+    form = context['form']
+    form.initial['price_fixed'] = self.instance.source=='fixed_price'
+    form.fields['discounts'].queryset = self.instance.supplier.discounts.all()
+    if form.is_bound:
+      context['selected_discount_ids'] = form.data.getlist(form.add_prefix('discounts'))
+    else:
+      context['selected_discount_ids'] = [str(pk) for pk in self.instance.discounts.values_list('pk', flat=True)]
     return context
   def form_valid(self, form):
     cd = form.cleaned_data

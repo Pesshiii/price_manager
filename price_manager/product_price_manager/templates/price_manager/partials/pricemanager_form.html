@@ -37,24 +37,22 @@
                       placeholder="Поиск группы скидок"
                       data-discount-search>
                     <div class="border rounded p-2" style="max-height: 220px; overflow-y: auto;" data-discount-options>
-                      {% with selected_discounts=form.discounts.value %}
-                        {% for discount in form.fields.discounts.queryset %}
-                          <div class="form-check mb-2" data-discount-option data-discount-name="{{ discount.name|lower }}">
-                            <input
-                              class="form-check-input"
-                              type="checkbox"
-                              name="{{ form.discounts.html_name }}"
-                              value="{{ discount.pk }}"
-                              id="discount_{{ discount.pk }}"
-                              {% if selected_discounts and discount.pk|stringformat:"s" in selected_discounts %}checked{% endif %}>
-                            <label class="form-check-label" for="discount_{{ discount.pk }}">
-                              {{ discount.name }}
-                            </label>
-                          </div>
-                        {% empty %}
-                          <div class="text-muted small">Нет доступных групп скидок.</div>
-                        {% endfor %}
-                      {% endwith %}
+                      {% for discount in form.fields.discounts.queryset %}
+                        <div class="form-check mb-2" data-discount-option data-discount-name="{{ discount.name|lower }}">
+                          <input
+                            class="form-check-input"
+                            type="checkbox"
+                            name="{{ form.discounts.html_name }}"
+                            value="{{ discount.pk }}"
+                            id="discount_{{ discount.pk }}"
+                            {% if discount.pk|stringformat:"s" in selected_discount_ids %}checked{% endif %}>
+                          <label class="form-check-label" for="discount_{{ discount.pk }}">
+                            {{ discount.name }}
+                          </label>
+                        </div>
+                      {% empty %}
+                        <div class="text-muted small">Нет доступных групп скидок.</div>
+                      {% endfor %}
                     </div>
                   </div>
                 </div>
