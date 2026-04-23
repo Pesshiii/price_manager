@@ -6,9 +6,8 @@ from main_product_manager.models import MainProduct
 from supplier_manager.models import Currency, Discount, Supplier
 from supplier_product_manager.models import SupplierProduct
 
-from .models import PriceManager, PriceTag
+from .models import PriceManager, PriceTag, update_prices
 from .views import PriceManagerCreate
-from .models import PriceManager
 
 
 class PriceManagerDiscountFilteringTests(TestCase):
@@ -399,3 +398,83 @@ class PriceManagerNameGenerationTests(TestCase):
         self.assertIn('100', generated_name)
         self.assertIn('200', generated_name)
         self.assertIn('Расчет:', generated_name)
+
+
+class UpdatePricesOrderingTests(TestCase):
+    def setUp(self):
+        self.currency = Currency.objects.create(name='USD', value=Decimal('2'))
+        self.supplier = Supplier.objects.create(
+            name='Supplier Ordering',
+            currency=self.currency,
+            price_update_rate='',
+            stock_update_rate='',
+            delivery_days_available=1,
+            delivery_days_navailable=2,
+        )
+
+    def test_update_prices_applies_fixed_after_supplier_markup(self):
+        mp = MainProduct.objects.create(
+            supplier=self.supplier,
+            article='ORDER-1',
+            name='Ordering target',
+        )
+        SupplierProduct.objects.create(
+            main_product=mp,
+            supplier=self.supplier,
+            article='ORDER-SP-1',
+            name='Ordering row',
+            supplier_price=Decimal('100'),
+        )
+        PriceManager.objects.create(
+            name='PM-MARKUP-FIRST',
+            supplier=self.supplier,
+            source='supplier_price',
+            dest='basic_price',
+            markup=Decimal('10'),
+            increase=Decimal('0'),
+        )
+        PriceManager.objects.create(
+            name='PM-FIXED-LAST',
+            supplier=self.supplier,
+            source='fixed_price',
+            dest='basic_price',
+            markup=Decimal('0'),
+            increase=Decimal('0'),
+            fixed_price=Decimal('555'),
+        )
+
+        update_prices()
+        mp.refresh_from_db()
+
+        self.assertEqual(mp.basic_price, Decimal('555'))
+
+    def test_update_prices_applies_fixed_pricetag_after_markup_pricetag(self):
+        mp = MainProduct.objects.create(
+            supplier=self.supplier,
+            article='ORDER-2',
+            name='Ordering by pricetag target',
+        )
+        PriceTag.objects.create(
+            mp=mp,
+            source='basic_price',
+            dest='m_price',
+            markup=Decimal('20'),
+            increase=Decimal('5'),
+            p_manager=None,
+        )
+        PriceTag.objects.create(
+            mp=mp,
+            source='fixed_price',
+            dest='m_price',
+            markup=Decimal('0'),
+            increase=Decimal('0'),
+            fixed_price=Decimal('777'),
+            p_manager=None,
+        )
+        mp.basic_price = Decimal('100')
+        mp.save(update_fields=['basic_price'])
+
+        update_prices()
+        mp.refresh_from_db()
+
+        self.assertEqual(mp.m_price, Decimal('777'))

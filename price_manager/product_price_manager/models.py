@@ -460,6 +460,8 @@ def update_prices():
     count += pm.apply()
   for pm in pms.filter(time_query).filter(source__in=MP_PRICES):
     count += pm.apply()
+  for pm in pms.filter(time_query).filter(source='fixed_price'):
+    count += pm.apply()
   dmps = map(lambda pt: pt.deprecate(),PriceTag.objects.filter(p_manager__isnull=True).filter(~Q(time_query)).select_related('mp'))
   deprecated_mps = [_ for _ in dmps if _]
   if deprecated_mps:
@@ -472,5 +474,9 @@ def update_prices():
   mp_mps = [_ for _ in mps if _]
   if mp_mps:
     count += MainProduct.objects.bulk_update(mp_mps, fields=[*MP_PRICES, 'price_updated_at'])
+  mps = map(lambda pt: pt.get_mp(),PriceTag.objects.filter(p_manager__isnull=True).filter(time_query).filter(source='fixed_price').select_related('mp'))
+  fixed_mps = [_ for _ in mps if _]
+  if fixed_mps:
+    count += MainProduct.objects.bulk_update(fixed_mps, fields=[*MP_PRICES, 'price_updated_at'])
 
   return (count, dcount)
