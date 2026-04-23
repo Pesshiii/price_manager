@@ -217,6 +217,19 @@ class PriceTagAndPriceManagerRuntimeTests(TestCase):
         agg = PriceTag.get_aggfunc()
         self.assertEqual(agg([Decimal('1'), Decimal('3')]), Decimal('3'))
 
+    def test_pricetag_get_sprice_treats_null_source_as_fixed_price(self):
+        mp = self.create_mp('M-FIX-NULL', 'Fixed source is null')
+        pt = PriceTag.objects.create(
+            mp=mp,
+            source=None,
+            dest='basic_price',
+            markup=Decimal('0'),
+            increase=Decimal('0'),
+            fixed_price=Decimal('12990'),
+        )
+
+        self.assertEqual(pt.get_sprice(), Decimal('12990'))
+
     def test_pricemanager_delete_nulls_dest_price(self):
         mp = self.create_mp('M-3', 'Delete PM')
         SupplierProduct.objects.create(

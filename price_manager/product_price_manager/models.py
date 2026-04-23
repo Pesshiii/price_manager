@@ -400,7 +400,7 @@ class PriceTag(models.Model):
     return max
 
   def get_sprice(self):
-    if self.source == 'fixed_price':
+    if self.source in ('fixed_price', None):
       return self.fixed_price
     if self.source in SP_PRICES:
       prices = list(self.mp.supplierproducts.values_list(self.source, flat=True))
