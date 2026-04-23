@@ -478,3 +478,34 @@ class UpdatePricesOrderingTests(TestCase):
         mp.refresh_from_db()
 
         self.assertEqual(mp.m_price, Decimal('777'))
+
+    def test_update_prices_applies_all_fixed_price_types_for_same_product(self):
+        mp = MainProduct.objects.create(
+            supplier=self.supplier,
+            article='ORDER-3',
+            name='All fixed types target',
+        )
+        PriceTag.objects.create(
+            mp=mp,
+            source='fixed_price',
+            dest='basic_price',
+            markup=Decimal('0'),
+            increase=Decimal('0'),
+            fixed_price=Decimal('300'),
+            p_manager=None,
+        )
+        PriceTag.objects.create(
+            mp=mp,
+            source=None,
+            dest='m_price',
+            markup=Decimal('0'),
+            increase=Decimal('0'),
+            fixed_price=Decimal('450'),
+            p_manager=None,
+        )
+
+        update_prices()
+        mp.refresh_from_db()
+
+        self.assertEqual(mp.basic_price, Decimal('300'))
+        self.assertEqual(mp.m_price, Decimal('450'))
