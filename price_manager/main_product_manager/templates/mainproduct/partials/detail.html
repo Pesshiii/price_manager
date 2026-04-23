@@ -1,18 +1,40 @@
-<div class="row gap-3">
-  <div class="col-7">
-    <div class="card row p-4">
-      <h1>
-        {{mainproduct.name}}
-      </h1>
-      <div>
-        <p class="">Индивидуальный номер: {% if  mainproduct.sku%}{{mainproduct.sku}}{% else %}Отсутствует.{% endif %}</p>
-        <p class="">Базовая цена: {% if  mainproduct.basic_price%}{{mainproduct.basic_price}} тг.{% else %}Отсутствует.{% endif %}</p>
-        <p class="">Себестоимость: {% if  mainproduct.prime_cost%}{{mainproduct.prime_cost}} тг.{% else %}Отсутствует.{% endif %}</p>
-        <p class="">Цена ИМ: {% if mainproduct.m_price %}{{mainproduct.m_price}} тг.{% else %}Отсутствует.{% endif %}</p>
-        <p class="">Последнее обновление: {% if mainproduct.price_updated_at %}{{mainproduct.price_updated_at}}{% else %}Отсутствует.{% endif %}</p>
+<div class="row g-3">
+  <div class="col-lg-8">
+    <div class="card shadow-sm border-0 p-4">
+      <h1 class="h3 mb-2">{{mainproduct.name}}</h1>
+      <div class="d-flex flex-wrap gap-2 mb-3">
+        <span class="badge text-bg-light">Артикул: {{ mainproduct.article }}</span>
+        <span class="badge text-bg-light">SKU: {% if mainproduct.sku %}{{ mainproduct.sku }}{% else %}—{% endif %}</span>
+        <span class="badge text-bg-light">Поставщик: {{ mainproduct.supplier }}</span>
       </div>
-      
-      <div>
+
+      <div class="row g-3 mb-3">
+        <div class="col-md-4">
+          <div class="border rounded-3 p-3 h-100 bg-body-tertiary">
+            <div class="text-muted small">Базовая цена</div>
+            <div class="fw-semibold fs-5">{% if mainproduct.basic_price %}{{mainproduct.basic_price}} тг{% else %}—{% endif %}</div>
+          </div>
+        </div>
+        <div class="col-md-4">
+          <div class="border rounded-3 p-3 h-100 bg-body-tertiary">
+            <div class="text-muted small">Себестоимость</div>
+            <div class="fw-semibold fs-5">{% if mainproduct.prime_cost %}{{mainproduct.prime_cost}} тг{% else %}—{% endif %}</div>
+          </div>
+        </div>
+        <div class="col-md-4">
+          <div class="border rounded-3 p-3 h-100 bg-body-tertiary">
+            <div class="text-muted small">Цена ИМ</div>
+            <div class="fw-semibold fs-5">{% if mainproduct.m_price %}{{mainproduct.m_price}} тг{% else %}—{% endif %}</div>
+          </div>
+        </div>
+      </div>
+
+      <p class="small text-muted mb-3">
+        Последнее обновление цены:
+        {% if mainproduct.price_updated_at %}{{mainproduct.price_updated_at}}{% else %}Отсутствует{% endif %}
+      </p>
+
+      <div class="d-flex flex-wrap gap-2">
         <button type="button"
                 class="btn btn-primary"
                 title="Изменить"
@@ -38,7 +60,7 @@
       </div>
     </div>
     <div id="mainproduct-logs" 
-        class="row mt-2"
+        class="row mt-3"
         hx-get="{% url 'mainproductlog-list' pk=mainproduct.pk %}" 
         hx-trigger="load" 
         hx-swap="innerHTML">
@@ -46,7 +68,7 @@
     </div>
   </div>
   <div id="mainproduct-pricetags" 
-    class="col-4 card p-4"
+    class="col-lg-4 card p-4 shadow-sm border-0"
     hx-get="{% url 'pricetag-list' pk=mainproduct.pk %}" 
     hx-trigger="load" 
     hx-swap="innerHTML">

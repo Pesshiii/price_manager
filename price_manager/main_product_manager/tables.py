@@ -229,11 +229,38 @@ class CategoryListTable(tables.Table):
       }
 
 class MainProductLogTable(tables.Table):
+  event = tables.Column(verbose_name='Тип изменения', empty_values=(), orderable=False)
+  value = tables.Column(verbose_name='Новое значение', empty_values=(), orderable=False)
+  summary = tables.Column(verbose_name='Комментарий', empty_values=(), orderable=False)
+
   class Meta:
     model = MainProductLog
-    fields = ['update_time', 'stock', 'price_type', 'price']
+    fields = ['update_time', 'event', 'value', 'summary']
     template_name = 'django_tables2/bootstrap5.html'
     attrs = {
-      'class': 'clickable-rows table table-auto table-stripped table-hover'
+      'class': 'clickable-rows table table-auto table-striped table-hover align-middle mb-0'
       }
     paginate=False
+
+  def render_update_time(self, value):
+    return timezone.localtime(value).strftime('%d.%m.%Y %H:%M')
+
+  def render_event(self, record):
+    if record.price_type:
+      return format_html(
+        '<span class="badge text-bg-primary">Цена: {}</span>',
+        PRICE_TYPES.get(record.price_type, record.price_type)
+      )
+    return format_html('<span class="badge text-bg-success">Остаток</span>')
+
+  def render_value(self, record):
+    if record.price_type:
+      return format_html('<strong>{:.2f} тг</strong>', record.price or 0)
+    return format_html('<strong>{}</strong> шт.', record.stock if record.stock is not None else 0)
+
+  def render_summary(self, record):
+    if record.price_type:
+      return 'Обновлена цена товара'
+    if record.stock == 0:
+      return format_html('<span class="text-danger">Товара нет в наличии</span>')
+    return format_html('<span class="text-success">Товар в наличии</span>')
