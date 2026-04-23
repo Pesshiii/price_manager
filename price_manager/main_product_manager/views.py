@@ -26,6 +26,7 @@ from django_tables2 import SingleTableView, RequestConfig, SingleTableMixin
 from django_filters.views import FilterView, FilterMixin
 from django.core.paginator import Paginator
 from django.http import HttpResponse
+from decimal import Decimal, InvalidOperation
 
 from dal import autocomplete
 from django_htmx.http import HttpResponseClientRedirect, HttpResponseClientRefresh, retarget
@@ -205,7 +206,7 @@ class MainProductLogList(SingleTableView):
   table_class = MainProductLogTable
   template_name = 'mainproduct/partials/logs.html'
   def get_queryset(self):
-    return (
+    qs = (
       super().get_queryset()
       .filter(main_product=self.kwargs.get('pk', None))
       .annotate(
@@ -216,6 +217,57 @@ class MainProductLogList(SingleTableView):
       )
       .order_by('-update_time')
     )
+    log_type = self.request.GET.get('log_type', 'all')
+    selected_price_type = self.request.GET.get('price_type', '')
+    stock_changes_only = self.request.GET.get('stock_changes_only') == 'on'
+    row_query = (self.request.GET.get('row_query') or '').strip()
+
+    if log_type == 'price':
+      qs = qs.filter(price_type__isnull=False)
+    elif log_type == 'stock':
+      qs = qs.filter(price_type__isnull=True, stock__isnull=False)
+
+    if selected_price_type:
+      qs = qs.filter(price_type=selected_price_type)
+
+    if stock_changes_only:
+      qs = qs.filter(price_type__isnull=True, stock__isnull=False)
+
+    if row_query:
+      query = Q()
+      matched_price_types = [
+        price_type for price_type, label in PRICE_TYPES.items()
+        if row_query.lower() in label.lower()
+      ]
+      if matched_price_types:
+        query |= Q(price_type__in=matched_price_types)
+      if 'остат' in row_query.lower():
+        query |= Q(price_type__isnull=True, stock__isnull=False)
+      try:
+        parsed_number = Decimal(row_query.replace(',', '.'))
+        query |= Q(price=parsed_number)
+      except InvalidOperation:
+        pass
+      if row_query.isdigit():
+        query |= Q(stock=int(row_query))
+      if query:
+        qs = qs.filter(query)
+      else:
+        qs = qs.none()
+    return qs
+
+  def get_context_data(self, **kwargs):
+    context = super().get_context_data(**kwargs)
+    context['mainproduct_pk'] = self.kwargs.get('pk')
+    context['selected_log_type'] = self.request.GET.get('log_type', 'all')
+    context['selected_price_type'] = self.request.GET.get('price_type', '')
+    context['stock_changes_only'] = self.request.GET.get('stock_changes_only') == 'on'
+    context['row_query'] = (self.request.GET.get('row_query') or '').strip()
+    context['price_type_options'] = [
+      (price_type, label) for price_type, label in PRICE_TYPES.items() if price_type
+    ]
+    return context
+
   def get(self, request, *args, **kwargs):
     if not self.request.htmx:
       return redirect(reverse('mainproduct-info', kwargs=self.kwargs))
