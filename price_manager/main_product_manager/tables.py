@@ -229,13 +229,14 @@ class CategoryListTable(tables.Table):
       }
 
 class MainProductLogTable(tables.Table):
-  event = tables.Column(verbose_name='Тип изменения', empty_values=(), orderable=False)
-  value = tables.Column(verbose_name='Новое значение', empty_values=(), orderable=False)
-  summary = tables.Column(verbose_name='Комментарий', empty_values=(), orderable=False)
+  record_type = tables.Column(
+    accessor='record_type',
+    verbose_name='Тип записи',
+  )
 
   class Meta:
     model = MainProductLog
-    fields = ['update_time', 'event', 'value', 'summary']
+    fields = ['update_time', 'record_type', 'price_type', 'price', 'stock']
     template_name = 'django_tables2/bootstrap5.html'
     attrs = {
       'class': 'clickable-rows table table-auto table-striped table-hover align-middle mb-0'
@@ -245,22 +246,22 @@ class MainProductLogTable(tables.Table):
   def render_update_time(self, value):
     return timezone.localtime(value).strftime('%d.%m.%Y %H:%M')
 
-  def render_event(self, record):
-    if record.price_type:
-      return format_html(
-        '<span class="badge text-bg-primary">Цена: {}</span>',
-        PRICE_TYPES.get(record.price_type, record.price_type)
-      )
+  def render_record_type(self, value):
+    if value == 'price':
+      return format_html('<span class="badge text-bg-primary">Тип цены</span>')
     return format_html('<span class="badge text-bg-success">Остаток</span>')
 
-  def render_value(self, record):
-    if record.price_type:
-      return format_html('<strong>{:.2f} тг</strong>', record.price or 0)
-    return format_html('<strong>{}</strong> шт.', record.stock if record.stock is not None else 0)
+  def render_price_type(self, value):
+    if not value:
+      return '—'
+    return PRICE_TYPES.get(value, value)
 
-  def render_summary(self, record):
-    if record.price_type:
-      return 'Обновлена цена товара'
-    if record.stock == 0:
-      return format_html('<span class="text-danger">Товара нет в наличии</span>')
-    return format_html('<span class="text-success">Товар в наличии</span>')
+  def render_price(self, value):
+    if value is None:
+      return '—'
+    return f'{value:.2f} тг'
+
+  def render_stock(self, value):
+    if value is None:
+      return '—'
+    return f'{value} шт.'

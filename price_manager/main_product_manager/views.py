@@ -18,7 +18,7 @@ from django.contrib.auth.mixins import LoginRequiredMixin
 from django.urls import reverse, reverse_lazy
 from typing import Optional, Any, Dict, Iterable
 from collections import defaultdict, OrderedDict
-from django.db.models import Count, Prefetch, F, Q, Value, Max, Min, Subquery, OuterRef, IntegerField, ExpressionWrapper
+from django.db.models import Count, Prefetch, F, Q, Value, Max, Min, Subquery, OuterRef, IntegerField, ExpressionWrapper, Case, When
 from django.db import transaction
 from django.contrib.postgres.search import SearchVector
 # Импорты из сторонних приложений
@@ -205,7 +205,17 @@ class MainProductLogList(SingleTableView):
   table_class = MainProductLogTable
   template_name = 'mainproduct/partials/logs.html'
   def get_queryset(self):
-    return super().get_queryset().filter(main_product=self.kwargs.get('pk', None))
+    return (
+      super().get_queryset()
+      .filter(main_product=self.kwargs.get('pk', None))
+      .annotate(
+        record_type=Case(
+          When(price_type__isnull=False, then=Value('price')),
+          default=Value('stock'),
+        )
+      )
+      .order_by('-update_time')
+    )
   def get(self, request, *args, **kwargs):
     if not self.request.htmx:
       return redirect(reverse('mainproduct-info', kwargs=self.kwargs))
