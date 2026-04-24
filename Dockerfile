@@ -46,6 +46,3 @@ USER appuser
  
 # Expose the application port
 EXPOSE 8000 
- 
-# Start the application using Gunicorn
-CMD ["gunicorn", "--bind", "0.0.0.0:8000", "--workers", "3", "my_docker_django_app.wsgi:application"]

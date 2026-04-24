@@ -12,6 +12,8 @@ media/
 *.bak
 *.swp
 *.backup
+*.sql
+*.dump
 *~
 
 # IDE specific files
