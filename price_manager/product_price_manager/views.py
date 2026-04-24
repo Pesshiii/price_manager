@@ -100,6 +100,13 @@ class PriceManagerCreate(CreateView):
       generated_name = f'{base_name} ({suffix})'
       suffix += 1
     return generated_name
+  @staticmethod
+  def _extract_selected_discount_ids(form):
+    values = form['discounts'].value() or []
+    if not isinstance(values, (list, tuple)):
+      values = [values]
+    return [str(value) for value in values if value not in (None, '')]
+
   def get_context_data(self, **kwargs) -> dict[str, Any]:
     context = super().get_context_data(**kwargs)
     supplier = Supplier.objects.get(pk=self.kwargs.get('pk'))
@@ -107,10 +114,7 @@ class PriceManagerCreate(CreateView):
     context['supplier'] = supplier
     form.fields['discounts'].queryset = supplier.discounts.all()
     form.fields['categories'].queryset = Category.objects.filter(pk__in=MainProduct.objects.select_related('supplierproducts', 'category').filter(supplierproducts__in=supplier.supplierproducts.all()).values('category'))
-    if form.is_bound:
-      context['selected_discount_ids'] = form.data.getlist(form.add_prefix('discounts'))
-    else:
-      context['selected_discount_ids'] = []
+    context['selected_discount_ids'] = self._extract_selected_discount_ids(form)
     return context
   def form_invalid(self, form):
     messages.error(self.request, 'Ошибка')
@@ -139,14 +143,8 @@ class PriceManagerCreate(CreateView):
       instance.source = 'fixed_price'
     instance.name = self._build_generated_name(supplier, cd)
     instance.save()
-    for discount in instance.discounts.filter(~Q(pk__in=cd['discounts'])):
-      instance.discounts.remove(discount)
-    for discount in cd['discounts']:
-      instance.discounts.add(discount)
-    for category in instance.categories.filter(~Q(pk__in=cd['categories'])):
-      instance.categories.remove(category)
-    for category in cd['categories']:
-      instance.categories.add(category)
+    instance.discounts.set(cd['discounts'])
+    instance.categories.set(cd['categories'])
     messages.success(self.request, 'Менеджер добавлен')
     return HttpResponseClientRefresh()
   
@@ -175,10 +173,7 @@ class PriceManagerUpdate(SingleTableMixin, UpdateView):
     form = context['form']
     form.initial['price_fixed'] = self.instance.source=='fixed_price'
     form.fields['discounts'].queryset = self.instance.supplier.discounts.all()
-    if form.is_bound:
-      context['selected_discount_ids'] = form.data.getlist(form.add_prefix('discounts'))
-    else:
-      context['selected_discount_ids'] = [str(pk) for pk in self.instance.discounts.values_list('pk', flat=True)]
+    context['selected_discount_ids'] = self._extract_selected_discount_ids(form)
     return context
   def form_valid(self, form):
     cd = form.cleaned_data
@@ -200,14 +195,8 @@ class PriceManagerUpdate(SingleTableMixin, UpdateView):
     if cd['price_fixed']:
       instance.source = 'fixed_price'
     instance.save()
-    for discount in instance.discounts.filter(~Q(pk__in=cd['discounts'])):
-      instance.discounts.remove(discount)
-    for discount in cd['discounts']:
-      instance.discounts.add(discount)
-    for category in instance.categories.filter(~Q(pk__in=cd['categories'])):
-      instance.categories.remove(category)
-    for category in cd['categories']:
-      instance.categories.add(category)
+    instance.discounts.set(cd['discounts'])
+    instance.categories.set(cd['categories'])
     messages.success(self.request, 'Обновления менеджера сохранены')
     return HttpResponseClientRefresh()
   
