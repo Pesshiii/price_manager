@@ -46,6 +46,14 @@ import pandas as pd
 import re
 import math
 
+
+def extract_selected_discount_ids(form):
+  values = form['discounts'].value() or []
+  if not isinstance(values, (list, tuple)):
+    values = [values]
+  return [str(value) for value in values if value not in (None, '')]
+
+
 class PriceManagerList(SingleTableView):
   '''Отображение наценок << /supplier/pricemanagers/<int:pk> >>'''
   model = PriceManager
@@ -100,13 +108,6 @@ class PriceManagerCreate(CreateView):
       generated_name = f'{base_name} ({suffix})'
       suffix += 1
     return generated_name
-  @staticmethod
-  def _extract_selected_discount_ids(form):
-    values = form['discounts'].value() or []
-    if not isinstance(values, (list, tuple)):
-      values = [values]
-    return [str(value) for value in values if value not in (None, '')]
-
   def get_context_data(self, **kwargs) -> dict[str, Any]:
     context = super().get_context_data(**kwargs)
     supplier = Supplier.objects.get(pk=self.kwargs.get('pk'))
@@ -114,7 +115,7 @@ class PriceManagerCreate(CreateView):
     context['supplier'] = supplier
     form.fields['discounts'].queryset = supplier.discounts.all()
     form.fields['categories'].queryset = Category.objects.filter(pk__in=MainProduct.objects.select_related('supplierproducts', 'category').filter(supplierproducts__in=supplier.supplierproducts.all()).values('category'))
-    context['selected_discount_ids'] = self._extract_selected_discount_ids(form)
+    context['selected_discount_ids'] = extract_selected_discount_ids(form)
     return context
   def form_invalid(self, form):
     messages.error(self.request, 'Ошибка')
@@ -173,7 +174,7 @@ class PriceManagerUpdate(SingleTableMixin, UpdateView):
     form = context['form']
     form.initial['price_fixed'] = self.instance.source=='fixed_price'
     form.fields['discounts'].queryset = self.instance.supplier.discounts.all()
-    context['selected_discount_ids'] = self._extract_selected_discount_ids(form)
+    context['selected_discount_ids'] = extract_selected_discount_ids(form)
     return context
   def form_valid(self, form):
     cd = form.cleaned_data
