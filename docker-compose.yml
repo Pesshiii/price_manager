@@ -58,8 +58,10 @@ services:
       CELERY_RESULT_BACKEND: ${CELERY_RESULT_BACKEND:-redis://redis:6379/0}
     ports:
       - "${WEB_PORT:-8000}:8000"
+    volumes:
+      - ./price_manager:/app
     command: >
-      sh -c "python manage.py migrate &&
+      sh -c "python manage.py migrate && python manage.py collectstatic --noinput &&
              gunicorn --bind 0.0.0.0:8000 --workers 3 price_manager.wsgi:application"
 
   celery_worker:
@@ -73,6 +75,8 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
+    volumes:
+      - ./price_manager:/app
     environment:
       SECRET_KEY: ${SECRET_KEY:-django-insecure-change-me}
       DEBUG: ${DEBUG:-true}
