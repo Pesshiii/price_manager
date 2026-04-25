@@ -1,7 +1,8 @@
 from django.db import models
 from django.core.validators import FileExtensionValidator
 from django.conf import settings
-
+from django.db.models.signals import pre_delete
+from django.dispatch import receiver
 
 from main_product_manager.models import MainProduct
 from supplier_manager.models import Supplier, Discount, Manufacturer, Category
@@ -188,6 +189,12 @@ class SupplierFile(models.Model):
                                default=STATUS_QUEUED,
                                blank=True)
   logs = models.CharField(verbose_name="Журнал загрузки", null=True, blank=True)
+
+
+@receiver(pre_delete, sender=SupplierFile)
+def document_pre_delete(sender, instance, **kwargs):
+    """Clean up file before model deletion"""
+    instance.file.delete(save=False)
 
 
 class CopySupplierProductsToMainRun(models.Model):

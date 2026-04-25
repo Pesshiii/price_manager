@@ -335,6 +335,9 @@ CELERY_RESULT_SERIALIZER = 'json'
 CELERY_PRICE_UPDATE_MINUTES = int(os.environ.get('CELERY_PRICE_UPDATE_MINUTES', 30))
 CELERY_STOCK_UPDATE_MINUTES = int(os.environ.get('CELERY_STOCK_UPDATE_MINUTES', 15))
 CELERY_LOG_UPDATE_MINUTES = int(os.environ.get('CELERY_LOG_UPDATE_MINUTES', 60))
+CELERY_SUPPLIER_FILES_CLEANUP_MINUTES = int(os.environ.get('CELERY_SUPPLIER_FILES_CLEANUP_MINUTES', 30))
+
+SUPPLIER_FILES_KEEP_LAST = int(os.environ.get('SUPPLIER_FILES_KEEP_LAST', 0))
 
 CELERY_BEAT_SCHEDULE = {
     'update-prices': {
@@ -348,6 +351,10 @@ CELERY_BEAT_SCHEDULE = {
     'update-logs': {
         'task': 'main_product_manager.update_logs',
         'schedule': CELERY_LOG_UPDATE_MINUTES * 60,
+    },
+    'cleanup-supplier-files': {
+        'task': 'supplier_product_manager.cleanup_supplier_files_task',
+        'schedule': CELERY_SUPPLIER_FILES_CLEANUP_MINUTES * 60,
     },
 }
 

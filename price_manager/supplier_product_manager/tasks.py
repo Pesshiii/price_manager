@@ -2,6 +2,7 @@ from celery import shared_task
 from django.db.models import Q
 from django.http import QueryDict
 from django.utils import timezone
+from django.conf import settings
 
 from core.models import PersistentNotification
 from main_product_manager.functions import recalculate_search_vectors
@@ -136,6 +137,36 @@ def process_setting_upload(setting_id: int, user_id: int) -> dict:
     """Совместимость со старым названием задачи."""
     return process_supplier_file_import(setting_id, user_id)
 
+@shared_task
+def cleanup_supplier_files_task() -> dict:
+    """
+    Удаляет старые SupplierFile, оставляя только последние N файлов на каждую настройку.
+    """
+    keep_last = max(getattr(settings, "SUPPLIER_FILES_KEEP_LAST", 1), 0)
+    deleted_count = 0
+
+    for setting in Setting.objects.only("id").iterator():
+        file_ids = list(
+            setting.supplierfiles.order_by("-pk").values_list("pk", flat=True)
+        )
+        ids_to_delete = file_ids[keep_last:]
+        if not ids_to_delete:
+            continue
+
+        for supplier_file in SupplierFile.objects.filter(pk__in=ids_to_delete).iterator():
+            supplier_file.delete()
+            deleted_count += 1
+
+    orphan_files = SupplierFile.objects.filter(setting__isnull=True).only("pk", "file")
+    for supplier_file in orphan_files.iterator():
+        supplier_file.delete()
+        deleted_count += 1
+
+    return {
+        "status": "ok",
+        "keep_last": keep_last,
+        "deleted_count": deleted_count,
+    }
 
 def _restore_querydict(filter_params: dict | None) -> QueryDict:
     query_dict = QueryDict("", mutable=True)
