@@ -229,11 +229,39 @@ class CategoryListTable(tables.Table):
       }
 
 class MainProductLogTable(tables.Table):
+  record_type = tables.Column(
+    accessor='record_type',
+    verbose_name='Тип записи',
+  )
+
   class Meta:
     model = MainProductLog
-    fields = ['update_time', 'stock', 'price_type', 'price']
+    fields = ['update_time', 'record_type', 'price_type', 'price', 'stock']
     template_name = 'django_tables2/bootstrap5.html'
     attrs = {
-      'class': 'clickable-rows table table-auto table-stripped table-hover'
+      'class': 'clickable-rows table table-auto table-striped table-hover align-middle mb-0'
       }
     paginate=False
+
+  def render_update_time(self, value):
+    return timezone.localtime(value).strftime('%d.%m.%Y %H:%M')
+
+  def render_record_type(self, value):
+    if value == 'price':
+      return format_html('<span class="badge text-bg-primary">Тип цены</span>')
+    return format_html('<span class="badge text-bg-success">Остаток</span>')
+
+  def render_price_type(self, value):
+    if not value:
+      return '—'
+    return PRICE_TYPES.get(value, value)
+
+  def render_price(self, value):
+    if value is None:
+      return '—'
+    return f'{value:.2f} тг'
+
+  def render_stock(self, value):
+    if value is None:
+      return '—'
+    return f'{value} шт.'

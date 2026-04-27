@@ -400,7 +400,7 @@ class PriceTag(models.Model):
     return max
 
   def get_sprice(self):
-    if self.source == 'fixed_price':
+    if self.source in ('fixed_price', None):
       return self.fixed_price
     if self.source in SP_PRICES:
       prices = list(self.mp.supplierproducts.values_list(self.source, flat=True))
@@ -448,6 +448,20 @@ class PriceTag(models.Model):
 
 
 def update_prices():
+  def get_updated_mps(pricetags):
+    updated_mps = {}
+    for pt in pricetags.select_related('mp'):
+      updated_mp = pt.get_mp()
+      if not updated_mp:
+        continue
+      if updated_mp.pk not in updated_mps:
+        updated_mps[updated_mp.pk] = updated_mp
+        continue
+      target_mp = updated_mps[updated_mp.pk]
+      setattr(target_mp, pt.dest, getattr(updated_mp, pt.dest))
+      target_mp.price_updated_at = updated_mp.price_updated_at
+    return list(updated_mps.values())
+
   count = 0
   dcount = 0
   
@@ -460,17 +474,26 @@ def update_prices():
     count += pm.apply()
   for pm in pms.filter(time_query).filter(source__in=MP_PRICES):
     count += pm.apply()
+  for pm in pms.filter(time_query).filter(source='fixed_price'):
+    count += pm.apply()
   dmps = map(lambda pt: pt.deprecate(),PriceTag.objects.filter(p_manager__isnull=True).filter(~Q(time_query)).select_related('mp'))
   deprecated_mps = [_ for _ in dmps if _]
   if deprecated_mps:
     dcount += MainProduct.objects.bulk_update(deprecated_mps, fields=[*MP_PRICES, 'price_updated_at'])
-  mps = map(lambda pt: pt.get_mp(),PriceTag.objects.filter(p_manager__isnull=True).filter(time_query).filter(source__in=SP_PRICES).select_related('mp'))
-  sp_mps = [_ for _ in mps if _]
+  sp_mps = get_updated_mps(
+    PriceTag.objects.filter(p_manager__isnull=True).filter(time_query).filter(source__in=SP_PRICES)
+  )
   if sp_mps:
     count += MainProduct.objects.bulk_update(sp_mps, fields=[*MP_PRICES, 'price_updated_at'])
-  mps = map(lambda pt: pt.get_mp(),PriceTag.objects.filter(p_manager__isnull=True).filter(time_query).filter(source__in=MP_PRICES).select_related('mp'))
-  mp_mps = [_ for _ in mps if _]
+  mp_mps = get_updated_mps(
+    PriceTag.objects.filter(p_manager__isnull=True).filter(time_query).filter(source__in=MP_PRICES)
+  )
   if mp_mps:
     count += MainProduct.objects.bulk_update(mp_mps, fields=[*MP_PRICES, 'price_updated_at'])
+  fixed_mps = get_updated_mps(
+    PriceTag.objects.filter(p_manager__isnull=True).filter(time_query).filter(Q(source='fixed_price')|Q(source__isnull=True))
+  )
+  if fixed_mps:
+    count += MainProduct.objects.bulk_update(fixed_mps, fields=[*MP_PRICES, 'price_updated_at'])
 
   return (count, dcount)

@@ -1,6 +1,45 @@
 
 {% load django_tables2 %}
 
-<div class="container p-4 card">
-{% render_table table %}
+<div class="card shadow-sm border-0 p-3">
+  <h5 class="mb-1">История изменений</h5>
+  <p class="text-muted mb-3 small">Фильтруйте по строке, типу цены и изменениям остатков.</p>
+  <form class="row g-2 mb-3"
+        hx-get="{% url 'mainproductlog-list' pk=mainproduct_pk %}"
+        hx-target="#mainproduct-logs"
+        hx-swap="innerHTML"
+        hx-trigger="change, keyup delay:350ms from:#row-query">
+    <div class="col-md-4">
+      <input id="row-query"
+             type="text"
+             name="row_query"
+             class="form-control form-control-sm"
+             placeholder="Фильтр по строкам..."
+             value="{{ row_query }}">
+    </div>
+    <div class="col-md-3">
+      <select name="price_type" class="form-select form-select-sm">
+        <option value="">Все типы цен</option>
+        {% for value, label in price_type_options %}
+          <option value="{{ value }}" {% if selected_price_type == value %}selected{% endif %}>{{ label }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div class="col-md-3">
+      <select name="log_type" class="form-select form-select-sm">
+        <option value="all" {% if selected_log_type == 'all' %}selected{% endif %}>Все записи</option>
+        <option value="price" {% if selected_log_type == 'price' %}selected{% endif %}>Только изменения цен</option>
+        <option value="stock" {% if selected_log_type == 'stock' %}selected{% endif %}>Только изменения остатков</option>
+      </select>
+    </div>
+    <div class="col-md-2 d-flex align-items-center">
+      <div class="form-check">
+        <input class="form-check-input" type="checkbox" name="stock_changes_only" id="stockOnly" {% if stock_changes_only %}checked{% endif %}>
+        <label class="form-check-label small" for="stockOnly">Только остатки</label>
+      </div>
+    </div>
+  </form>
+  <div class="table-responsive">
+    {% render_table table %}
+  </div>
 </div>
