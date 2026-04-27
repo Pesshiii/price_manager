@@ -45,7 +45,7 @@
                             name="{{ form.discounts.html_name }}"
                             value="{{ discount.pk }}"
                             id="discount_{{ discount.pk }}"
-                            {% if discount.pk|stringformat:"s" in selected_discount_ids %}checked{% endif %}>
+                            {% if discount.pk in selected_discount_ids %}checked{% endif %}>
                           <label class="form-check-label" for="discount_{{ discount.pk }}">
                             {{ discount.name }}
                           </label>

@@ -46,14 +46,6 @@ import pandas as pd
 import re
 import math
 
-
-def extract_selected_discount_ids(form):
-  values = form['discounts'].value() or []
-  if not isinstance(values, (list, tuple)):
-    values = [values]
-  return [str(value) for value in values if value not in (None, '')]
-
-
 class PriceManagerList(SingleTableView):
   '''Отображение наценок << /supplier/pricemanagers/<int:pk> >>'''
   model = PriceManager
@@ -174,7 +166,7 @@ class PriceManagerUpdate(SingleTableMixin, UpdateView):
     form = context['form']
     form.initial['price_fixed'] = self.instance.source=='fixed_price'
     form.fields['discounts'].queryset = self.instance.supplier.discounts.all()
-    context['selected_discount_ids'] = extract_selected_discount_ids(form)
+    context['selected_discount_ids'] = form['discounts'].value() or []
     return context
   def form_valid(self, form):
     cd = form.cleaned_data
