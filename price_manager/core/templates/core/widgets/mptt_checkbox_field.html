@@ -1,0 +1,14 @@
+{% load crispy_forms_field mptt_tags %}
+<div class="container" id="div_{{name}}">
+  <legend class="form-label fw-bold mb-2">
+      {{ field.label }}
+      {% if field.field.required %}
+          <span class="text-danger">*</span>
+      {% endif %}
+  </legend>
+  <div class="accordion accordion-flush" id="itemAccordion">
+    {% recursetree field.field.queryset %}
+      {% include "core/widgets/mptt_checkbox_node.html" with node=node children=children field=field parent_accordion_id="itemAccordion" %}
+    {% endrecursetree %}
+  </div>
+</div>

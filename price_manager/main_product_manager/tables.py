@@ -6,6 +6,7 @@ import django_tables2 as tables
 
 from .models import *
 from core.functions import *
+from core.tables import HTMXMixin, SelectableColumnsMixin
 from .forms import *
 
 import pandas as pd
@@ -85,102 +86,72 @@ AVAILABLE_COLUMN_GROUPS = [
 AVAILABLE_COLUMN_CHOICES = [item for _, options in AVAILABLE_COLUMN_GROUPS for item in options]
 AVAILABLE_COLUMN_MAP = dict(AVAILABLE_COLUMN_CHOICES)
 
-class MainProductTable(tables.Table):
-  '''Таблица Главного прайса отображаемая на главной странице'''
-  actions = tables.Column(empty_values=(),
-                         orderable=False,
-                         verbose_name='')
-  stock_msg = tables.Column(verbose_name='Статус наличия',
+
+class MainProductTable(SelectableColumnsMixin, HTMXMixin, tables.Table):
+    '''Таблица Главного прайса отображаемая на главной странице'''
+    actions = tables.Column(empty_values=(),
                             orderable=False,
-                            empty_values=())
-  supplier_product_price = tables.Column(verbose_name='Цена поставщика', default='—')
-  supplier_product_rrp = tables.Column(verbose_name='РРЦ', default='—')
-  supplier_product_discount_price = tables.Column(verbose_name='Цена поставщика со скидкой', default='—')
-  delivery_days = tables.Column(
-    verbose_name='Срок поставки (Рабочие дни)',
-    orderable=False,
-    empty_values=(),
-  )
-  def __init__(self, *args, **kwargs):
-    self.request = kwargs.pop('request')
-    self.url = kwargs.pop('url', None)
-    selected_columns = kwargs.pop('selected_columns', None) or []
-    if not selected_columns:
-      selected_columns = DEFAULT_VISIBLE_COLUMNS
-    self.selected_columns = [column for column in selected_columns if column in AVAILABLE_COLUMN_MAP]
-    if not self.selected_columns:
-      self.selected_columns = DEFAULT_VISIBLE_COLUMNS
+                            verbose_name='')
+    stock_msg = tables.Column(verbose_name='Статус наличия',
+                                orderable=False,
+                                empty_values=())
+    supplier_product_price = tables.Column(verbose_name='Цена поставщика', default='—')
+    supplier_product_rrp = tables.Column(verbose_name='РРЦ', default='—')
+    supplier_product_discount_price = tables.Column(verbose_name='Цена поставщика со скидкой', default='—')
+    delivery_days = tables.Column(
+        verbose_name='Срок поставки (Рабочие дни)',
+        orderable=False,
+        empty_values=(),
+    )
 
-    extra_columns = [
-      (
-        key,
-        tables.Column(
-          accessor=key,
-          verbose_name=verbose_name,
-          default='',
-        )
-      )
-      for key, verbose_name in AVAILABLE_COLUMN_CHOICES
-      if '__' in key
-    ]
+    class Meta:
+        model = MainProduct
+        fields = [
+        'actions',
+        'sku',
+        'article',
+        'name',
+        'description',
+        'supplier',
+        'category',
+        'manufacturer',
+        'weight',
+        'length',
+        'width',
+        'depth',
+        'prime_cost',
+        'wholesale_price',
+        'basic_price',
+        'm_price',
+        'wholesale_price_extra',
+        'discount_price',
+        'supplier_product_price',
+        'supplier_product_rrp',
+        'supplier_product_discount_price',
+        'stock',
+        'price_updated_at',
+        'stock_updated_at',
+        'delivery_days',
+        'stock_msg',
+        ]
+        template_name = 'core/includes/table_htmx.html'
+        attrs = {
+        'class': 'clickable-rows table table-auto table-stripped table-hover'
+        }
+    
 
-    if not self.url:
-      self.url = self.request.path_info
-    if 'data' in kwargs:
-      kwargs['data'] = kwargs['data'].prefetch_related('supplier', 'category', 'manufacturer')
-    super().__init__(*args, extra_columns=extra_columns, **kwargs)
+    def __init__(self,*args, **kwargs):
+        super().__init__(*args, default_columns=DEFAULT_VISIBLE_COLUMNS, column_choices=AVAILABLE_COLUMN_CHOICES, **kwargs)
 
-    for column_key in AVAILABLE_COLUMN_MAP:
-      if column_key not in self.selected_columns and column_key in self.columns:
-        self.columns.hide(column_key)
-
-    sequence = [column for column in self.selected_columns if column in self.columns]
-    sequence.append('...')
-    self.sequence = sequence
-
-  class Meta:
-    model = MainProduct
-    fields = [
-      'actions',
-      'sku',
-      'article',
-      'name',
-      'description',
-      'supplier',
-      'category',
-      'manufacturer',
-      'weight',
-      'length',
-      'width',
-      'depth',
-      'prime_cost',
-      'wholesale_price',
-      'basic_price',
-      'm_price',
-      'wholesale_price_extra',
-      'discount_price',
-      'supplier_product_price',
-      'supplier_product_rrp',
-      'supplier_product_discount_price',
-      'stock',
-      'price_updated_at',
-      'stock_updated_at',
-      'delivery_days',
-      'stock_msg',
-    ]
-    template_name = 'core/includes/table_htmx.html'
-    attrs = {
-      'class': 'clickable-rows table table-auto table-stripped table-hover'
-      }
-  def render_stock_msg(self, record):
-    if not record.stock or record.stock == 0:
-      return record.supplier.msg_navailable
-    else:
-      return record.supplier.msg_available
+    def render_stock_msg(self, record):
+        if not record.stock or record.stock == 0:
+            return record.supplier.msg_navailable
+        else:
+            return record.supplier.msg_available
   
-  def render_delivery_days(self, record):
-    return record.supplier.get_delivery_days_for_stock(record.stock)
-  def render_actions(self, record):
+    def render_delivery_days(self, record):
+        return record.supplier.get_delivery_days_for_stock(record.stock)
+    def render_actions(self, record):
         return render_to_string(
             'main/product/actions.html',
             {
@@ -189,15 +160,15 @@ class MainProductTable(tables.Table):
             },
             request=self.request,
         )
-  def render_name(self, record):
-    return render_to_string(
-      'mainproduct/includes/name.html',
-      {
-        'record': record,
-      }
-    )
+    def render_name(self, record):
+        return render_to_string(
+            'mainproduct/includes/name.html',
+            {
+                'record': record,
+            }
+        )
 
-class MainProductResolveTable(tables.Table):
+class MainProductResolveTable(HTMXMixin, tables.Table):
   class Meta:
     model = MainProduct
     fields = [
@@ -206,17 +177,10 @@ class MainProductResolveTable(tables.Table):
       'name',
       'supplier'
     ]
-    template_name = 'core/includes/table_htmx.html'
     attrs = {
       'class': 'clickable-rows table table-auto table-stripped table-hover'
       }
     
-  def __init__(self, *args, **kwargs):
-    self.request = kwargs.pop('request')
-    self.url = kwargs.pop('url', None)
-    if not self.url:
-      self.url = self.request.path_info
-    super().__init__(*args, **kwargs)
 
 class CategoryListTable(tables.Table):
   '''Таблица Категорий отображаемая на странице Производители'''
