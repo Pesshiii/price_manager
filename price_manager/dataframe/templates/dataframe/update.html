@@ -1,0 +1,13 @@
+{% extends 'base.html' %}
+{% load crispy_forms_tags %}
+
+{% block title %}
+Редактирование датафрейма
+{% endblock %}
+
+{% block body %}
+<div class="container">
+  <h2>Редактирование датафрейма</h2>
+  {%crispy form form.helper%}
+</div>
+{% endblock %}
