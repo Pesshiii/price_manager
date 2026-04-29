@@ -54,7 +54,6 @@ INSTALLED_APPS = [
     'crispy_forms',
     'mptt',
     'storages',
-    'django_celery_beat',
 
     'core',
     'file_manager',
@@ -340,7 +339,7 @@ CELERY_SUPPLIER_FILES_CLEANUP_MINUTES = int(os.environ.get('CELERY_SUPPLIER_FILE
 
 SUPPLIER_FILES_KEEP_LAST = int(os.environ.get('SUPPLIER_FILES_KEEP_LAST', 0))
 
-CELERY_BEAT_SCHEDULE = {
+app.conf.beat_schedule = {
     'update-prices': {
         'task': 'main_product_manager.update_prices',
         'schedule': CELERY_PRICE_UPDATE_MINUTES * 60,
@@ -358,5 +357,6 @@ CELERY_BEAT_SCHEDULE = {
         'schedule': CELERY_SUPPLIER_FILES_CLEANUP_MINUTES * 60,
     },
 }
+
 
 app.autodiscover_tasks()
