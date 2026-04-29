@@ -2,6 +2,13 @@ from django.db import models
 from main_product_manager.models import MainProduct
 # Обработка заявок
 
+
+class TimeStampedModel(models.Model):
+    created = models.DateTimeField(auto_now_add=True)
+    modified = models.DateTimeField(auto_now =True)
+    class Meta:
+        abstract = True
+
 class AlternateProduct(models.Model):
   name = models.CharField(verbose_name='Название',
                           null=False)

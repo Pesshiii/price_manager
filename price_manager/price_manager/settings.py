@@ -41,7 +41,10 @@ INSTALLED_APPS = [
     'django.contrib.messages',
     'django.contrib.staticfiles',
     'django.contrib.postgres',
+]
 
+# Installed external apps
+INSTALLED_APPS+=[
     'django_tables2',
     'import_export',
     'django_filters',
@@ -54,9 +57,14 @@ INSTALLED_APPS = [
     'crispy_forms',
     'mptt',
     'storages',
+]
 
+# Installed internal apps
+INSTALLED_APPS+=[
     'core',
     'file_manager',
+    'dataframe',
+    'product',
     'supplier_product_manager',
     'product_price_manager',
     'main_product_manager',
