@@ -73,6 +73,11 @@ INSTALLED_APPS+=[
     'blogapp',
 ]
 
+DJANGO_JSONFORM = {
+    'FILE_HANDLER': '/dataframe/json-file-handler/'
+}
+
+
 MIDDLEWARE = [
     'django.middleware.security.SecurityMiddleware',
     'whitenoise.middleware.WhiteNoiseMiddleware',
