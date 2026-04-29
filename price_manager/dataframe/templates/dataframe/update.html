@@ -12,7 +12,7 @@
     {% csrf_token %}
     {{ form.name|as_crispy_field }}
     <div id="conf-source-container" hx-get="{% url 'dtaframe:dataframe-conf-source' %}" hx-trigger="load" hx-swap="innerHTML"></div>
-    {{ form.conf|as_crispy_field }}
+    
     {{ form.cols|as_crispy_field }}
     <button type="submit" value="add">Сохранить</button>
   </form>

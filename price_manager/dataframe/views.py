@@ -4,7 +4,7 @@ from django.shortcuts import render
 from django.urls import reverse
 from django.views.generic import CreateView, UpdateView, View
 
-from .forms import ConfSourceForm, Form
+from .forms import ConfForm, Form
 from .models import Dataframe
 
 
@@ -12,8 +12,7 @@ class ConfSourceView(LoginRequiredMixin, View):
     template_name = "dataframe/partials/conf_source_form.html"
 
     def get(self, request, *args, **kwargs):
-        form = Form()
-        conf_form = form.conf_source_form
+        conf_form = ConfForm()
         return render(request, self.template_name, {"conf_form": conf_form})
 
 
