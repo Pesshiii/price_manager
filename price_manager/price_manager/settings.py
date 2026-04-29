@@ -54,6 +54,7 @@ INSTALLED_APPS = [
     'crispy_forms',
     'mptt',
     'storages',
+    'django_celery_beat',
 
     'core',
     'file_manager',
