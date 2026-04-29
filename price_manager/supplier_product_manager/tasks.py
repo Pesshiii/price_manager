@@ -137,7 +137,7 @@ def process_setting_upload(setting_id: int, user_id: int) -> dict:
     """Совместимость со старым названием задачи."""
     return process_supplier_file_import(setting_id, user_id)
 
-@shared_task
+@shared_task(name="supplier_product_manager.cleanup_supplier_files_task")
 def cleanup_supplier_files_task() -> dict:
     """
     Удаляет старые SupplierFile, оставляя только последние N файлов на каждую настройку.
