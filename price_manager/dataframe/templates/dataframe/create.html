@@ -1,4 +1,5 @@
 {% extends 'base.html' %}
+{% load crispy_forms_tags %}
 
 {% block title %}
 Новый датафрейм
@@ -9,7 +10,10 @@
   <h2>Создание датафрейма</h2>
   <form method="post">
     {% csrf_token %}
-    {{ form.as_p }}
+    {{ form.name|as_crispy_field }}
+    <div id="conf-source-container" hx-get="{% url 'dtaframe:dataframe-conf-source' %}" hx-trigger="load" hx-swap="innerHTML"></div>
+    {{ form.conf|as_crispy_field }}
+    {{ form.cols|as_crispy_field }}
     <button type="submit" value="add">Сохранить</button>
   </form>
 </div>
