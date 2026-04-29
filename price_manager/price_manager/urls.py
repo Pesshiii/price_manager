@@ -10,6 +10,7 @@ from supplier_product_manager import views as spm_views
 from main_product_manager import views as mp_views
 from supplier_manager import views as sm_views
 from product_price_manager import views as ppm_views
+from dataframe import views as df_views
 
 
 urlpatterns = [
@@ -65,6 +66,9 @@ urlpatterns = [
 
 
     path('upload/<str:name>/<int:id>/', fm_views.FileUpload.as_view(), name='upload'),
+
+    path('dataframe/create/', df_views.DataframeCreate.as_view(), name='dataframe-create'),
+    path('dataframe/<int:pk>/update', df_views.DataframeUpdate.as_view(), name='dataframe-update'),
 
     path('shopping-tabs/', views.ShoppingTabListView.as_view(), name='shopping-tab-list'),
     path('shopping-tabs/<int:pk>/', views.ShoppingTabDetailView.as_view(), name='shopping-tab-detail'),
