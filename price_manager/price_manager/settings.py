@@ -339,7 +339,7 @@ CELERY_SUPPLIER_FILES_CLEANUP_MINUTES = int(os.environ.get('CELERY_SUPPLIER_FILE
 
 SUPPLIER_FILES_KEEP_LAST = int(os.environ.get('SUPPLIER_FILES_KEEP_LAST', 0))
 
-app.conf.beat_schedule = {
+CELERY_BEAT_SCHEDULE = {
     'update-prices': {
         'task': 'main_product_manager.update_prices',
         'schedule': CELERY_PRICE_UPDATE_MINUTES * 60,
@@ -357,6 +357,5 @@ app.conf.beat_schedule = {
         'schedule': CELERY_SUPPLIER_FILES_CLEANUP_MINUTES * 60,
     },
 }
-
 
 app.autodiscover_tasks()
