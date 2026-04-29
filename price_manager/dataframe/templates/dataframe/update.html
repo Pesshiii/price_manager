@@ -1,4 +1,5 @@
 {% extends 'base.html' %}
+{% load crispy_forms_tags %}
 
 {% block title %}
 Редактирование датафрейма
@@ -7,10 +8,6 @@
 {% block body %}
 <div class="container">
   <h2>Редактирование датафрейма</h2>
-  <form method="post">
-    {% csrf_token %}
-    {{ form.as_p }}
-    <button type="submit" value="add">Сохранить</button>
-  </form>
+  {%crispy form form.helper%}
 </div>
 {% endblock %}

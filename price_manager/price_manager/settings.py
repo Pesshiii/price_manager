@@ -57,6 +57,7 @@ INSTALLED_APPS+=[
     'crispy_forms',
     'mptt',
     'storages',
+    'django_jsonform',
 ]
 
 # Installed internal apps

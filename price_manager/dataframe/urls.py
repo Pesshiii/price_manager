@@ -1,11 +1,10 @@
-
-from django.urls import include, path
+from django.urls import path
 
 from .views import Create, Update
 
 app_name = 'dataframe'
 
 urlpatterns = [
-    path('create/', Create.as_view(), name='dataframe-create'),
-    path('<slug:slug>/update', Update.as_view(), name='dataframe-update'),
+    path('create/', Create.as_view(), name='create'),
+    path('<slug:slug>/update', Update.as_view(), name='update'),
 ]
