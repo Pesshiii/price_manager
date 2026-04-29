@@ -3,7 +3,7 @@ from django import forms
 from .models import Dataframe
 
 
-class DataframeForm(forms.ModelForm):
+class Form(forms.ModelForm):
     class Meta:
         model = Dataframe
         fields = ["name", "conf", "cols"]

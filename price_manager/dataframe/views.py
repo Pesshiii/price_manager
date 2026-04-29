@@ -3,13 +3,13 @@ from django.contrib.auth.mixins import LoginRequiredMixin
 from django.urls import reverse
 from django.views.generic import CreateView, UpdateView
 
-from .forms import DataframeForm
+from .forms import Form
 from .models import Dataframe
 
 
-class DataframeCreate(LoginRequiredMixin, CreateView):
+class Create(LoginRequiredMixin, CreateView):
     model = Dataframe
-    form_class = DataframeForm
+    form_class = Form
     template_name = "dataframe/create.html"
 
     def form_valid(self, form):
@@ -20,9 +20,9 @@ class DataframeCreate(LoginRequiredMixin, CreateView):
         return reverse("dataframe-update", kwargs={"pk": self.object.pk})
 
 
-class DataframeUpdate(LoginRequiredMixin, UpdateView):
+class Update(LoginRequiredMixin, UpdateView):
     model = Dataframe
-    form_class = DataframeForm
+    form_class = Form
     template_name = "dataframe/update.html"
     pk_url_kwarg = "pk"
 

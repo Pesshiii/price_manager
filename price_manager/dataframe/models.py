@@ -1,6 +1,7 @@
 from django.db import models
 from django.core.serializers import json
 from django.core.validators import FileExtensionValidator
+from core.models import SlugModel
 
 
 from core.models import TimeStampedModel
@@ -17,7 +18,10 @@ class FileModel(models.Model):
     )
 
 
-class Dataframe(TimeStampedModel):
+def _get_slug(item):
+    return 
+
+class Dataframe(TimeStampedModel, SlugModel):
     '''
     `name`:\\
         Если датафрейм создается из файла найвание генерируется автоматически\\
@@ -27,10 +31,6 @@ class Dataframe(TimeStampedModel):
     'cols':
         настройки для изменения столбцов датафрэйма(пр. замены начений, применение функции, переименование)
     '''
-    name=models.CharField(
-        verbose_name="Название",
-        unique=True,
-    )
     conf=models.JSONField(
         verbose_name="Настройка",
         encoder=json.DjangoJSONEncoder,

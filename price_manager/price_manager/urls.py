@@ -67,9 +67,6 @@ urlpatterns = [
 
     path('upload/<str:name>/<int:id>/', fm_views.FileUpload.as_view(), name='upload'),
 
-    path('dataframe/create/', df_views.DataframeCreate.as_view(), name='dataframe-create'),
-    path('dataframe/<int:pk>/update', df_views.DataframeUpdate.as_view(), name='dataframe-update'),
-
     path('shopping-tabs/', views.ShoppingTabListView.as_view(), name='shopping-tab-list'),
     path('shopping-tabs/<int:pk>/', views.ShoppingTabDetailView.as_view(), name='shopping-tab-detail'),
     path('shopping-tabs/<int:pk>/delete/', views.ShoppingTabDeleteView.as_view(), name='shopping-tab-delete'),
@@ -79,6 +76,7 @@ urlpatterns = [
     path('shopping-tabs/select/<int:product_id>/', views.ShoppingTabSelectionView.as_view(), name='shopping-tab-select'),
     path('shopping-tabs/<int:tab_pk>/add/<int:product_id>/', views.ShoppingTabAddProductView.as_view(), name='shopping-tab-add-product'),
 
+    path('dataframe/', include('dataframe.urls', namespace='dtaframe')),
 
     path('blog/', include('blogapp.urls')),
 
