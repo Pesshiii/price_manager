@@ -8,13 +8,6 @@
 {% block body %}
 <div class="container">
   <h2>Редактирование датафрейма</h2>
-  <form method="post">
-    {% csrf_token %}
-    {{ form.name|as_crispy_field }}
-    <div id="conf-source-container" hx-get="{% url 'dtaframe:dataframe-conf-source' %}" hx-trigger="load" hx-swap="innerHTML"></div>
-    
-    {{ form.cols|as_crispy_field }}
-    <button type="submit" value="add">Сохранить</button>
-  </form>
+  {%crispy form form.helper%}
 </div>
 {% endblock %}

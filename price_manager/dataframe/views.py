@@ -4,16 +4,9 @@ from django.shortcuts import render
 from django.urls import reverse
 from django.views.generic import CreateView, UpdateView, View
 
-from .forms import ConfForm, Form
+from .forms import Form
 from .models import Dataframe
 
-
-class ConfSourceView(LoginRequiredMixin, View):
-    template_name = "dataframe/partials/conf_source_form.html"
-
-    def get(self, request, *args, **kwargs):
-        conf_form = ConfForm()
-        return render(request, self.template_name, {"conf_form": conf_form})
 
 
 class Create(LoginRequiredMixin, CreateView):
@@ -26,7 +19,7 @@ class Create(LoginRequiredMixin, CreateView):
         return super().form_valid(form)
 
     def get_success_url(self):
-        return reverse("dtaframe:dataframe-update", kwargs={"slug": self.object.slug})
+        return reverse("dtaframe:update", kwargs={"slug": self.object.slug})
 
 
 class Update(LoginRequiredMixin, UpdateView):
@@ -40,4 +33,4 @@ class Update(LoginRequiredMixin, UpdateView):
         return super().form_valid(form)
 
     def get_success_url(self):
-        return reverse("dtaframe:dataframe-update", kwargs={"slug": self.object.slug})
+        return reverse("dtaframe:update", kwargs={"slug": self.object.slug})

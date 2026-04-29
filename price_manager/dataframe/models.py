@@ -18,9 +18,6 @@ class FileModel(models.Model):
     )
 
 
-def _get_slug(item):
-    return 
-
 class Dataframe(TimeStampedModel, SlugModel):
     '''
     `name`:\\
@@ -32,10 +29,50 @@ class Dataframe(TimeStampedModel, SlugModel):
         настройки для изменения столбцов датафрэйма(пр. замены начений, применение функции, переименование)
     '''
     conf=models.JSONField(
-        verbose_name="Настройка",
+        verbose_name="Источник",
         encoder=json.DjangoJSONEncoder,
     )
     cols=models.JSONField(
         verbose_name="Столбцы",
+        blank=True,
         encoder=json.DjangoJSONEncoder,
     )
+
+    CONF_SCHEMA = {
+        "type": "object",
+        "properties": {
+            "source": {
+                "title":"Источник",
+                "oneOf": [
+                    {
+                    "type": "object",
+                    "title": "Файл",
+                    "properties": {
+                        "type":{"type":"string", "widget":"hidden", "const":"file"},
+                        "path": {"type": "string", "title": "Путь к файлу"},
+                        "sheet": {"type": "string", "title": "Лист"},
+                        "header_row": {"type": "number", "title": "Ряд заголовка"}
+                    }
+                    },
+                    {
+                    "type": "object",
+                    "title": "API",
+                    "properties": {
+                        "type":{"type":"string", "widget":"hidden", "const":"api"},
+                        "endpoint": {"type": "string", "title": "Endpoint"},
+                        "parser": {"type": "string", "title": "Парсер/API метод"}
+                    }
+                    },
+                    {
+                    "type": "object",
+                    "title": "БД",
+                    "properties": {
+                        "type":{"type":"string", "widget":"hidden", "const":"db"},
+                        "dsn": {"type": "string", "title": "DSN"},
+                        "query": {"type": "string", "title": "SQL/правило экспорта"}
+                    }
+                    }
+                ]
+            }
+        }
+    }
