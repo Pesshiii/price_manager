@@ -9,7 +9,7 @@ from .models import Dataframe
 
 class Form(forms.ModelForm):
     conf = JSONFormField(label="Настройка", schema=Dataframe.CONF_SCHEMA)
-    cols = JSONFormField(label="Стлбцы", schema=Dataframe.COLS_SCHEMA)
+    cols = JSONFormField(label="Столбцы", schema=Dataframe.COLS_SCHEMA)
 
     class Meta:
         model = Dataframe
