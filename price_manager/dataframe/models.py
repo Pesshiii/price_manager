@@ -1,6 +1,9 @@
 from django.db import models
 from django.core.serializers import json
 from django.core.validators import FileExtensionValidator
+from django.core.files.base import ContentFile
+from urllib.parse import urlparse
+from pathlib import Path
 from core.models import SlugModel
 
 
@@ -29,11 +32,11 @@ class Dataframe(TimeStampedModel, SlugModel):
         настройки для изменения столбцов датафрэйма(пр. замены начений, применение функции, переименование)
     '''
     conf=models.JSONField(
-        verbose_name="Источник",
+        verbose_name="",
         encoder=json.DjangoJSONEncoder,
     )
     cols=models.JSONField(
-        verbose_name="Столбцы",
+        verbose_name="",
         blank=True,
         encoder=json.DjangoJSONEncoder,
     )
@@ -49,7 +52,7 @@ class Dataframe(TimeStampedModel, SlugModel):
                     "title": "Файл",
                     "properties": {
                         "type":{"type":"string", "widget":"hidden", "const":"file"},
-                        "path": {"type": "string", "title": "Путь к файлу"},
+                        "file": {"type": "string", "title": "Файл", "format": "file-url"},
                         "sheet": {"type": "string", "title": "Лист"},
                         "header_row": {"type": "number", "title": "Ряд заголовка"}
                     }
@@ -75,4 +78,53 @@ class Dataframe(TimeStampedModel, SlugModel):
                 ]
             }
         }
+    }
+
+    COL_SCHEMA={
+        "type": "object",
+        "keys": {
+          "column":{
+            "title":"Столбец",
+            "type": "string",
+            "choices": [
+            ]
+          },
+          "link":{
+                "title":"Связь",
+                "type": "string",
+                "widget": "autocomplete",
+                "handler": "contentfield"
+          },
+          "default": {
+              "title":"Пустая строка",
+              "type": "string"
+              },
+          "dict": {
+            "type": "array",
+            "title": "Замены",
+            "items": {
+            "type": "object",
+                "keys": {
+                "key": {
+                    "title":"Если",
+                    "type": "string"
+                },
+                "value": {
+                    "title":"То",
+                    "type": "integer"
+                }
+                }
+            },
+            "minItems": 1,
+            "maxItems": 5
+            }
+        }
+    }
+    
+    COLS_SCHEMA={
+        "type": "array",    
+        "title": "Столбцы",
+        "items": COL_SCHEMA,
+        "minItems": 1,
+        "maxItems": 5
     }
