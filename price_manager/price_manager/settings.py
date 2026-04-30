@@ -73,6 +73,10 @@ INSTALLED_APPS+=[
     'blogapp',
 ]
 
+DJANGO_JSONFORM = {
+    'FILE_HANDLER': '/dataframe/filehandler/'
+}
+
 MIDDLEWARE = [
     'django.middleware.security.SecurityMiddleware',
     'whitenoise.middleware.WhiteNoiseMiddleware',
@@ -198,7 +202,7 @@ if not DEBUG:
         origin.strip()
         for origin in os.environ.get(
             "CSRF_TRUSTED_ORIGINS",
-            "https://localhost:8000,http://localhost:8000",
+            "https://localhost:8000",
         ).split(",")
         if origin.strip()
     ]
@@ -214,11 +218,18 @@ if not DEBUG:
     SESSION_COOKIE_SECURE = True
     SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')
 else:
-    DEBUG = True
+    CSRF_TRUSTED_ORIGINS = [
+        origin.strip()
+        for origin in os.environ.get(
+            "CSRF_TRUSTED_ORIGINS",
+            "http://localhost:8000",
+        ).split(",")
+        if origin.strip()
+    ]
 
     SECURE_SSL_REDIRECT = False         
     SESSION_COOKIE_SECURE = False         
-    CSRF_COOKIE_SECURE = False          
+    CSRF_COOKIE_SECURE = True       
 
 # Internationalization
 # https://docs.djangoproject.com/en/5.2/topics/i18n/
