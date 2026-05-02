@@ -116,6 +116,31 @@
       activeComponent.classList.remove('fileupload-active');
     };
 
+
+
+    window.handleSelectFileAfterRequest = async (event) => {
+      const xhr = event?.detail?.xhr;
+      if (!xhr) {
+        return;
+      }
+
+      const contentType = xhr.getResponseHeader('Content-Type') || '';
+      if (!contentType.includes('application/json')) {
+        return;
+      }
+
+      let payload = null;
+      try {
+        payload = JSON.parse(xhr.responseText || '{}');
+      } catch (error) {
+        return;
+      }
+
+      if (xhr.status >= 200 && xhr.status < 300) {
+        await handleResult(payload);
+      }
+    };
+
     const bootstrapInitialState = async () => {
       const hiddenInput = document.querySelector('.fileupload-hidden-input-container input[name]');
       if (!hiddenInput || !hiddenInput.value) {
@@ -139,38 +164,6 @@
         .querySelectorAll('.fileupload-component.fileupload-active')
         .forEach((item) => item.classList.remove('fileupload-active'));
       component.classList.add('fileupload-active');
-    });
-
-    modalEl.addEventListener('submit', async (event) => {
-      const form = event.target;
-      if (!(form instanceof HTMLFormElement)) {
-        return;
-      }
-
-      event.preventDefault();
-
-      const response = await fetch(form.action, {
-        method: form.method || 'POST',
-        headers: {
-          'X-Requested-With': 'XMLHttpRequest',
-        },
-        body: new FormData(form),
-      });
-
-      const contentType = response.headers.get('content-type') || '';
-      if (contentType.includes('application/json')) {
-        const payload = await response.json();
-        if (response.ok) {
-          await handleResult(payload);
-        }
-        return;
-      }
-
-      const html = await response.text();
-      const modalBody = modalEl.querySelector('.modal-body');
-      if (modalBody) {
-        modalBody.innerHTML = html;
-      }
     });
 
     bootstrapInitialState();
