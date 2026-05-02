@@ -15,6 +15,7 @@
     {% fileupload field_name='file_pk' button_text='Загрузить файл' %}
     <button type="submit" value="add">Сохранить</button>
   </form>
+  <div id="dataframe-table" class="mt-3"></div>
 </div>
 
 <div class="modal fade" id="SelectFile" tabindex="-1" aria-hidden="true">
@@ -28,4 +29,31 @@
     </div>
   </div>
 </div>
+
+<script>
+  (function() {
+    const bindDataframePreview = () => {
+      const tableContainer = document.getElementById('dataframe-table');
+      const fileField = document.querySelector('[name="file_pk"]');
+      const sheetField = document.querySelector('[name="sheet_name"]');
+      const indexField = document.querySelector('[name="index_row"]');
+      if (!tableContainer || !fileField || !sheetField || !indexField) {
+        return;
+      }
+
+      const url = "{% url 'dataframe:table' %}";
+      [fileField, sheetField, indexField].forEach((field) => {
+        field.setAttribute('hx-get', url);
+        field.setAttribute('hx-target', '#dataframe-table');
+        field.setAttribute('hx-include', '[name="file_pk"], [name="sheet_name"], [name="index_row"]');
+      });
+      fileField.setAttribute('hx-trigger', 'change');
+      sheetField.setAttribute('hx-trigger', 'change, keyup delay:300ms');
+      indexField.setAttribute('hx-trigger', 'change');
+    };
+
+    bindDataframePreview();
+    document.body.addEventListener('htmx:afterSwap', bindDataframePreview);
+  })();
+</script>
 {% endblock %}

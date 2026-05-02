@@ -1,2 +1,2 @@
 from .fileupload import SelectFile, FileMetaView
-from .dataframe import DataframeCreateView, DataframeUpdateView
+from .dataframe import DataframeCreateView, DataframeUpdateView, DataframeTableView
