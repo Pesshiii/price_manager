@@ -36,7 +36,8 @@
     }
 
     const ensureSelectedFileUi = () => {
-      const container = document.getElementById('fileupload-hidden-file_pk');
+      const activeFieldName = window.__activeFileuploadComponent?.dataset?.fieldName || 'file_pk';
+      const container = document.getElementById(`fileupload-hidden-${activeFieldName}`);
       if (!container) {
         return null;
       }
@@ -148,7 +149,8 @@
     });
 
     const bootstrapInitialState = async () => {
-      const hiddenInput = document.querySelector('.fileupload-hidden-input-container input[name]');
+      const fieldName = window.__activeFileuploadComponent?.dataset?.fieldName || 'file_pk';
+      const hiddenInput = document.querySelector(`#fileupload-hidden-${fieldName} input[name]`);
       if (!hiddenInput || !hiddenInput.value) {
         return;
       }
@@ -167,6 +169,11 @@
       component.classList.add('fileupload-active');
       window.__activeFileuploadComponent = component;
     });
+
+    const defaultComponent = document.querySelector('.fileupload-component');
+    if (defaultComponent) {
+      window.__activeFileuploadComponent = defaultComponent;
+    }
 
     bootstrapInitialState();
   })();
