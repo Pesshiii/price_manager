@@ -19,7 +19,8 @@ class SelectFile(View):
     def _success_response(request, file_obj):
         if request.headers.get("HX-Request") == "true":
             field_name = request.POST.get("field_name") or "file_pk"
-            return render(request, "dataframe/partials/file_select_success.html", {"pk": file_obj.pk, "field_name": field_name})
+            filename = Path(file_obj.file.name).name
+            return render(request, "dataframe/partials/file_select_success.html", {"pk": file_obj.pk, "field_name": field_name, "filename": filename})
         return JsonResponse({"pk": file_obj.pk})
 
 

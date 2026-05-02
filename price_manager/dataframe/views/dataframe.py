@@ -2,7 +2,7 @@ from pathlib import Path
 
 import pandas as pd
 from django.db import OperationalError, ProgrammingError
-from django.shortcuts import render
+from django.shortcuts import redirect, render
 from django.urls import reverse_lazy
 from django.views.generic import CreateView, TemplateView, UpdateView
 
@@ -12,12 +12,15 @@ from ..forms import DataframeForm
 from ..models import Dataframe, FileModel
 
 
-
 class DataframeCreateView(CreateView):
     model = Dataframe
     form_class = DataframeForm
     template_name = 'dataframe/create.html'
     success_url = reverse_lazy('dataframe:create')
+
+    def form_valid(self, form):
+        self.object = form.save()
+        return redirect('dataframe:update', pk=self.object.pk)
 
 
 class DataframeUpdateView(UpdateView):
@@ -25,6 +28,10 @@ class DataframeUpdateView(UpdateView):
     form_class = DataframeForm
     template_name = 'dataframe/update.html'
     success_url = reverse_lazy('dataframe:create')
+
+    def form_valid(self, form):
+        self.object = form.save()
+        return redirect('dataframe:update', pk=self.object.pk)
 
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
@@ -34,9 +41,6 @@ class DataframeUpdateView(UpdateView):
 
 class DataframeTableView(HTMXMixin, TemplateView):
     template_name = 'dataframe/partials/table.html'
-
-    def __init__(self, **kwargs):
-        TemplateView.__init__(self, **kwargs)
 
     @staticmethod
     def _parse_index_row(index_row_raw):
@@ -62,10 +66,10 @@ class DataframeTableView(HTMXMixin, TemplateView):
                 return pd.read_excel(f, sheet_name=sheet_name, engine='openpyxl')
         raise ValueError('Неподдерживаемый тип файла.')
 
-    def get(self, request, *args, **kwargs):
-        file_pk = request.GET.get('file_pk')
-        sheet_name = request.GET.get('sheet_name', '').strip()
-        index_row_raw = request.GET.get('index_row')
+    def _render_table(self, request, data):
+        file_pk = data.get('file_pk')
+        sheet_name = (data.get('sheet_name') or '').strip()
+        index_row_raw = data.get('index_row')
 
         context = {'columns': [], 'rows': [], 'error': None}
 
@@ -102,3 +106,9 @@ class DataframeTableView(HTMXMixin, TemplateView):
             context['error'] = 'Ошибка чтения файла.'
 
         return render(request, self.template_name, context)
+
+    def get(self, request, *args, **kwargs):
+        return self._render_table(request, request.GET)
+
+    def post(self, request, *args, **kwargs):
+        return self._render_table(request, request.POST)
