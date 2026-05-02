@@ -24,7 +24,7 @@ class SelectFile(View):
         return JsonResponse({"pk": file_obj.pk})
 
 
-    def _build_modal_context(self, form, page):
+    def _build_modal_context(self, form, page, field_name="file_pk"):
         try:
             files_queryset = FileModel.objects.order_by("-id")
             paginator = Paginator(files_queryset, self.per_page)
@@ -34,11 +34,12 @@ class SelectFile(View):
             page_obj = Paginator([], self.per_page).get_page(1)
             files = page_obj.object_list
 
-        return {"form": form, "page_obj": page_obj, "files": files}
+        return {"form": form, "page_obj": page_obj, "files": files, "field_name": field_name}
 
     def get(self, request, *args, **kwargs):
         form = FileForm()
-        context = self._build_modal_context(form=form, page=request.GET.get("page"))
+        field_name = request.GET.get("field_name") or "file_pk"
+        context = self._build_modal_context(form=form, page=request.GET.get("page"), field_name=field_name)
         return render(request, self.template_name, context)
 
     def post(self, request, *args, **kwargs):
@@ -64,7 +65,8 @@ class SelectFile(View):
             return self._success_response(request, file_obj)
 
         if request.headers.get("HX-Request") == "true":
-            context = self._build_modal_context(form=form, page=request.GET.get("page"))
+            field_name = request.POST.get("field_name") or request.GET.get("field_name") or "file_pk"
+            context = self._build_modal_context(form=form, page=request.GET.get("page"), field_name=field_name)
             return render(request, self.template_name, context, status=400)
 
         return JsonResponse({"errors": form.errors}, status=400)
