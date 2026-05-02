@@ -1,6 +1,6 @@
 {% load static %}
 <div class="fileupload-component" data-field-name="{{ field_name }}">
-  <div class="fileupload-trigger {% if initial_pk %}d-none{% endif %}">
+  <div id="fileupload-trigger-{{ field_name }}" class="fileupload-trigger {% if initial_pk %}d-none{% endif %}">
     <button
       type="button"
       class="btn btn-outline-primary"
@@ -14,7 +14,7 @@
     </button>
   </div>
 
-  <div class="fileupload-hidden-input-container">
+  <div id="fileupload-hidden-{{ field_name }}" class="fileupload-hidden-input-container">
     {% if initial_pk %}
       <input type="hidden" name="{{ field_name }}" value="{{ initial_pk }}">
     {% endif %}
@@ -83,38 +83,31 @@
       updateSheetOptions(metadata.sheets || []);
     };
 
-    const handleResult = async (payload) => {
-      if (!payload || !payload.pk) {
+
+    document.body.addEventListener('htmx:configRequest', (event) => {
+      const target = event.target;
+      if (!target || !target.closest || !target.closest('#SelectFile')) {
         return;
       }
 
-      const activeComponent = document.querySelector('.fileupload-component.fileupload-active')
-        || document.querySelector('.fileupload-component');
+      event.detail.parameters.field_name = window.__activeFileuploadComponent?.dataset?.fieldName || 'file_pk';
+    });
 
-      if (!activeComponent) {
+    document.body.addEventListener('htmx:afterSwap', async (event) => {
+      const selectedPk = event.detail?.target?.querySelector?.('[data-selected-pk]')?.dataset?.selectedPk;
+      if (!selectedPk) {
         return;
       }
 
-      const fieldName = activeComponent.dataset.fieldName || 'file_pk';
-      const hiddenContainer = activeComponent.querySelector('.fileupload-hidden-input-container');
-      const trigger = activeComponent.querySelector('.fileupload-trigger');
-
-      hiddenContainer.innerHTML = `<input type="hidden" name="${fieldName}" value="${payload.pk}">`;
-      trigger.classList.add('d-none');
-
-      const modalInstance = bootstrap.Modal.getInstance(modalEl);
-      if (modalInstance) {
-        modalInstance.hide();
-      }
+      const modalInstance = bootstrap.Modal.getOrCreateInstance(modalEl);
+      modalInstance.hide();
 
       try {
-        await loadFileMetadata(payload.pk);
+        await loadFileMetadata(selectedPk);
       } catch (error) {
         showMetadataWarning('Не удалось загрузить метаданные файла. Можно сохранить форму вручную.');
       }
-
-      activeComponent.classList.remove('fileupload-active');
-    };
+    });
 
     const bootstrapInitialState = async () => {
       const hiddenInput = document.querySelector('.fileupload-hidden-input-container input[name]');
@@ -139,38 +132,7 @@
         .querySelectorAll('.fileupload-component.fileupload-active')
         .forEach((item) => item.classList.remove('fileupload-active'));
       component.classList.add('fileupload-active');
-    });
-
-    modalEl.addEventListener('submit', async (event) => {
-      const form = event.target;
-      if (!(form instanceof HTMLFormElement)) {
-        return;
-      }
-
-      event.preventDefault();
-
-      const response = await fetch(form.action, {
-        method: form.method || 'POST',
-        headers: {
-          'X-Requested-With': 'XMLHttpRequest',
-        },
-        body: new FormData(form),
-      });
-
-      const contentType = response.headers.get('content-type') || '';
-      if (contentType.includes('application/json')) {
-        const payload = await response.json();
-        if (response.ok) {
-          await handleResult(payload);
-        }
-        return;
-      }
-
-      const html = await response.text();
-      const modalBody = modalEl.querySelector('.modal-body');
-      if (modalBody) {
-        modalBody.innerHTML = html;
-      }
+      window.__activeFileuploadComponent = component;
     });
 
     bootstrapInitialState();
