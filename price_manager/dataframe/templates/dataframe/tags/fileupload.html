@@ -22,30 +22,152 @@
 </div>
 
 <script>
-(function(){
- if(window.__fileuploadSelectFileBound){return;} window.__fileuploadSelectFileBound=true;
- const modalEl=document.getElementById('SelectFile');
- const fileMetaUrlTemplate="{% url 'dataframe:filesmeta' 0 %}";
- if(!modalEl){return;}
+  (function() {
+    if (window.__fileuploadSelectFileBound) {
+      return;
+    }
+    window.__fileuploadSelectFileBound = true;
 
- const updateSelectedFileUI=(filename)=>{
-   const c=document.getElementById('fileupload-hidden-file_pk');
-   if(!c) return;
-   let row=c.querySelector('.fileupload-selected-file');
-   if(!row){
-     row=document.createElement('div'); row.className='d-flex align-items-center gap-2 mt-2 fileupload-selected-file';
-     row.innerHTML='<span class="text-muted" data-fileupload-filename></span><button type="button" class="btn btn-sm btn-outline-secondary" data-bs-toggle="modal" data-bs-target="#SelectFile" hx-get="{% url "dataframe:filesselect" %}" hx-target="#SelectFile .modal-body" hx-swap="innerHTML">Изменить</button>';
-     c.appendChild(row);
-   }
-   const nameEl=row.querySelector('[data-fileupload-filename]'); if(nameEl){nameEl.textContent=filename||'';}
-   if(window.htmx){window.htmx.process(row);}
- };
+    const modalEl = document.getElementById('SelectFile');
+    const fileMetaUrlTemplate = "{% url 'dataframe:filesmeta' 0 %}";
+    const fileSelectUrl = "{% url 'dataframe:filesselect' %}";
+    if (!modalEl) {
+      return;
+    }
 
- const updateSheetOptions=(sheets)=>{const f=document.querySelector('[name="sheet_name"]'); if(!f||f.tagName!=='SELECT')return; f.innerHTML=''; const e=document.createElement('option');e.value='';e.textContent='---------';f.appendChild(e); (sheets||[]).forEach(s=>{const o=document.createElement('option');o.value=s;o.textContent=s;f.appendChild(o);});};
- const loadFileMetadata=async(filePk)=>{const u=fileMetaUrlTemplate.replace('/0/meta/',`/${filePk}/meta/`); const r=await fetch(u,{headers:{'X-Requested-With':'XMLHttpRequest'}}); if(!r.ok) throw new Error(); const m=await r.json(); const name=document.querySelector('[name="name"]'); if(name && !name.value && m.filename){name.value=m.filename;} updateSelectedFileUI(m.filename||''); updateSheetOptions(m.sheets||[]);};
+    const ensureSelectedFileUi = () => {
+      const container = document.getElementById('fileupload-hidden-file_pk');
+      if (!container) {
+        return null;
+      }
 
- document.body.addEventListener('htmx:configRequest',(event)=>{const t=event.target; if(!t||!t.closest||!t.closest('#SelectFile'))return; event.detail.parameters.field_name=window.__activeFileuploadComponent?.dataset?.fieldName||'file_pk';});
- document.body.addEventListener('htmx:afterSwap',async(event)=>{const pk=event.detail?.target?.querySelector?.('[data-selected-pk]')?.dataset?.selectedPk; if(!pk)return; bootstrap.Modal.getOrCreateInstance(modalEl).hide(); try{await loadFileMetadata(pk); if(window.htmx){const fileField=document.querySelector('[name="file_pk"]'); if(fileField){window.htmx.trigger(fileField,'change');}}}catch(_){} });
- document.addEventListener('click',(event)=>{const component=event.target.closest('.fileupload-component'); if(!component)return; document.querySelectorAll('.fileupload-component.fileupload-active').forEach(i=>i.classList.remove('fileupload-active')); component.classList.add('fileupload-active'); window.__activeFileuploadComponent=component;});
-})();
+      let row = container.querySelector('.fileupload-selected-file');
+      if (!row) {
+        row = document.createElement('div');
+        row.className = 'd-flex align-items-center gap-2 mt-2 fileupload-selected-file';
+
+        const filenameNode = document.createElement('span');
+        filenameNode.className = 'text-muted';
+        filenameNode.dataset.fileuploadFilename = '';
+
+        const changeButton = document.createElement('button');
+        changeButton.type = 'button';
+        changeButton.className = 'btn btn-sm btn-outline-secondary';
+        changeButton.setAttribute('data-bs-toggle', 'modal');
+        changeButton.setAttribute('data-bs-target', '#SelectFile');
+        changeButton.setAttribute('hx-get', fileSelectUrl);
+        changeButton.setAttribute('hx-target', '#SelectFile .modal-body');
+        changeButton.setAttribute('hx-swap', 'innerHTML');
+        changeButton.textContent = 'Изменить';
+
+        row.appendChild(filenameNode);
+        row.appendChild(changeButton);
+        container.appendChild(row);
+      }
+
+      if (window.htmx) {
+        window.htmx.process(row);
+      }
+      return row;
+    };
+
+    const updateSelectedFileUI = (filename) => {
+      const row = ensureSelectedFileUi();
+      if (!row) {
+        return;
+      }
+      const nameEl = row.querySelector('[data-fileupload-filename]');
+      if (nameEl) {
+        nameEl.textContent = filename || '';
+      }
+    };
+
+    const updateSheetOptions = (sheets) => {
+      const sheetField = document.querySelector('[name="sheet_name"]');
+      if (!sheetField || sheetField.tagName !== 'SELECT') {
+        return;
+      }
+
+      sheetField.innerHTML = '';
+      const emptyOption = document.createElement('option');
+      emptyOption.value = '';
+      emptyOption.textContent = '---------';
+      sheetField.appendChild(emptyOption);
+
+      (sheets || []).forEach((sheet) => {
+        const option = document.createElement('option');
+        option.value = sheet;
+        option.textContent = sheet;
+        sheetField.appendChild(option);
+      });
+    };
+
+    const loadFileMetadata = async (filePk) => {
+      const metaUrl = fileMetaUrlTemplate.replace('/0/meta/', `/${filePk}/meta/`);
+      const response = await fetch(metaUrl, {headers: {'X-Requested-With': 'XMLHttpRequest'}});
+      if (!response.ok) {
+        throw new Error('meta');
+      }
+
+      const metadata = await response.json();
+      const nameField = document.querySelector('[name="name"]');
+      if (nameField && !nameField.value && metadata.filename) {
+        nameField.value = metadata.filename;
+      }
+
+      updateSelectedFileUI(metadata.filename || '');
+      updateSheetOptions(metadata.sheets || []);
+    };
+
+    document.body.addEventListener('htmx:configRequest', (event) => {
+      const target = event.target;
+      if (!target || !target.closest || !target.closest('#SelectFile')) {
+        return;
+      }
+      event.detail.parameters.field_name = window.__activeFileuploadComponent?.dataset?.fieldName || 'file_pk';
+    });
+
+    document.body.addEventListener('htmx:afterSwap', async (event) => {
+      const selectedPk = event.detail?.target?.querySelector?.('[data-selected-pk]')?.dataset?.selectedPk;
+      if (!selectedPk) {
+        return;
+      }
+
+      const modalInstance = bootstrap.Modal.getOrCreateInstance(modalEl);
+      modalInstance.hide();
+
+      try {
+        await loadFileMetadata(selectedPk);
+        if (window.htmx) {
+          const fileField = document.querySelector('[name="file_pk"]');
+          if (fileField) {
+            window.htmx.trigger(fileField, 'change');
+          }
+        }
+      } catch (_) {}
+    });
+
+    const bootstrapInitialState = async () => {
+      const hiddenInput = document.querySelector('.fileupload-hidden-input-container input[name]');
+      if (!hiddenInput || !hiddenInput.value) {
+        return;
+      }
+      try {
+        await loadFileMetadata(hiddenInput.value);
+      } catch (_) {}
+    };
+
+    document.addEventListener('click', (event) => {
+      const component = event.target.closest('.fileupload-component');
+      if (!component) {
+        return;
+      }
+
+      document.querySelectorAll('.fileupload-component.fileupload-active').forEach((item) => item.classList.remove('fileupload-active'));
+      component.classList.add('fileupload-active');
+      window.__activeFileuploadComponent = component;
+    });
+
+    bootstrapInitialState();
+  })();
 </script>
