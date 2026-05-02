@@ -157,31 +157,6 @@
       }
     };
 
-
-
-    window.handleSelectFileAfterRequest = async (event) => {
-      const xhr = event?.detail?.xhr;
-      if (!xhr) {
-        return;
-      }
-
-      const contentType = xhr.getResponseHeader('Content-Type') || '';
-      if (!contentType.includes('application/json')) {
-        return;
-      }
-
-      let payload = null;
-      try {
-        payload = JSON.parse(xhr.responseText || '{}');
-      } catch (error) {
-        return;
-      }
-
-      if (xhr.status >= 200 && xhr.status < 300) {
-        await handleResult(payload);
-      }
-    };
-
     const bootstrapInitialState = async () => {
       const hiddenInput = document.querySelector('.fileupload-hidden-input-container input[name]');
       if (!hiddenInput || !hiddenInput.value) {
