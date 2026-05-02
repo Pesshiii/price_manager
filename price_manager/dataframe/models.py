@@ -24,6 +24,12 @@ def document_pre_delete(sender, instance, **kwargs):
     instance.file.delete(save=False)
 
 class Dataframe(TimeStampedModel, SlugModel):
+  file = models.ForeignKey(
+    FileModel,
+    on_delete=models.PROTECT,
+    related_name='dataframes',
+    verbose_name='Файл'
+  )
   sheet_name = models.CharField(verbose_name='Название листа')
   create_new = models.BooleanField(verbose_name='Создавать если нет',
                                    default=False)
