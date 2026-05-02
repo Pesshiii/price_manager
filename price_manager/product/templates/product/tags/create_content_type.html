@@ -4,9 +4,9 @@
       type="button"
       class="btn btn-outline-primary"
       data-bs-toggle="modal"
-      data-bs-target="#CreateContentTypeModal"
-      hx-get="{% url 'product:contenttype-create' %}"
-      hx-target="#CreateContentTypeModal .modal-body"
+      data-bs-target="#SelectContentTypeModal"
+      hx-get="{% url 'product:content-type-select' %}"
+      hx-target="#SelectContentTypeModal .modal-body"
       hx-swap="innerHTML"
     >
       {{ button_text }}
@@ -20,11 +20,11 @@
   </div>
 </div>
 
-<div class="modal fade" id="CreateContentTypeModal" tabindex="-1" aria-hidden="true">
+<div class="modal fade" id="SelectContentTypeModal" tabindex="-1" aria-hidden="true">
   <div class="modal-dialog">
     <div class="modal-content">
       <div class="modal-header">
-        <h5 class="modal-title">Создать новый</h5>
+        <h5 class="modal-title">Выбрать или создать тип контента</h5>
         <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
       </div>
       <div class="modal-body"></div>
@@ -39,7 +39,7 @@
     }
     window.__contentTypeCreateBound = true;
 
-    const modalEl = document.getElementById('CreateContentTypeModal');
+    const modalEl = document.getElementById('SelectContentTypeModal');
     if (!modalEl) {
       return;
     }
@@ -71,6 +71,10 @@
       activeComponent.classList.remove('content-type-active');
     };
 
+
+    document.addEventListener('content-type-selected', (event) => {
+      handleResult(event.detail || {});
+    });
     document.addEventListener('click', (event) => {
       const component = event.target.closest('.content-type-component');
       if (!component) {
