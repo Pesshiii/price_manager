@@ -1,1 +1,1 @@
-from fileupload import SelectFile
+from .fileupload import SelectFile

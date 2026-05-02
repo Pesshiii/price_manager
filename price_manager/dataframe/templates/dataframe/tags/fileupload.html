@@ -1,0 +1,107 @@
+{% load static %}
+<div class="fileupload-component" data-field-name="{{ field_name }}">
+  <div class="fileupload-trigger {% if initial_pk %}d-none{% endif %}">
+    <button
+      type="button"
+      class="btn btn-outline-primary"
+      data-bs-toggle="modal"
+      data-bs-target="#SelectFile"
+      hx-get="{% url 'dataframe:filesselect' %}"
+      hx-target="#SelectFile .modal-body"
+      hx-swap="innerHTML"
+    >
+      {{ button_text }}
+    </button>
+  </div>
+
+  <div class="fileupload-hidden-input-container">
+    {% if initial_pk %}
+      <input type="hidden" name="{{ field_name }}" value="{{ initial_pk }}">
+    {% endif %}
+  </div>
+</div>
+
+<script>
+  (function() {
+    if (window.__fileuploadSelectFileBound) {
+      return;
+    }
+    window.__fileuploadSelectFileBound = true;
+
+    const modalEl = document.getElementById('SelectFile');
+    if (!modalEl) {
+      return;
+    }
+
+    const handleResult = (payload) => {
+      if (!payload || !payload.pk) {
+        return;
+      }
+
+      const activeComponent = document.querySelector('.fileupload-component.fileupload-active')
+        || document.querySelector('.fileupload-component');
+
+      if (!activeComponent) {
+        return;
+      }
+
+      const fieldName = activeComponent.dataset.fieldName || 'file_pk';
+      const hiddenContainer = activeComponent.querySelector('.fileupload-hidden-input-container');
+      const trigger = activeComponent.querySelector('.fileupload-trigger');
+
+      hiddenContainer.innerHTML = `<input type="hidden" name="${fieldName}" value="${payload.pk}">`;
+      trigger.classList.add('d-none');
+
+      const modalInstance = bootstrap.Modal.getInstance(modalEl);
+      if (modalInstance) {
+        modalInstance.hide();
+      }
+
+      activeComponent.classList.remove('fileupload-active');
+    };
+
+    document.addEventListener('click', (event) => {
+      const component = event.target.closest('.fileupload-component');
+      if (!component) {
+        return;
+      }
+
+      document
+        .querySelectorAll('.fileupload-component.fileupload-active')
+        .forEach((item) => item.classList.remove('fileupload-active'));
+      component.classList.add('fileupload-active');
+    });
+
+    modalEl.addEventListener('submit', async (event) => {
+      const form = event.target;
+      if (!(form instanceof HTMLFormElement)) {
+        return;
+      }
+
+      event.preventDefault();
+
+      const response = await fetch(form.action, {
+        method: form.method || 'POST',
+        headers: {
+          'X-Requested-With': 'XMLHttpRequest',
+        },
+        body: new FormData(form),
+      });
+
+      const contentType = response.headers.get('content-type') || '';
+      if (contentType.includes('application/json')) {
+        const payload = await response.json();
+        if (response.ok) {
+          handleResult(payload);
+        }
+        return;
+      }
+
+      const html = await response.text();
+      const modalBody = modalEl.querySelector('.modal-body');
+      if (modalBody) {
+        modalBody.innerHTML = html;
+      }
+    });
+  })();
+</script>
