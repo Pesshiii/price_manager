@@ -10,3 +10,12 @@ def create_content_type(field_name="content_type_pk", button_text="Создат�
         "button_text": button_text,
         "initial_pk": initial_pk,
     }
+
+
+@register.inclusion_tag("product/tags/choose_content_type.html")
+def choose_content_type(field_name="content_type_pk", button_text="Выбрать", initial_pk=None):
+    return {
+        "field_name": field_name,
+        "button_text": button_text,
+        "initial_pk": initial_pk,
+    }

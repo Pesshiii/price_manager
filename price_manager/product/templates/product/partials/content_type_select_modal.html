@@ -86,6 +86,11 @@
       }
 
       const payload = await response.json();
+      if (window.handleContentTypeResult) {
+        window.handleContentTypeResult(payload);
+        return;
+      }
+
       document.dispatchEvent(new CustomEvent('content-type-selected', { detail: payload }));
     });
   })();
