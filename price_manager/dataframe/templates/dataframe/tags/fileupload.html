@@ -88,7 +88,8 @@
         return;
       }
 
-      const activeComponent = document.querySelector('.fileupload-component.fileupload-active')
+      const activeComponent = window.__activeFileuploadComponent
+        || document.querySelector('.fileupload-component.fileupload-active')
         || document.querySelector('.fileupload-component');
 
       if (!activeComponent) {
@@ -102,10 +103,8 @@
       hiddenContainer.innerHTML = `<input type="hidden" name="${fieldName}" value="${payload.pk}">`;
       trigger.classList.add('d-none');
 
-      const modalInstance = bootstrap.Modal.getInstance(modalEl);
-      if (modalInstance) {
-        modalInstance.hide();
-      }
+      const modalInstance = bootstrap.Modal.getOrCreateInstance(modalEl);
+      modalInstance.hide();
 
       try {
         await loadFileMetadata(payload.pk);
@@ -114,6 +113,48 @@
       }
 
       activeComponent.classList.remove('fileupload-active');
+      window.__activeFileuploadComponent = null;
+    };
+
+
+
+
+
+    window.handleSelectFileBeforeSwap = (event) => {
+      const xhr = event?.detail?.xhr;
+      if (!xhr) {
+        return;
+      }
+
+      const contentType = xhr.getResponseHeader('Content-Type') || '';
+      if (!contentType.includes('application/json')) {
+        return;
+      }
+
+      event.detail.shouldSwap = false;
+    };
+
+    window.handleSelectFileAfterRequest = async (event) => {
+      const xhr = event?.detail?.xhr;
+      if (!xhr) {
+        return;
+      }
+
+      const contentType = xhr.getResponseHeader('Content-Type') || '';
+      if (!contentType.includes('application/json')) {
+        return;
+      }
+
+      let payload = null;
+      try {
+        payload = JSON.parse(xhr.responseText || '{}');
+      } catch (error) {
+        return;
+      }
+
+      if (xhr.status >= 200 && xhr.status < 300) {
+        await handleResult(payload);
+      }
     };
 
 
@@ -164,6 +205,7 @@
         .querySelectorAll('.fileupload-component.fileupload-active')
         .forEach((item) => item.classList.remove('fileupload-active'));
       component.classList.add('fileupload-active');
+      window.__activeFileuploadComponent = component;
     });
 
     bootstrapInitialState();
