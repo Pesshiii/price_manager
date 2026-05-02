@@ -3,7 +3,7 @@ from django.views.generic import CreateView, UpdateView
 
 from ..forms import DataframeForm
 from ..models import Dataframe
-from .fileupload import SelectFile
+from .fileupload import SelectFile, FileMetaView
 
 
 class DataframeCreateView(CreateView):

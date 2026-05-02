@@ -1,3 +1,6 @@
+from pathlib import Path
+
+import pandas as pd
 from django.http import JsonResponse
 from django.core.paginator import Paginator
 from django.shortcuts import render
@@ -45,3 +48,33 @@ class SelectFile(View):
             return self._success_response(file_obj)
 
         return JsonResponse({"errors": form.errors}, status=400)
+
+
+class FileMetaView(View):
+    @staticmethod
+    def _build_sheet_names(file_obj):
+        extension = Path(file_obj.file.name).suffix.lower()
+
+        if extension == ".csv":
+            return ["CSV"]
+
+        if extension in {".xlsx", ".xlsm", ".xls"}:
+            with file_obj.file.open("rb") as f:
+                excel_file = pd.ExcelFile(f, engine="openpyxl")
+                return excel_file.sheet_names
+
+        return []
+
+    def get(self, request, pk, *args, **kwargs):
+        try:
+            file_obj = FileModel.objects.get(pk=pk)
+        except FileModel.DoesNotExist:
+            return JsonResponse({"error": "Файл не найден."}, status=404)
+
+        try:
+            sheets = self._build_sheet_names(file_obj)
+        except Exception:
+            return JsonResponse({"error": "Не удалось получить метаданные файла."}, status=400)
+
+        filename = Path(file_obj.file.name).stem
+        return JsonResponse({"filename": filename, "sheets": sheets})
