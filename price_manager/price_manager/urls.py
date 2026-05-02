@@ -72,7 +72,7 @@ urlpatterns = [
     path('shopping-tabs/select/<int:product_id>/', views.ShoppingTabSelectionView.as_view(), name='shopping-tab-select'),
     path('shopping-tabs/<int:tab_pk>/add/<int:product_id>/', views.ShoppingTabAddProductView.as_view(), name='shopping-tab-add-product'),
 
-    path('dataframe/', include('dataframe.urls', namespace='dtaframe')),
+    path('dataframe/', include('dataframe.urls', namespace='dataframe')),
     path('product/', include('product.urls', namespace='product')),
 
     path('blog/', include('blogapp.urls')),
