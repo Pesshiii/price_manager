@@ -104,6 +104,12 @@
 
       try {
         await loadFileMetadata(selectedPk);
+        if (window.htmx) {
+          const fileField = document.querySelector('[name="file_pk"]');
+          if (fileField) {
+            window.htmx.trigger(fileField, 'change');
+          }
+        }
       } catch (error) {
         showMetadataWarning('Не удалось загрузить метаданные файла. Можно сохранить форму вручную.');
       }
