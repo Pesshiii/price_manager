@@ -66,6 +66,8 @@ urlpatterns = [
 
 
     path('upload/<str:name>/<int:id>/', fm_views.FileUpload.as_view(), name='upload'),
+    path('files/select/', fm_views.SelectFile.as_view(), name='select-file'),
+    path('files/field/', fm_views.fileupload_field, name='fileupload-field'),
 
     path('shopping-tabs/', views.ShoppingTabListView.as_view(), name='shopping-tab-list'),
     path('shopping-tabs/<int:pk>/', views.ShoppingTabDetailView.as_view(), name='shopping-tab-detail'),

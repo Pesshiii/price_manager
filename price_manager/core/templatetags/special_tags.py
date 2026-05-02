@@ -3,6 +3,11 @@ from product_price_manager.models import PRICE_TYPES
 
 register = template.Library()
 
+
+@register.inclusion_tag('core/partials/fileupload_tag.html')
+def fileupload(name='file_pk'):
+  return {'name': name}
+
 @register.filter
 def get_item(dictionary, key):
   return dictionary.get(key, "")

@@ -1,0 +1,16 @@
+<div id="file-upload-field-wrapper"
+     hx-trigger="file:selected from:body"
+     hx-get="{% url 'fileupload-field' %}"
+     hx-vals='js:{pk: event.detail.pk, name: "{{ name }}"}'
+     hx-swap="outerHTML">
+  <button type="button"
+          class="btn btn-success"
+          data-bs-toggle="modal"
+          data-bs-target="#modal-container"
+          hx-get="{% url 'select-file' %}"
+          hx-target="#modal-container .modal-content"
+          hx-swap="innerHTML"
+          hx-on::after-request="if(event.detail.successful){ document.body.dispatchEvent(new CustomEvent('file:selected',{detail:{pk: event.detail.xhr.responseText}})); }">
+    Загрузить файл
+  </button>
+</div>

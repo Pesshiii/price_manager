@@ -1,0 +1,46 @@
+<div class="modal-header">
+  <h5 class="modal-title">Выбор файла</h5>
+  <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+</div>
+<div class="modal-body">
+  <ul class="nav nav-tabs mb-3" id="fileTabs" role="tablist">
+    <li class="nav-item" role="presentation">
+      <button class="nav-link active" id="upload-tab" data-bs-toggle="tab" data-bs-target="#upload-pane" type="button" role="tab">Загрузить</button>
+    </li>
+    <li class="nav-item" role="presentation">
+      <button class="nav-link" id="select-tab" data-bs-toggle="tab" data-bs-target="#select-pane" type="button" role="tab">Выбрать загруженный</button>
+    </li>
+  </ul>
+
+  <div class="tab-content">
+    <div class="tab-pane fade show active" id="upload-pane" role="tabpanel" aria-labelledby="upload-tab">
+      <form method="post" enctype="multipart/form-data"
+            hx-post="{% url 'select-file' %}"
+            hx-target="#file-upload-field-wrapper"
+            hx-swap="outerHTML"
+            hx-on::after-request="if(event.detail.successful){ bootstrap.Modal.getInstance(document.getElementById('modal-container'))?.hide(); }">
+        {% csrf_token %}
+        {{ form.as_p }}
+        <button type="submit" class="btn btn-primary">Добавить</button>
+      </form>
+    </div>
+
+    <div class="tab-pane fade" id="select-pane" role="tabpanel" aria-labelledby="select-tab">
+      <form method="post"
+            hx-post="{% url 'select-file' %}"
+            hx-target="#file-upload-field-wrapper"
+            hx-swap="outerHTML"
+            hx-on::after-request="if(event.detail.successful){ bootstrap.Modal.getInstance(document.getElementById('modal-container'))?.hide(); }">
+        {% csrf_token %}
+        <label class="form-label" for="selected_file_pk">Файл</label>
+        <select class="form-select mb-3" id="selected_file_pk" name="selected_file_pk" required>
+          <option value="" selected disabled>Выберите файл</option>
+          {% for file in files %}
+            <option value="{{ file.pk }}">#{{ file.pk }} — {{ file.file.name }}</option>
+          {% endfor %}
+        </select>
+        <button type="submit" class="btn btn-primary">Добавить</button>
+      </form>
+    </div>
+  </div>
+</div>
