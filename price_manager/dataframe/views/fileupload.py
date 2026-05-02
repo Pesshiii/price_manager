@@ -16,24 +16,28 @@ class SelectFile(View):
     per_page = 10
 
     @staticmethod
-    def _success_response(file_obj):
+    def _success_response(request, file_obj):
+        if request.headers.get("HX-Request") == "true":
+            field_name = request.POST.get("field_name") or "file_pk"
+            return render(request, "dataframe/partials/file_select_success.html", {"pk": file_obj.pk, "field_name": field_name})
         return JsonResponse({"pk": file_obj.pk})
 
-    def get(self, request, *args, **kwargs):
-        form = FileForm()
+
+    def _build_modal_context(self, form, page):
         try:
             files_queryset = FileModel.objects.order_by("-id")
             paginator = Paginator(files_queryset, self.per_page)
-            page_obj = paginator.get_page(request.GET.get("page"))
+            page_obj = paginator.get_page(page)
             files = page_obj.object_list
         except (ProgrammingError, OperationalError):
             page_obj = Paginator([], self.per_page).get_page(1)
             files = page_obj.object_list
-        context = {
-            "form": form,
-            "page_obj": page_obj,
-            "files": files,
-        }
+
+        return {"form": form, "page_obj": page_obj, "files": files}
+
+    def get(self, request, *args, **kwargs):
+        form = FileForm()
+        context = self._build_modal_context(form=form, page=request.GET.get("page"))
         return render(request, self.template_name, context)
 
     def post(self, request, *args, **kwargs):
@@ -48,7 +52,7 @@ class SelectFile(View):
             except (ProgrammingError, OperationalError):
                 return JsonResponse({"errors": {"database": ["Таблица файлов отсутствует. Выполните миграции."]}}, status=503)
 
-            return self._success_response(file_obj)
+            return self._success_response(request, file_obj)
 
         form = FileForm(request.POST, request.FILES)
         if form.is_valid():
@@ -56,7 +60,11 @@ class SelectFile(View):
                 file_obj = form.save()
             except (ProgrammingError, OperationalError):
                 return JsonResponse({"errors": {"database": ["Таблица файлов отсутствует. Выполните миграции."]}}, status=503)
-            return self._success_response(file_obj)
+            return self._success_response(request, file_obj)
+
+        if request.headers.get("HX-Request") == "true":
+            context = self._build_modal_context(form=form, page=request.GET.get("page"))
+            return render(request, self.template_name, context, status=400)
 
         return JsonResponse({"errors": form.errors}, status=400)
 

@@ -1,6 +1,6 @@
 {% load static %}
 <div class="fileupload-component" data-field-name="{{ field_name }}">
-  <div class="fileupload-trigger {% if initial_pk %}d-none{% endif %}">
+  <div id="fileupload-trigger-{{ field_name }}" class="fileupload-trigger {% if initial_pk %}d-none{% endif %}">
     <button
       type="button"
       class="btn btn-outline-primary"
@@ -14,7 +14,7 @@
     </button>
   </div>
 
-  <div class="fileupload-hidden-input-container">
+  <div id="fileupload-hidden-{{ field_name }}" class="fileupload-hidden-input-container">
     {% if initial_pk %}
       <input type="hidden" name="{{ field_name }}" value="{{ initial_pk }}">
     {% endif %}
@@ -83,79 +83,31 @@
       updateSheetOptions(metadata.sheets || []);
     };
 
-    const handleResult = async (payload) => {
-      if (!payload || !payload.pk) {
+
+    document.body.addEventListener('htmx:configRequest', (event) => {
+      const target = event.target;
+      if (!target || !target.closest || !target.closest('#SelectFile')) {
         return;
       }
 
-      const activeComponent = window.__activeFileuploadComponent
-        || document.querySelector('.fileupload-component.fileupload-active')
-        || document.querySelector('.fileupload-component');
+      event.detail.parameters.field_name = window.__activeFileuploadComponent?.dataset?.fieldName || 'file_pk';
+    });
 
-      if (!activeComponent) {
+    document.body.addEventListener('htmx:afterSwap', async (event) => {
+      const selectedPk = event.detail?.target?.querySelector?.('[data-selected-pk]')?.dataset?.selectedPk;
+      if (!selectedPk) {
         return;
       }
-
-      const fieldName = activeComponent.dataset.fieldName || 'file_pk';
-      const hiddenContainer = activeComponent.querySelector('.fileupload-hidden-input-container');
-      const trigger = activeComponent.querySelector('.fileupload-trigger');
-
-      hiddenContainer.innerHTML = `<input type="hidden" name="${fieldName}" value="${payload.pk}">`;
-      trigger.classList.add('d-none');
 
       const modalInstance = bootstrap.Modal.getOrCreateInstance(modalEl);
       modalInstance.hide();
 
       try {
-        await loadFileMetadata(payload.pk);
+        await loadFileMetadata(selectedPk);
       } catch (error) {
         showMetadataWarning('Не удалось загрузить метаданные файла. Можно сохранить форму вручную.');
       }
-
-      activeComponent.classList.remove('fileupload-active');
-      window.__activeFileuploadComponent = null;
-    };
-
-
-
-
-
-    window.handleSelectFileBeforeSwap = (event) => {
-      const xhr = event?.detail?.xhr;
-      if (!xhr) {
-        return;
-      }
-
-      const contentType = xhr.getResponseHeader('Content-Type') || '';
-      if (!contentType.includes('application/json')) {
-        return;
-      }
-
-      event.detail.shouldSwap = false;
-    };
-
-    window.handleSelectFileAfterRequest = async (event) => {
-      const xhr = event?.detail?.xhr;
-      if (!xhr) {
-        return;
-      }
-
-      const contentType = xhr.getResponseHeader('Content-Type') || '';
-      if (!contentType.includes('application/json')) {
-        return;
-      }
-
-      let payload = null;
-      try {
-        payload = JSON.parse(xhr.responseText || '{}');
-      } catch (error) {
-        return;
-      }
-
-      if (xhr.status >= 200 && xhr.status < 300) {
-        await handleResult(payload);
-      }
-    };
+    });
 
     const bootstrapInitialState = async () => {
       const hiddenInput = document.querySelector('.fileupload-hidden-input-container input[name]');

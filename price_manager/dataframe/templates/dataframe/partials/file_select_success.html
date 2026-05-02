@@ -1,0 +1,19 @@
+<div id="fileupload-trigger-{{ field_name }}" class="fileupload-trigger d-none" hx-swap-oob="outerHTML">
+  <button
+    type="button"
+    class="btn btn-outline-primary"
+    data-bs-toggle="modal"
+    data-bs-target="#SelectFile"
+    hx-get="{% url 'dataframe:filesselect' %}"
+    hx-target="#SelectFile .modal-body"
+    hx-swap="innerHTML"
+  >
+    Загрузить файл
+  </button>
+</div>
+
+<div id="fileupload-hidden-{{ field_name }}" class="fileupload-hidden-input-container" hx-swap-oob="outerHTML">
+  <input type="hidden" name="{{ field_name }}" value="{{ pk }}">
+</div>
+
+<div class="d-none" data-selected-pk="{{ pk }}"></div>

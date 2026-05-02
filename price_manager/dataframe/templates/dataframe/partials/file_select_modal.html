@@ -33,8 +33,6 @@
               hx-post="{% url 'dataframe:filesselect' %}"
               hx-target="#SelectFile .modal-body"
               hx-swap="innerHTML"
-              hx-on::before-swap="window.handleSelectFileBeforeSwap && window.handleSelectFileBeforeSwap(event)"
-              hx-on::after-request="window.handleSelectFileAfterRequest && window.handleSelectFileAfterRequest(event)"
             >
               {% csrf_token %}
               <input type="hidden" name="existing_file_pk" value="{{ item.pk }}">
