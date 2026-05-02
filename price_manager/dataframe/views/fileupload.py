@@ -2,6 +2,7 @@ from pathlib import Path
 
 import pandas as pd
 from django.http import JsonResponse
+from django.db import OperationalError, ProgrammingError
 from django.core.paginator import Paginator
 from django.shortcuts import render
 from django.views import View
@@ -20,13 +21,18 @@ class SelectFile(View):
 
     def get(self, request, *args, **kwargs):
         form = FileForm()
-        files_queryset = FileModel.objects.order_by("-id")
-        paginator = Paginator(files_queryset, self.per_page)
-        page_obj = paginator.get_page(request.GET.get("page"))
+        try:
+            files_queryset = FileModel.objects.order_by("-id")
+            paginator = Paginator(files_queryset, self.per_page)
+            page_obj = paginator.get_page(request.GET.get("page"))
+            files = page_obj.object_list
+        except (ProgrammingError, OperationalError):
+            page_obj = Paginator([], self.per_page).get_page(1)
+            files = page_obj.object_list
         context = {
             "form": form,
             "page_obj": page_obj,
-            "files": page_obj.object_list,
+            "files": files,
         }
         return render(request, self.template_name, context)
 
@@ -39,12 +45,17 @@ class SelectFile(View):
                 return JsonResponse({"errors": {"existing_file_pk": ["Некорректный идентификатор файла."]}}, status=400)
             except FileModel.DoesNotExist:
                 return JsonResponse({"errors": {"existing_file_pk": ["Файл не найден."]}}, status=404)
+            except (ProgrammingError, OperationalError):
+                return JsonResponse({"errors": {"database": ["Таблица файлов отсутствует. Выполните миграции."]}}, status=503)
 
             return self._success_response(file_obj)
 
         form = FileForm(request.POST, request.FILES)
         if form.is_valid():
-            file_obj = form.save()
+            try:
+                file_obj = form.save()
+            except (ProgrammingError, OperationalError):
+                return JsonResponse({"errors": {"database": ["Таблица файлов отсутствует. Выполните миграции."]}}, status=503)
             return self._success_response(file_obj)
 
         return JsonResponse({"errors": form.errors}, status=400)
@@ -70,6 +81,8 @@ class FileMetaView(View):
             file_obj = FileModel.objects.get(pk=pk)
         except FileModel.DoesNotExist:
             return JsonResponse({"error": "Файл не найден."}, status=404)
+        except (ProgrammingError, OperationalError):
+            return JsonResponse({"error": "Таблица файлов отсутствует. Выполните миграции."}, status=503)
 
         try:
             sheets = self._build_sheet_names(file_obj)
