@@ -30,30 +30,4 @@
   </div>
 </div>
 
-<script>
-  (function() {
-    const bindDataframePreview = () => {
-      const tableContainer = document.getElementById('dataframe-table');
-      const fileField = document.querySelector('[name="file_pk"]');
-      const sheetField = document.querySelector('[name="sheet_name"]');
-      const indexField = document.querySelector('[name="index_row"]');
-      if (!tableContainer || !fileField || !sheetField || !indexField) {
-        return;
-      }
-
-      const url = "{% url 'dataframe:table' %}";
-      [fileField, sheetField, indexField].forEach((field) => {
-        field.setAttribute('hx-get', url);
-        field.setAttribute('hx-target', '#dataframe-table');
-        field.setAttribute('hx-include', '[name="file_pk"], [name="sheet_name"], [name="index_row"]');
-      });
-      fileField.setAttribute('hx-trigger', 'change');
-      sheetField.setAttribute('hx-trigger', 'change, keyup delay:300ms');
-      indexField.setAttribute('hx-trigger', 'change');
-    };
-
-    bindDataframePreview();
-    document.body.addEventListener('htmx:afterSwap', bindDataframePreview);
-  })();
-</script>
 {% endblock %}

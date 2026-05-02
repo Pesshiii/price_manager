@@ -40,7 +40,7 @@ class DataframeForm(forms.ModelForm):
             ),
         )
 
-        self.fields["sheet_name"].choices = [("", "---------")]
+        self.fields["sheet_name"].choices = [("", "Не выбран")]
         if self.instance and self.instance.pk and self.instance.sheet_name:
             self.fields["sheet_name"].choices.append((self.instance.sheet_name, self.instance.sheet_name))
 
