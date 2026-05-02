@@ -1,9 +1,9 @@
 from django.urls import path
 
-from .views import fileupload as fm_views
+from .views import SelectFile
 
 app_name = 'dataframe'
 
 urlpatterns = [
-    path('files/select/', fm_views.SelectFile.as_view(), name='fileselect'),
+    path('files/select/', SelectFile.as_view(), name='filesselect'),
 ]
