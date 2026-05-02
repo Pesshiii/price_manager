@@ -31,7 +31,7 @@ class DataframeForm(forms.ModelForm):
                 css_class="mb-3",
             ),
             Div(
-                Field("sheet_name"),
+                Field("sheet_name", css_class="form-select dataframe-sheet-select"),
                 css_class="mb-3",
             ),
             Div(
