@@ -123,6 +123,12 @@
 
       try {
         await loadFileMetadata(hiddenInput.value);
+        if (window.htmx) {
+          const fileField = document.querySelector('[name="file_pk"]');
+          if (fileField) {
+            window.htmx.trigger(fileField, 'change');
+          }
+        }
       } catch (error) {
         showMetadataWarning('Не удалось подгрузить список листов для выбранного файла.');
       }
