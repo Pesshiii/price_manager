@@ -29,11 +29,61 @@
     window.__fileuploadSelectFileBound = true;
 
     const modalEl = document.getElementById('SelectFile');
+    const fileMetaUrlTemplate = "{% url 'dataframe:filesmeta' 0 %}";
     if (!modalEl) {
       return;
     }
 
-    const handleResult = (payload) => {
+    const showMetadataWarning = (message) => {
+      if (window.showToast) {
+        window.showToast(message, 'warning');
+        return;
+      }
+      alert(message);
+    };
+
+    const updateSheetOptions = (sheets) => {
+      const sheetField = document.querySelector('[name="sheet_name"]');
+      if (!sheetField || sheetField.tagName !== 'SELECT') {
+        return;
+      }
+
+      sheetField.innerHTML = '';
+      const emptyOption = document.createElement('option');
+      emptyOption.value = '';
+      emptyOption.textContent = '---------';
+      sheetField.appendChild(emptyOption);
+
+      sheets.forEach((sheet) => {
+        const option = document.createElement('option');
+        option.value = sheet;
+        option.textContent = sheet;
+        sheetField.appendChild(option);
+      });
+    };
+
+    const loadFileMetadata = async (filePk) => {
+      const metaUrl = fileMetaUrlTemplate.replace('/0/meta/', `/${filePk}/meta/`);
+      const response = await fetch(metaUrl, {
+        headers: {
+          'X-Requested-With': 'XMLHttpRequest',
+        },
+      });
+
+      if (!response.ok) {
+        throw new Error('meta');
+      }
+
+      const metadata = await response.json();
+      const nameField = document.querySelector('[name="name"]');
+      if (nameField && !nameField.value && metadata.filename) {
+        nameField.value = metadata.filename;
+      }
+
+      updateSheetOptions(metadata.sheets || []);
+    };
+
+    const handleResult = async (payload) => {
       if (!payload || !payload.pk) {
         return;
       }
@@ -57,7 +107,26 @@
         modalInstance.hide();
       }
 
+      try {
+        await loadFileMetadata(payload.pk);
+      } catch (error) {
+        showMetadataWarning('Не удалось загрузить метаданные файла. Можно сохранить форму вручную.');
+      }
+
       activeComponent.classList.remove('fileupload-active');
+    };
+
+    const bootstrapInitialState = async () => {
+      const hiddenInput = document.querySelector('.fileupload-hidden-input-container input[name]');
+      if (!hiddenInput || !hiddenInput.value) {
+        return;
+      }
+
+      try {
+        await loadFileMetadata(hiddenInput.value);
+      } catch (error) {
+        showMetadataWarning('Не удалось подгрузить список листов для выбранного файла.');
+      }
     };
 
     document.addEventListener('click', (event) => {
@@ -92,7 +161,7 @@
       if (contentType.includes('application/json')) {
         const payload = await response.json();
         if (response.ok) {
-          handleResult(payload);
+          await handleResult(payload);
         }
         return;
       }
@@ -103,5 +172,7 @@
         modalBody.innerHTML = html;
       }
     });
+
+    bootstrapInitialState();
   })();
 </script>
