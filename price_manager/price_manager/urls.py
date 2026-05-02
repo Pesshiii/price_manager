@@ -74,7 +74,7 @@ urlpatterns = [
     path('shopping-tabs/<int:tab_pk>/add/<int:product_id>/', views.ShoppingTabAddProductView.as_view(), name='shopping-tab-add-product'),
 
     path('dataframe/', include('dataframe.urls', namespace='dtaframe')),
-    path('content-type/create/', product_views.CreateContentType.as_view(), name='content-type-create'),
+    path('product/', include('product.urls', namespace='product')),
 
     path('blog/', include('blogapp.urls')),
 
