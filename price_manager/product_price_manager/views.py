@@ -33,7 +33,6 @@ from django_htmx.http import HttpResponseClientRefresh
 
 # Импорты моделей, функций, форм, таблиц
 from .models import PriceManager
-from file_manager.models import FileModel
 from core.functions import *
 from main_product_manager.models import MainProduct, MainProductLog, MP_PRICES, PRICE_TYPES
 from .forms import *

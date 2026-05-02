@@ -28,7 +28,6 @@ from django_htmx.http import reswap, trigger_client_event
 
 # Импорты моделей, функций, форм, таблиц
 from core.models import *
-from file_manager.models import FileModel
 from .functions import *
 from .forms import *
 from .tables import *

@@ -5,7 +5,6 @@ from django.conf.urls.static import static
 from django.urls import include, path
 
 from core import views
-from file_manager import views as fm_views
 from supplier_product_manager import views as spm_views
 from main_product_manager import views as mp_views
 from supplier_manager import views as sm_views
@@ -63,9 +62,6 @@ urlpatterns = [
     path('pricetag/<int:pk>/update', ppm_views.PriceTagUpdate.as_view(), name='pricetag-update'),
 
     path('supplier-product/<int:id>/delete/', spm_views.delete_supplier_product, name='supplier-product-delete'),
-
-
-    path('upload/<str:name>/<int:id>/', fm_views.FileUpload.as_view(), name='upload'),
 
     path('shopping-tabs/', views.ShoppingTabListView.as_view(), name='shopping-tab-list'),
     path('shopping-tabs/<int:pk>/', views.ShoppingTabDetailView.as_view(), name='shopping-tab-detail'),

@@ -6,7 +6,6 @@ from django.contrib import messages
 from import_export.admin import ImportExportModelAdmin
 from import_export.formats.base_formats import CSV
 from .models import *
-from file_manager.models import FileModel
 from supplier_product_manager.models import SupplierProduct
 from import_export.formats import base_formats
 from .resources import *

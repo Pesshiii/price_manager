@@ -37,7 +37,6 @@ from crispy_forms.utils import render_crispy_form
 from .models import *
 from supplier_product_manager.models import SupplierProduct
 from supplier_manager.models import Category
-from file_manager.models import FileModel
 from core.functions import *
 from .forms import *
 from .tables import *
