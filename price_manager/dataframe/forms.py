@@ -1,6 +1,6 @@
 from django import forms
 from crispy_forms.helper import FormHelper
-from crispy_forms.layout import Layout, Div, Field, HTML
+from crispy_forms.layout import Layout, Div, Field
 
 from .models import FileModel, Dataframe
 
@@ -21,6 +21,24 @@ class DataframeForm(forms.ModelForm):
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
+
+        self.helper = FormHelper()
+        self.helper.form_method = "post"
+        self.helper.form_tag = False
+        self.helper.layout = Layout(
+            Div(
+                Field("name"),
+                css_class="mb-3",
+            ),
+            Div(
+                Field("sheet_name"),
+                css_class="mb-3",
+            ),
+            Div(
+                Field("index_row"),
+                css_class="mb-3",
+            ),
+        )
 
         self.fields["sheet_name"].choices = [("", "---------")]
         if self.instance and self.instance.pk and self.instance.sheet_name:
