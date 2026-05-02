@@ -11,7 +11,7 @@
   <form method="post">
     {% csrf_token %}
     {{ form.as_p }}
-    {% fileupload field_name='file_pk' button_text='Загрузить файл' %}
+    {% fileupload field_name='file_pk' button_text='Загрузить файл' initial_pk=initial_pk %}
     <button type="submit" value="add">Сохранить</button>
   </form>
 </div>
