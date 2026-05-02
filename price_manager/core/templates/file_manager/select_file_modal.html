@@ -1,0 +1,36 @@
+<div class="modal-header">
+  <h5 class="modal-title">Выбор файла</h5>
+  <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+</div>
+<div class="modal-body">
+  <ul class="nav nav-tabs mb-3" role="tablist">
+    <li class="nav-item" role="presentation">
+      <button class="nav-link active" data-bs-toggle="tab" data-bs-target="#upload-file-tab" type="button" role="tab">Загрузить</button>
+    </li>
+    <li class="nav-item" role="presentation">
+      <button class="nav-link" data-bs-toggle="tab" data-bs-target="#existing-file-tab" type="button" role="tab">Выбрать загруженный</button>
+    </li>
+  </ul>
+
+  <div class="tab-content">
+    <div class="tab-pane fade show active" id="upload-file-tab" role="tabpanel">
+      <form method="post" enctype="multipart/form-data" hx-post="{% url 'select-file' %}" hx-target="this" hx-swap="none"
+            onhtmx:afterRequest="window.handleFileSelected(event)">
+        {% csrf_token %}
+        <input type="hidden" name="action" value="upload">
+        {{ upload_form.as_p }}
+        <button type="submit" class="btn btn-primary">Добавить</button>
+      </form>
+    </div>
+
+    <div class="tab-pane fade" id="existing-file-tab" role="tabpanel">
+      <form method="post" hx-post="{% url 'select-file' %}" hx-target="this" hx-swap="none"
+            onhtmx:afterRequest="window.handleFileSelected(event)">
+        {% csrf_token %}
+        <input type="hidden" name="action" value="select">
+        {{ existing_form.as_p }}
+        <button type="submit" class="btn btn-primary">Выбрать</button>
+      </form>
+    </div>
+  </div>
+</div>

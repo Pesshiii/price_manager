@@ -58,3 +58,44 @@ def values_list(queryset, value):
 @register.filter
 def intersection(a,b):
   return not set(a).intersection(set(b)) == set()
+from django.utils.safestring import mark_safe
+from django.urls import reverse
+
+@register.simple_tag
+def fileupload(input_name='file_id', button_text='Загрузить файл'):
+  modal_id = f'file-upload-modal-{input_name}'.replace('[', '-').replace(']', '-')
+  trigger_id = f'file-upload-trigger-{input_name}'.replace('[', '-').replace(']', '-')
+  hidden_id = f'file-upload-hidden-{input_name}'.replace('[', '-').replace(']', '-')
+  html = f"""
+<button type=\"button\" id=\"{trigger_id}\" class=\"btn btn-outline-primary\"
+        data-bs-toggle=\"modal\" data-bs-target=\"#{modal_id}\"
+        hx-get=\"{reverse('select-file')}\"
+        hx-target=\"#{modal_id} .modal-content\" hx-swap=\"innerHTML\">{button_text}</button>
+
+<input type=\"hidden\" id=\"{hidden_id}\" name=\"{input_name}\" value=\"\" />
+
+<div id=\"{modal_id}\" class=\"modal fade\" tabindex=\"-1\" aria-hidden=\"true\">
+  <div class=\"modal-dialog modal-lg\">
+    <div class=\"modal-content\"></div>
+  </div>
+</div>
+
+<script>
+window.handleFileSelected = function(event) {{
+  const xhr = event.detail.xhr;
+  if (!xhr || xhr.status < 200 || xhr.status >= 300) return;
+  const filePk = (xhr.responseText || '').trim();
+  if (!filePk) return;
+  const hiddenInput = document.getElementById('{hidden_id}');
+  const triggerButton = document.getElementById('{trigger_id}');
+  if (hiddenInput) hiddenInput.value = filePk;
+  if (triggerButton) triggerButton.remove();
+  const modalEl = document.getElementById('{modal_id}');
+  if (modalEl && window.bootstrap) {{
+    const modalInstance = bootstrap.Modal.getInstance(modalEl);
+    if (modalInstance) modalInstance.hide();
+  }}
+}};
+</script>
+"""
+  return mark_safe(html)
