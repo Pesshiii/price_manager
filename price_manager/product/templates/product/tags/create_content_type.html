@@ -34,57 +34,73 @@
 
 <script>
   (function() {
-    if (window.__contentTypeCreateBound) {
-      return;
-    }
-    window.__contentTypeCreateBound = true;
-
     const modalEl = document.getElementById('SelectContentTypeModal');
     if (!modalEl) {
       return;
     }
 
-    const handleResult = (payload) => {
-      if (!payload || !payload.pk) {
-        return;
-      }
+    if (!window.bindContentTypeComponent) {
+      window.bindContentTypeComponent = (component) => {
+        if (!component || !component.classList.contains('content-type-component')) {
+          return;
+        }
 
-      const activeComponent = document.querySelector('.content-type-component.content-type-active')
-        || document.querySelector('.content-type-component');
+        if (component.dataset.contentTypeBound === '1') {
+          return;
+        }
 
-      if (!activeComponent) {
-        return;
-      }
+        component.dataset.contentTypeBound = '1';
+        component.addEventListener('click', () => {
+          document
+            .querySelectorAll('.content-type-component.content-type-active')
+            .forEach((item) => item.classList.remove('content-type-active'));
+          component.classList.add('content-type-active');
+        });
+      };
+    }
 
-      const fieldName = activeComponent.dataset.fieldName || 'content_type_pk';
-      const hiddenContainer = activeComponent.querySelector('.content-type-hidden-input-container');
-      const trigger = activeComponent.querySelector('.content-type-trigger');
+    if (!window.handleContentTypeResult) {
+      window.handleContentTypeResult = (payload) => {
+        if (!payload || !payload.pk) {
+          return;
+        }
 
-      hiddenContainer.innerHTML = `<input type="hidden" name="${fieldName}" value="${payload.pk}">`;
-      trigger.classList.add('d-none');
+        const activeComponent = document.querySelector('.content-type-component.content-type-active')
+          || document.querySelector('.content-type-component');
 
-      const modalInstance = bootstrap.Modal.getInstance(modalEl);
-      if (modalInstance) {
-        modalInstance.hide();
-      }
+        if (!activeComponent) {
+          return;
+        }
 
-      activeComponent.classList.remove('content-type-active');
-    };
+        const fieldName = activeComponent.dataset.fieldName || 'content_type_pk';
+        const hiddenContainer = activeComponent.querySelector('.content-type-hidden-input-container');
+        const trigger = activeComponent.querySelector('.content-type-trigger');
+
+        hiddenContainer.innerHTML = `<input type="hidden" name="${fieldName}" value="${payload.pk}">`;
+        trigger.classList.add('d-none');
+
+        const modalInstance = bootstrap.Modal.getInstance(modalEl);
+        if (modalInstance) {
+          modalInstance.hide();
+        }
+
+        activeComponent.classList.remove('content-type-active');
+      };
+    }
+
+    const currentComponent = document.currentScript && document.currentScript.previousElementSibling;
+    if (currentComponent && currentComponent.classList.contains('content-type-component')) {
+      window.bindContentTypeComponent(currentComponent);
+    }
+
+    if (window.__contentTypeCreateBound) {
+      return;
+    }
+    window.__contentTypeCreateBound = true;
 
 
     document.addEventListener('content-type-selected', (event) => {
-      handleResult(event.detail || {});
-    });
-    document.addEventListener('click', (event) => {
-      const component = event.target.closest('.content-type-component');
-      if (!component) {
-        return;
-      }
-
-      document
-        .querySelectorAll('.content-type-component.content-type-active')
-        .forEach((item) => item.classList.remove('content-type-active'));
-      component.classList.add('content-type-active');
+      window.handleContentTypeResult(event.detail || {});
     });
 
     modalEl.addEventListener('submit', async (event) => {
@@ -107,7 +123,7 @@
       if (contentType.includes('application/json')) {
         const payload = await response.json();
         if (response.ok && payload.pk) {
-          handleResult(payload);
+          window.handleContentTypeResult(payload);
         }
         return;
       }
