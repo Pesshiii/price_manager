@@ -1,10 +1,11 @@
 from django.db import models
-from django.core.serializers import json
 from django.core.validators import FileExtensionValidator
-from core.models import SlugModel
+from django.db.models.signals import pre_delete
+from django.dispatch import receiver
 
+from core.models import SlugModel, TimeStampedModel
 
-from core.models import TimeStampedModel
+from product.models import ContentType
 
 # Create your models here.
 
@@ -17,25 +18,46 @@ class FileModel(models.Model):
         upload_to='dataframe/'
     )
 
-
-def _get_slug(item):
-    return 
+@receiver(pre_delete, sender=FileModel)
+def document_pre_delete(sender, instance, **kwargs):
+    """Clean up file before model deletion"""
+    instance.file.delete(save=False)
 
 class Dataframe(TimeStampedModel, SlugModel):
-    '''
-    `name`:\\
-        Если датафрейм создается из файла найвание генерируется автоматически\\
-    `conf`:\\
-        содержит информацию о том откуда берется дата (путь к файлу, в дальнейшем вызов API и парсинга, экспорт из бд)
-        для файла указывается название листа и дополнительные настройки (пр. ряд хэдэра)
-    'cols':
-        настройки для изменения столбцов датафрэйма(пр. замены начений, применение функции, переименование)
-    '''
-    conf=models.JSONField(
-        verbose_name="Настройка",
-        encoder=json.DjangoJSONEncoder,
-    )
-    cols=models.JSONField(
-        verbose_name="Столбцы",
-        encoder=json.DjangoJSONEncoder,
-    )
+  sheet_name = models.CharField(verbose_name='Название листа')
+  create_new = models.BooleanField(verbose_name='Создавать если нет',
+                                   default=False)
+  index_row = models.IntegerField(verbose_name='Ряд для индексации',
+                                   null=True, blank=True)
+  def __str__(self):
+    return self.name
+
+
+class DictItem(models.Model):
+  link = models.ForeignKey('Link',
+                           on_delete=models.CASCADE,
+                           verbose_name='Столбец',
+                           related_name='dicts',
+                           blank=True,
+                           null=True)
+  key = models.CharField(verbose_name='Если')
+  value = models.CharField(verbose_name='То')
+  class Meta:
+    constraints = [models.UniqueConstraint(fields=['link', 'key', 'value'], name='linkdict')]
+
+
+class Link(models.Model):
+  class Meta:
+    constraints = [models.UniqueConstraint(fields=['dataframe', 'content'], name='contentitem')]
+  dataframe = models.ForeignKey(Dataframe,
+                              on_delete=models.CASCADE,
+                              related_name='links')
+  initial = models.CharField(null=True)
+  content = models.ForeignKey(
+    ContentType,
+    on_delete=models.CASCADE,
+    verbose_name='Контент'
+  )
+  value = models.CharField(null=False)
+  def __str__(self):
+    return f'{self.content}<--->{self.value}({self.initial})'
