@@ -1,0 +1,16 @@
+<form method="post">
+  {% csrf_token %}
+  <div>
+    {{ form.name.label_tag }}
+    {{ form.name }}
+  </div>
+  <div>
+    {{ form.measure.label_tag }}
+    {{ form.measure }}
+  </div>
+  <div>
+    {{ form.contenttype.label_tag }}
+    {{ form.contenttype }}
+  </div>
+  <button type="submit">Сохранить</button>
+</form>

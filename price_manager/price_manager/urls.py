@@ -10,6 +10,7 @@ from main_product_manager import views as mp_views
 from supplier_manager import views as sm_views
 from product_price_manager import views as ppm_views
 from dataframe import views as df_views
+from product import views as product_views
 
 
 urlpatterns = [
@@ -73,6 +74,7 @@ urlpatterns = [
     path('shopping-tabs/<int:tab_pk>/add/<int:product_id>/', views.ShoppingTabAddProductView.as_view(), name='shopping-tab-add-product'),
 
     path('dataframe/', include('dataframe.urls', namespace='dtaframe')),
+    path('content-type/create/', product_views.CreateContentType.as_view(), name='content-type-create'),
 
     path('blog/', include('blogapp.urls')),
 
