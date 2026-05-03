@@ -23,13 +23,11 @@ class FileItem(UpdateView):
     form_class = SelectFileForm
     def get_success_url(self):
         return reverse('dataframe:filelist')
-    class Meta:
-        model = FileModel
+    model = FileModel
 
 class FileCreate(CreateView):
     template_name='dataframe/file/create.html'
     form_class = FileForm
     def get_success_url(self):
         return reverse('dataframe:filelist')
-    class Meta:
-        model = FileModel
+    model = FileModel
