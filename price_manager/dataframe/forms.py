@@ -32,10 +32,12 @@ class FileForm(forms.ModelForm):
         )
 
 class SelectFileForm(forms.ModelForm):
-    pk = forms.IntegerField(widget=forms.widgets.HiddenInput(), required=False)
     class Meta:
         model = FileModel
         fields = ("pk",)
+        widgets={
+            "pk": forms.HiddenInput(),
+        }
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.helper = FormHelper(self)
@@ -57,10 +59,12 @@ class SelectFileForm(forms.ModelForm):
         )
 
 class FileInput(forms.ModelForm):
-    pk = forms.IntegerField(widget=forms.widgets.HiddenInput())
     class Meta:
         model = FileModel
         fields = ("pk",)
+        widgets={
+            "pk": forms.HiddenInput(),
+        }
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.helper = FormHelper(self)
