@@ -2,7 +2,7 @@ from django.urls import path
 
 from .views import (
     DataframeCreate,
-    FileList, FileItem, FileCreate)
+    FileList, FileItem, FileCreate, FileSwappable)
 
 app_name = 'dataframe'
 
@@ -13,4 +13,5 @@ urlpatterns = [
     path('files/create/', FileCreate.as_view(), name='filecreate'),
     path('files/select/<int:pk>', FileItem.as_view(), name='fileitem'),
     path('files/list/', FileList.as_view(), name='filelist'),
+    path('files/swap/<int:pk>', FileSwappable.as_view(), name='fileswap')
 ]

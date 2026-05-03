@@ -1,2 +1,2 @@
-from .fileupload import FileList, FileItem, FileCreate
+from .fileupload import FileList, FileItem, FileCreate, FileSwappable
 from .dataframe import DataframeCreate
