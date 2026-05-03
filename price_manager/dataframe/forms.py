@@ -39,7 +39,7 @@ class SelectFileForm(forms.ModelForm):
         if not self.instance:
             raise ObjectDoesNotExist()
         self.helper.attrs = {
-                'hx-post': reverse('dataframe:filelist', kwargs={'pk':self.instance.pk}),
+                'hx-post': reverse('dataframe:fileitem', kwargs={'pk':self.instance.pk}),
                 'hx-swap':'innerHTML',
                 'hx-target':'#SelectFile .modal-body',
                 }
