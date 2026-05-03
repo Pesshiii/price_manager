@@ -10,6 +10,6 @@ urlpatterns = [
     # path('<int:pk>/update/', DataframeUpdateView.as_view(), name='update'),
     # path('table/', DataframeTableView.as_view(), name='table'),
     path('files/create/', FileCreate.as_view(), name='filecreate'),
-    path('files/select/<int: pk>', FileItem.as_view(), name='fileitem'),
+    path('files/select/<int:pk>', FileItem.as_view(), name='fileitem'),
     path('files/list/', FileList.as_view(), name='filelist'),
 ]
