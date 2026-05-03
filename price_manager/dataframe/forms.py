@@ -34,10 +34,7 @@ class FileForm(forms.ModelForm):
 class SelectFileForm(forms.ModelForm):
     class Meta:
         model = FileModel
-        fields = ("id",)
-        widgets={
-            "id": forms.HiddenInput(),
-        }
+        fields = ("file",)
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.helper = FormHelper(self)
@@ -50,7 +47,6 @@ class SelectFileForm(forms.ModelForm):
                 'hx-target':'#FileInput',
                 }
         self.helper.layout = Layout(
-            Field('id'),
             Submit(
                 name='submit', 
                 value='Выбрать',
@@ -61,10 +57,7 @@ class SelectFileForm(forms.ModelForm):
 class FileInput(forms.ModelForm):
     class Meta:
         model = FileModel
-        fields = ("id",)
-        widgets={
-            "id": forms.HiddenInput(),
-        }
+        fields = ("file",)
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.helper = FormHelper(self)
@@ -72,7 +65,7 @@ class FileInput(forms.ModelForm):
         if not self.instance:
             raise ObjectDoesNotExist()
         self.helper.layout = Layout(
-            Field('id'),
+            HTML(f'''<input type="hidden" name="file_pk" value="{self.instance.pk}">'''),
             Button(
                     name="button",
                     value="Добавить файл",
