@@ -62,7 +62,6 @@ INSTALLED_APPS+=[
 # Installed internal apps
 INSTALLED_APPS+=[
     'core',
-    'file_manager',
     'dataframe',
     'product',
     'supplier_product_manager',
