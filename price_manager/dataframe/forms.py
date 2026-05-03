@@ -20,10 +20,10 @@ class FileForm(forms.ModelForm):
                 'enctype':'multipart/form-data',
                 'hx-post': reverse('dataframe:filecreate'),
                 'hx-swap':'innerHTML',
-                'hx-target':'#SelectFile .modal-body',
+                'hx-target':'#FileInput',
                 }
         self.helper.layout = Layout(
-            Field('File'),
+            Field('file'),
             Submit(
                 name='submit', 
                 value='Выбрать',
@@ -45,7 +45,7 @@ class SelectFileForm(forms.ModelForm):
         self.helper.attrs = {
                 'hx-post': reverse('dataframe:fileitem', kwargs={'pk':self.instance.pk}),
                 'hx-swap':'innerHTML',
-                'hx-target':'#SelectFile .modal-body',
+                'hx-target':'#FileInput',
                 }
         self.helper.layout = Layout(
             Field('pk'),
