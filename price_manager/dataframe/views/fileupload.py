@@ -14,17 +14,21 @@ from ..models import FileModel
 
 class FileList(ListView):
     template_name = 'dataframe/file/list.html'
-    model = FileModel
     context_object_name='files'
+    class Meta:
+        model = FileModel
+        form_class = FileModel
     
 class FileItem(FormView):
     template_name='dataframe/file/item.html'
-    form = SelectFileForm
-    def get_success_url(self):
-        return reverse('dataframe:filelist')
+    success_url = reverse('dataframe:filelist')
+    class Meta:
+        model = FileModel
+        form_class = FileModel
 
 class FileCreate(FormView):
     template_name='dataframe/file/create.html'
-    form = FileForm
-    def get_success_url(self):
-        return reverse('dataframe:filelist')
+    success_url = reverse('dataframe:filelist')
+    class Meta:
+        model = FileModel
+        form_class = FileModel
