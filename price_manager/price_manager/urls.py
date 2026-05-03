@@ -6,10 +6,8 @@ from django.urls import include, path
 
 from core import views
 from supplier_product_manager import views as spm_views
-from main_product_manager import views as mp_views
 from supplier_manager import views as sm_views
 from product_price_manager import views as ppm_views
-from dataframe import views as df_views
 
 
 urlpatterns = [
