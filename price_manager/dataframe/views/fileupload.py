@@ -16,17 +16,15 @@ class FileList(ListView):
     template_name = 'dataframe/file/list.html'
     model = FileModel
     context_object_name='files'
-    def get(self, request, *args, **kwargs):
-        # if not request.htmx:
-        #     return redirect('dataframe:create')
-        return super().get(request, *args, **kwargs)
     
 class FileItem(FormView):
     template_name='dataframe/file/item.html'
     form = SelectFileForm
-    success_url=reverse('filelist')
+    def get_success_url(self):
+        return reverse('dataframe:filelist')
 
 class FileCreate(FormView):
     template_name='dataframe/file/create.html'
     form = FileForm
-    success_url=reverse('filelist')
+    def get_success_url(self):
+        return reverse('dataframe:filelist')

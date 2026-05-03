@@ -18,7 +18,7 @@ class FileForm(forms.ModelForm):
         self.helper.form_method = 'post'
         self.helper.attrs = {
                 'enctype':'multipart/form-data',
-                'hx-post': reverse('filecreate'),
+                'hx-post': reverse('dataframe:filecreate'),
                 'hx-swap':'innerHTML',
                 'hx-target':'#SelectFile .modal-body',
                 }
@@ -39,7 +39,7 @@ class SelectFileForm(forms.ModelForm):
         if not self.instance:
             raise ObjectDoesNotExist()
         self.helper.attrs = {
-                'hx-post': reverse('filelist', kwargs={'pk':self.instance.pk}),
+                'hx-post': reverse('dataframe:filelist', kwargs={'pk':self.instance.pk}),
                 'hx-swap':'innerHTML',
                 'hx-target':'#SelectFile .modal-body',
                 }
