@@ -7,7 +7,7 @@ from django.core.paginator import Paginator
 from django.urls import reverse
 from django.shortcuts import render, redirect
 from django.views import View
-from django.views.generic import ListView, FormView
+from django.views.generic import ListView, CreateView, UpdateView
 
 from ..forms import FileForm, SelectFileForm
 from ..models import FileModel
@@ -17,15 +17,16 @@ class FileList(ListView):
     context_object_name='files'
     model = FileModel
     
-class FileItem(FormView):
+class FileItem(UpdateView):
     template_name='dataframe/file/item.html'
+    pk_url_kwarg='pk'
     form_class = SelectFileForm
     def get_success_url(self):
         return reverse('dataframe:filelist')
     class Meta:
         model = FileModel
 
-class FileCreate(FormView):
+class FileCreate(CreateView):
     template_name='dataframe/file/create.html'
     form_class = FileForm
     def get_success_url(self):
