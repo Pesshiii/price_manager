@@ -21,14 +21,16 @@ class FileList(ListView):
     
 class FileItem(FormView):
     template_name='dataframe/file/item.html'
-    success_url = reverse('dataframe:filelist')
+    def get_success_url(self):
+        return reverse('dataframe:filelist')
     class Meta:
         model = FileModel
         form_class = FileModel
 
 class FileCreate(FormView):
     template_name='dataframe/file/create.html'
-    success_url = reverse('dataframe:filelist')
+    def get_success_url(self):
+        return reverse('dataframe:filelist')
     class Meta:
         model = FileModel
         form_class = FileModel
