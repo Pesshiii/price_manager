@@ -26,9 +26,9 @@ class FileList(LoginRequiredMixin, ListView):
 class FileItem(LoginRequiredMixin, FormView):
     template_name='dataframe/file/item.html'
     form = SelectFileForm
-    success_url=reverse('dataframe:fileslist')
+    success_url=reverse('dataframe:filelist')
 
 class FileCreate(LoginRequiredMixin, FormView):
     template_name='dataframe/file/create.html'
     form = FileForm
-    success_url=reverse('dataframe:fileslist')
+    success_url=reverse('dataframe:filelist')
