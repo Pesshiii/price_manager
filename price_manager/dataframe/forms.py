@@ -24,7 +24,7 @@ class FileForm(forms.ModelForm):
                 }
         self.helper.layout = Layout(
             Field('File'),
-            Submit(value='Выбрать')
+            Submit(name='submit', value='Выбрать')
         )
 
 class SelectFileForm(forms.ModelForm):
@@ -45,5 +45,5 @@ class SelectFileForm(forms.ModelForm):
                 }
         self.helper.layout = Layout(
             Field('pk'),
-            Submit(value='Выбрать')
+            Submit(name='submit', value='Выбрать')
         )
