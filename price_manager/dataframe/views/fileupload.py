@@ -15,22 +15,20 @@ from ..models import FileModel
 class FileList(ListView):
     template_name = 'dataframe/file/list.html'
     context_object_name='files'
-    class Meta:
-        model = FileModel
-        form_class = FileModel
+    model = FileModel
     
 class FileItem(FormView):
     template_name='dataframe/file/item.html'
+    form_class = FileModel
     def get_success_url(self):
         return reverse('dataframe:filelist')
     class Meta:
         model = FileModel
-        form_class = FileModel
 
 class FileCreate(FormView):
     template_name='dataframe/file/create.html'
+    form_class = FileModel
     def get_success_url(self):
         return reverse('dataframe:filelist')
     class Meta:
         model = FileModel
-        form_class = FileModel
