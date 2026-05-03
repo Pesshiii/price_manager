@@ -1,4 +1,4 @@
-{% load django_forms_tags %}
+{% load crispy_forms_tags %}
 <hx-partial hx-target="#file-button">
     {%crispy form form.helper%}
     <button hx-get="{% url "dataframe:filelist" %}">Добавить</button>
