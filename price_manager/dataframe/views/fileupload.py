@@ -8,13 +8,11 @@ from django.urls import reverse
 from django.shortcuts import render, redirect
 from django.views import View
 from django.views.generic import ListView, FormView
-from django.views.generic.edit import FormMixin
-from django.contrib.auth.mixins import LoginRequiredMixin
 
 from ..forms import FileForm, SelectFileForm
 from ..models import FileModel
 
-class FileList(LoginRequiredMixin, ListView):
+class FileList(ListView):
     template_name = 'dataframe/file/list.html'
     model = FileModel
     context_object_name='files'
@@ -23,12 +21,12 @@ class FileList(LoginRequiredMixin, ListView):
         #     return redirect('dataframe:create')
         return super().get(request, *args, **kwargs)
     
-class FileItem(LoginRequiredMixin, FormView):
+class FileItem(FormView):
     template_name='dataframe/file/item.html'
     form = SelectFileForm
     success_url=reverse('dataframe:filelist')
 
-class FileCreate(LoginRequiredMixin, FormView):
+class FileCreate(FormView):
     template_name='dataframe/file/create.html'
     form = FileForm
     success_url=reverse('dataframe:filelist')
