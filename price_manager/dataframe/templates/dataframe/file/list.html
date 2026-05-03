@@ -1,0 +1,36 @@
+<ul class="nav nav-tabs" id="selectFileTabs" role="tablist">
+  <li class="nav-item" role="presentation">
+    <button class="nav-link active" id="new-file-tab" data-bs-toggle="tab" data-bs-target="#new-file-pane" type="button" role="tab" aria-controls="new-file-pane" aria-selected="true">Загрузить новый файл</button>
+  </li>
+  <li class="nav-item" role="presentation">
+    <button class="nav-link" id="existing-file-tab" data-bs-toggle="tab" data-bs-target="#existing-file-pane" type="button" role="tab" aria-controls="existing-file-pane" aria-selected="false">Выбрать существующий файл</button>
+  </li>
+</ul>
+
+<div class="tab-content pt-3" id="selectFileTabsContent">
+  <div class="tab-pane fade show active" id="new-file-pane" role="tabpanel" aria-labelledby="new-file-tab">
+        <div 
+            hx-get="{% url "dataframe:filecreate"%}"
+            hx-trigger="load"
+            hx-swap="outerHTML">
+            <span>Loading...</span>
+        </div>
+  </div>
+
+  <div class="tab-pane fade" id="existing-file-pane" role="tabpanel" aria-labelledby="existing-file-tab">
+    {% if files %}
+      <ul class="list-group">
+        {% for item in files %}
+            <div 
+                hx-get="{% url "dataframe:fileitem" pk=item.pk%}"
+                hx-trigger="load"
+                hx-swap="outerHTML">
+                <span>Loading...</span>
+            </div>
+        {% endfor %}
+      </ul>
+    {% else %}
+      <p class="text-muted mb-0">Существующие файлы не найдены.</p>
+    {% endif %}
+  </div>
+</div>

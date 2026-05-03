@@ -1,0 +1,5 @@
+{% load crispy_forms_tags %}
+<li class="list-group-item d-flex justify-content-between align-items-center">
+    <span>{{ item.file.name }}</span>
+    {% crispy form form.helper%}
+</li>
