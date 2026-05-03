@@ -1,4 +1,6 @@
 {% extends "base.html" %}
+
+{% block body %}
 <ul class="nav nav-tabs" id="selectFileTabs" role="tablist">
   <li class="nav-item" role="presentation">
     <button class="nav-link active" id="new-file-tab" data-bs-toggle="tab" data-bs-target="#new-file-pane" type="button" role="tab" aria-controls="new-file-pane" aria-selected="true">Загрузить новый файл</button>
@@ -35,3 +37,5 @@
     {% endif %}
   </div>
 </div>
+
+{% endblock body %}
