@@ -10,7 +10,7 @@
 <div class="tab-content pt-3" id="selectFileTabsContent">
   <div class="tab-pane fade show active" id="new-file-pane" role="tabpanel" aria-labelledby="new-file-tab">
         <div 
-            hx-get="{% url "filecreate"%}"
+            hx-get="{% url "dataframe:filecreate"%}"
             hx-trigger="load"
             hx-swap="outerHTML">
             <span>Loading...</span>
@@ -22,7 +22,7 @@
       <ul class="list-group">
         {% for item in files %}
             <div 
-                hx-get="{% url "fileitem" pk=item.pk%}"
+                hx-get="{% url "dataframe:fileitem" pk=item.pk%}"
                 hx-trigger="load"
                 hx-swap="outerHTML">
                 <span>Loading...</span>
