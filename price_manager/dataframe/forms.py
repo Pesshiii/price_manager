@@ -32,7 +32,7 @@ class FileForm(forms.ModelForm):
         )
 
 class SelectFileForm(forms.ModelForm):
-    pk = forms.IntegerField(widget=forms.widgets.HiddenInput())
+    pk = forms.IntegerField(widget=forms.widgets.HiddenInput(), required=False)
     class Meta:
         model = FileModel
         fields = ("pk",)
