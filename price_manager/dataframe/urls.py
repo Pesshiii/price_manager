@@ -1,12 +1,13 @@
 from django.urls import path
 
 from .views import (
+    DataframeCreate,
     FileList, FileItem, FileCreate)
 
 app_name = 'dataframe'
 
 urlpatterns = [
-    # path('create/', DataframeCreateView.as_view(), name='create'),
+    path('create/', DataframeCreate.as_view(), name='create'),
     # path('<int:pk>/update/', DataframeUpdateView.as_view(), name='update'),
     # path('table/', DataframeTableView.as_view(), name='table'),
     path('files/create/', FileCreate.as_view(), name='filecreate'),

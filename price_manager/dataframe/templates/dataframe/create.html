@@ -9,33 +9,7 @@
 {% block body %}
 <div class="container">
   <h2>Создание датафрейма</h2>
-  <form method="post"
-    hx-post="{% url 'dataframe:table' %}"
-    hx-target="#dataframe-table"
-    hx-swap="innerHTML"
-    hx-trigger="change delay:250ms, click from:.dataframe-preview-btn"
-  >
     {% csrf_token %}
     {% crispy form %}
-    {% fileupload field_name='file_pk' button_text='Загрузить файл' %}
-    <div class="d-flex gap-2">
-      <button type="button" class="btn btn-outline-secondary dataframe-preview-btn">Обновить превью</button>
-      <button type="submit" value="add" class="btn btn-primary dataframe-save-btn">Сохранить</button>
-    </div>
-  </form>
-  <div id="dataframe-table" class="mt-3"></div>
 </div>
-
-<div class="modal fade" id="SelectFile" tabindex="-1" aria-hidden="true">
-  <div class="modal-dialog modal-lg">
-    <div class="modal-content">
-      <div class="modal-header">
-        <h5 class="modal-title">Выбор файла</h5>
-        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
-      </div>
-      <div class="modal-body"></div>
-    </div>
-  </div>
-</div>
-
 {% endblock %}
