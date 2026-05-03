@@ -68,7 +68,16 @@ class FileInput(forms.ModelForm):
         if not self.instance:
             raise ObjectDoesNotExist()
         self.helper.layout = Layout(
-            Field('pk')
+            Field('pk'),
+            Button(
+                    name="button",
+                    value="Добавить файл",
+                    hx_get=reverse("dataframe:filelist"),
+                    hx_target="#SelectFileContent",
+                    hx_swap="innerHTML",
+                    data_bs_toggle="modal",
+                    data_bs_target="#SelectFileModal",
+                )
         )
 
 class DataFrameForm(forms.ModelForm):
