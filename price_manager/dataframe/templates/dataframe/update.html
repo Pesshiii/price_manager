@@ -10,7 +10,7 @@
 <div class="container">
   <h2>Редактирование датафрейма</h2>
   <form method="post"
-    hx-post="{% url 'dataframe:table' %}"
+    hx-post="{% url 'table' %}"
     hx-target="#dataframe-table"
     hx-swap="innerHTML"
     hx-trigger="change delay:250ms, click from:.dataframe-preview-btn"
