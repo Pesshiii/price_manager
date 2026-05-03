@@ -15,6 +15,7 @@ class SlugModel(models.Model):
        max_length=200,
        unique=True,
        verbose_name="Название",
+       blank=True,
        )
     slug = models.SlugField(
        unique=True,

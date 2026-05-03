@@ -96,20 +96,6 @@ class DataFrameForm(forms.ModelForm):
                     data_bs_toggle="modal",
                     data_bs_target="#SelectFileModal",
                 ),
-                HTML('''
-                        <div class="modal fade" id="SelectFileModal" tabindex="-1" aria-hidden="true">
-                            <div class="modal-dialog modal-lg">
-                                <div class="modal-content">
-                                    <div class="modal-header">
-                                        <h5 class="modal-title">Выбор файла</h5>
-                                        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
-                                    </div>
-                                    <div class="modal-body" id="SelectFileContent">
-                                    </div>
-                                </div>
-                            </div>
-                        </div>
-                    '''),
                 css_id="FileInput"
             )
         )
