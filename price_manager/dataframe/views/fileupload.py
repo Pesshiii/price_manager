@@ -4,6 +4,7 @@ import pandas as pd
 from django.http import JsonResponse
 from django.db import OperationalError, ProgrammingError
 from django.core.paginator import Paginator
+from django.urls import reverse
 from django.shortcuts import render, redirect
 from django.views import View
 from django.views.generic import ListView, FormView
@@ -25,7 +26,9 @@ class FileList(LoginRequiredMixin, ListView):
 class FileItem(LoginRequiredMixin, FormView):
     template_name='dataframe/file/item.html'
     form = SelectFileForm
+    success_url=reverse('dataframe:fileslist')
 
 class FileCreate(LoginRequiredMixin, FormView):
     template_name='dataframe/file/create.html'
     form = FileForm
+    success_url=reverse('dataframe:fileslist')

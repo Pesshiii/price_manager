@@ -12,5 +12,5 @@ urlpatterns = [
     # path('table/', DataframeTableView.as_view(), name='table'),
     path('files/create/', FileCreate.as_view(), name='filecreate'),
     path('files/select/<int: pk>', FileItem.as_view(), name='fileitem'),
-    path('files/select/', FileList.as_view(), name='filesselect'),
+    path('files/select/', FileList.as_view(), name='fileslist'),
 ]

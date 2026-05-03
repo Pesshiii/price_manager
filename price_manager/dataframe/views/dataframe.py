@@ -8,5 +8,4 @@ from django.views.generic import CreateView, TemplateView, UpdateView
 
 from core.tables import HTMXMixin
 
-from ..forms import DataframeForm
 from ..models import Dataframe, FileModel
