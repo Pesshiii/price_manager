@@ -24,7 +24,11 @@ class FileForm(forms.ModelForm):
                 }
         self.helper.layout = Layout(
             Field('File'),
-            Submit(name='submit', value='Выбрать')
+            Submit(
+                name='submit', 
+                value='Выбрать',
+                data_bs_toggle="modal",
+                data_bs_target="#SelectFileModal",)
         )
 
 class SelectFileForm(forms.ModelForm):
@@ -45,7 +49,11 @@ class SelectFileForm(forms.ModelForm):
                 }
         self.helper.layout = Layout(
             Field('pk'),
-            Submit(name='submit', value='Выбрать')
+            Submit(
+                name='submit', 
+                value='Выбрать',
+                data_bs_toggle="modal",
+                data_bs_target="#SelectFileModal",)
         )
 
 class FileInput(forms.ModelForm):
