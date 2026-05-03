@@ -24,9 +24,9 @@ class FileList(ListView):
 class FileItem(FormView):
     template_name='dataframe/file/item.html'
     form = SelectFileForm
-    success_url=reverse('dataframe:filelist')
+    success_url=reverse('filelist')
 
 class FileCreate(FormView):
     template_name='dataframe/file/create.html'
     form = FileForm
-    success_url=reverse('dataframe:filelist')
+    success_url=reverse('filelist')
