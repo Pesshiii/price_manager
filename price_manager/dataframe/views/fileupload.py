@@ -19,7 +19,7 @@ class FileList(ListView):
     
 class FileItem(FormView):
     template_name='dataframe/file/item.html'
-    form_class = FileModel
+    form_class = FileForm
     def get_success_url(self):
         return reverse('dataframe:filelist')
     class Meta:
@@ -27,7 +27,7 @@ class FileItem(FormView):
 
 class FileCreate(FormView):
     template_name='dataframe/file/create.html'
-    form_class = FileModel
+    form_class = FileForm
     def get_success_url(self):
         return reverse('dataframe:filelist')
     class Meta:
