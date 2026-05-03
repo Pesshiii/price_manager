@@ -25,7 +25,7 @@ class FileItem(UpdateView):
         self.instance = form.save()
         return super().form_valid(form)
     def get_success_url(self):
-        return reverse('dataframe:fileswap', kwargs={'pk':self.instance})
+        return reverse('dataframe:fileswap', kwargs={'pk':self.instance.pk})
     model = FileModel
 
 class FileCreate(CreateView):
@@ -35,7 +35,7 @@ class FileCreate(CreateView):
         self.instance = form.save()
         return super().form_valid(form)
     def get_success_url(self):
-        return reverse('dataframe:fileswap', kwargs={'pk':self.instance})
+        return reverse('dataframe:fileswap', kwargs={'pk':self.instance.pk})
     model = FileModel
 
 class FileSwappable(UpdateView):
