@@ -72,6 +72,7 @@ class FileInput(forms.ModelForm):
         )
 
 class DataFrameForm(forms.ModelForm):
+    name=forms.CharField(required=False)
     class Meta:
         model = Dataframe
         fields = ('name',)
@@ -81,8 +82,7 @@ class DataFrameForm(forms.ModelForm):
         self.helper.form_method = 'post'
         self.helper.attrs={
             'hx-post':"{% url 'dataframe:create' %}",
-            'hx-swap':"innerHTML",
-            'hx-trigger':"change delay:250ms",
+            'hx-swap':"innerHTML"
         }
         self.helper.layout = Layout(
             Field('name'),

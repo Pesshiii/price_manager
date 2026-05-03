@@ -15,7 +15,8 @@ class FileModel(models.Model):
         verbose_name='Файл',
         validators=[FileExtensionValidator(allowed_extensions=['xls', 'xlsx', 'xlsm', 'csv'])],
         null=False,
-        upload_to='dataframe/'
+        upload_to='dataframe/',
+        blank=True,
     )
 
 @receiver(pre_delete, sender=FileModel)
@@ -28,7 +29,8 @@ class Dataframe(TimeStampedModel, SlugModel):
     FileModel,
     on_delete=models.PROTECT,
     related_name='dataframes',
-    verbose_name='Файл'
+    verbose_name='Файл',
+    blank=True,
   )
   sheet_name = models.CharField(verbose_name='Название листа')
   create_new = models.BooleanField(verbose_name='Создавать если нет',
