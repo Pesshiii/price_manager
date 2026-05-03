@@ -1,5 +1,5 @@
 {% load crispy_forms_tags %}
-<hx-partial hx-target="#file-button">
+<hx-partial hx-target="#FileInput" hx-swap="innerHTML">
     {%crispy form form.helper%}
     <button hx-get="{% url "dataframe:filelist" %}">Добавить</button>
 </hx-partial>
