@@ -183,33 +183,25 @@ AUTH_PASSWORD_VALIDATORS = [
 ]
 
 
-if not DEBUG:
+CSRF_TRUSTED_ORIGINS = [
+    origin.strip()
+    for origin in os.environ.get(
+        "CSRF_TRUSTED_ORIGINS",
+        "https://localhost:8000,http://localhost:8000",
+    ).split(",")
+    if origin.strip()
+]
 
-    CSRF_TRUSTED_ORIGINS = [
-        origin.strip()
-        for origin in os.environ.get(
-            "CSRF_TRUSTED_ORIGINS",
-            "https://localhost:8000,http://localhost:8000",
-        ).split(",")
-        if origin.strip()
-    ]
-
-    SECURE_SSL_REDIRECT = True
-    SECURE_HSTS_SECONDS = 31536000  # 1 year
-    SECURE_HSTS_INCLUDE_SUBDOMAINS = True
-    SECURE_HSTS_PRELOAD = True
-    # If behind a proxy (Railway), trust forwarded protocol/host headers.
-    # Railway/edge proxy must send: X-Forwarded-Proto: https
-    USE_X_FORWARDED_HOST = True
-    CSRF_COOKIE_SECURE = True
-    SESSION_COOKIE_SECURE = True
-    SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')
-else:
-    DEBUG = True
-
-    SECURE_SSL_REDIRECT = False         
-    SESSION_COOKIE_SECURE = False         
-    CSRF_COOKIE_SECURE = False          
+SECURE_SSL_REDIRECT = True
+SECURE_HSTS_SECONDS = 31536000  # 1 year
+SECURE_HSTS_INCLUDE_SUBDOMAINS = True
+SECURE_HSTS_PRELOAD = True
+# If behind a proxy (Railway), trust forwarded protocol/host headers.
+# Railway/edge proxy must send: X-Forwarded-Proto: https
+USE_X_FORWARDED_HOST = True
+CSRF_COOKIE_SECURE = True
+SESSION_COOKIE_SECURE = True
+SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')      
 
 # Internationalization
 # https://docs.djangoproject.com/en/5.2/topics/i18n/
