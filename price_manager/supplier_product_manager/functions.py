@@ -379,6 +379,7 @@ def get_sps(setting_or_pk: Setting | int, recache: bool = False) -> list[dict] |
             df[link.key] = df[link.key].str.replace(dict.key, dict.value)
             df = df.loc[:, [link.key for link in links if not link.key == '' and link.key in df.columns]]
         if link.key in df.columns and link.key in SP_NUMBERS:
+            df[link.key] = df[link.key].str.replace(',', '.')
             df[link.key] = pd.to_numeric(df[link.key], errors='coerce')
             df[link.key] = df[link.key].apply(lambda val: val if val >= 0 else None)
 
