@@ -2,7 +2,7 @@ from django.urls import reverse
 # from django.shortcuts import render, redirect
 from django.views.generic import ListView, CreateView, UpdateView
 
-from utils import get_sheet_names
+from ..utils import get_sheet_names
 
 from ..forms import FileForm, SelectFileForm, FileInputForm
 from ..models import FileModel
