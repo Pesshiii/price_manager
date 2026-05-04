@@ -9,8 +9,9 @@ def get_sheet_names(pk):
     '''
 
     filemodel = FileModel.objects.get(pk=pk)
+    if not filemodel:
+        raise BaseException(f'Файл не существует {pk}')
     if not filemodel.file:
-        filemodel.delete()
         raise BaseException(f'Файл не найден: {pk}')
     sheet_names = pd.ExcelFile(filemodel.file, engine='calamine').sheet_names
     filemodel.file.close()
