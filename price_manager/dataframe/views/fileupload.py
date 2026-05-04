@@ -1,15 +1,10 @@
-from pathlib import Path
-
-import pandas as pd
-from django.http import JsonResponse
-from django.db import OperationalError, ProgrammingError
-from django.core.paginator import Paginator
 from django.urls import reverse
-from django.shortcuts import render, redirect
-from django.views import View
-from django.views.generic import ListView, CreateView, UpdateView, TemplateView
+# from django.shortcuts import render, redirect
+from django.views.generic import ListView, CreateView, UpdateView
 
-from ..forms import FileForm, SelectFileForm, FileInput
+from utils import get_sheet_names
+
+from ..forms import FileForm, SelectFileForm, FileInputForm
 from ..models import FileModel
 
 class FileList(ListView):
@@ -41,7 +36,13 @@ class FileCreate(CreateView):
 class FileSwappable(UpdateView):
     template_name='dataframe/file/swapable.html'
     pk_url_kwarg='pk'
-    form_class = FileInput
+    form_class = FileInputForm
+    def get_form(self, form_class = ...):
+        form = super().get_form(form_class)
+        form.fields['sheet_name'].choices = [ (name, name)
+            for name in get_sheet_names(self.instance.pk)
+        ]
+        return form
     def get_success_url(self):
         return reverse('dataframe:create')
     model = FileModel

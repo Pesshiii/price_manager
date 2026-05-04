@@ -1,0 +1,81 @@
+from django import forms
+from crispy_forms.helper import FormHelper
+from crispy_forms.layout import Layout, Div, Field, Submit, HTML, Button
+from ..models import Dataframe, Link, DictItem
+
+from django.urls import reverse
+
+
+class LinkForm(forms.ModelForm):
+    class Meta:
+        model = Link
+        fields = ("dataframe",)
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.helper = FormHelper(self)
+        self.helper.form_method = 'post'
+        self.helper.attrs = {
+                'enctype':'multipart/form-data',
+                'hx-post': reverse('dataframe:filecreate'),
+                'hx-swap':'innerHTML',
+                'hx-target':'#FileInput',
+                }
+        self.helper.layout = Layout(
+            Submit(
+                name='submit', 
+                value='Выбрать',
+                data_bs_toggle="modal",
+                data_bs_target="#SelectFileModal",)
+        )
+
+
+class DataFrameForm(forms.ModelForm):
+    file_pk = forms.IntegerField(widget=forms.widgets.HiddenInput())
+    sheet_name = forms.CharField(widget=forms.widgets.ChoiceWidget(choices=[(None,'Виберите лист')]))
+    class Meta:
+        model = Dataframe
+        fields = ('file_pk','sheet_name')
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.helper = FormHelper(self)
+        if not self.instance.pk or self.instance.file is None:
+            self.helper.form_method = 'post'
+            self.helper.attrs={
+                'hx-post':"{% url 'dataframe:create' %}",
+                'hx-swap':"innerHTML",
+                'hx-trigger':'input changed delay:2s, change delay:2s, submit',
+            }
+            self.helper.layout = Layout(
+                Div(
+                    Div(
+                        Button(
+                            name="button",
+                            value="Добавить файл",
+                            hx_get=reverse("dataframe:filelist"),
+                            hx_target="#SelectFileContent",
+                            hx_swap="innerHTML",
+                            data_bs_toggle="modal",
+                            data_bs_target="#SelectFileModal",
+                        ),
+                        css_id="FileInput"
+                    ),
+                    css_id="FormContents"
+                )
+            )
+        else:
+            self.helper.layout = Layout(
+                Field('sheet_name'),
+                Div(
+                    Field('file_pk'),
+                    Button(
+                        name="button",
+                        value="Добавить файл",
+                        hx_get=reverse("dataframe:filelist"),
+                        hx_target="#SelectFileContent",
+                        hx_swap="innerHTML",
+                        data_bs_toggle="modal",
+                        data_bs_target="#SelectFileModal",
+                    ),
+                    css_id="FileInput"
+                )
+            )
