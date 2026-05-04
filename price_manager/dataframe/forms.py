@@ -65,7 +65,7 @@ class FileInput(forms.ModelForm):
         if not self.instance:
             raise ObjectDoesNotExist()
         self.helper.layout = Layout(
-            HTML(f'''<input type="hidden" name="file_pk" value="{self.instance.pk}">'''),
+            HTML(f'''<input type="hidden" name="file" value="{self.instance.pk}">'''),
             Button(
                     name="button",
                     value="Добавить файл",
@@ -78,30 +78,49 @@ class FileInput(forms.ModelForm):
         )
 
 class DataFrameForm(forms.ModelForm):
-    name=forms.CharField(required=False)
+    file = forms.IntegerField(widget=forms.widgets.HiddenInput())
     class Meta:
         model = Dataframe
-        fields = ('name',)
+        fields = ('file',)
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.helper = FormHelper(self)
+        file = kwargs.pop('file_pk')
+        self.fields['file'].initial=file
         self.helper.form_method = 'post'
         self.helper.attrs={
             'hx-post':"{% url 'dataframe:create' %}",
-            'hx-swap':"innerHTML"
+            'hx-swap':"innerHTML",
+            'hx-trigger':'input changed delay:2s, change delay:2s, submit',
         }
-        self.helper.layout = Layout(
-            Field('name'),
-            Div(
-                Button(
-                    name="button",
-                    value="Добавить файл",
-                    hx_get=reverse("dataframe:filelist"),
-                    hx_target="#SelectFileContent",
-                    hx_swap="innerHTML",
-                    data_bs_toggle="modal",
-                    data_bs_target="#SelectFileModal",
-                ),
-                css_id="FileInput"
+        if not self.instance.pk:
+            self.helper.layout = Layout(
+                Div(
+                    Button(
+                        name="button",
+                        value="Добавить файл",
+                        hx_get=reverse("dataframe:filelist"),
+                        hx_target="#SelectFileContent",
+                        hx_swap="innerHTML",
+                        data_bs_toggle="modal",
+                        data_bs_target="#SelectFileModal",
+                    ),
+                    css_id="FileInput"
+                )
             )
-        )
+        else:
+            self.helper.layout = Layout(
+                Div(
+                    Field('file'),
+                    Button(
+                        name="button",
+                        value="Добавить файл",
+                        hx_get=reverse("dataframe:filelist"),
+                        hx_target="#SelectFileContent",
+                        hx_swap="innerHTML",
+                        data_bs_toggle="modal",
+                        data_bs_target="#SelectFileModal",
+                    ),
+                    css_id="FileInput"
+                )
+            )
