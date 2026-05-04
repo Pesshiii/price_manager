@@ -435,6 +435,8 @@ def load_setting(pk):
     if sps_payload is None:
         return None
     df = pd.DataFrame(sps_payload)
+    df = df.dropna(subset=['name'])
+    df = df.replace({pd.NA: None, float('nan'): None, '': None, 'NaN': None})
 
     if 'manufacturer' in df.columns:
         df['manufacturer'] = df['manufacturer'].apply(
