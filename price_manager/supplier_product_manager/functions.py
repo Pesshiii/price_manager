@@ -462,7 +462,7 @@ def load_setting(pk):
 
     def get_spmodel(row):
         data = {
-            link.key: Decimal(str(getattr(row, link.key))) if link.key in SP_NUMBERS else getattr(row, link.key)
+            link.key: Decimal(str(getattr(row, link.key))) if link.key in SP_PRICES else getattr(row, link.key)
             for link in links 
             if not link.key=='article' and not link.key == 'name' and link.key in df.columns
             and getattr(row, link.key) is not None
