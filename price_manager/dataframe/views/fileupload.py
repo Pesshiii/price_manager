@@ -40,7 +40,7 @@ class FileSwappable(UpdateView):
     def get_form(self):
         form = super().get_form(self.form_class)
         form.fields['sheet_name'].choices = [ (name, name)
-            for name in get_sheet_names(self.request.kwargs.get('pk'))
+            for name in get_sheet_names(self.kwargs.get('pk'))
         ]
         return form
     def get_success_url(self):
