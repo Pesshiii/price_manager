@@ -37,7 +37,7 @@ class FileSwappable(UpdateView):
     template_name='dataframe/file/swapable.html'
     pk_url_kwarg='pk'
     form_class = FileInputForm
-    def get_form(self, form_class = ...):
+    def get_form(self, form_class):
         form = super().get_form(form_class)
         form.fields['sheet_name'].choices = [ (name, name)
             for name in get_sheet_names(self.instance.pk)
