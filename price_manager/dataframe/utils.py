@@ -11,7 +11,8 @@ def get_sheet_names(pk):
     '''
 
     filemodel = FileModel.objects.get(pk=pk)
-    if filemodel.file is None or filemodel.file is None:
+    if not filemodel.file or not filemodel.file.storage.exists(filemodel.file.name):
+        filemodel.delete()
         raise ObjectDoesNotExist()
     sheet_names = pd.ExcelFile(filemodel.file, engine='calamine').sheet_names
     filemodel.file.close()

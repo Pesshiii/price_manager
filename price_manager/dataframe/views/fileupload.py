@@ -39,9 +39,11 @@ class FileSwappable(UpdateView):
     form_class = FileInputForm
     def get_form(self):
         form = super().get_form(self.form_class)
-        form.fields['sheet_name'].choices = [ (name, name)
-            for name in get_sheet_names(self.kwargs.get('pk'))
-        ]
+        sheet_names = get_sheet_names(self.kwargs.get('pk'))
+        if not sheet_names is None:
+            form.fields['sheet_name'].choices = [ (name, name)
+                for name in sheet_names
+            ]
         return form
     def get_success_url(self):
         return reverse('dataframe:create')
