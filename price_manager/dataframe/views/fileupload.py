@@ -16,21 +16,15 @@ class FileItem(UpdateView):
     template_name='dataframe/file/item.html'
     pk_url_kwarg='pk'
     form_class = SelectFileForm
-    def form_valid(self, form):
-        self.instance = form.save()
-        return super().form_valid(form)
     def get_success_url(self):
-        return reverse('dataframe:fileswap', kwargs={'pk':self.instance.pk})
+        return reverse('dataframe:fileswap', kwargs={'pk':self.form})
     model = FileModel
 
 class FileCreate(CreateView):
     template_name='dataframe/file/create.html'
     form_class = FileForm
-    def form_valid(self, form):
-        self.instance = form.save()
-        return super().form_valid(form)
     def get_success_url(self):
-        return reverse('dataframe:fileswap', kwargs={'pk':self.instance.pk})
+        return reverse('dataframe:fileswap', kwargs={'pk':self.object.pk})
     model = FileModel
 
 class FileSwappable(UpdateView):
