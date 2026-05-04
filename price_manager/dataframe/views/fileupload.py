@@ -1,6 +1,7 @@
 from django.urls import reverse
 # from django.shortcuts import render, redirect
 from django.views.generic import ListView, CreateView, UpdateView
+import pandas as pd
 
 from ..utils import get_sheet_names
 
@@ -24,6 +25,7 @@ class FileCreate(CreateView):
     template_name='dataframe/file/create.html'
     form_class = FileForm
     def get_success_url(self):
+        print(self.object.file, self.object.file.name)
         return reverse('dataframe:fileswap', kwargs={'pk':self.object.pk})
     model = FileModel
 
