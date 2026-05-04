@@ -1,6 +1,4 @@
 
-from django.core.exceptions import ObjectDoesNotExist
-
 import pandas as pd
 from .models import FileModel
 
@@ -13,7 +11,7 @@ def get_sheet_names(pk):
     filemodel = FileModel.objects.get(pk=pk)
     if not filemodel.file or not filemodel.file.storage.exists(filemodel.file.name):
         filemodel.delete()
-        raise ObjectDoesNotExist()
+        raise BaseException(f'Файл не найден: {pk}')
     sheet_names = pd.ExcelFile(filemodel.file, engine='calamine').sheet_names
     filemodel.file.close()
     return sheet_names
