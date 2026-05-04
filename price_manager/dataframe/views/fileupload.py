@@ -18,14 +18,13 @@ class FileItem(UpdateView):
     pk_url_kwarg='pk'
     form_class = SelectFileForm
     def get_success_url(self):
-        return reverse('dataframe:fileswap', kwargs={'pk':self.form})
+        return reverse('dataframe:fileswap', kwargs={'pk':self.object.pk})
     model = FileModel
 
 class FileCreate(CreateView):
     template_name='dataframe/file/create.html'
     form_class = FileForm
     def get_success_url(self):
-        print(self.object.file, self.object.file.name)
         return reverse('dataframe:fileswap', kwargs={'pk':self.object.pk})
     model = FileModel
 
