@@ -16,7 +16,6 @@ class FileModel(models.Model):
         validators=[FileExtensionValidator(allowed_extensions=['xls', 'xlsx', 'xlsm', 'csv'])],
         null=False,
         upload_to='dataframe/',
-        blank=True,
     )
 
 @receiver(pre_delete, sender=FileModel)
