@@ -327,13 +327,6 @@ def _get_sps_cache_key(setting: Setting, signature: str) -> str:
     return f"setting<{setting.pk}>::sps::v<{SPS_JSON_SCHEMA_VERSION}>::sig<{signature}>"
 
 
-def _to_canonical_sps(df: pd.DataFrame) -> list[dict]:
-    records: list[dict] = []
-    for row in df.to_dict(orient="records"):
-        item = {field: row.get(field) for field in SPS_JSON_FIELDS}
-        records.append(item)
-    return records
-
 
 def get_sps(setting_or_pk: Setting | int, recache: bool = False) -> list[dict] | None:
     """
@@ -419,7 +412,7 @@ def get_sps(setting_or_pk: Setting | int, recache: bool = False) -> list[dict] |
     for required_field in SPS_JSON_REQUIRED_FIELDS:
         if required_field not in df.columns:
             return None
-    payload = _to_canonical_sps(df)
+    payload = df.to_dict(orient="records")
     if not DEBUG:
         cache.set(cache_key, payload, timeout=SPS_CACHE_TTL_SECONDS)
     return payload
