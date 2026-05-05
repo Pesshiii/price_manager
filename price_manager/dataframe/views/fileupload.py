@@ -5,7 +5,7 @@ import pandas as pd
 
 from ..utils import get_sheet_names
 
-from ..forms import FileForm, SelectFileForm, FileInputForm
+from ..forms import UploadFileForm, SelectFileForm, FileInputForm
 from ..models import FileModel
 
 class FileList(ListView):
@@ -23,7 +23,7 @@ class FileItem(UpdateView):
 
 class FileCreate(CreateView):
     template_name='dataframe/file/create.html'
-    form_class = FileForm
+    form_class = UploadFileForm
     def get_success_url(self):
         return reverse('dataframe:fileswap', kwargs={'pk':self.object.pk})
     model = FileModel

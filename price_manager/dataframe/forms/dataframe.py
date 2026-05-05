@@ -41,7 +41,7 @@ class DataFrameForm(forms.ModelForm):
         if not self.instance.pk or self.instance.file is None:
             self.helper.form_method = 'post'
             self.helper.attrs={
-                'hx-post':"{% url 'dataframe:create' %}",
+                'hx-post':reverse('dataframe:create'),
                 'hx-swap':"innerHTML",
                 'hx-trigger':'input changed delay:2s, change delay:2s, submit',
             }

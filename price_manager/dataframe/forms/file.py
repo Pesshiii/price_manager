@@ -8,7 +8,7 @@ from ..models import FileModel
 from django.urls import reverse
 
 
-class FileForm(forms.ModelForm):
+class UploadFileForm(forms.ModelForm):
     class Meta:
         model = FileModel
         fields = ("file",)
@@ -67,7 +67,6 @@ class FileInputForm(forms.ModelForm):
             raise ObjectDoesNotExist()
         self.helper.layout = Layout(
             Field('sheet_name', css_class='form-control'),
-            HTML(f'''<input type="hidden" name="file_pk" value="{self.instance.pk}">'''),
             Button(
                     name="button",
                     value="Добавить файл",
