@@ -2,6 +2,7 @@ from django import forms
 from crispy_forms.helper import FormHelper
 from crispy_forms.layout import Layout, Div, Field, Submit, HTML, Button
 from ..models import Dataframe, Link, DictItem
+from ..utils import get_sheet_names
 
 from django.urls import reverse
 
@@ -65,9 +66,13 @@ class DataFrameForm(forms.ModelForm):
                 'hx-trigger':'submit',
             }
             self.fields['file_pk'].initial = self.instance.file.pk
+            self.fields['sheet_name'].choices = get_sheet_names(self.instance.file.pk)
             self.helper.layout = Layout(
                 Div(
-                    Field('sheet_name'),
+                    Field('name'),
+                ),
+                Div(
+                    Field('sheet_name', css_class='form-select'),
                 ),
                 Div(
                     Field('file_pk'),
