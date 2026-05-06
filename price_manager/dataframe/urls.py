@@ -35,7 +35,7 @@ urlpatterns += [
 # patterns for contenttypes
 
 urlpatterns += [
-    path('contenttype/create/', ContentTypeCreate.as_view(), name='filecreate'),
-    path('contenttype/<int:pk>/select/', ContentTypeSelect.as_view(), name='fileselect'),
-    path('contenttype/list/', ContentTypeList.as_view(), name='filelist'),
+    path('contenttype/create/', ContentTypeCreate.as_view(), name='contenttypecreate'),
+    path('contenttype/<int:pk>/select/', ContentTypeSelect.as_view(), name='contenttypeselect'),
+    path('contenttype/list/', ContentTypeList.as_view(), name='contenttypelist'),
 ]
