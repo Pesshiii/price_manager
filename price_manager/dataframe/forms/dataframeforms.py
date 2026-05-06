@@ -79,7 +79,7 @@ class DataFrameForm(forms.ModelForm):
                     ),
                     Div(
                         HTML('''
-                             {% include "datarame/contenttype/list.html"%}
+                             {% include "dataframe/contenttype/list.html"%}
                              '''),
                         css_class='row-8',
                     ),
