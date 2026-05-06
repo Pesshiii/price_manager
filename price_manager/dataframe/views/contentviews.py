@@ -19,7 +19,7 @@ class ContentTypeCreate(CreateView):
     form_class = ContentTypeForm
     model = ContentType
     def get_success_url(self):
-        return reverse('dataframe:contentypeselect', kwargs={'pk': self.object.pk, 'df_pk': self.kwargs.get('df_pk', None)})
+        return reverse('dataframe:contentypeselect', kwargs={'pk': self.object.pk})
 
 class ContentTypeSelect(RedirectView):
     pk_url_kwarg="pk"
