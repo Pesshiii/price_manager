@@ -35,7 +35,7 @@ class DataFrameForm(forms.ModelForm):
     sheet_name = forms.CharField(widget=forms.Select(choices=[('', 'Выберите лист')]))
     class Meta:
         model = Dataframe
-        fields = ('file_pk','sheet_name')
+        fields = ('file_pk','sheet_name', 'name')
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.helper = FormHelper(self)
@@ -86,5 +86,6 @@ class DataFrameForm(forms.ModelForm):
                         data_bs_toggle="modal",
                         data_bs_target="#SelectFileModal",
                     ),
-                )
+                ),
+                Submit(name='submit', value='Сохранить')
             )
