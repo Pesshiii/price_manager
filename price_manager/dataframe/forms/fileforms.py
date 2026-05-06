@@ -54,27 +54,3 @@ class SelectFileForm(forms.ModelForm):
                 data_bs_toggle="modal",
                 data_bs_target="#SelectFileModal",)
         )
-
-class FileInputForm(forms.ModelForm):
-    sheet_name = forms.ChoiceField(label='Лист', choices=[(None, 'Выбрать лист')])
-    class Meta:
-        model = FileModel
-        fields = ("file",)
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-        self.helper = FormHelper(self)
-        self.helper.form_tag=False
-        if not self.instance:
-            raise ObjectDoesNotExist()
-        self.helper.layout = Layout(
-            Field('sheet_name', css_class='form-control'),
-            Button(
-                    name="button",
-                    value="Добавить файл",
-                    hx_get=reverse("dataframe:filelist"),
-                    hx_target="#SelectFileContent",
-                    hx_swap="innerHTML",
-                    data_bs_toggle="modal",
-                    data_bs_target="#SelectFileModal",
-                )
-        )
