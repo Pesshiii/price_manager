@@ -52,6 +52,7 @@ class DataFrameForm(forms.ModelForm):
                             hx_swap="innerHTML",
                             data_bs_toggle="modal",
                             data_bs_target="#SelectFileModal",
+                            css_class="btn btn-primary",
                         ),
                         css_id="FileInput"
                     ),
@@ -64,6 +65,7 @@ class DataFrameForm(forms.ModelForm):
                 'hx-post':reverse('dataframe:update', kwargs={'pk':self.instance.pk}),
                 'hx-swap':"innerHTML",
                 'hx-trigger':'submit',
+                'hx-push-url':'true',
             }
             self.fields['file_pk'].initial = self.instance.file.pk
             self.fields['sheet_name'].widget.choices = get_sheet_names(self.instance.file.pk)
@@ -85,6 +87,7 @@ class DataFrameForm(forms.ModelForm):
                         hx_swap="innerHTML",
                         data_bs_toggle="modal",
                         data_bs_target="#SelectFileModal",
+                        css_class="btn btn-secondary",
                     ),
                 ),
                 Submit(name='submit', value='Сохранить')
