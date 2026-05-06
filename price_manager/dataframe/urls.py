@@ -11,6 +11,6 @@ urlpatterns = [
     path('<int:pk>/update/', DataframeUpdate.as_view(), name='update'),
     # path('table/', DataframeTableView.as_view(), name='table'),
     path('files/create/', FileCreate.as_view(), name='filecreate'),
-    path('files/select/<int:pk>', FileSelect.as_view(), name='fileselect'),
+    path('files/<int:pk>/select/', FileSelect.as_view(), name='fileselect'),
     path('files/list/', FileList.as_view(), name='filelist'),
 ]
