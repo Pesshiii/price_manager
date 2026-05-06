@@ -19,11 +19,11 @@ class FileCreate(CreateView):
     def get_success_url(self):
         dfs = Dataframe.objects.all()
         name = self.object.filename
-        if not dfs.filter(name=f'{name}').exists:
+        if not dfs.filter(name=f'{name}').exists():
             df = Dataframe.objects.create(name=name, file=self.object)
         else:
             i = 1
-            while dfs.filter(name=f'{name}{i}').exists:
+            while dfs.filter(name=f'{name}{i}').exists():
                 i+=1
             df = Dataframe.objects.create(name=f'{name}{i}', file=self.object)
         return reverse('dataframe:update', kwargs={'pk':df.pk})
@@ -39,11 +39,11 @@ class FileSelect(DetailView):
             self.object.delete()
             return context
         name = self.object.filename
-        if not dfs.filter(name=f'{name}').exists:
+        if not dfs.filter(name=f'{name}').exists():
             df = Dataframe.objects.create(name=name, file=self.object)
         else:
             i = 1
-            while dfs.filter(name=f'{name}{i}').exists:
+            while dfs.filter(name=f'{name}{i}').exists():
                 i+=1
             df = Dataframe.objects.create(name=f'{name}{i}', file=self.object)
         if df:
