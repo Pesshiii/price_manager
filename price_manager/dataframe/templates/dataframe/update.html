@@ -1,7 +1,5 @@
 {% load crispy_forms_tags %}
 <hx-partial hx-target="#DataFrameForm" hx-swap="innerHTML">
-    <div class="container">
-      <h2>Редактирование датафрейма</h2>
-        {% crispy form form.helper %}
-    </div>
+    <h2>Редактирование датафрейма</h2>
+    {% crispy form form.helper %}
 </hx-partial>

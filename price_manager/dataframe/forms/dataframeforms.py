@@ -40,11 +40,6 @@ class DataFrameForm(forms.ModelForm):
         self.helper = FormHelper(self)
         if not self.instance.pk or self.instance.file is None:
             self.helper.form_method = 'post'
-            self.helper.attrs={
-                'hx-post':reverse('dataframe:create'),
-                'hx-swap':"innerHTML",
-                'hx-trigger':'input changed delay:2s, change delay:2s, submit',
-            }
             self.helper.layout = Layout(
                 Div(
                     Div(
@@ -63,7 +58,12 @@ class DataFrameForm(forms.ModelForm):
                 )
             )
         else:
-            self.helper.form_tag = False
+            
+            self.helper.attrs={
+                'hx-post':reverse('dataframe:update', kwargs={'pk':self.instance.pk}),
+                'hx-swap':"innerHTML",
+                'hx-trigger':'input changed delay:2s, change delay:2s, submit',
+            }
             self.fields['file_pk'].initial = self.instance.file.pk
             self.helper.layout = Layout(
                 Div(
@@ -81,6 +81,5 @@ class DataFrameForm(forms.ModelForm):
                         data_bs_toggle="modal",
                         data_bs_target="#SelectFileModal",
                     ),
-                    css_id="FileInput"
                 )
             )
