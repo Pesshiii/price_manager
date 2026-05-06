@@ -116,3 +116,4 @@ class DataFrameForm(forms.ModelForm):
                     css_class='row',
                 )
             )
+        return helper

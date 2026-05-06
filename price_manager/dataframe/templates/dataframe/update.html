@@ -1,5 +1,5 @@
 {% load crispy_forms_tags %}
-<hx-partial hx-target="#DataFrameForm" hx-swap="innerHTML">
+<hx-partial hx-target="#DataFrameForm" hx-swap="innerHTML" hx-push-url="true">
     <h2>Редактирование датафрейма</h2>
     {% crispy form form.helper %}
     

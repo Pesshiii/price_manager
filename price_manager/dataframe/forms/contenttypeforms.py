@@ -10,15 +10,15 @@ class ContentTypeForm(forms.ModelForm):
     class Meta:
         model = ContentType
         fields = ("name", "measure", "contenttype")
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-        self.helper = FormHelper(self)
-        self.helper.form_method = 'post'
-        self.helper.attrs = {
+    @property
+    def helper(self):
+        helper = FormHelper(self)
+        helper.form_method = 'post'
+        helper.attrs = {
                 'hx-encoding': 'multipart/form-data',
                 'hx-post': reverse('dataframe:filecreate')
                 }
-        self.helper.layout = Layout(
+        helper.layout = Layout(
             Field('name'),
             Field('mesure'),
             Field('contenttype'),
@@ -29,3 +29,5 @@ class ContentTypeForm(forms.ModelForm):
                 data_bs_target="#SelectContentTypeModal",
                 )
         )
+        return helper
+
