@@ -5,7 +5,7 @@ from ..forms import ContentTypeForm
 from ..models import ContentType, Link, Dataframe
 
 class ContentTypeList(ListView):
-    template_name = 'dataframe/content/list.html'
+    template_name = 'dataframe/contenttype/list.html'
     context_object_name='contenttypes'
     model = ContentType
     def get_context_data(self, **kwargs):
@@ -15,7 +15,7 @@ class ContentTypeList(ListView):
     
 
 class ContentTypeCreate(CreateView):
-    template_name='dataframe/content/create.html'
+    template_name='dataframe/contenttype/create.html'
     form_class = ContentTypeForm
     model = ContentType
     def get_success_url(self):
