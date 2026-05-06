@@ -5,7 +5,7 @@ import pandas as pd
 
 from ..utils import get_sheet_names
 
-from ..forms import UploadFileForm, SelectFileForm
+from ..forms import UploadFileForm
 from ..models import FileModel, Dataframe
 
 class FileList(ListView):

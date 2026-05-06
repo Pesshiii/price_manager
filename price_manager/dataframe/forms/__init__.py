@@ -1,2 +1,2 @@
 from .dataframeforms import DataFrameForm
-from .fileforms import UploadFileForm, SelectFileForm
+from .fileforms import UploadFileForm

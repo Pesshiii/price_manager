@@ -17,37 +17,13 @@ class UploadFileForm(forms.ModelForm):
         self.helper = FormHelper(self)
         self.helper.form_method = 'post'
         self.helper.attrs = {
-                'enctype': 'multipart/form-data',
-                'hx-enctype': 'multipart/form-data',
+                'hx-encoding': 'multipart/form-data',
                 'hx-post': reverse('dataframe:filecreate'),
                 'hx-swap':'innerHTML',
                 'hx-target':'#FileInput',
                 }
         self.helper.layout = Layout(
             Field('file'),
-            Submit(
-                name='submit', 
-                value='Выбрать',
-                data_bs_toggle="modal",
-                data_bs_target="#SelectFileModal",)
-        )
-
-class SelectFileForm(forms.ModelForm):
-    class Meta:
-        model = FileModel
-        fields = ("file",)
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-        self.helper = FormHelper(self)
-        self.helper.form_method = 'post'
-        if not self.instance:
-            raise ObjectDoesNotExist()
-        self.helper.attrs = {
-                'hx-post': reverse('dataframe:fileitem', kwargs={'pk':self.instance.pk}),
-                'hx-swap':'innerHTML',
-                'hx-target':'#FileInput',
-                }
-        self.helper.layout = Layout(
             Submit(
                 name='submit', 
                 value='Выбрать',
