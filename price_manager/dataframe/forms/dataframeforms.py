@@ -31,7 +31,7 @@ class LinkForm(forms.ModelForm):
 
 class DataFrameForm(forms.ModelForm):
     file_pk = forms.IntegerField(widget=forms.widgets.HiddenInput())
-    sheet_name = forms.CharField(widget=forms.widgets.ChoiceWidget(choices=[(None,'Выберите лист')]))
+    sheet_name = forms.CharField(widget=forms.Select(choices=[('', 'Выберите лист')]))
     class Meta:
         model = Dataframe
         fields = ('file_pk','sheet_name')
@@ -71,6 +71,7 @@ class DataFrameForm(forms.ModelForm):
                 ),
                 Div(
                     Field('file_pk'),
+                    HTML('<span>{{object.file.filename}}</span>'),
                     Button(
                         name="button",
                         value="Добавить файл",
