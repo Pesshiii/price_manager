@@ -1,11 +1,7 @@
 from django.urls import reverse
-from django.shortcuts import render, redirect
-from django.views.generic import ListView, CreateView, DetailView, RedirectView
-import pandas as pd
+from django.views.generic import ListView, CreateView, RedirectView
 
-from ..utils import get_sheet_names
-
-from ..forms import UploadFileForm
+from ..forms import FileForm
 from ..models import FileModel, Dataframe
 
 class FileList(ListView):
@@ -15,7 +11,7 @@ class FileList(ListView):
 
 class FileCreate(CreateView):
     template_name='dataframe/file/create.html'
-    form_class = UploadFileForm
+    form_class = FileForm
     def get_success_url(self):
         dfs = Dataframe.objects.all()
         name = self.object.filename

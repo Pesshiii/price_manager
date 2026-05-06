@@ -1,5 +1,5 @@
 from django.db import models
-from .product import Product
+from .productmodels import Product
 from core.models import TimeStampedModel
 
 class StockType(models.Model):

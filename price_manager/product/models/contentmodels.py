@@ -3,25 +3,7 @@ from django.core.serializers import json
 
 from core.models import TimeStampedModel, SlugModel
 
-from .product import Product
-
-
-class ContentType(models.Model):
-    name=models.CharField(
-        verbose_name="Название поля"
-    )
-    measure=models.CharField(
-        verbose_name="Еденица измерения"
-    )
-    contenttype=models.CharField(
-        verbose_name="Тип поля",
-        choices=[
-            ('str','Текст'),
-            ('int','Целые числа'),
-            ('float', 'числа с плавающей точкой'),
-            ('Decimal', 'Десятичные числа'),
-        ]
-    )
+from .productmodels import Product
 
 
 

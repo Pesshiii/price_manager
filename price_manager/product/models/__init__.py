@@ -1,5 +1,5 @@
-from .category import Category
-from .product import Product
-from .content import ContentType, Content, Manufacturer
-from .price import PriceType, Price
-from .stock import StockType, Stock
+from .categorymodels import Category
+from .productmodels import Product
+from .contentmodels import Content, Manufacturer
+from .pricemodels import PriceType, Price
+from .stockmodels import StockType, Stock

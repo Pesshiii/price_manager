@@ -16,7 +16,7 @@ class Category(MPTTModel):
         null=False,
     )
     contenttypes=models.ManyToManyField(
-        'ContentType',
+        'dataframe.ContentType',
         related_name='categories',
         verbose_name='Тип конента',
     )

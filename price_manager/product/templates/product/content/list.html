@@ -1,0 +1,41 @@
+<ul class="nav nav-tabs" id="SelectContentTypeTabs" role="tablist">
+  <li class="nav-item" role="presentation">
+    <button class="nav-link active" id="new-content-type-tab" data-bs-toggle="tab" data-bs-target="#new-content-type-pane" type="button" role="tab" aria-controls="new-content-type-pane" aria-selected="true">Новый тип контента</button>
+  </li>
+  <li class="nav-item" role="presentation">
+    <button class="nav-link" id="existing-content-type-tab" data-bs-toggle="tab" data-bs-target="#existing-content-type-pane" type="button" role="tab" aria-controls="existing-content-type-pane" aria-selected="false">Выбрать существующий тип контента</button>
+  </li>
+</ul>
+
+<div class="tab-content pt-3" id="selectContentTypeTabsContent">
+  <div class="tab-pane fade show active" id="new-content-type-pane" role="tabpanel" aria-labelledby="new-content-type-tab">
+        <div 
+            hx-get="{% url "product:contenttypecreate"%}"
+            hx-trigger="load"
+            hx-swap="outerHTML">
+            <span>Loading...</span>
+        </div>
+  </div>
+
+  <div class="tab-pane fade" id="existing-content-type-pane" role="tabpanel" aria-labelledby="existing-content-type-tab">
+    {% if contenttypes %}
+      <ul class="list-group">
+        {% for item in contenttypes %}
+            <li class="list-group-item d-flex justify-content-between align-items-center">
+                <span>{{ item.name }}</span>
+                <button 
+                    hx-get="{% url "product:contenttypeselect" pk=item.pk%}"
+                    hx-swap="outerHTML"
+                    data-bs-toggle="modal"
+                    data-bs-target="#SelectContentTypeModal"
+                    >
+                    <span>Выбрать</span>
+                </button>
+            </li>
+        {% endfor %}
+      </ul>
+    {% else %}
+      <p class="text-muted mb-0">Контента нет.</p>
+    {% endif %}
+  </div>
+</div>

@@ -2,7 +2,7 @@ from django.db import models
 
 from core.models import TimeStampedModel
 
-from .product import Product
+from .productmodels import Product
 
 
 class PriceType(models.Model):

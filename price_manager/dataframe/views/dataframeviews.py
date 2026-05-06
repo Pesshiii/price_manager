@@ -1,12 +1,6 @@
-from pathlib import Path
-
-import pandas as pd
-from django.db import OperationalError, ProgrammingError
-from django.shortcuts import redirect, render
 from django.urls import reverse
-from django.views.generic import CreateView, TemplateView, UpdateView
+from django.views.generic import CreateView, UpdateView
 
-from core.tables import HTMXMixin
 
 from ..models import Dataframe
 from ..forms import DataFrameForm
