@@ -32,7 +32,7 @@ class FileCreate(CreateView):
 class FileSelect(RedirectView):
     pk_url_kwarg="pk"
     def get_redirect_url(self, *args, **kwargs):
-        pk = self.kwargs.get('pk', None)
+        pk = kwargs.pop('pk', None)
         file = FileModel.objects.get(pk=pk)
         dfs = Dataframe.objects.all()
         if not file.file:
