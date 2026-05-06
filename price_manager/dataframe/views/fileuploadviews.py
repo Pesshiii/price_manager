@@ -1,6 +1,6 @@
 from django.urls import reverse
-# from django.shortcuts import render, redirect
-from django.views.generic import ListView, CreateView, DetailView
+from django.shortcuts import render, redirect
+from django.views.generic import ListView, CreateView, DetailView, RedirectView
 import pandas as pd
 
 from ..utils import get_sheet_names
@@ -29,24 +29,21 @@ class FileCreate(CreateView):
         return reverse('dataframe:update', kwargs={'pk':df.pk})
     model = FileModel
 
-class FileSelect(DetailView):
-    template_name='dataframe/file/create.html'
+class FileSelect(RedirectView):
     pk_url_kwarg="pk"
-    def get_context_data(self, **kwargs):
-        context = super().get_context_data(**kwargs)
+    def get_redirect_url(self, *args, **kwargs):
+        pk = self.kwargs.get('pk', None)
+        file = FileModel.objects.get(pk=pk)
         dfs = Dataframe.objects.all()
-        if not self.object.file:
-            self.object.delete()
-            return context
-        name = self.object.filename
+        if not file.file:
+            file.delete()
+            return redirect(reverse('dataframe:filecreate'))
+        name = file.filename
         if not dfs.filter(name=f'{name}').exists():
-            df = Dataframe.objects.create(name=name, file=self.object)
+            df = Dataframe.objects.create(name=name, file=file)
         else:
             i = 1
             while dfs.filter(name=f'{name}{i}').exists():
                 i+=1
-            df = Dataframe.objects.create(name=f'{name}{i}', file=self.object)
-        if df:
-            context['pk']=df.pk
-        return context
-    model = FileModel
+            df = Dataframe.objects.create(name=f'{name}{i}', file=file)
+        return redirect(reverse('dataframe:update', kwargs={'pk':df.pk}))
