@@ -31,7 +31,7 @@ class LinkForm(forms.ModelForm):
 
 class DataFrameForm(forms.ModelForm):
     file_pk = forms.IntegerField(widget=forms.widgets.HiddenInput())
-    sheet_name = forms.CharField(widget=forms.widgets.ChoiceWidget(choices=[(None,'Виберите лист')]))
+    sheet_name = forms.CharField(widget=forms.widgets.ChoiceWidget(choices=[(None,'Выберите лист')]))
     class Meta:
         model = Dataframe
         fields = ('file_pk','sheet_name')

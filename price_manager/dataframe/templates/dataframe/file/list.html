@@ -22,9 +22,10 @@
       <ul class="list-group">
         {% for item in files %}
             <div 
-                hx-get="{% url "dataframe:fileitem" pk=item.pk%}"
+                hx-get="{% url "dataframe:fileselect" pk=item.pk%}"
                 hx-trigger="load"
-                hx-swap="outerHTML">
+                hx-swap="outerHTML"
+                >
                 <span>Loading...</span>
             </div>
         {% endfor %}

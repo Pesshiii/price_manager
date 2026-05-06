@@ -17,7 +17,8 @@ class UploadFileForm(forms.ModelForm):
         self.helper = FormHelper(self)
         self.helper.form_method = 'post'
         self.helper.attrs = {
-                'enctype':'multipart/form-data',
+                'enctype': 'multipart/form-data',
+                'hx-enctype': 'multipart/form-data',
                 'hx-post': reverse('dataframe:filecreate'),
                 'hx-swap':'innerHTML',
                 'hx-target':'#FileInput',
