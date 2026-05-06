@@ -71,7 +71,7 @@ class DataFrameForm(forms.ModelForm):
                 ),
                 Div(
                     Field('file_pk'),
-                    HTML('<span>\{\{object.file.filename}}</span>'),
+                    HTML('<span>{{object.file.filename}}</span>'),
                     Button(
                         name="button",
                         value="Добавить файл",
