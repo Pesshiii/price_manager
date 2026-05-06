@@ -63,10 +63,15 @@ class DataFrameForm(forms.ModelForm):
                 )
             )
         else:
+            self.helper.form_tag = False
+            self.fields['file_pk'].initial = self.instance.file.pk
             self.helper.layout = Layout(
-                Field('sheet_name'),
+                Div(
+                    Field('sheet_name'),
+                ),
                 Div(
                     Field('file_pk'),
+                    HTML(f'<span>{self.instance.file.filename}</span>'),
                     Button(
                         name="button",
                         value="Добавить файл",
