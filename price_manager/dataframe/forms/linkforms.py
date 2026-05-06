@@ -19,38 +19,15 @@ class LinkForm(forms.ModelForm):
     def helper(self):
         helper = FormHelper(self)
         helper.form_method = 'post'
-        if not self.instance.pk:
-            helper.attrs = {
-                    'hx-post': reverse('dataframe:linkcreate'),
-                    }
-            helper.layout = Layout(
-                Div(
-                    Div(
-                        Button(
-                            name="button",
-                            value="Добавить связь",
-                            hx_get=reverse("dataframe:contenttypelist"),
-                            hx_target="#SelectContentTypeContent",
-                            hx_swap="innerHTML",
-                            data_bs_toggle="modal",
-                            data_bs_target="#SelectContentTypeModal",
-                            css_class="btn btn-primary",
-                        ),
-                        css_id="ContentTypeInputNew"
-                    ),
-                    css_id="FormContentsNew"
+        helper.layout = Layout(
+            HTML('<span>{{object.contenttype}}</span>'),
+            Field('initial'),
+            Field('value', css_class='form-select'),
+            Submit(
+                name='delete', 
+                value='X',
+                css_class='btn btn-danger',
                 )
-            )
-        else:
-            helper.layout = Layout(
-                HTML('<span>{{object.contenttype}}</span>'),
-                Field('initial'),
-                Field('value', css_class='form-select'),
-                Submit(
-                    name='delete', 
-                    value='X',
-                    css_class='btn btn-danger',
-                    )
-            )
+        )
         return helper
 

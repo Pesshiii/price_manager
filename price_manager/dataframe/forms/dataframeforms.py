@@ -79,37 +79,7 @@ class DataFrameForm(forms.ModelForm):
                     ),
                     Div(
                         HTML('''
-                             {% if object.contenttypes %}
-                                <ul class="list-group" id="Links">
-                                {% for item in object.contenttypes %}
-                                    <li class="list-group-item d-flex justify-content-between align-items-center">
-                                        <div hx-get="{% url "dataframe:linkupdate" df_pk=object.pk pk=item.pk%}"></div>
-                                    </li>
-                                {% endfor %}
-                                </ul>
-                            {% endif %}
-                                <ul>
-                                <button name="selectcontenttype" value="Добавить связь" 
-                                        hx-get="{% url "dataframe:contenttypelist"%}"
-                                        hx-target="#SelectContentTypeContent"
-                                        hx-swap="innerHTML"
-                                        data-bs-toggle="modal"
-                                        data-bs-target="#SelectContentTypeModal"
-                                        class="btn btn-primary">
-                                </button>
-                                </ul>
-                                <div class="modal fade" id="SelectContentTypeModal" tabindex="-1" aria-hidden="true">
-                                    <div class="modal-dialog modal-lg">
-                                        <div class="modal-content">
-                                            <div class="modal-header">
-                                                <h5 class="modal-title">Тип контента</h5>
-                                                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
-                                            </div>
-                                            <div class="modal-body" id="SelectContentTypeContent">
-                                            </div>
-                                        </div>
-                                    </div>
-                                </div>
+                             {% include "datarame/contenttype/list.html"%}
                              '''),
                         css_class='row-8',
                     ),
