@@ -62,7 +62,7 @@ class DataFrameForm(forms.ModelForm):
             self.helper.attrs={
                 'hx-post':reverse('dataframe:update', kwargs={'pk':self.instance.pk}),
                 'hx-swap':"innerHTML",
-                'hx-trigger':'input changed delay:2s, change delay:2s, submit',
+                'hx-trigger':'submit',
             }
             self.fields['file_pk'].initial = self.instance.file.pk
             self.helper.layout = Layout(
@@ -71,7 +71,7 @@ class DataFrameForm(forms.ModelForm):
                 ),
                 Div(
                     Field('file_pk'),
-                    HTML(f'<span>{self.instance.file.filename}</span>'),
+                    HTML('<span>\{\{object.file.filename}}</span>'),
                     Button(
                         name="button",
                         value="Добавить файл",

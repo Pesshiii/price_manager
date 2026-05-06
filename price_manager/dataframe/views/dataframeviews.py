@@ -15,7 +15,7 @@ class DataframeCreate(CreateView):
     template_name='dataframe/create.html'
     form_class = DataFrameForm
     def get_success_url(self):
-        return reverse('dataframe:create')
+        return reverse('dataframe:update', kwargs={'pk': self.object.pk})
     model = Dataframe
 
 class DataframeUpdate(UpdateView):
