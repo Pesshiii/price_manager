@@ -15,8 +15,7 @@ class ContentTypeForm(forms.ModelForm):
         helper = FormHelper(self)
         helper.form_method = 'post'
         helper.attrs = {
-                'hx-encoding': 'multipart/form-data',
-                'hx-post': reverse('dataframe:filecreate')
+                'hx-post': reverse('dataframe:contenttypecreate')
                 }
         helper.layout = Layout(
             Field('name'),
