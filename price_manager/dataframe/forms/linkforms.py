@@ -29,7 +29,7 @@ class LinkForm(forms.ModelForm):
                         Button(
                             name="button",
                             value="Добавить связь",
-                            hx_get=reverse("dataframe:contenttypelist", kwargs={'df_pk':self.df_pk}),
+                            hx_get=reverse("dataframe:contenttypelist"),
                             hx_target="#SelectContentTypeContent",
                             hx_swap="innerHTML",
                             data_bs_toggle="modal",

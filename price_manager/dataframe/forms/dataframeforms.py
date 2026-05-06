@@ -90,7 +90,7 @@ class DataFrameForm(forms.ModelForm):
                             {% endif %}
                                 <ul>
                                 <button name="selectcontenttype" value="Добавить связь" 
-                                        hx-get="{% url "dataframe:contenttypelist" df_pk=object.pk %}"
+                                        hx-get="{% url "dataframe:contenttypelist"%}"
                                         hx-target="#SelectContentTypeContent"
                                         hx-swap="innerHTML"
                                         data-bs-toggle="modal"
