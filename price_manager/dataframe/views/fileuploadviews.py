@@ -35,6 +35,9 @@ class FileSelect(DetailView):
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
         dfs = Dataframe.objects.all()
+        if not self.object.file:
+            self.object.delete()
+            return context
         name = self.object.filename
         if not dfs.filter(name=f'{name}').exists:
             df = Dataframe.objects.create(name=name, file=self.object)
@@ -44,7 +47,6 @@ class FileSelect(DetailView):
                 i+=1
             df = Dataframe.objects.create(name=f'{name}{i}', file=self.object)
         if df:
-            return reverse('dataframe:update', kwargs={'pk':df.pk})
-        else:
-            return reverse('dataframe:create')
+            context['pk']=df.pk
+        return context
     model = FileModel
