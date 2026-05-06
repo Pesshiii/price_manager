@@ -37,7 +37,7 @@ class FileSelect(RedirectView):
         dfs = Dataframe.objects.all()
         if not file.file:
             file.delete()
-            return redirect(reverse('dataframe:filecreate'))
+            return reverse('dataframe:filecreate')
         name = file.filename
         if not dfs.filter(name=f'{name}').exists():
             df = Dataframe.objects.create(name=name, file=file)
@@ -46,4 +46,4 @@ class FileSelect(RedirectView):
             while dfs.filter(name=f'{name}{i}').exists():
                 i+=1
             df = Dataframe.objects.create(name=f'{name}{i}', file=file)
-        return redirect(reverse('dataframe:update', kwargs={'pk':df.pk}))
+        return reverse('dataframe:update', kwargs={'pk':df.pk})
