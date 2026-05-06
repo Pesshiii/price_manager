@@ -66,7 +66,7 @@ class DataFrameForm(forms.ModelForm):
                 'hx-trigger':'submit',
             }
             self.fields['file_pk'].initial = self.instance.file.pk
-            self.fields['sheet_name'].choices = get_sheet_names(self.instance.file.pk)
+            self.fields['sheet_name'].widget.choices = get_sheet_names(self.instance.file.pk)
             self.helper.layout = Layout(
                 Div(
                     Field('name'),
