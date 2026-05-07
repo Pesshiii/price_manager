@@ -1,0 +1,56 @@
+
+{% load crispy_forms_tags %}
+
+{{ formset.management_form }}
+
+ <div id="FormContainer">
+        {% for form in formset %}
+            <div class="form-row">
+                {%crispy form%}
+                
+                <div style="display:none;">{{ form.DELETE }}</div>
+                
+                <button type="button" class="btn btn-dager" id="DeleteButton">Delete</button>
+            </div>
+        {% endfor %}
+    </div>
+
+<!-- The "Add More" button -->
+<button type="button" id="AddLink">Добавить</button>
+
+<!-- Hidden empty form used as a template -->
+<div id="empty-form" style="display:none;">
+    <div class="form-row">
+        {%crispy formset.empty_form %}
+    </div>
+</div>
+
+<script>
+    document.querySelectorAll('#DeleteButton').forEach(button => {
+        button.addEventListener('click', function() {
+            const row = this.closest('.form-row');
+            // Find the hidden checkbox within this row and check it
+            const deleteCheckbox = row.querySelector('input[name$="-DELETE"]');
+            if (deleteCheckbox) {
+                deleteCheckbox.checked = true;
+                // Hide the row so the user sees it "disappear"
+                row.style.display = 'none';
+            }
+        });
+    });
+    document.getElementById('AddLink').addEventListener('click', function() {
+        const container = document.querySelector('#FormContainer');
+        const totalForms = document.querySelector('#id_{{formset.prefix}}-TOTAL_FORMS'); // Replace 'form' with your formset prefix if custom
+        const currentCount = parseInt(totalForms.value);
+        
+        // Get the empty form HTML and replace the prefix with the current count
+        const emptyFormHtml = document.getElementById('empty-form').innerHTML;
+        const newFormHtml = emptyFormHtml.replace(/__prefix__/g, currentCount);
+        
+        // Append the new form to the container
+        container.insertAdjacentHTML('beforeend', newFormHtml);
+        
+        // Increment the management form's total count
+        totalForms.value = currentCount + 1;
+    });
+</script>
