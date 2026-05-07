@@ -48,7 +48,7 @@ class DataFrameForm(forms.ModelForm):
                     css_class='col-6',
                 ),
                 Div(
-                    HTML('{% include dataframe/linkformset.html%}'),
+                    HTML('''{% include "dataframe/linkformset.html" %}'''),
                     css_class='col-4',
                 ),
                 css_class='row',
