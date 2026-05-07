@@ -2,15 +2,12 @@
 
 class HtmxMixin:
     success_url = ""
-
-    @property
-    def htmx_template(self) -> str:
-        raise NotImplementedError
+    htmx_template = None
 
     @property
     def htmx_partial(self) -> str:
-        raise NotImplementedError
+        return f'{self.htmx_template}#partial'
 
     @property
     def template_name(self) -> str:
-        return self.htmx_partial if self.request.htmx else self.htmx_template  # noqa
+        return self.htmx_partial if self.request.htmx else self.htmx_template

@@ -1,0 +1,52 @@
+from django import forms
+from django.core.validators import FileExtensionValidator
+from crispy_forms.helper import FormHelper
+from crispy_forms.layout import Layout, Div, Field, Submit, HTML, Button
+from .models import Dataframe
+from .utils import get_sheet_names
+
+from django.urls import reverse
+
+
+class DataFrameForm(forms.ModelForm):
+    filefield = forms.FileField(validators=[FileExtensionValidator(allowed_extensions=['xls', 'xlsx', 'xlsm', 'csv'])])
+    sheet_name = forms.CharField(widget=forms.Select(choices=[('', 'Выберите лист')]))
+    class Meta:
+        model = Dataframe
+        fields = ('filefield','sheet_name', 'name')
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        if self.instance.pk and self.instance.file:
+            self.fields['sheet_name'].widget.choices = get_sheet_names(self.instance.file.pk)
+    @property
+    def helper(self):
+        helper = FormHelper(self)
+        helper.attrs={
+            'hx-swap':"innerHTML",
+            'hx-encoding': 'multipart/form-data',
+            'hx-trigger':'submit, change',
+            'hx-push-url':'true',
+        }
+        if self.instance.pk:
+            helper.attrs['hx-post']=reverse('dataframe:update', kwargs={'pk': self.instance.pk}),
+        else:
+            helper.attrs['hx-post']=reverse('dataframe:create'),
+        helper.layout = Layout(
+            Div(
+                Div(
+                    Div(
+                        Field('name'),
+                    ),
+                    Div(
+                        Field('sheet_name', css_class='form-select'),
+                    ),
+                    Div(
+                        Field('filefield'),
+                    ),
+                    Submit(name='submit', value='Сохранить'),
+                    css_class='col-8',
+                ),
+                css_class='row',
+            )
+        )
+        return helper
