@@ -28,9 +28,9 @@ class DataFrameForm(forms.ModelForm):
             'hx-push-url':'true',
         }
         if self.instance.pk:
-            helper.attrs['hx-post']=reverse('dataframe:update', kwargs={'pk': self.instance.pk}),
+            helper.attrs['hx-post']=reverse('dataframe:update', kwargs={'pk': self.instance.pk})
         else:
-            helper.attrs['hx-post']=reverse('dataframe:create'),
+            helper.attrs['hx-post']=reverse('dataframe:create')
         helper.layout = Layout(
             Div(
                 Div(

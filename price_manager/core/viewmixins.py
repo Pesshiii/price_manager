@@ -1,7 +1,6 @@
 #https://gist.github.com/Tobi-De/31535e7434956b6269afac84e147cfce
 
 class HtmxMixin:
-    success_url = ""
     htmx_template = None
 
     @property
