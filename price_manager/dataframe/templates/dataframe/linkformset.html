@@ -21,7 +21,11 @@
 <!-- Hidden empty form used as a template -->
 <div id="empty-form" style="display:none;">
     <div class="form-row">
-        {%crispy formset.empty_form %}
+        {%crispy formset.empty_form%}
+        
+        <div style="display:none;">{{ form.DELETE }}</div>
+        
+        <button type="button" class="btn btn-dager" id="DeleteButton">Delete</button>
     </div>
 </div>
 

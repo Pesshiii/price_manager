@@ -19,6 +19,8 @@ class DataFrameForm(forms.ModelForm):
         super().__init__(*args, **kwargs)
         if self.instance.pk and self.instance.file:
             self.fields['sheet_name'].widget.choices = get_sheet_names(self.instance.file.pk)
+            if self.instance.file and self.instance.file.file:
+                self.fields['filefield'].initial = self.instance.file.file
     @property
     def helper(self):
         helper = FormHelper(self)
@@ -44,13 +46,16 @@ class DataFrameForm(forms.ModelForm):
                     Div(
                         Field('filefield'),
                     ),
-                    Submit(name='submit', value='Сохранить'),
                     css_class='col-6',
                 ),
                 Div(
                     HTML('''{% include "dataframe/linkformset.html" with formset=formset %}'''),
                     css_class='col-4',
                 ),
+                css_class='row',
+            ),
+            Div(
+                Submit(name='submit', value='Сохранить'),
                 css_class='row',
             )
         )
