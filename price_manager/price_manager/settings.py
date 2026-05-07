@@ -51,6 +51,7 @@ INSTALLED_APPS+=[
     'dal',
     'dal_select2',
     'django_htmx',
+    'django_jsonform',
     'template_partials',
     'widget_tweaks',
     'crispy_bootstrap4',
