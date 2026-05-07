@@ -31,6 +31,7 @@ django-filter==25.1
 django-htmx==1.27.0
 django-import-export==4.3.9
 django-js-asset==3.1.2
+django-jsonform==2.23.2
 django-mptt==0.18.0
 django-select2==8.4.1
 django-storages==1.14.6
