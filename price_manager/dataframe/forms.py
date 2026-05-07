@@ -64,6 +64,7 @@ class LinkForm(forms.ModelForm):
     dictitems = JSONFormField(schema=DICT_SHEMA)
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        self.fields['dictitems'].initial = get_json_dicts(self.instance.dicts.all())
+        if self.instance.pk:
+            self.fields['dictitems'].initial = get_json_dicts(self.instance.dicts.all())
 
 LinkFormset = forms.modelformset_factory(Link, LinkForm, can_delete=True)
