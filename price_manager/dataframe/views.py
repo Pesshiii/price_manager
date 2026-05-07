@@ -12,6 +12,8 @@ class DataframeCreate(HtmxMixin, CreateView):
     def form_valid(self, form):
         instance = form.save(commit=False)
         instance.file = FileModel.objects.create(file=form.cleaned_data['filefield'])
+        if instance.name == '':
+            instance.name = instance.file.filename
         return super().form_valid(form)
     
     def get_success_url(self):
@@ -21,6 +23,13 @@ class DataframeCreate(HtmxMixin, CreateView):
 class DataframeUpdate(HtmxMixin, UpdateView):
     htmx_template='dataframe/update.html'
     form_class = DataFrameForm
+    def form_valid(self, form):
+        instance = form.save(commit=False)
+        instance.file = FileModel.objects.create(file=form.cleaned_data['filefield'])
+        if instance.name == '':
+            instance.name = instance.file.filename
+        return super().form_valid(form)
+    
     def get_success_url(self):
         return reverse('dataframe:update', kwargs={'pk': self.object.pk})
     model = Dataframe

@@ -10,7 +10,7 @@ from django.urls import reverse
 
 class DataFrameForm(forms.ModelForm):
     filefield = forms.FileField(validators=[FileExtensionValidator(allowed_extensions=['xls', 'xlsx', 'xlsm', 'csv'])])
-    sheet_name = forms.CharField(widget=forms.Select(choices=[('', 'Выберите лист')]))
+    sheet_name = forms.CharField(widget=forms.Select(choices=[('', 'Выберите лист')]), required=False)
     class Meta:
         model = Dataframe
         fields = ('filefield','sheet_name', 'name')
