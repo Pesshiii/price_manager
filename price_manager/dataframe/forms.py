@@ -48,7 +48,7 @@ class DataFrameForm(forms.ModelForm):
                     css_class='col-6',
                 ),
                 Div(
-                    HTML('''{% include "dataframe/linkformset.html" %}'''),
+                    HTML('''{% include "dataframe/linkformset.html" with formset=formset %}'''),
                     css_class='col-4',
                 ),
                 css_class='row',
@@ -64,6 +64,6 @@ class LinkForm(forms.ModelForm):
     dictitems = JSONFormField(schema=DICT_SHEMA)
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        self.fields['dictitems'].initial = get_json_dicts(self.instance.dicts)
+        self.fields['dictitems'].initial = get_json_dicts(self.instance.dicts.all())
 
 LinkFormset = forms.modelformset_factory(Link, LinkForm, can_delete=True)
