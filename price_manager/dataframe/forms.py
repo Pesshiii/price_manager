@@ -18,6 +18,7 @@ class DataFrameForm(forms.ModelForm):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         if self.instance.pk and self.instance.file:
+            self.fields['fieldfield'].initial = self.instance.file.file
             self.fields['sheet_name'].widget.choices = get_sheet_names(self.instance.file.pk)
     @property
     def helper(self):
