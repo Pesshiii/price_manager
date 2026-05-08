@@ -29,13 +29,7 @@ class DataframeUpdate(HtmxMixin, UpdateView):
         if self.request.POST:
             context["formset"] = LinkFormset(self.request.POST)
         else:
-            context["formset"] = LinkFormset(intitial=[
-                
-                {
-                    'contenttype':link.contenttype, 'initial':link.initial, 'dictitems':get_json_dicts(list(link.dicts.all()))
-                }
-                for link in Link.objects.filter(dataframe=self.object)
-                ])
+            context["formset"] = LinkFormset()
         return context
     def form_valid(self, form):
         linkforms = LinkFormset(self.request.POST)
