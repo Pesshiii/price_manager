@@ -39,10 +39,15 @@ DICT_SHEMA={
     "maxItems": 20
 }
 def get_json_dicts(dictitems:list[DictItem])->list:
-    return [
+    res = [
             {
                 "key": dictitem.key,
                 "value": dictitem.value
             }
             for dictitem in dictitems
         ]
+    if not res == []: return res
+    return [{
+        'key':'',
+        'value':''}
+    ]

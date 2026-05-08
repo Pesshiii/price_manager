@@ -27,6 +27,7 @@ class DataFrameForm(forms.ModelForm):
             'hx-swap':"innerHTML",
             'hx-encoding': 'multipart/form-data',
             'hx-trigger':'submit, change',
+            'hx-target':'DataFrameForm',
             'hx-push-url':'true',
         }
         add_ons=[]
