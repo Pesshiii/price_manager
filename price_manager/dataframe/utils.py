@@ -38,7 +38,7 @@ DICT_SHEMA={
     "minItems": 1,
     "maxItems": 20
 }
-def get_json_dicts(dictitems:list[DictItem])->str:
+def get_json_dicts(dictitems:list[DictItem])->list:
     return [
             {
                 "key": dictitem.key,
