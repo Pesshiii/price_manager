@@ -23,7 +23,7 @@
     <div class="form-row">
         {%crispy formset.empty_form%}
         
-        <div style="display:none;">{{ form.DELETE }}</div>
+        <div style="display:none;">{{ formset.empty_form.DELETE }}</div>
         
         <button type="button" class="btn btn-dager" id="DeleteButton">Delete</button>
     </div>

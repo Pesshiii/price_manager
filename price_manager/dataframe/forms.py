@@ -10,7 +10,7 @@ from django.urls import reverse
 
 
 class DataFrameForm(forms.ModelForm):
-    filefield = forms.FileField(validators=[FileExtensionValidator(allowed_extensions=['xls', 'xlsx', 'xlsm', 'csv'])])
+    filefield = forms.FileField(widget=forms.ClearableFileInput(),validators=[FileExtensionValidator(allowed_extensions=['xls', 'xlsx', 'xlsm', 'csv'])])
     sheet_name = forms.CharField(widget=forms.Select(choices=[('', 'Выберите лист')]), required=False)
     class Meta:
         model = Dataframe
@@ -19,8 +19,6 @@ class DataFrameForm(forms.ModelForm):
         super().__init__(*args, **kwargs)
         if self.instance.pk and self.instance.file:
             self.fields['sheet_name'].widget.choices = get_sheet_names(self.instance.file.pk)
-            if self.instance.file and self.instance.file.file:
-                self.fields['filefield'].initial = self.instance.file.file
     @property
     def helper(self):
         helper = FormHelper(self)
