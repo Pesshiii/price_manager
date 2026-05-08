@@ -28,7 +28,12 @@ class DataFrameForm(forms.ModelForm):
             'hx-trigger':'submit, change',
             'hx-push-url':'true',
         }
+        add_ons=[]
         if self.instance.pk:
+            add_ons.append(Div(
+                    HTML('''{% include "dataframe/linkformset.html" with formset=formset %}'''),
+                    css_class='col-4',
+                ))
             helper.attrs['hx-post']=reverse('dataframe:update', kwargs={'pk': self.instance.pk})
         else:
             helper.attrs['hx-post']=reverse('dataframe:create')
@@ -46,10 +51,7 @@ class DataFrameForm(forms.ModelForm):
                     ),
                     css_class='col-6',
                 ),
-                Div(
-                    HTML('''{% include "dataframe/linkformset.html" with formset=formset %}'''),
-                    css_class='col-4',
-                ),
+                *add_ons,
                 css_class='row',
             ),
             Div(

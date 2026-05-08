@@ -5,7 +5,6 @@ from core.viewmixins import HtmxMixin
 
 from .models import Dataframe, FileModel, Link, DictItem
 from .forms import DataFrameForm, LinkFormset
-from .utils import get_json_dicts
 
 class DataframeCreate(HtmxMixin, CreateView):
     htmx_template='dataframe/create.html'
@@ -29,8 +28,7 @@ class DataframeUpdate(HtmxMixin, UpdateView):
         if self.request.POST:
             context["formset"] = LinkFormset(self.request.POST)
         else:
-            context["formset"] = LinkFormset()
-        print(context['formset'])
+            context["formset"] = LinkFormset(queryset=Link.objects.filter(dataframe=self.object))
         return context
     def form_valid(self, form):
         linkforms = LinkFormset(self.request.POST)
