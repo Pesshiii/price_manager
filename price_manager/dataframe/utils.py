@@ -14,7 +14,10 @@ def get_sheet_names(pk):
     if cached is not None:
         return cached
 
-    filemodel = FileModel.objects.get(pk=pk)
+    try:
+        filemodel = FileModel.objects.get(pk=pk)
+    except FileModel.DoesNotExist:
+        return [('', 'Выберите лист')]
     filename = filemodel.file.name.lower()
     if filename.endswith('.csv'):
         result = [('Sheet1', 'Sheet1')]
@@ -41,7 +44,10 @@ def get_column_names(file_pk, sheet_name=None):
     if cached is not None:
         return cached
 
-    filemodel = FileModel.objects.get(pk=file_pk)
+    try:
+        filemodel = FileModel.objects.get(pk=file_pk)
+    except FileModel.DoesNotExist:
+        return [('', '---------')]
     filename = filemodel.file.name.lower()
     try:
         if filename.endswith('.csv'):

@@ -70,7 +70,6 @@ class DataframeUpdate(HtmxMixin, UpdateView):
 
     def form_valid(self, form):
         qs = self._link_queryset()
-        linkforms = LinkFormset(self.request.POST, queryset=qs, **self._file_kwargs())
         instance = form.save(commit=False)
 
         new_file = form.cleaned_data.get('filefield')
@@ -85,6 +84,16 @@ class DataframeUpdate(HtmxMixin, UpdateView):
             instance.name = _resolve_unique_name(base, exclude_pk=instance.pk)
 
         instance.save()
+
+        # Build file kwargs from the *saved* instance so that if the file was
+        # just replaced, _construct_form uses the new (existing) FileModel pk
+        # instead of the deleted one.  (BaseFormSet.forms is a cached_property
+        # that constructs forms lazily on first access, i.e. in is_valid().)
+        current_fk = {
+            'file_pk': instance.file.pk if instance.file else None,
+            'sheet_name': instance.sheet_name or None,
+        }
+        linkforms = LinkFormset(self.request.POST, queryset=qs, **current_fk)
 
         if linkforms.is_valid():
             for link_form in linkforms:
