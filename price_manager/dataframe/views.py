@@ -13,7 +13,11 @@ class DataframeCreate(HtmxMixin, CreateView):
         instance = form.save(commit=False)
         instance.file = FileModel.objects.create(file=form.cleaned_data['filefield'])
         if instance.name == '':
-            instance.name = instance.file.filename
+            name = instance.file.filename
+            names = Dataframe.objects.all().values_list('name', flat=True)
+            while name in names:
+                name += '_copy'
+            instance.name = name
         return super().form_valid(form)
     
     def get_success_url(self):
