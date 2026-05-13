@@ -81,10 +81,33 @@ class LinkForm(forms.ModelForm):
             )
         }
     dictitems = JSONFormField(schema=DICT_SCHEMA)
+
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         if self.instance.pk:
             self.fields['dictitems'].initial = get_json_dicts(self.instance.dicts.all())
+
+    @property
+    def helper(self):
+        helper = FormHelper()
+        helper.form_tag = False
+        helper.layout = Layout(
+            Div(
+                Div(Field('contenttype'), css_class='flex-grow-1'),
+                HTML('''<div class="flex-shrink-0 mb-3 d-flex align-items-end">
+                          <button type="button"
+                                  class="btn btn-outline-secondary"
+                                  title="Создать новый тип контента"
+                                  data-ct-create-btn>
+                            <i class="bi bi-plus-lg"></i>
+                          </button>
+                        </div>'''),
+                css_class='d-flex gap-2',
+            ),
+            Field('initial'),
+            Field('dictitems'),
+        )
+        return helper
 
 
 class LinkBaseFormset(forms.BaseModelFormSet):

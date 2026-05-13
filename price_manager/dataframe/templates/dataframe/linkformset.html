@@ -60,9 +60,8 @@
 
   <script>
   (function () {
-    var CREATE_ID    = '__contenttype_create__';
-    var AUTOCREATE_URL = "{% url 'dataframe:contenttype-create' %}";
-    var MODAL_ID       = 'contenttypeCreateModal';
+    var AUTOCREATE_URL   = "{% url 'dataframe:contenttype-create' %}";
+    var MODAL_ID         = 'contenttypeCreateModal';
     var MODAL_CONTENT_ID = 'contenttypeCreateModalContent';
 
     var wrapper    = document.currentScript.closest('[data-formset-container]');
@@ -79,49 +78,41 @@
       emptyState.style.display = visible.length === 0 ? '' : 'none';
     }
 
-    // ---- INITIALIZE SELECT2 WITH INLINE CREATE OPTION ----
-    // base.html loads jQuery/Select2 at bottom of body — DAL never gets to
-    // initialize existing rows. We own the full Select2 lifecycle here.
-    // NOTE: no setTimeout here — caller is responsible for timing.
-    function extendSelect2WithCreate(sel) {
-      if (!window.$ || sel.dataset.createExtended) return;
-      var $sel = $(sel);
+    // ---- INIT SELECT2 FOR ONE ROW ----
+    // base.html loads jQuery/Select2 at the bottom of <body> — no DAL auto-init.
+    // We own the full Select2 lifecycle for contenttype selects.
+    function initRow(row) {
+      var sel = row.querySelector('select[name$="-contenttype"]');
+      if (!sel || sel.dataset.ourInit || !window.$) return;
       var autocompleteUrl = sel.dataset.autocompleteLightUrl;
       if (!autocompleteUrl) return;
-      sel.dataset.createExtended = '1';
+      sel.dataset.ourInit = '1';
 
-      if ($sel.data('select2')) { $sel.select2('destroy'); }
-      $sel.select2({
+      if ($(sel).data('select2')) { $(sel).select2('destroy'); }
+      $(sel).select2({
         ajax: {
           url: autocompleteUrl,
           dataType: 'json',
           delay: 250,
           data: function (params) { return { q: params.term }; },
-          processResults: function (data, params) {
-            var results = (data.results || []).slice();
-            var query   = (params.term || '').trim();
-            results.push({
-              id:   CREATE_ID,
-              text: '＋ Создать' + (query ? ': ' + query : ' новый тип'),
-            });
-            return { results: results };
-          },
+          processResults: function (data) { return { results: data.results || [] }; },
         },
         placeholder: '---------',
         allowClear: true,
         width: '100%',
-        language: sel.dataset.autocompleteLightLanguage || 'ru',
-      });
-
-      $sel.on('select2:selecting', function (e) {
-        if (e.params.args.data.id !== CREATE_ID) return;
-        e.preventDefault();
-        $sel.select2('close');
-        var query = (e.params.args.data.text || '').replace(/^＋ Создать(: )?/, '');
-        window._contenttypeTargetSelectName = sel.name;
-        openModal(query);
       });
     }
+
+    // ---- "+" BUTTON — open modal for the contenttype select in the same row ----
+    wrapper.addEventListener('click', function (e) {
+      var btn = e.target.closest('[data-ct-create-btn]');
+      if (!btn) return;
+      var row = btn.closest('.link-form-row');
+      var sel = row && row.querySelector('select[name$="-contenttype"]');
+      if (!sel) return;
+      window._contenttypeTargetSelectName = sel.name;
+      openModal('');
+    });
 
     // ---- MODAL OPEN ----
     function openModal(prefillName) {
@@ -130,9 +121,7 @@
       modalContentEl.innerHTML =
         '<div class="modal-body text-center py-4">' +
         '<div class="spinner-border text-secondary" role="status"></div></div>';
-
       bootstrap.Modal.getOrCreateInstance(document.getElementById(MODAL_ID)).show();
-
       fetch(AUTOCREATE_URL, { headers: { 'X-Requested-With': 'XMLHttpRequest' } })
         .then(function (r) { return r.text(); })
         .then(function (html) {
@@ -175,7 +164,7 @@
       });
     }
 
-    // ---- INJECT RESULT INTO ORIGINATING SELECT2 ----
+    // ---- INJECT CREATED CONTENTTYPE INTO ORIGINATING SELECT2 ----
     function injectAndSelect(id, name) {
       var selectName = window._contenttypeTargetSelectName;
       if (!selectName || !window.$) return;
@@ -224,59 +213,25 @@
       container.insertAdjacentHTML('beforeend', html);
       totalInput.value = count + 1;
       syncEmptyState();
-
-      var newRow    = container.lastElementChild;
-      var newSelect = newRow.querySelector('select[name$="-contenttype"]');
-      if (newSelect && window.$) {
-        var autocompleteUrl = newSelect.dataset.autocompleteLightUrl;
-        if (autocompleteUrl) {
-          $(newSelect).select2({
-            ajax: {
-              url: autocompleteUrl,
-              dataType: 'json',
-              delay: 250,
-              data: function (params) { return { q: params.term }; },
-              processResults: function (data, params) {
-                var results = data.results || [];
-                var query   = (params.term || '').trim();
-                results.push({
-                  id:   CREATE_ID,
-                  text: '＋ Создать' + (query ? ': ' + query : ' новый тип'),
-                });
-                return { results: results };
-              },
-            },
-            placeholder: '---------',
-            allowClear: true,
-            width: '100%',
-          });
-          $(newSelect).on('select2:selecting', function (e) {
-            if (e.params.args.data.id !== CREATE_ID) return;
-            e.preventDefault();
-            $(newSelect).select2('close');
-            var query = (e.params.args.data.text || '').replace(/^＋ Создать(: )?/, '');
-            window._contenttypeTargetSelectName = newSelect.name;
-            openModal(query);
-          });
-        }
-      }
+      initRow(container.lastElementChild);
     });
 
     // Prevent Select2 change events from bubbling into the outer HTMX form
     wrapper.addEventListener('change', function (e) { e.stopPropagation(); });
 
-    // ---- INIT: extend all existing selects ----
+    // ---- INIT ALL EXISTING ROWS ----
+    // jQuery/Select2 load at the bottom of <body>, after this inline script runs.
+    // On initial load: wait for 'load' event so scripts are available.
+    // On HTMX swap (readyState already 'complete'): use setTimeout so the
+    // browser finishes injecting the new DOM before we query it.
     syncEmptyState();
-    function initCreateExtensions() {
-      wrapper.querySelectorAll('select[name$="-contenttype"]').forEach(extendSelect2WithCreate);
+    function initAllRows() {
+      container.querySelectorAll('.link-form-row').forEach(initRow);
     }
-    // If readyState is already 'complete', jQuery+DAL are loaded (HTMX swap); use setTimeout
-    // so DAL's own Select2 init (also deferred) runs first.
-    // On initial page load readyState is 'loading'/'interactive' — wait for 'load'.
     if (document.readyState === 'complete') {
-      setTimeout(initCreateExtensions, 150);
+      setTimeout(initAllRows, 0);
     } else {
-      window.addEventListener('load', initCreateExtensions);
+      window.addEventListener('load', initAllRows);
     }
   })();
   </script>
