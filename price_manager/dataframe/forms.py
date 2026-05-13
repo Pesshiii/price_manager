@@ -2,7 +2,8 @@ from django import forms
 from django.core.validators import FileExtensionValidator
 from crispy_forms.helper import FormHelper
 from crispy_forms.layout import Layout, Div, Field, Submit, HTML, Button
-from .models import Dataframe, Link
+from dal import autocomplete
+from .models import ContentType, Dataframe, Link
 from .utils import get_sheet_names, get_json_dicts, DICT_SCHEMA
 
 from django_jsonform.forms.fields import JSONFormField
@@ -39,7 +40,7 @@ class DataFrameForm(forms.ModelForm):
         if self.instance.pk:
             add_ons.append(Div(
                     HTML('''{% include "dataframe/linkformset.html" with formset=formset %}'''),
-                    css_class='col-4',
+                    css_class='col-6',
                 ))
             helper.attrs['hx-post']=reverse('dataframe:update', kwargs={'pk': self.instance.pk})
         else:
@@ -73,6 +74,11 @@ class LinkForm(forms.ModelForm):
     class Meta:
         model = Link
         fields = ('contenttype', 'initial', 'dictitems')
+        widgets = {
+            'contenttype': autocomplete.ModelSelect2(
+                url='dataframe:contenttype-autocomplete',
+            )
+        }
     dictitems = JSONFormField(schema=DICT_SCHEMA)
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -80,3 +86,9 @@ class LinkForm(forms.ModelForm):
             self.fields['dictitems'].initial = get_json_dicts(self.instance.dicts.all())
 
 LinkFormset = forms.modelformset_factory(Link, LinkForm, can_delete=True)
+
+
+class ContentTypeForm(forms.ModelForm):
+    class Meta:
+        model = ContentType
+        fields = ('name', 'measure', 'contenttype')

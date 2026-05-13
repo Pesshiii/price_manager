@@ -1,60 +1,251 @@
-
 {% load crispy_forms_tags %}
 
-{{ formset.management_form }}
+<div data-formset-container data-prefix="{{ formset.prefix }}">
 
- <div id="FormContainer">
-        {% for form in formset %}
-            <div class="form-row">
-                {%crispy form%}
-                
-                <div style="display:none;">{{ form.DELETE }}</div>
-                
-                <button type="button" class="btn btn-dager" id="DeleteButton">Delete</button>
-            </div>
-        {% endfor %}
+  {{ formset.management_form }}
+
+  <div data-form-container>
+    {% for form in formset %}
+    <div class="card mb-2 link-form-row">
+      <div class="card-header d-flex justify-content-between align-items-center py-1">
+        <span class="small fw-semibold text-muted">Привязка {{ forloop.counter }}</span>
+        <button type="button" class="btn btn-sm btn-outline-danger" data-delete-btn aria-label="Удалить">
+          <i class="bi bi-trash3"></i>
+        </button>
+      </div>
+      <div class="card-body py-2">
+        {% crispy form %}
+      </div>
+      <div class="d-none">{{ form.DELETE }}</div>
     </div>
+    {% endfor %}
+  </div>
 
-<!-- The "Add More" button -->
-<button type="button" id="AddLink">Добавить</button>
+  <p class="text-muted fst-italic small mt-2 mb-1" data-empty-state style="display:none;">
+    Нет привязок. Добавьте первую.
+  </p>
 
-<!-- Hidden empty form used as a template -->
-<div id="empty-form" style="display:none;">
-    <div class="form-row">
-        {%crispy formset.empty_form%}
-        
-        <div style="display:none;">{{ formset.empty_form.DELETE }}</div>
-        
-        <button type="button" class="btn btn-dager" id="DeleteButton">Delete</button>
+  <button type="button" class="btn btn-outline-success btn-sm mt-2" data-add-btn>
+    <i class="bi bi-plus-lg me-1"></i>Добавить привязку
+  </button>
+
+  <div data-empty-form style="display:none;" aria-hidden="true">
+    <div class="card mb-2 link-form-row">
+      <div class="card-header d-flex justify-content-between align-items-center py-1">
+        <span class="small fw-semibold text-muted">Привязка</span>
+        <button type="button" class="btn btn-sm btn-outline-danger" data-delete-btn aria-label="Удалить">
+          <i class="bi bi-trash3"></i>
+        </button>
+      </div>
+      <div class="card-body py-2">
+        {% crispy formset.empty_form %}
+      </div>
+      <div class="d-none">{{ formset.empty_form.DELETE }}</div>
     </div>
-</div>
+  </div>
 
-<script>
-    document.querySelectorAll('#DeleteButton').forEach(button => {
-        button.addEventListener('click', function() {
-            const row = this.closest('.form-row');
-            // Find the hidden checkbox within this row and check it
-            const deleteCheckbox = row.querySelector('input[name$="-DELETE"]');
-            if (deleteCheckbox) {
-                deleteCheckbox.checked = true;
-                // Hide the row so the user sees it "disappear"
-                row.style.display = 'none';
-            }
+  <style>
+    .link-form-row {
+      transition: opacity 0.3s ease, max-height 0.4s ease;
+      overflow: hidden;
+      max-height: 600px;
+    }
+    .link-form-row.is-deleting {
+      opacity: 0;
+      max-height: 0;
+      margin-bottom: 0 !important;
+      padding: 0 !important;
+    }
+    .contenttype-field-wrapper {
+      display: flex;
+      align-items: flex-end;
+      gap: 6px;
+    }
+    .contenttype-field-wrapper .select2-container {
+      flex: 1;
+    }
+  </style>
+
+  <script>
+  (function () {
+    var AUTOCREATE_URL = "{% url 'dataframe:contenttype-create' %}";
+    var MODAL_ID = 'contenttypeCreateModal';
+    var MODAL_CONTENT_ID = 'contenttypeCreateModalContent';
+
+    var wrapper    = document.currentScript.closest('[data-formset-container]');
+    var prefix     = wrapper.dataset.prefix;
+    var container  = wrapper.querySelector('[data-form-container]');
+    var emptyState = wrapper.querySelector('[data-empty-state]');
+    var addBtn     = wrapper.querySelector('[data-add-btn]');
+    var emptyForm  = wrapper.querySelector('[data-empty-form]');
+    var totalInput = wrapper.querySelector('#id_' + prefix + '-TOTAL_FORMS');
+
+    // ---- EMPTY STATE ----
+    function syncEmptyState() {
+      var visible = container.querySelectorAll('.link-form-row:not(.is-deleting)');
+      emptyState.style.display = visible.length === 0 ? '' : 'none';
+    }
+
+    // ---- "+" BUTTON INJECTION ----
+    function injectAddButtons(scope) {
+      scope.querySelectorAll('select[name$="-contenttype"]').forEach(function (sel) {
+        if (sel.dataset.addBtnInjected) return;
+        sel.dataset.addBtnInjected = '1';
+        // Select2 inserts .select2-container after the <select>; wait for it
+        setTimeout(function () {
+          var formGroup = sel.closest('.form-group') || sel.parentNode;
+          var select2Container = formGroup.querySelector('.select2-container');
+          if (!select2Container) return;
+          var btn = document.createElement('button');
+          btn.type = 'button';
+          btn.className = 'btn btn-outline-secondary btn-sm contenttype-add-btn';
+          btn.title = 'Создать новый тип';
+          btn.dataset.selectName = sel.name;
+          btn.innerHTML = '<i class="bi bi-plus-lg"></i>';
+          var wrap = document.createElement('div');
+          wrap.className = 'contenttype-field-wrapper';
+          formGroup.insertBefore(wrap, select2Container);
+          wrap.appendChild(select2Container);
+          wrap.appendChild(btn);
+        }, 80);
+      });
+    }
+
+    // ---- MODAL OPEN (event delegation covers cloned rows too) ----
+    wrapper.addEventListener('click', function (e) {
+      var btn = e.target.closest('.contenttype-add-btn');
+      if (!btn) return;
+      window._contenttypeTargetSelectName = btn.dataset.selectName;
+
+      var modalContentEl = document.getElementById(MODAL_CONTENT_ID);
+      if (!modalContentEl) return;
+      modalContentEl.innerHTML =
+        '<div class="modal-body text-center py-4">' +
+        '<div class="spinner-border text-secondary" role="status"></div></div>';
+
+      var modal = bootstrap.Modal.getOrCreateInstance(document.getElementById(MODAL_ID));
+      modal.show();
+
+      fetch(AUTOCREATE_URL, { headers: { 'X-Requested-With': 'XMLHttpRequest' } })
+        .then(function (r) { return r.text(); })
+        .then(function (html) {
+          modalContentEl.innerHTML = html;
+          bindModalSubmit();
         });
     });
-    document.getElementById('AddLink').addEventListener('click', function() {
-        const container = document.querySelector('#FormContainer');
-        const totalForms = document.querySelector('#id_{{formset.prefix}}-TOTAL_FORMS'); // Replace 'form' with your formset prefix if custom
-        const currentCount = parseInt(totalForms.value);
-        
-        // Get the empty form HTML and replace the prefix with the current count
-        const emptyFormHtml = document.getElementById('empty-form').innerHTML;
-        const newFormHtml = emptyFormHtml.replace(/__prefix__/g, currentCount);
-        
-        // Append the new form to the container
-        container.insertAdjacentHTML('beforeend', newFormHtml);
-        
-        // Increment the management form's total count
-        totalForms.value = currentCount + 1;
+
+    // ---- MODAL SUBMIT ----
+    function bindModalSubmit() {
+      var submitBtn = document.getElementById('contenttypeCreateSubmit');
+      if (!submitBtn) return;
+      submitBtn.addEventListener('click', function () {
+        var form = document.getElementById('contenttypeCreateForm');
+        if (!form) return;
+        var data = new FormData(form);
+        fetch(AUTOCREATE_URL, {
+          method: 'POST',
+          body: data,
+          headers: { 'X-Requested-With': 'XMLHttpRequest' },
+        })
+          .then(function (r) {
+            var ct = r.headers.get('Content-Type') || '';
+            if (ct.indexOf('application/json') !== -1) {
+              return r.json().then(function (json) {
+                injectAndSelect(json.id, json.name);
+                bootstrap.Modal.getOrCreateInstance(
+                  document.getElementById(MODAL_ID)
+                ).hide();
+              });
+            }
+            return r.text().then(function (html) {
+              var modalContentEl = document.getElementById(MODAL_CONTENT_ID);
+              if (modalContentEl) {
+                modalContentEl.innerHTML = html;
+                bindModalSubmit();
+              }
+            });
+          });
+      });
+    }
+
+    // ---- INJECT NEW OPTION INTO THE ORIGINATING SELECT2 ----
+    function injectAndSelect(id, name) {
+      var selectName = window._contenttypeTargetSelectName;
+      if (!selectName) return;
+      var sel = document.querySelector('select[name="' + selectName + '"]');
+      if (!sel || !window.$) return;
+      var $sel = $(sel);
+      if ($sel.find('option[value="' + id + '"]').length === 0) {
+        $sel.append(new Option(name, id, true, true));
+      }
+      $sel.val(id).trigger('change');
+      window._contenttypeTargetSelectName = null;
+    }
+
+    // ---- RESET MODAL ON CLOSE ----
+    var modalEl = document.getElementById(MODAL_ID);
+    if (modalEl) {
+      modalEl.addEventListener('hidden.bs.modal', function () {
+        var modalContentEl = document.getElementById(MODAL_CONTENT_ID);
+        if (modalContentEl) {
+          modalContentEl.innerHTML =
+            '<div class="modal-body text-center py-4">' +
+            '<div class="spinner-border text-secondary" role="status"></div></div>';
+        }
+        window._contenttypeTargetSelectName = null;
+      });
+    }
+
+    // ---- DELETE ROW ----
+    container.addEventListener('click', function (e) {
+      var btn = e.target.closest('[data-delete-btn]');
+      if (!btn) return;
+      var row = btn.closest('.link-form-row');
+      var cb  = row.querySelector('input[name$="-DELETE"]');
+      if (cb) cb.checked = true;
+      row.classList.add('is-deleting');
+      row.addEventListener('transitionend', function () {
+        row.style.display = 'none';
+        syncEmptyState();
+      }, { once: true });
+      syncEmptyState();
     });
-</script>
+
+    // ---- ADD ROW ----
+    addBtn.addEventListener('click', function () {
+      var count = parseInt(totalInput.value, 10);
+      var html  = emptyForm.innerHTML.replace(/__prefix__/g, count);
+      container.insertAdjacentHTML('beforeend', html);
+      totalInput.value = count + 1;
+      syncEmptyState();
+
+      var newRow = container.lastElementChild;
+      // Re-initialize Select2 on the cloned select using dal's data attribute
+      var newSelect = newRow.querySelector('select[name$="-contenttype"]');
+      if (newSelect && window.$) {
+        var autocompleteUrl = newSelect.dataset.autocompleteLightUrl;
+        if (autocompleteUrl) {
+          $(newSelect).select2({
+            ajax: {
+              url: autocompleteUrl,
+              dataType: 'json',
+              delay: 250,
+              data: function (params) { return { q: params.term }; },
+              processResults: function (data) { return { results: data.results }; },
+            },
+            placeholder: '---------',
+            allowClear: true,
+            width: '100%',
+          });
+        }
+      }
+      injectAddButtons(newRow);
+    });
+
+    // ---- INIT ----
+    syncEmptyState();
+    injectAddButtons(wrapper);
+  })();
+  </script>
+
+</div>

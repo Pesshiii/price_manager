@@ -1,10 +1,14 @@
+from django.http import HttpResponse, JsonResponse
+from django.template.loader import render_to_string
 from django.urls import reverse
+from django.views import View
 from django.views.generic import CreateView, UpdateView
 
+from dal import autocomplete
 from core.viewmixins import HtmxMixin
 
-from .models import Dataframe, FileModel, Link, DictItem
-from .forms import DataFrameForm, LinkFormset
+from .models import ContentType, Dataframe, FileModel, Link, DictItem
+from .forms import ContentTypeForm, DataFrameForm, LinkFormset
 
 
 def _resolve_unique_name(base_name, exclude_pk=None):
@@ -93,3 +97,33 @@ class DataframeUpdate(HtmxMixin, UpdateView):
 
     def get_success_url(self):
         return reverse('dataframe:update', kwargs={'pk': self.object.pk})
+
+
+class ContentTypeAutocomplete(autocomplete.Select2QuerySetView):
+    def get_queryset(self):
+        qs = ContentType.objects.all()
+        if self.q:
+            qs = qs.filter(name__icontains=self.q)
+        return qs
+
+
+class ContentTypeCreate(View):
+    def get(self, request):
+        html = render_to_string(
+            'dataframe/partials/contenttype_form.html',
+            {'form': ContentTypeForm()},
+            request=request,
+        )
+        return HttpResponse(html)
+
+    def post(self, request):
+        form = ContentTypeForm(request.POST)
+        if form.is_valid():
+            obj = form.save()
+            return JsonResponse({'id': obj.pk, 'name': obj.name})
+        html = render_to_string(
+            'dataframe/partials/contenttype_form.html',
+            {'form': form},
+            request=request,
+        )
+        return HttpResponse(html, status=422)
