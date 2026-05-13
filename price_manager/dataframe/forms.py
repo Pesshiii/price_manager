@@ -85,10 +85,16 @@ class LinkForm(forms.ModelForm):
         super().__init__(*args, **kwargs)
         if self.instance.pk:
             self.fields['dictitems'].initial = get_json_dicts(self.instance.dicts.all())
-        if 'DELETE' in self.fields:
-            self.fields['DELETE'].widget = forms.HiddenInput()
 
-LinkFormset = forms.modelformset_factory(Link, LinkForm, can_delete=True)
+
+class LinkBaseFormset(forms.BaseModelFormSet):
+    def add_fields(self, form, index):
+        super().add_fields(form, index)
+        if 'DELETE' in form.fields:
+            form.fields['DELETE'].widget = forms.HiddenInput()
+
+
+LinkFormset = forms.modelformset_factory(Link, LinkForm, formset=LinkBaseFormset, can_delete=True)
 
 
 class ContentTypeForm(forms.ModelForm):

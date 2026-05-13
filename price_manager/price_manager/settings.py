@@ -93,6 +93,7 @@ TEMPLATES = [
     {
         'BACKEND': 'django.template.backends.django.DjangoTemplates',
         'DIRS': [
+          'dataframe/templates',
           'core/templates',
           'main_product_manager/templates',
           'product_price_manager/templates',

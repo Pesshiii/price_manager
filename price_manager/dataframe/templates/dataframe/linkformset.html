@@ -80,50 +80,46 @@
     }
 
     // ---- EXTEND SELECT2 WITH INLINE CREATE OPTION ----
-    // Destroys DAL's Select2 instance and re-initializes with "＋ Создать" in results.
-    // Patching s2.options.options.ajax.processResults after init doesn't work because
-    // Select2 already bound the original function reference inside its data adapter.
+    // Destroys DAL's Select2 and re-initializes with "＋ Создать" in results.
+    // NOTE: no setTimeout here — caller is responsible for timing.
     function extendSelect2WithCreate(sel) {
       if (!window.$ || sel.dataset.createExtended) return;
+      var $sel = $(sel);
+      var autocompleteUrl = sel.dataset.autocompleteLightUrl;
+      if (!autocompleteUrl || !$sel.data('select2')) return;
       sel.dataset.createExtended = '1';
 
-      setTimeout(function () {
-        var $sel = $(sel);
-        var autocompleteUrl = sel.dataset.autocompleteLightUrl;
-        if (!autocompleteUrl || !$sel.data('select2')) return;
-
-        $sel.select2('destroy');
-        $sel.select2({
-          ajax: {
-            url: autocompleteUrl,
-            dataType: 'json',
-            delay: 250,
-            data: function (params) { return { q: params.term }; },
-            processResults: function (data, params) {
-              var results = (data.results || []).slice();
-              var query   = (params.term || '').trim();
-              results.push({
-                id:   CREATE_ID,
-                text: '＋ Создать' + (query ? ': ' + query : ' новый тип'),
-              });
-              return { results: results };
-            },
+      $sel.select2('destroy');
+      $sel.select2({
+        ajax: {
+          url: autocompleteUrl,
+          dataType: 'json',
+          delay: 250,
+          data: function (params) { return { q: params.term }; },
+          processResults: function (data, params) {
+            var results = (data.results || []).slice();
+            var query   = (params.term || '').trim();
+            results.push({
+              id:   CREATE_ID,
+              text: '＋ Создать' + (query ? ': ' + query : ' новый тип'),
+            });
+            return { results: results };
           },
-          placeholder: '---------',
-          allowClear: true,
-          width: '100%',
-          language: sel.dataset.autocompleteLightLanguage || 'ru',
-        });
+        },
+        placeholder: '---------',
+        allowClear: true,
+        width: '100%',
+        language: sel.dataset.autocompleteLightLanguage || 'ru',
+      });
 
-        $sel.on('select2:selecting', function (e) {
-          if (e.params.args.data.id !== CREATE_ID) return;
-          e.preventDefault();
-          $sel.select2('close');
-          var query = (e.params.args.data.text || '').replace(/^＋ Создать(: )?/, '');
-          window._contenttypeTargetSelectName = sel.name;
-          openModal(query);
-        });
-      }, 120);
+      $sel.on('select2:selecting', function (e) {
+        if (e.params.args.data.id !== CREATE_ID) return;
+        e.preventDefault();
+        $sel.select2('close');
+        var query = (e.params.args.data.text || '').replace(/^＋ Создать(: )?/, '');
+        window._contenttypeTargetSelectName = sel.name;
+        openModal(query);
+      });
     }
 
     // ---- MODAL OPEN ----
@@ -270,7 +266,17 @@
 
     // ---- INIT: extend all existing selects ----
     syncEmptyState();
-    wrapper.querySelectorAll('select[name$="-contenttype"]').forEach(extendSelect2WithCreate);
+    function initCreateExtensions() {
+      wrapper.querySelectorAll('select[name$="-contenttype"]').forEach(extendSelect2WithCreate);
+    }
+    // If readyState is already 'complete', jQuery+DAL are loaded (HTMX swap); use setTimeout
+    // so DAL's own Select2 init (also deferred) runs first.
+    // On initial page load readyState is 'loading'/'interactive' — wait for 'load'.
+    if (document.readyState === 'complete') {
+      setTimeout(initCreateExtensions, 150);
+    } else {
+      window.addEventListener('load', initCreateExtensions);
+    }
   })();
   </script>
 
