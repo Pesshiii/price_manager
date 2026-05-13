@@ -5,7 +5,7 @@
   {{ formset.management_form }}
 
   <div data-form-container>
-    {% for form in formset %}
+    {% for form in formset.forms|slice:":formset.initial_form_count" %}
     <div class="card mb-2 link-form-row">
       <div class="card-header d-flex justify-content-between align-items-center py-1">
         <span class="small fw-semibold text-muted">Привязка {{ forloop.counter }}</span>
