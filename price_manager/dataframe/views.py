@@ -101,7 +101,7 @@ class DataframeUpdate(HtmxMixin, UpdateView):
 
 class ContentTypeAutocomplete(autocomplete.Select2QuerySetView):
     def get_queryset(self):
-        qs = ContentType.objects.all()
+        qs = ContentType.objects.order_by('name')
         if self.q:
             qs = qs.filter(name__icontains=self.q)
         return qs

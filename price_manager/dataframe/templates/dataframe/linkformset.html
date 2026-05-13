@@ -56,20 +56,13 @@
       margin-bottom: 0 !important;
       padding: 0 !important;
     }
-    .contenttype-field-wrapper {
-      display: flex;
-      align-items: flex-end;
-      gap: 6px;
-    }
-    .contenttype-field-wrapper .select2-container {
-      flex: 1;
-    }
   </style>
 
   <script>
   (function () {
+    var CREATE_ID    = '__contenttype_create__';
     var AUTOCREATE_URL = "{% url 'dataframe:contenttype-create' %}";
-    var MODAL_ID = 'contenttypeCreateModal';
+    var MODAL_ID       = 'contenttypeCreateModal';
     var MODAL_CONTENT_ID = 'contenttypeCreateModalContent';
 
     var wrapper    = document.currentScript.closest('[data-formset-container]');
@@ -86,53 +79,66 @@
       emptyState.style.display = visible.length === 0 ? '' : 'none';
     }
 
-    // ---- "+" BUTTON INJECTION ----
-    function injectAddButtons(scope) {
-      scope.querySelectorAll('select[name$="-contenttype"]').forEach(function (sel) {
-        if (sel.dataset.addBtnInjected) return;
-        sel.dataset.addBtnInjected = '1';
-        // Select2 inserts .select2-container after the <select>; wait for it
-        setTimeout(function () {
-          var formGroup = sel.closest('.form-group') || sel.parentNode;
-          var select2Container = formGroup.querySelector('.select2-container');
-          if (!select2Container) return;
-          var btn = document.createElement('button');
-          btn.type = 'button';
-          btn.className = 'btn btn-outline-secondary btn-sm contenttype-add-btn';
-          btn.title = 'Создать новый тип';
-          btn.dataset.selectName = sel.name;
-          btn.innerHTML = '<i class="bi bi-plus-lg"></i>';
-          var wrap = document.createElement('div');
-          wrap.className = 'contenttype-field-wrapper';
-          formGroup.insertBefore(wrap, select2Container);
-          wrap.appendChild(select2Container);
-          wrap.appendChild(btn);
-        }, 80);
-      });
+    // ---- EXTEND SELECT2 WITH INLINE CREATE OPTION ----
+    // Patches DAL-initialized Select2 to append "＋ Создать: {query}" in results.
+    function extendSelect2WithCreate(sel) {
+      if (!window.$ || sel.dataset.createExtended) return;
+      sel.dataset.createExtended = '1';
+
+      setTimeout(function () {
+        var $sel = $(sel);
+        var s2   = $sel.data('select2');
+        if (!s2) return;
+
+        // Wrap existing processResults to inject the "create" entry
+        var origOpts = s2.options.options;
+        var origProcess = origOpts.ajax && origOpts.ajax.processResults;
+        if (origOpts.ajax && origProcess) {
+          origOpts.ajax.processResults = function (data, params) {
+            var result = origProcess.call(this, data, params);
+            var query  = (params.term || '').trim();
+            result.results.push({
+              id:   CREATE_ID,
+              text: '＋ Создать' + (query ? ': ' + query : ' новый тип'),
+            });
+            return result;
+          };
+        }
+
+        // Intercept selection of the "create" option
+        $sel.on('select2:selecting', function (e) {
+          if (e.params.args.data.id !== CREATE_ID) return;
+          e.preventDefault();
+          // Close the dropdown first, then open modal
+          $sel.select2('close');
+          var query = (e.params.args.data.text || '').replace(/^＋ Создать(: )?/, '');
+          window._contenttypeTargetSelectName = sel.name;
+          openModal(query);
+        });
+      }, 120);
     }
 
-    // ---- MODAL OPEN (event delegation covers cloned rows too) ----
-    wrapper.addEventListener('click', function (e) {
-      var btn = e.target.closest('.contenttype-add-btn');
-      if (!btn) return;
-      window._contenttypeTargetSelectName = btn.dataset.selectName;
-
+    // ---- MODAL OPEN ----
+    function openModal(prefillName) {
       var modalContentEl = document.getElementById(MODAL_CONTENT_ID);
       if (!modalContentEl) return;
       modalContentEl.innerHTML =
         '<div class="modal-body text-center py-4">' +
         '<div class="spinner-border text-secondary" role="status"></div></div>';
 
-      var modal = bootstrap.Modal.getOrCreateInstance(document.getElementById(MODAL_ID));
-      modal.show();
+      bootstrap.Modal.getOrCreateInstance(document.getElementById(MODAL_ID)).show();
 
       fetch(AUTOCREATE_URL, { headers: { 'X-Requested-With': 'XMLHttpRequest' } })
         .then(function (r) { return r.text(); })
         .then(function (html) {
           modalContentEl.innerHTML = html;
+          if (prefillName) {
+            var nameInput = document.getElementById('id_ct_name');
+            if (nameInput) nameInput.value = prefillName;
+          }
           bindModalSubmit();
         });
-    });
+    }
 
     // ---- MODAL SUBMIT ----
     function bindModalSubmit() {
@@ -141,10 +147,9 @@
       submitBtn.addEventListener('click', function () {
         var form = document.getElementById('contenttypeCreateForm');
         if (!form) return;
-        var data = new FormData(form);
         fetch(AUTOCREATE_URL, {
           method: 'POST',
-          body: data,
+          body: new FormData(form),
           headers: { 'X-Requested-With': 'XMLHttpRequest' },
         })
           .then(function (r) {
@@ -158,24 +163,20 @@
               });
             }
             return r.text().then(function (html) {
-              var modalContentEl = document.getElementById(MODAL_CONTENT_ID);
-              if (modalContentEl) {
-                modalContentEl.innerHTML = html;
-                bindModalSubmit();
-              }
+              var el = document.getElementById(MODAL_CONTENT_ID);
+              if (el) { el.innerHTML = html; bindModalSubmit(); }
             });
           });
       });
     }
 
-    // ---- INJECT NEW OPTION INTO THE ORIGINATING SELECT2 ----
+    // ---- INJECT RESULT INTO ORIGINATING SELECT2 ----
     function injectAndSelect(id, name) {
       var selectName = window._contenttypeTargetSelectName;
-      if (!selectName) return;
-      var sel = document.querySelector('select[name="' + selectName + '"]');
-      if (!sel || !window.$) return;
-      var $sel = $(sel);
-      if ($sel.find('option[value="' + id + '"]').length === 0) {
+      if (!selectName || !window.$) return;
+      var $sel = $('select[name="' + selectName + '"]');
+      if (!$sel.length) return;
+      if (!$sel.find('option[value="' + id + '"]').length) {
         $sel.append(new Option(name, id, true, true));
       }
       $sel.val(id).trigger('change');
@@ -186,9 +187,9 @@
     var modalEl = document.getElementById(MODAL_ID);
     if (modalEl) {
       modalEl.addEventListener('hidden.bs.modal', function () {
-        var modalContentEl = document.getElementById(MODAL_CONTENT_ID);
-        if (modalContentEl) {
-          modalContentEl.innerHTML =
+        var el = document.getElementById(MODAL_CONTENT_ID);
+        if (el) {
+          el.innerHTML =
             '<div class="modal-body text-center py-4">' +
             '<div class="spinner-border text-secondary" role="status"></div></div>';
         }
@@ -219,8 +220,7 @@
       totalInput.value = count + 1;
       syncEmptyState();
 
-      var newRow = container.lastElementChild;
-      // Re-initialize Select2 on the cloned select using dal's data attribute
+      var newRow    = container.lastElementChild;
       var newSelect = newRow.querySelector('select[name$="-contenttype"]');
       if (newSelect && window.$) {
         var autocompleteUrl = newSelect.dataset.autocompleteLightUrl;
@@ -231,20 +231,38 @@
               dataType: 'json',
               delay: 250,
               data: function (params) { return { q: params.term }; },
-              processResults: function (data) { return { results: data.results }; },
+              processResults: function (data, params) {
+                var results = data.results || [];
+                var query   = (params.term || '').trim();
+                results.push({
+                  id:   CREATE_ID,
+                  text: '＋ Создать' + (query ? ': ' + query : ' новый тип'),
+                });
+                return { results: results };
+              },
             },
             placeholder: '---------',
             allowClear: true,
             width: '100%',
           });
+          $(newSelect).on('select2:selecting', function (e) {
+            if (e.params.args.data.id !== CREATE_ID) return;
+            e.preventDefault();
+            $(newSelect).select2('close');
+            var query = (e.params.args.data.text || '').replace(/^＋ Создать(: )?/, '');
+            window._contenttypeTargetSelectName = newSelect.name;
+            openModal(query);
+          });
         }
       }
-      injectAddButtons(newRow);
     });
 
-    // ---- INIT ----
+    // Prevent Select2 change events from bubbling into the outer HTMX form
+    wrapper.addEventListener('change', function (e) { e.stopPropagation(); });
+
+    // ---- INIT: extend all existing selects ----
     syncEmptyState();
-    injectAddButtons(wrapper);
+    wrapper.querySelectorAll('select[name$="-contenttype"]').forEach(extendSelect2WithCreate);
   })();
   </script>
 
