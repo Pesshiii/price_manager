@@ -11,7 +11,56 @@
 {%partialdef partial inline%}
 <div class="container" id="DataFrameForm">
   <h2>Редактирование датафрейма</h2>
-    {% crispy form %}
+  {% crispy form %}
+
+  {% if object.file %}
+  <div class="row mt-3">
+    <ul class="nav nav-tabs mb-0" id="dataframeTabs" role="tablist">
+      <li class="nav-item" role="presentation">
+        <button class="nav-link active" id="source-tab" data-bs-toggle="tab"
+                data-bs-target="#source-pane" type="button" role="tab"
+                aria-controls="source-pane" aria-selected="true">
+          <i class="bi bi-table me-1"></i>Содержимое файла
+        </button>
+      </li>
+      <li class="nav-item" role="presentation">
+        <button class="nav-link" id="result-tab" data-bs-toggle="tab"
+                data-bs-target="#result-pane" type="button" role="tab"
+                aria-controls="result-pane" aria-selected="false"
+                hx-get="{% url 'dataframe:preview-result' pk=object.pk %}"
+                hx-target="#result-content"
+                hx-swap="innerHTML"
+                hx-trigger="click once"
+                hx-indicator="#result-loading">
+          <i class="bi bi-magic me-1"></i>Результат привязок
+        </button>
+      </li>
+    </ul>
+    <div class="tab-content border border-top-0 rounded-bottom p-0">
+      <div class="tab-pane fade show active overflow-auto" id="source-pane"
+           role="tabpanel" aria-labelledby="source-tab" tabindex="0">
+        <div id="source-content"
+             hx-get="{% url 'dataframe:preview-file' pk=object.pk %}"
+             hx-trigger="load"
+             hx-swap="innerHTML">
+          <div class="text-center p-3">
+            <div class="spinner-border spinner-border-sm text-secondary" role="status"></div>
+          </div>
+        </div>
+      </div>
+      <div class="tab-pane fade" id="result-pane"
+           role="tabpanel" aria-labelledby="result-tab" tabindex="0">
+        <div id="result-loading" class="htmx-indicator alert alert-light mb-0 py-2 rounded-0">
+          <div class="spinner-border spinner-border-sm text-secondary me-2" role="status"></div>
+          Применение правил...
+        </div>
+        <div id="result-content">
+          <p class="text-muted p-3 mb-0">Откройте вкладку для расчёта результата.</p>
+        </div>
+      </div>
+    </div>
+  </div>
+  {% endif %}
 </div>
 
 <div class="modal fade" id="contenttypeCreateModal" tabindex="-1"

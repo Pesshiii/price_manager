@@ -86,3 +86,74 @@ DICT_SCHEMA = {
 def get_json_dicts(dictitems: list[DictItem]) -> list:
     res = [{"key": dictitem.key, "value": dictitem.value} for dictitem in dictitems]
     return res if res else [{'key': '', 'value': ''}]
+
+
+def read_raw_dataframe(dataframe_instance, max_rows=200):
+    """Read raw file content, return a pandas DataFrame (up to max_rows rows)."""
+    if not dataframe_instance.file:
+        return None
+    filemodel = dataframe_instance.file
+    filename = filemodel.file.name.lower()
+    try:
+        if filename.endswith('.csv'):
+            df = pd.read_csv(filemodel.file, nrows=max_rows)
+        else:
+            df = pd.read_excel(
+                filemodel.file,
+                sheet_name=dataframe_instance.sheet_name or 0,
+                nrows=max_rows,
+                engine='calamine',
+            )
+        return df
+    except Exception:
+        return None
+    finally:
+        filemodel.file.close()
+
+
+def apply_link_rules(dataframe_instance, max_rows=200):
+    """Apply Link/DictItem rules to the file, return transformed DataFrame (up to max_rows rows)."""
+    if not dataframe_instance.file:
+        return None
+    links = list(dataframe_instance.links.prefetch_related('dicts', 'contenttype').all())
+    if not links:
+        return None
+    filemodel = dataframe_instance.file
+    filename = filemodel.file.name.lower()
+    try:
+        if filename.endswith('.csv'):
+            df = pd.read_csv(filemodel.file)
+        else:
+            df = pd.read_excel(
+                filemodel.file,
+                sheet_name=dataframe_instance.sheet_name or 0,
+                engine='calamine',
+            )
+    except Exception:
+        return None
+    finally:
+        filemodel.file.close()
+
+    for link in links:
+        col_name = link.contenttype.name
+        if not link.value:
+            if link.initial:
+                df[col_name] = link.initial
+        else:
+            if link.value in df.columns:
+                df = df.rename(columns={link.value: col_name})
+                if link.initial:
+                    df[col_name] = df[col_name].fillna(link.initial)
+        if col_name in df.columns:
+            for dictitem in link.dicts.all():
+                df[col_name] = df[col_name].astype(str).str.replace(
+                    dictitem.key, dictitem.value, regex=False
+                )
+
+    output_cols = [
+        link.contenttype.name for link in links
+        if link.contenttype.name in df.columns
+    ]
+    if not output_cols:
+        return None
+    return df[output_cols].head(max_rows)

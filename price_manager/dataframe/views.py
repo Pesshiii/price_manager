@@ -1,4 +1,5 @@
 from django.http import HttpResponse, JsonResponse
+from django.shortcuts import get_object_or_404
 from django.template.loader import render_to_string
 from django.urls import reverse
 from django.views import View
@@ -9,6 +10,7 @@ from core.viewmixins import HtmxMixin
 
 from .models import ContentType, Dataframe, FileModel, Link, DictItem
 from .forms import ContentTypeForm, DataFrameForm, LinkFormset
+from .utils import read_raw_dataframe, apply_link_rules
 
 
 def _resolve_unique_name(base_name, exclude_pk=None):
@@ -106,6 +108,40 @@ class DataframeUpdate(HtmxMixin, UpdateView):
 
     def get_success_url(self):
         return reverse('dataframe:update', kwargs={'pk': self.object.pk})
+
+
+class DataframeFilePreview(View):
+    def get(self, request, pk):
+        dataframe = get_object_or_404(Dataframe, pk=pk)
+        df = read_raw_dataframe(dataframe)
+        if df is None:
+            return HttpResponse(
+                '<p class="text-muted p-3">Файл не загружен или не может быть прочитан.</p>'
+            )
+        html_table = df.to_html(
+            classes='table table-bordered table-sm table-hover mb-0',
+            index=False,
+            border=0,
+            na_rep='',
+        )
+        return HttpResponse(f'<div class="table-responsive">{html_table}</div>')
+
+
+class DataframeResultPreview(View):
+    def get(self, request, pk):
+        dataframe = get_object_or_404(Dataframe, pk=pk)
+        df = apply_link_rules(dataframe)
+        if df is None or (hasattr(df, 'empty') and df.empty):
+            return HttpResponse(
+                '<p class="text-muted p-3">Нет данных. Настройте привязки или выберите столбцы.</p>'
+            )
+        html_table = df.to_html(
+            classes='table table-bordered table-sm table-hover mb-0',
+            index=False,
+            border=0,
+            na_rep='',
+        )
+        return HttpResponse(f'<div class="table-responsive">{html_table}</div>')
 
 
 class ContentTypeAutocomplete(autocomplete.Select2QuerySetView):
