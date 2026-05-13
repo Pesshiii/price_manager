@@ -28,7 +28,8 @@ def document_pre_delete(sender, instance, **kwargs):
 class Dataframe(TimeStampedModel, SlugModel):
     file = models.ForeignKey(
         FileModel,
-        on_delete=models.PROTECT,
+        on_delete=models.SET_NULL,
+        null=True,
         related_name='dataframes',
         verbose_name='Файл',
     )
