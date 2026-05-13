@@ -8,8 +8,8 @@
 {% block script %}{{ formset.media }}{% endblock %}
 
 {% block body %}
-{%partialdef partial inline%}
 <div class="container" id="DataFrameForm">
+{%partialdef partial inline%}
   <h2>Редактирование датафрейма</h2>
   {% crispy form %}
 
@@ -61,6 +61,7 @@
     </div>
   </div>
   {% endif %}
+{%endpartialdef%}
 </div>
 
 <div class="modal fade" id="contenttypeCreateModal" tabindex="-1"
@@ -73,5 +74,4 @@
     </div>
   </div>
 </div>
-{%endpartialdef%}
 {% endblock %}

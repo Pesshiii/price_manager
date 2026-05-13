@@ -63,7 +63,7 @@ class DataFrameForm(forms.ModelForm):
                         Field('name'),
                     ),
                     Div(
-                        Field('sheet_name', css_class='form-select'),
+                        Field('sheet_name'),
                     ),
                     Div(
                         Field('filefield'),

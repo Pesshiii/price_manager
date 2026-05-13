@@ -6,10 +6,10 @@
 {% endblock %}
 
 {% block body %}
-{%partialdef partial inline%}
 <div class="container" id="DataFrameForm">
+{%partialdef partial inline%}
   <h2>Создание датафрейма</h2>
-    {% crispy form %}
-</div>
+  {% crispy form %}
 {%endpartialdef%}
+</div>
 {% endblock %}

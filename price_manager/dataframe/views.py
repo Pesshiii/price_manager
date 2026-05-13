@@ -1,4 +1,4 @@
-from django.http import HttpResponse, JsonResponse
+from django.http import HttpResponse, HttpResponseRedirect, JsonResponse
 from django.shortcuts import get_object_or_404
 from django.template.loader import render_to_string
 from django.urls import reverse
@@ -6,6 +6,7 @@ from django.views import View
 from django.views.generic import CreateView, UpdateView
 
 from dal import autocomplete
+from django_htmx.http import HttpResponseClientRedirect
 from core.viewmixins import HtmxMixin
 
 from .models import ContentType, Dataframe, FileModel, Link, DictItem
@@ -36,7 +37,13 @@ class DataframeCreate(HtmxMixin, CreateView):
         if not instance.name:
             instance.name = _resolve_unique_name(instance.file.filename)
         instance.save()
-        return super().form_valid(form)
+        self.object = instance
+        # Force a full page reload when navigating to the update page so that
+        # page-level elements not in the create partial (modal, formset.media,
+        # tabs) are present in the DOM.
+        if self.request.htmx:
+            return HttpResponseClientRedirect(self.get_success_url())
+        return HttpResponseRedirect(self.get_success_url())
 
     def get_success_url(self):
         return reverse('dataframe:update', kwargs={'pk': self.object.pk})
@@ -51,12 +58,23 @@ class DataframeUpdate(HtmxMixin, UpdateView):
         return Link.objects.filter(dataframe=self.object)
 
     def _file_kwargs(self):
-        """Return file_pk / sheet_name for the current dataframe."""
+        """Return file_pk / sheet_name for the current dataframe.
+
+        Uses file_id (not file.pk) so we don't trigger a DB query that could
+        raise FileModel.DoesNotExist if the referenced row was deleted.
+        """
         obj = self.object
         return {
-            'file_pk': obj.file.pk if obj.file else None,
+            'file_pk': obj.file_id,
             'sheet_name': obj.sheet_name or None,
         }
+
+    def _safe_file(self, instance):
+        """Return instance.file or None, swallowing DoesNotExist."""
+        try:
+            return instance.file
+        except FileModel.DoesNotExist:
+            return None
 
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
@@ -70,50 +88,52 @@ class DataframeUpdate(HtmxMixin, UpdateView):
 
     def form_valid(self, form):
         qs = self._link_queryset()
+
+        # Validate linkforms first (using the *current* file state) so that
+        # we don't make destructive changes (e.g. file replacement) if the
+        # link data is invalid.
+        linkforms = LinkFormset(self.request.POST, queryset=qs, **self._file_kwargs())
+        if not linkforms.is_valid():
+            return self.form_invalid(form)
+
         instance = form.save(commit=False)
 
         new_file = form.cleaned_data.get('filefield')
         if new_file:
-            old_file = instance.file
+            old_file = self._safe_file(instance)
             instance.file = FileModel.objects.create(file=new_file)
             if old_file:
                 old_file.delete()
 
         if not instance.name:
-            base = instance.file.filename if instance.file else 'dataframe'
+            current_file = self._safe_file(instance)
+            base = current_file.filename if current_file else 'dataframe'
             instance.name = _resolve_unique_name(base, exclude_pk=instance.pk)
 
         instance.save()
+        self.object = instance
 
-        # Build file kwargs from the *saved* instance so that if the file was
-        # just replaced, _construct_form uses the new (existing) FileModel pk
-        # instead of the deleted one.  (BaseFormSet.forms is a cached_property
-        # that constructs forms lazily on first access, i.e. in is_valid().)
-        current_fk = {
-            'file_pk': instance.file.pk if instance.file else None,
-            'sheet_name': instance.sheet_name or None,
-        }
-        linkforms = LinkFormset(self.request.POST, queryset=qs, **current_fk)
+        # Save link forms (forms were already constructed during is_valid()
+        # using the pre-replacement file_pk, but we only access cleaned_data
+        # here — no further file reads needed).
+        for link_form in linkforms:
+            if link_form.cleaned_data.get('DELETE'):
+                if link_form.instance.pk:
+                    link_form.instance.delete()
+                continue
+            if not link_form.has_changed() and not link_form.instance.pk:
+                continue
+            link = link_form.save(commit=False)
+            link.dataframe = instance
+            link.save()
+            link.dicts.all().delete()
+            DictItem.objects.bulk_create([
+                DictItem(link=link, key=d['key'], value=d['value'])
+                for d in link_form.cleaned_data.get('dictitems', [])
+                if d.get('key') or d.get('value')
+            ])
 
-        if linkforms.is_valid():
-            for link_form in linkforms:
-                if link_form.cleaned_data.get('DELETE'):
-                    if link_form.instance.pk:
-                        link_form.instance.delete()
-                    continue
-                if not link_form.has_changed() and not link_form.instance.pk:
-                    continue
-                link = link_form.save(commit=False)
-                link.dataframe = instance
-                link.save()
-                link.dicts.all().delete()
-                DictItem.objects.bulk_create([
-                    DictItem(link=link, key=d['key'], value=d['value'])
-                    for d in link_form.cleaned_data.get('dictitems', [])
-                    if d.get('key') or d.get('value')
-                ])
-
-        return super().form_valid(form)
+        return HttpResponseRedirect(self.get_success_url())
 
     def get_success_url(self):
         return reverse('dataframe:update', kwargs={'pk': self.object.pk})

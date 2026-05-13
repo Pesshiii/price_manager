@@ -94,11 +94,23 @@ def get_json_dicts(dictitems: list[DictItem]) -> list:
     return res if res else [{'key': '', 'value': ''}]
 
 
+def _safe_file(dataframe_instance):
+    """Return the FileModel attached to a Dataframe, or None.
+
+    Wraps FK access in try/except so a stale file_id (pointing at a deleted
+    FileModel row) doesn't raise FileModel.DoesNotExist.
+    """
+    try:
+        return dataframe_instance.file
+    except FileModel.DoesNotExist:
+        return None
+
+
 def read_raw_dataframe(dataframe_instance, max_rows=200):
     """Read raw file content, return a pandas DataFrame (up to max_rows rows)."""
-    if not dataframe_instance.file:
+    filemodel = _safe_file(dataframe_instance)
+    if filemodel is None:
         return None
-    filemodel = dataframe_instance.file
     filename = filemodel.file.name.lower()
     try:
         if filename.endswith('.csv'):
@@ -119,12 +131,16 @@ def read_raw_dataframe(dataframe_instance, max_rows=200):
 
 def apply_link_rules(dataframe_instance, max_rows=200):
     """Apply Link/DictItem rules to the file, return transformed DataFrame (up to max_rows rows)."""
-    if not dataframe_instance.file:
+    filemodel = _safe_file(dataframe_instance)
+    if filemodel is None:
         return None
-    links = list(dataframe_instance.links.prefetch_related('dicts', 'contenttype').all())
+    # contenttype is an FK -> select_related (one JOIN);
+    # dicts is a reverse FK -> prefetch_related (one extra query).
+    links = list(
+        dataframe_instance.links.select_related('contenttype').prefetch_related('dicts').all()
+    )
     if not links:
         return None
-    filemodel = dataframe_instance.file
     filename = filemodel.file.name.lower()
     try:
         if filename.endswith('.csv'):
