@@ -25,7 +25,9 @@ class DataFrameForm(forms.ModelForm):
         if self.instance.pk and self.instance.file:
             self.fields['filefield'].required = False
             self.fields['filefield'].initial = self.instance.file.file
-            self.fields['sheet_name'].widget.choices = get_sheet_names(self.instance.file.pk)
+            # Create a new widget with the actual sheet choices (don't mutate the class-level widget)
+            sheet_choices = get_sheet_names(self.instance.file.pk)
+            self.fields['sheet_name'].widget = forms.Select(choices=sheet_choices, attrs={'class': 'form-select'})
     @property
     def helper(self):
         helper = FormHelper(self)
