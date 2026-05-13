@@ -18,6 +18,7 @@ class DataframeCreate(HtmxMixin, CreateView):
             while name in names:
                 name += '_copy'
             instance.name = name
+        instance.save()
         return super().form_valid(form)
     
     def get_success_url(self):
@@ -39,14 +40,20 @@ class DataframeUpdate(HtmxMixin, UpdateView):
         instance = form.save(commit=False)
         instance.file = FileModel.objects.create(file=form.cleaned_data['filefield'])
         if instance.name == '':
-            instance.name = instance.file.filename
+            name = instance.file.filename
+            names = Dataframe.objects.all().values_list('name', flat=True)
+            while name in names:
+                name += '_copy'
+            instance.name = name
+        instance.save()
         if linkforms.is_valid():
             for form in linkforms:
-                link = form.save()
+                link = form.save(commit=False)
+                link.dataframe = instance
+                link.save()
                 for dictobj in form.cleaned_data['dictitems']:
                     DictItem.objects.get_or_create(link=link, key=dictobj['key'], value=dictobj['value'])
         return super().form_valid(form)
-    
     def get_success_url(self):
         return reverse('dataframe:update', kwargs={'pk': self.object.pk})
     model = Dataframe
