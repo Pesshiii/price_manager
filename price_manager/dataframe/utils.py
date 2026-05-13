@@ -11,13 +11,13 @@ def get_sheet_names(pk):
     """Return list of (name, name) tuples for sheets in the file with the given FileModel pk."""
     cache_key = f'df_sheets_{pk}'
     cached = cache.get(cache_key)
-    if cached is not None and not cached in [[('', 'Выберите лист')], [('', 'Выберите файл')], [('', '---------')]]:
+    if cached is not None:
         return cached
 
     try:
         filemodel = FileModel.objects.get(pk=pk)
     except FileModel.DoesNotExist:
-        return [('', 'Выберите файл')]
+        return [('', 'Выберите лист')]
     filename = filemodel.file.name.lower()
     if filename.endswith('.csv'):
         result = [('Sheet1', 'Sheet1')]
@@ -47,7 +47,7 @@ def get_column_names(file_pk, sheet_name=None):
     try:
         filemodel = FileModel.objects.get(pk=file_pk)
     except FileModel.DoesNotExist:
-        return [('', 'Выберите файл')]
+        return [('', '---------')]
     filename = filemodel.file.name.lower()
     try:
         if filename.endswith('.csv'):
@@ -59,11 +59,11 @@ def get_column_names(file_pk, sheet_name=None):
                 nrows=0,
                 engine='calamine',
             )
-        result = [('', 'Не выбран')] + [(col, col) for col in df.columns]
+        result = [('', '---------')] + [(col, col) for col in df.columns]
         cache.set(cache_key, result, _CACHE_TTL)
         return result
     except Exception:
-        return [('', 'Не выбран')]
+        return [('', '---------')]
     finally:
         filemodel.file.close()
 

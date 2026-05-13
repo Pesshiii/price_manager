@@ -6,7 +6,6 @@ from django.views import View
 from django.views.generic import CreateView, UpdateView
 
 from dal import autocomplete
-from django_htmx.http import HttpResponseClientRefresh
 from core.viewmixins import HtmxMixin
 
 from .models import ContentType, Dataframe, FileModel, Link, DictItem
@@ -83,7 +82,7 @@ class DataframeUpdate(HtmxMixin, UpdateView):
         if not instance.name:
             base = instance.file.filename if instance.file else 'dataframe'
             instance.name = _resolve_unique_name(base, exclude_pk=instance.pk)
-            
+
         instance.save()
 
         # Build file kwargs from the *saved* instance so that if the file was
@@ -114,7 +113,7 @@ class DataframeUpdate(HtmxMixin, UpdateView):
                     if d.get('key') or d.get('value')
                 ])
 
-        return HttpResponseClientRefresh()
+        return super().form_valid(form)
 
     def get_success_url(self):
         return reverse('dataframe:update', kwargs={'pk': self.object.pk})
