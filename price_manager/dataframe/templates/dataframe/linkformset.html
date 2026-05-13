@@ -56,6 +56,146 @@
       margin-bottom: 0 !important;
       padding: 0 !important;
     }
+
+    /* ---- django_jsonform: Bootstrap 5 theming ---- */
+
+    /* Map Django Admin CSS vars to Bootstrap 5 equivalents */
+    [data-django-jsonform-container] {
+      --link-fg: #0d6efd;
+      --link-hover-color: #0a58ca;
+      --body-fg: #212529;
+      --body-bg: #fff;
+      --body-quiet-color: #6c757d;
+      --darkened-bg: #f8f9fa;
+      --selected-row: #cfe2ff;
+      --border-color: #dee2e6;
+      --hairline-color: #dee2e6;
+      --error-fg: #dc3545;
+    }
+
+    /* Remove Django Admin .module.aligned box */
+    [data-formset-container] .rjf-form-wrapper > .module.aligned {
+      min-width: 0;
+      margin-bottom: 0;
+      background: transparent;
+      border: none;
+      box-shadow: none;
+      padding: 0;
+    }
+
+    /* Full width */
+    [data-formset-container] .rjf-form-group-wrapper,
+    [data-formset-container] .rjf-form-group {
+      max-width: 100%;
+    }
+
+    /* Schema title ("Словарь замен") — small muted label */
+    [data-formset-container] .rjf-form-group-title {
+      font-size: 0.7rem;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      color: #6c757d;
+      margin-bottom: 0.4rem;
+    }
+
+    /* Each array item: card-like row */
+    [data-formset-container] .rjf-form-group-wrapper > .rjf-form-group {
+      border: 1px solid #dee2e6;
+      border-radius: 0.375rem;
+      background: #fff;
+      margin-bottom: 0.4rem;
+      padding: 0.5rem 2.75rem 0.5rem 0.6rem;
+    }
+
+    /* Inner object group: side-by-side flex */
+    [data-formset-container] .rjf-form-group-inner {
+      display: flex !important;
+      gap: 0.75rem;
+      align-items: flex-start;
+      border: none !important;
+      box-shadow: none !important;
+      padding: 0 !important;
+      margin-bottom: 0 !important;
+    }
+
+    /* Each field row (key / value) */
+    [data-formset-container] .rjf-form-group-inner > .rjf-form-row {
+      display: flex !important;   /* override display:table */
+      flex-direction: column;
+      flex: 1;
+      padding: 0;
+    }
+
+    /* Labels */
+    [data-formset-container] .rjf-form-group-inner .rjf-form-row label {
+      float: none;
+      width: auto;
+      min-width: 0;
+      font-size: 0.75rem;
+      font-weight: 500;
+      color: #6c757d;
+      margin-bottom: 0.2rem;
+    }
+
+    /* Input group wrapper */
+    [data-formset-container] .rjf-form-group-inner .rjf-form-row label + .rjf-input-group {
+      width: 100%;
+      min-width: 0;
+      display: block;
+    }
+
+    /* Inputs — Bootstrap form-control (sm) */
+    [data-formset-container] .rjf-form-row input {
+      max-width: 100% !important;
+      width: 100%;
+      border: 1px solid #dee2e6;
+      border-radius: 0.375rem;
+      padding: 0.25rem 0.5rem;
+      font-size: 0.875rem;
+      line-height: 1.5;
+      color: #212529;
+      background-color: #fff;
+      transition: border-color 0.15s ease-in-out, box-shadow 0.15s ease-in-out;
+    }
+    [data-formset-container] .rjf-form-row input:focus {
+      border-color: #86b7fe;
+      outline: 0;
+      box-shadow: 0 0 0 0.2rem rgba(13,110,253,.25);
+    }
+
+    /* Row controls: align to vertical center */
+    [data-formset-container] .rjf-form-group-wrapper > .rjf-form-group > .rjf-form-row-controls {
+      top: 50%;
+      right: 0.4rem;
+      transform: translateY(-50%);
+    }
+
+    /* "Add item" → Bootstrap btn-outline-success btn-sm + Russian label */
+    [data-formset-container] .rjf-add-button {
+      background-image: none !important;
+      padding: 0.25rem 0.75rem !important;
+      border: 1px solid #198754 !important;
+      border-radius: 0.25rem;
+      color: #198754 !important;
+      background-color: transparent;
+      cursor: pointer;
+      margin-top: 0.5rem;
+      font-size: 0 !important;   /* hide original "Add item" text */
+      line-height: 1.5;
+    }
+    [data-formset-container] .rjf-add-button::before {
+      content: '＋ Добавить строку';
+      font-size: 0.875rem;
+      line-height: 1.5;
+    }
+    [data-formset-container] .rjf-add-button:hover {
+      background-color: #198754 !important;
+      color: #fff !important;
+    }
+    [data-formset-container] .rjf-add-button:hover::before {
+      color: #fff;
+    }
   </style>
 
   <script>

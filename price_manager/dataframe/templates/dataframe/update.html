@@ -5,6 +5,8 @@
 Датафрейм: {{object.name}}
 {% endblock %}
 
+{% block script %}{{ formset.media }}{% endblock %}
+
 {% block body %}
 {%partialdef partial inline%}
 <div class="container" id="DataFrameForm">

@@ -48,18 +48,27 @@ class DataframeUpdate(HtmxMixin, UpdateView):
     def _link_queryset(self):
         return Link.objects.filter(dataframe=self.object)
 
+    def _file_kwargs(self):
+        """Return file_pk / sheet_name for the current dataframe."""
+        obj = self.object
+        return {
+            'file_pk': obj.file.pk if obj.file else None,
+            'sheet_name': obj.sheet_name or None,
+        }
+
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
         qs = self._link_queryset()
+        fk = self._file_kwargs()
         if self.request.POST:
-            context['formset'] = LinkFormset(self.request.POST, queryset=qs)
+            context['formset'] = LinkFormset(self.request.POST, queryset=qs, **fk)
         else:
-            context['formset'] = LinkFormset(queryset=qs)
+            context['formset'] = LinkFormset(queryset=qs, **fk)
         return context
 
     def form_valid(self, form):
         qs = self._link_queryset()
-        linkforms = LinkFormset(self.request.POST, queryset=qs)
+        linkforms = LinkFormset(self.request.POST, queryset=qs, **self._file_kwargs())
         instance = form.save(commit=False)
 
         new_file = form.cleaned_data.get('filefield')

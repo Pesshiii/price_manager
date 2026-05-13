@@ -4,7 +4,7 @@ from crispy_forms.helper import FormHelper
 from crispy_forms.layout import Layout, Div, Field, Submit, HTML, Button
 from dal import autocomplete
 from .models import ContentType, Dataframe, Link
-from .utils import get_sheet_names, get_json_dicts, DICT_SCHEMA
+from .utils import get_sheet_names, get_column_names, get_json_dicts, DICT_SCHEMA
 
 from django_jsonform.forms.fields import JSONFormField
 from django.urls import reverse
@@ -73,7 +73,7 @@ class DataFrameForm(forms.ModelForm):
 class LinkForm(forms.ModelForm):
     class Meta:
         model = Link
-        fields = ('contenttype', 'initial', 'dictitems')
+        fields = ('contenttype', 'value', 'initial', 'dictitems')
         widgets = {
             'contenttype': autocomplete.ModelSelect2(
                 url='dataframe:contenttype-autocomplete',
@@ -83,9 +83,28 @@ class LinkForm(forms.ModelForm):
     dictitems = JSONFormField(schema=DICT_SCHEMA)
 
     def __init__(self, *args, **kwargs):
+        self.file_pk = kwargs.pop('file_pk', None)
+        self.sheet_name = kwargs.pop('sheet_name', None)
         super().__init__(*args, **kwargs)
         if self.instance.pk:
             self.fields['dictitems'].initial = get_json_dicts(self.instance.dicts.all())
+        # Populate column choices from the linked file
+        if self.file_pk:
+            columns = get_column_names(self.file_pk, self.sheet_name)
+            # Keep the existing value in the list even if the file changed
+            if self.instance.pk and self.instance.value:
+                if not any(v == self.instance.value for v, _ in columns):
+                    columns.append((self.instance.value, f'{self.instance.value} ⚠ нет в файле'))
+            self.fields['value'].widget = forms.Select(
+                choices=columns,
+                attrs={'class': 'form-select form-select-sm'},
+            )
+        else:
+            self.fields['value'].widget = forms.Select(
+                choices=[('', 'Сначала выберите файл')],
+                attrs={'class': 'form-select form-select-sm', 'disabled': True},
+            )
+        self.fields['value'].required = False
 
     @property
     def helper(self):
@@ -104,6 +123,7 @@ class LinkForm(forms.ModelForm):
                         </div>'''),
                 css_class='d-flex gap-2',
             ),
+            Field('value'),
             Field('initial'),
             Field('dictitems'),
         )
@@ -111,6 +131,16 @@ class LinkForm(forms.ModelForm):
 
 
 class LinkBaseFormset(forms.BaseModelFormSet):
+    def __init__(self, *args, **kwargs):
+        self.file_pk = kwargs.pop('file_pk', None)
+        self.sheet_name = kwargs.pop('sheet_name', None)
+        super().__init__(*args, **kwargs)
+
+    def _construct_form(self, i, **kwargs):
+        kwargs['file_pk'] = self.file_pk
+        kwargs['sheet_name'] = self.sheet_name
+        return super()._construct_form(i, **kwargs)
+
     def add_fields(self, form, index):
         super().add_fields(form, index)
         if 'DELETE' in form.fields:

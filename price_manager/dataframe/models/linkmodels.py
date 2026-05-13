@@ -33,7 +33,9 @@ class Link(models.Model):
         verbose_name='Контент'
     )
     value = models.CharField(
-        null=True
+        null=True,
+        blank=True,
+        verbose_name='Столбец значения',
     )
     def __str__(self):
         return f'{self.contenttype}<--->{self.value}({self.initial})'
