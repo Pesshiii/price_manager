@@ -3,14 +3,18 @@ from django.core.validators import FileExtensionValidator
 from crispy_forms.helper import FormHelper
 from crispy_forms.layout import Layout, Div, Field, Submit, HTML, Button
 from .models import Dataframe, Link
-from .utils import get_sheet_names, get_json_dicts, DICT_SHEMA
+from .utils import get_sheet_names, get_json_dicts, DICT_SCHEMA
 
 from django_jsonform.forms.fields import JSONFormField
 from django.urls import reverse
 
 
+class FileUploadWidget(forms.ClearableFileInput):
+    template_name = 'dataframe/widgets/filefield.html'
+
+
 class DataFrameForm(forms.ModelForm):
-    filefield = forms.FileField(widget=forms.ClearableFileInput(),validators=[FileExtensionValidator(allowed_extensions=['xls', 'xlsx', 'xlsm', 'csv'])])
+    filefield = forms.FileField(widget=FileUploadWidget(), validators=[FileExtensionValidator(allowed_extensions=['xls', 'xlsx', 'xlsm', 'csv'])])
     sheet_name = forms.CharField(widget=forms.Select(choices=[('', 'Выберите лист')]), required=False)
     class Meta:
         model = Dataframe
@@ -18,6 +22,7 @@ class DataFrameForm(forms.ModelForm):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         if self.instance.pk and self.instance.file:
+            self.fields['filefield'].required = False
             self.fields['filefield'].initial = self.instance.file.file
             self.fields['sheet_name'].widget.choices = get_sheet_names(self.instance.file.pk)
     @property
@@ -68,7 +73,7 @@ class LinkForm(forms.ModelForm):
     class Meta:
         model = Link
         fields = ('contenttype', 'initial', 'dictitems')
-    dictitems = JSONFormField(schema=DICT_SHEMA)
+    dictitems = JSONFormField(schema=DICT_SCHEMA)
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         if self.instance.pk:

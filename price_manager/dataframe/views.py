@@ -6,54 +6,90 @@ from core.viewmixins import HtmxMixin
 from .models import Dataframe, FileModel, Link, DictItem
 from .forms import DataFrameForm, LinkFormset
 
+
+def _resolve_unique_name(base_name, exclude_pk=None):
+    """Return base_name, appending '_copy' until it is unique among Dataframe names."""
+    qs = Dataframe.objects.values_list('name', flat=True)
+    if exclude_pk is not None:
+        qs = qs.exclude(pk=exclude_pk)
+    existing = set(qs)
+    name = base_name
+    while name in existing:
+        name += '_copy'
+    return name
+
+
 class DataframeCreate(HtmxMixin, CreateView):
-    htmx_template='dataframe/create.html'
+    htmx_template = 'dataframe/create.html'
     form_class = DataFrameForm
-    def form_valid(self, form):
-        instance = form.save(commit=False)
-        instance.file = FileModel.objects.create(file=form.cleaned_data['filefield'])
-        if instance.name == '':
-            name = instance.file.filename
-            names = Dataframe.objects.all().values_list('name', flat=True)
-            while name in names:
-                name += '_copy'
-            instance.name = name
-        instance.save()
-        return super().form_valid(form)
-    
-    def get_success_url(self):
-        return reverse('dataframe:update', kwargs={'pk': self.object.pk})
     model = Dataframe
 
-class DataframeUpdate(HtmxMixin, UpdateView):
-    htmx_template='dataframe/update.html'
-    form_class = DataFrameForm
-    def get_context_data(self, **kwargs):
-        context = super().get_context_data(**kwargs)
-        if self.request.POST:
-            context["formset"] = LinkFormset(self.request.POST)
-        else:
-            context["formset"] = LinkFormset(queryset=Link.objects.filter(dataframe=self.object))
-        return context
     def form_valid(self, form):
-        linkforms = LinkFormset(self.request.POST)
         instance = form.save(commit=False)
         instance.file = FileModel.objects.create(file=form.cleaned_data['filefield'])
-        if instance.name == '':
-            name = instance.file.filename
-            names = Dataframe.objects.all().values_list('name', flat=True)
-            while name in names:
-                name += '_copy'
-            instance.name = name
+        if not instance.name:
+            instance.name = _resolve_unique_name(instance.file.filename)
         instance.save()
-        if linkforms.is_valid():
-            for form in linkforms:
-                link = form.save(commit=False)
-                link.dataframe = instance
-                link.save()
-                for dictobj in form.cleaned_data['dictitems']:
-                    DictItem.objects.get_or_create(link=link, key=dictobj['key'], value=dictobj['value'])
         return super().form_valid(form)
+
     def get_success_url(self):
         return reverse('dataframe:update', kwargs={'pk': self.object.pk})
+
+
+class DataframeUpdate(HtmxMixin, UpdateView):
+    htmx_template = 'dataframe/update.html'
+    form_class = DataFrameForm
     model = Dataframe
+
+    def _link_queryset(self):
+        return Link.objects.filter(dataframe=self.object)
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        qs = self._link_queryset()
+        if self.request.POST:
+            context['formset'] = LinkFormset(self.request.POST, queryset=qs)
+        else:
+            context['formset'] = LinkFormset(queryset=qs)
+        return context
+
+    def form_valid(self, form):
+        qs = self._link_queryset()
+        linkforms = LinkFormset(self.request.POST, queryset=qs)
+        instance = form.save(commit=False)
+
+        new_file = form.cleaned_data.get('filefield')
+        if new_file:
+            old_file = instance.file
+            instance.file = FileModel.objects.create(file=new_file)
+            if old_file:
+                old_file.delete()
+
+        if not instance.name:
+            base = instance.file.filename if instance.file else 'dataframe'
+            instance.name = _resolve_unique_name(base, exclude_pk=instance.pk)
+
+        instance.save()
+
+        if linkforms.is_valid():
+            for link_form in linkforms:
+                if link_form.cleaned_data.get('DELETE'):
+                    if link_form.instance.pk:
+                        link_form.instance.delete()
+                    continue
+                if not link_form.has_changed() and not link_form.instance.pk:
+                    continue
+                link = link_form.save(commit=False)
+                link.dataframe = instance
+                link.save()
+                link.dicts.all().delete()
+                DictItem.objects.bulk_create([
+                    DictItem(link=link, key=d['key'], value=d['value'])
+                    for d in link_form.cleaned_data.get('dictitems', [])
+                    if d.get('key') or d.get('value')
+                ])
+
+        return super().form_valid(form)
+
+    def get_success_url(self):
+        return reverse('dataframe:update', kwargs={'pk': self.object.pk})
