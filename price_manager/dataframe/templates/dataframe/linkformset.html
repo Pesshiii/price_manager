@@ -79,17 +79,18 @@
       emptyState.style.display = visible.length === 0 ? '' : 'none';
     }
 
-    // ---- EXTEND SELECT2 WITH INLINE CREATE OPTION ----
-    // Destroys DAL's Select2 and re-initializes with "＋ Создать" in results.
+    // ---- INITIALIZE SELECT2 WITH INLINE CREATE OPTION ----
+    // base.html loads jQuery/Select2 at bottom of body — DAL never gets to
+    // initialize existing rows. We own the full Select2 lifecycle here.
     // NOTE: no setTimeout here — caller is responsible for timing.
     function extendSelect2WithCreate(sel) {
       if (!window.$ || sel.dataset.createExtended) return;
       var $sel = $(sel);
       var autocompleteUrl = sel.dataset.autocompleteLightUrl;
-      if (!autocompleteUrl || !$sel.data('select2')) return;
+      if (!autocompleteUrl) return;
       sel.dataset.createExtended = '1';
 
-      $sel.select2('destroy');
+      if ($sel.data('select2')) { $sel.select2('destroy'); }
       $sel.select2({
         ajax: {
           url: autocompleteUrl,
