@@ -1,0 +1,36 @@
+{% load crispy_forms_field %}
+
+<div class="{{ field_class }} mb-2">
+  {% for widget in field.subwidgets %}
+  {% if widget.data.is_initial %}
+  <div class="d-flex align-items-center gap-2 border rounded px-2 py-1 mb-2 bg-body-secondary"
+       id="current-file-{{ field.id_for_label }}">
+    <i class="bi bi-file-earmark-spreadsheet text-success flex-shrink-0"></i>
+    <a href="{{ field.value.url }}"
+       class="text-truncate small text-decoration-none text-body flex-grow-1"
+       target="_blank" rel="noopener"
+       title="{{ field.value }}">{{ field.value }}</a>
+    {% if not widget.data.required %}
+    <input type="checkbox"
+           name="{{ widget.data.checkbox_name }}"
+           id="{{ widget.data.checkbox_id }}"
+           class="d-none"
+           {% if field.field.disabled %}disabled{% endif %}>
+    <button type="button"
+            class="btn btn-sm btn-link text-danger py-0 px-1 flex-shrink-0"
+            title="{{ widget.data.clear_checkbox_label }}"
+            onclick="document.getElementById('{{ widget.data.checkbox_id }}').checked=true;document.getElementById('current-file-{{ field.id_for_label }}').style.display='none';">
+      <i class="bi bi-x-lg"></i>
+    </button>
+    {% endif %}
+  </div>
+  {% endif %}
+  <input type="{{ widget.data.type }}"
+         name="{{ widget.data.name }}"
+         id="{{ field.id_for_label }}"
+         class="form-control{% if field.errors %} is-invalid{% endif %}"
+         {% if field.field.disabled %}disabled{% endif %}
+         {% for name, value in widget.data.attrs.items %}{% if value is not False and name != 'class' and name != 'id' %} {{ name }}{% if value is not True %}="{{ value|stringformat:'s' }}"{% endif %}{% endif %}{% endfor %}>
+  {% include 'bootstrap4/layout/help_text_and_errors.html' %}
+  {% endfor %}
+</div>

@@ -77,6 +77,7 @@ class LinkForm(forms.ModelForm):
         widgets = {
             'contenttype': autocomplete.ModelSelect2(
                 url='dataframe:contenttype-autocomplete',
+                attrs={'data-width': '100%'},
             )
         }
     dictitems = JSONFormField(schema=DICT_SCHEMA)
