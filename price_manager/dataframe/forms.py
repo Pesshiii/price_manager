@@ -16,7 +16,7 @@ class FileUploadWidget(forms.ClearableFileInput):
 
 class DataFrameForm(forms.ModelForm):
     filefield = forms.FileField(widget=FileUploadWidget(), validators=[FileExtensionValidator(allowed_extensions=['xls', 'xlsx', 'xlsm', 'csv'])])
-    sheet_name = forms.CharField(widget=forms.Select(choices=[('', 'Выберите лист')]), required=False)
+    sheet_name = forms.CharField(required=False)
     class Meta:
         model = Dataframe
         fields = ('filefield','sheet_name', 'name')
@@ -25,9 +25,18 @@ class DataFrameForm(forms.ModelForm):
         if self.instance.pk and self.instance.file:
             self.fields['filefield'].required = False
             self.fields['filefield'].initial = self.instance.file.file
-            # Create a new widget with the actual sheet choices (don't mutate the class-level widget)
+            # Always create a fresh Select widget with current sheet choices from the file
             sheet_choices = get_sheet_names(self.instance.file.pk)
-            self.fields['sheet_name'].widget = forms.Select(choices=sheet_choices, attrs={'class': 'form-select'})
+            self.fields['sheet_name'].widget = forms.Select(
+                choices=sheet_choices,
+                attrs={'class': 'form-select'}
+            )
+        else:
+            # No file yet — show placeholder
+            self.fields['sheet_name'].widget = forms.Select(
+                choices=[('', 'Выберите лист')],
+                attrs={'class': 'form-select', 'disabled': True}
+            )
     @property
     def helper(self):
         helper = FormHelper(self)
