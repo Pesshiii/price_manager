@@ -26,7 +26,7 @@ class Link(models.Model):
                               on_delete=models.CASCADE,
                               related_name='links',
                               blank=True)
-    initial = models.CharField(null=True)
+    initial = models.CharField(null=True, blank=True)
     contenttype = models.ForeignKey(
         ContentType,
         on_delete=models.CASCADE,

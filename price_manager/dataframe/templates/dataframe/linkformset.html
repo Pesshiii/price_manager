@@ -7,14 +7,22 @@
   <div data-form-container>
     {% for form in formset.forms|slice:":formset.initial_form_count" %}
     <div class="card mb-2 link-form-row">
-      <div class="card-header d-flex justify-content-between align-items-center py-1">
-        <span class="small fw-semibold text-muted">Привязка {{ forloop.counter }}</span>
+      <div class="card-header d-flex justify-content-between align-items-center py-1"
+           style="cursor:pointer;" data-collapse-toggle
+           data-bs-toggle="collapse" data-bs-target="#link-body-{{ forloop.counter0 }}"
+           aria-expanded="true" aria-controls="link-body-{{ forloop.counter0 }}">
+        <span class="small fw-semibold text-muted d-flex align-items-center gap-1">
+          <i class="bi bi-chevron-down link-chevron" style="transition:transform .2s;"></i>
+          Привязка {{ forloop.counter }}
+        </span>
         <button type="button" class="btn btn-sm btn-outline-danger" data-delete-btn aria-label="Удалить">
           <i class="bi bi-trash3"></i>
         </button>
       </div>
-      <div class="card-body py-2">
-        {% crispy form %}
+      <div class="collapse show" id="link-body-{{ forloop.counter0 }}">
+        <div class="card-body py-2">
+          {% crispy form %}
+        </div>
       </div>
       <div class="d-none">{{ form.DELETE }}</div>
     </div>
@@ -31,14 +39,22 @@
 
   <div data-empty-form style="display:none;" aria-hidden="true">
     <div class="card mb-2 link-form-row">
-      <div class="card-header d-flex justify-content-between align-items-center py-1">
-        <span class="small fw-semibold text-muted">Привязка</span>
+      <div class="card-header d-flex justify-content-between align-items-center py-1"
+           style="cursor:pointer;" data-collapse-toggle
+           data-bs-toggle="collapse" data-bs-target="#link-body-__prefix__"
+           aria-expanded="true" aria-controls="link-body-__prefix__">
+        <span class="small fw-semibold text-muted d-flex align-items-center gap-1">
+          <i class="bi bi-chevron-down link-chevron" style="transition:transform .2s;"></i>
+          Привязка
+        </span>
         <button type="button" class="btn btn-sm btn-outline-danger" data-delete-btn aria-label="Удалить">
           <i class="bi bi-trash3"></i>
         </button>
       </div>
-      <div class="card-body py-2">
-        {% crispy formset.empty_form %}
+      <div class="collapse show" id="link-body-__prefix__">
+        <div class="card-body py-2">
+          {% crispy formset.empty_form %}
+        </div>
       </div>
       <div class="d-none">{{ formset.empty_form.DELETE }}</div>
     </div>
@@ -169,6 +185,18 @@
       top: 50%;
       right: 0.4rem;
       transform: translateY(-50%);
+    }
+
+    /* Словарь замен scrollbar */
+    [data-formset-container] [data-django-jsonform-container] .rjf-form-group-wrapper {
+      max-height: 220px;
+      overflow-y: auto;
+      padding-right: 4px;
+    }
+
+    /* Chevron rotation when collapsed */
+    .card-header[aria-expanded="false"] .link-chevron {
+      transform: rotate(-90deg);
     }
 
     /* "Add item" → Bootstrap btn-outline-success btn-sm + Russian label */
@@ -335,6 +363,7 @@
     container.addEventListener('click', function (e) {
       var btn = e.target.closest('[data-delete-btn]');
       if (!btn) return;
+      e.stopPropagation();
       var row = btn.closest('.link-form-row');
       var cb  = row.querySelector('input[name$="-DELETE"]');
       if (cb) cb.checked = true;

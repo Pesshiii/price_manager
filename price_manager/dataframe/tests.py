@@ -131,9 +131,9 @@ class GetSheetNamesTests(TestCase):
             result = get_sheet_names(fm.pk)
         self.assertEqual(result, [('Sheet1', 'Sheet1'), ('Prices', 'Prices'), ('Config', 'Config')])
 
-    def test_raises_for_missing_pk(self):
-        with self.assertRaises(FileModel.DoesNotExist):
-            get_sheet_names(99999)
+    def test_returns_default_for_missing_pk(self):
+        result = get_sheet_names(99999)
+        self.assertEqual(result, [('', 'Выберите лист')])
 
     def test_file_closed_after_read(self):
         fm = make_filemodel('prices.xlsx')
@@ -304,7 +304,7 @@ class DataframeUpdateViewTests(TestCase):
             'form-MAX_NUM_FORMS': '1000',
         }
         response = self.client.post(self.url, data)
-        self.assertRedirects(response, self.url)
+        self.assertRedirects(response, self.url + '?saved=1')
 
 
 @override_settings(SECURE_SSL_REDIRECT=False, STORAGES={'default': {'BACKEND': 'django.core.files.storage.InMemoryStorage'}, 'staticfiles': {'BACKEND': 'django.contrib.staticfiles.storage.StaticFilesStorage'}})

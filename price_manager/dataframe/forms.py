@@ -116,6 +116,11 @@ class LinkForm(forms.ModelForm):
                 attrs={'class': 'form-select form-select-sm', 'disabled': True},
             )
         self.fields['value'].required = False
+        self.fields['contenttype'].required = False
+        self.fields['initial'].required = False
+        self.fields['dictitems'].required = False
+        self.fields['initial'].label = 'Начальное значение'
+        self.fields['dictitems'].label = 'Словарь замен'
 
     @property
     def helper(self):
@@ -156,6 +161,7 @@ class LinkBaseFormset(forms.BaseModelFormSet):
         super().add_fields(form, index)
         if 'DELETE' in form.fields:
             form.fields['DELETE'].widget = forms.HiddenInput()
+
 
 
 LinkFormset = forms.modelformset_factory(Link, LinkForm, formset=LinkBaseFormset, can_delete=True)

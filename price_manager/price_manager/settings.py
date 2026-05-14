@@ -201,16 +201,17 @@ CSRF_TRUSTED_ORIGINS = [
     if origin.strip()
 ]
 
-SECURE_SSL_REDIRECT = True
+# When behind a proxy (Railway/production), the proxy terminates TLS and sends
+# X-Forwarded-Proto: https. SECURE_SSL_REDIRECT should be False on localhost
+# (no proxy, no TLS listener) to avoid an infinite redirect loop.
+SECURE_SSL_REDIRECT = os.environ.get('SECURE_SSL_REDIRECT', 'false').lower() in ('1', 'true', 'yes', 'on')
 SECURE_HSTS_SECONDS = 31536000  # 1 year
 SECURE_HSTS_INCLUDE_SUBDOMAINS = True
 SECURE_HSTS_PRELOAD = True
-# If behind a proxy (Railway), trust forwarded protocol/host headers.
-# Railway/edge proxy must send: X-Forwarded-Proto: https
 USE_X_FORWARDED_HOST = True
-CSRF_COOKIE_SECURE = True
-SESSION_COOKIE_SECURE = True
-SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')   
+CSRF_COOKIE_SECURE = SECURE_SSL_REDIRECT
+SESSION_COOKIE_SECURE = SECURE_SSL_REDIRECT
+SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')
 
 # Internationalization
 # https://docs.djangoproject.com/en/5.2/topics/i18n/

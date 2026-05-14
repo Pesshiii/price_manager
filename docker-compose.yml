@@ -47,6 +47,7 @@ services:
     environment:
       SECRET_KEY: ${SECRET_KEY:-django-insecure-change-me}
       DEBUG: ${DEBUG:-true}
+      SECURE_SSL_REDIRECT: ${SECURE_SSL_REDIRECT:-false}
       ALLOWED_HOSTS: ${ALLOWED_HOSTS:-*}
       POSTGRES_DB: ${POSTGRES_DB:-price_manager}
       POSTGRES_USER: ${POSTGRES_USER:-priceuser}
@@ -80,6 +81,7 @@ services:
     environment:
       SECRET_KEY: ${SECRET_KEY:-django-insecure-change-me}
       DEBUG: ${DEBUG:-true}
+      SECURE_SSL_REDIRECT: ${SECURE_SSL_REDIRECT:-false}
       ALLOWED_HOSTS: ${ALLOWED_HOSTS:-*}
       POSTGRES_DB: ${POSTGRES_DB:-price_manager}
       POSTGRES_USER: ${POSTGRES_USER:-priceuser}

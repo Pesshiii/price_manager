@@ -70,7 +70,6 @@ def get_column_names(file_pk, sheet_name=None):
 
 DICT_SCHEMA = {
     "type": "array",
-    "title": "Словарь замен",
     "items": {
         "type": "object",
         "keys": {
@@ -84,7 +83,7 @@ DICT_SCHEMA = {
             }
         }
     },
-    "minItems": 1,
+    "minItems": 0,
     "maxItems": 20,
 }
 

@@ -30,7 +30,7 @@
                 hx-get="{% url 'dataframe:preview-result' pk=object.pk %}"
                 hx-target="#result-content"
                 hx-swap="innerHTML"
-                hx-trigger="click once"
+                hx-trigger="click"
                 hx-indicator="#result-loading">
           <i class="bi bi-magic me-1"></i>Результат привязок
         </button>
@@ -60,6 +60,18 @@
       </div>
     </div>
   </div>
+  {% endif %}
+
+  {% if request.GET.saved == '1' %}
+  <script>
+    window.addEventListener('load', function () {
+      history.replaceState(null, '', location.pathname);
+      var tab = document.getElementById('result-tab');
+      if (!tab) return;
+      bootstrap.Tab.getOrCreateInstance(tab).show();
+      htmx.trigger(tab, 'click');
+    });
+  </script>
   {% endif %}
 {%endpartialdef%}
 </div>

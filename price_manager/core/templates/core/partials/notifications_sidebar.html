@@ -26,6 +26,7 @@
             class="btn-close"
             aria-label="Удалить"
             hx-post="{% url 'persistent-notification-delete' notification.pk %}"
+            hx-headers='{"X-CSRFToken": "{{ csrf_token }}"}'
             hx-target="#notification-{{ notification.pk }}"
             hx-swap="outerHTML"
           ></button>

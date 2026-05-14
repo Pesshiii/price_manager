@@ -1,3 +1,5 @@
+from django.contrib import messages
+from django.core.files.uploadedfile import UploadedFile
 from django.http import HttpResponse, HttpResponseRedirect, JsonResponse
 from django.shortcuts import get_object_or_404
 from django.template.loader import render_to_string
@@ -99,7 +101,7 @@ class DataframeUpdate(HtmxMixin, UpdateView):
         instance = form.save(commit=False)
 
         new_file = form.cleaned_data.get('filefield')
-        if new_file:
+        if isinstance(new_file, UploadedFile):
             old_file = self._safe_file(instance)
             instance.file = FileModel.objects.create(file=new_file)
             if old_file:
@@ -121,6 +123,8 @@ class DataframeUpdate(HtmxMixin, UpdateView):
                 if link_form.instance.pk:
                     link_form.instance.delete()
                 continue
+            if not link_form.cleaned_data.get('contenttype'):
+                continue
             if not link_form.has_changed() and not link_form.instance.pk:
                 continue
             link = link_form.save(commit=False)
@@ -133,10 +137,13 @@ class DataframeUpdate(HtmxMixin, UpdateView):
                 if d.get('key') or d.get('value')
             ])
 
+        messages.success(self.request, 'Данные сохранены')
+        if self.request.htmx:
+            return HttpResponseClientRedirect(self.get_success_url())
         return HttpResponseRedirect(self.get_success_url())
 
     def get_success_url(self):
-        return reverse('dataframe:update', kwargs={'pk': self.object.pk})
+        return reverse('dataframe:update', kwargs={'pk': self.object.pk}) + '?saved=1'
 
 
 class DataframeFilePreview(View):
