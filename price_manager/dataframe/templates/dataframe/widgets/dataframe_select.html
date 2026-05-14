@@ -1,0 +1,30 @@
+{# Renders a Dataframe <select> alongside a button that opens the
+   create-Dataframe modal via HTMX. Parent page must include
+   `dataframe/partials/_modal_create.html` and provide `#dataframeModalHolder`. #}
+<div class="input-group">
+  <select name="{{ widget.name }}"{% if widget.attrs %}{% for k, v in widget.attrs.items %} {{ k }}="{{ v }}"{% endfor %}{% endif %}>
+    {% for group_name, group_choices, group_index in widget.optgroups %}
+      {% for option in group_choices %}
+        <option value="{{ option.value }}"{% if option.selected %} selected{% endif %}>{{ option.label }}</option>
+      {% endfor %}
+    {% endfor %}
+  </select>
+  <button type="button" class="btn btn-outline-primary"
+          hx-get="{% url 'dataframe:modal-create' %}"
+          hx-target="#dataframeModalHolder"
+          hx-swap="innerHTML"
+          title="Создать новый Dataframe">
+    <i class="bi bi-plus-lg"></i>
+  </button>
+</div>
+<div id="dataframeModalHolder"></div>
+<script>
+  document.body.addEventListener('dataframe:created', function(ev){
+    const sel = document.querySelector('[name="{{ widget.name }}"]');
+    if (!sel) return;
+    const opt = document.createElement('option');
+    opt.value = ev.detail.pk; opt.textContent = ev.detail.name; opt.selected = true;
+    sel.appendChild(opt);
+    document.getElementById('dataframeModalHolder').innerHTML = '';
+  });
+</script>

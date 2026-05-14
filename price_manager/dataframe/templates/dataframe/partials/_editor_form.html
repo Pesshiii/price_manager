@@ -1,0 +1,43 @@
+{# Reusable editor form body (no <form> tag) for the Dataframe pipeline. #}
+<div class="mb-3">
+  <label class="form-label" for="{{ form.name.id_for_label }}">Название</label>
+  {{ form.name }}
+  {% if form.name.errors %}<div class="text-danger small">{{ form.name.errors }}</div>{% endif %}
+</div>
+<div class="mb-3">
+  <label class="form-label" for="{{ form.description.id_for_label }}">Описание</label>
+  {{ form.description }}
+</div>
+
+<div class="card mb-3">
+  <div class="card-header py-2"><strong>1. Чтение файла</strong></div>
+  <div class="card-body">
+    <label class="form-label small">Функция чтения</label>
+    <select id="reader-func" class="form-select form-select-sm mb-2">
+      <option value="">— выберите —</option>
+    </select>
+    <div id="reader-args"></div>
+  </div>
+</div>
+
+<div class="card mb-3">
+  <div class="card-header py-2 d-flex justify-content-between align-items-center">
+    <strong>2. Трансформации</strong>
+    <div class="d-flex gap-1">
+      <select id="add-step-func" class="form-select form-select-sm">
+        <option value="">— добавить шаг —</option>
+      </select>
+      <button id="add-step-btn" type="button" class="btn btn-sm btn-outline-primary">
+        <i class="bi bi-plus-lg"></i>
+      </button>
+    </div>
+  </div>
+  <div class="card-body">
+    <div id="steps-list"></div>
+  </div>
+</div>
+
+{{ form.instructions_json }}
+{% if form.non_field_errors %}
+  <div class="alert alert-danger">{{ form.non_field_errors }}</div>
+{% endif %}

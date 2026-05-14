@@ -62,6 +62,7 @@ INSTALLED_APPS = [
     'main_product_manager',
     'supplier_manager',
     'blogapp',
+    'dataframe',
 ]
 
 MIDDLEWARE = [
@@ -192,15 +193,15 @@ CSRF_TRUSTED_ORIGINS = [
     if origin.strip()
 ]
 
-SECURE_SSL_REDIRECT = True
-SECURE_HSTS_SECONDS = 31536000  # 1 year
-SECURE_HSTS_INCLUDE_SUBDOMAINS = True
-SECURE_HSTS_PRELOAD = True
+SECURE_SSL_REDIRECT = not DEBUG
+SECURE_HSTS_SECONDS = 0 if DEBUG else 31536000  # 1 year in prod
+SECURE_HSTS_INCLUDE_SUBDOMAINS = not DEBUG
+SECURE_HSTS_PRELOAD = not DEBUG
 # If behind a proxy (Railway), trust forwarded protocol/host headers.
 # Railway/edge proxy must send: X-Forwarded-Proto: https
 USE_X_FORWARDED_HOST = True
-CSRF_COOKIE_SECURE = True
-SESSION_COOKIE_SECURE = True
+CSRF_COOKIE_SECURE = not DEBUG
+SESSION_COOKIE_SECURE = not DEBUG
 SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')      
 
 # Internationalization
