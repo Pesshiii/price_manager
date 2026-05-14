@@ -34,12 +34,12 @@ def get_sheet_names(pk):
         filemodel.file.close()
 
 
-def get_column_names(file_pk, sheet_name=None):
+def get_column_names(file_pk, sheet_name=None, index_row=None):
     """Return list of (col, col) tuples for column headers.
 
     Reads only the header row (nrows=0) for speed, caches the result.
     """
-    cache_key = f'df_columns_{file_pk}_{sheet_name}'
+    cache_key = f'df_columns_{file_pk}_{sheet_name}_{index_row}'
     cached = cache.get(cache_key)
     if cached is not None:
         return cached
@@ -51,12 +51,13 @@ def get_column_names(file_pk, sheet_name=None):
     filename = filemodel.file.name.lower()
     try:
         if filename.endswith('.csv'):
-            df = pd.read_csv(filemodel.file, nrows=0)
+            df = pd.read_csv(filemodel.file, nrows=0, skiprows=index_row)
         else:
             df = pd.read_excel(
                 filemodel.file,
                 sheet_name=sheet_name or 0,
                 nrows=0,
+                skiprows=index_row,
                 engine='calamine',
             )
         result = [('', '---------')] + [(col, col) for col in df.columns]
@@ -113,12 +114,13 @@ def read_raw_dataframe(dataframe_instance, max_rows=200):
     filename = filemodel.file.name.lower()
     try:
         if filename.endswith('.csv'):
-            df = pd.read_csv(filemodel.file, nrows=max_rows)
+            df = pd.read_csv(filemodel.file, nrows=max_rows, skiprows=dataframe_instance.index_row)
         else:
             df = pd.read_excel(
                 filemodel.file,
                 sheet_name=dataframe_instance.sheet_name or 0,
                 nrows=max_rows,
+                skiprows=dataframe_instance.index_row,
                 engine='calamine',
             )
         return df
@@ -143,11 +145,12 @@ def apply_link_rules(dataframe_instance, max_rows=200):
     filename = filemodel.file.name.lower()
     try:
         if filename.endswith('.csv'):
-            df = pd.read_csv(filemodel.file)
+            df = pd.read_csv(filemodel.file, skiprows=dataframe_instance.index_row)
         else:
             df = pd.read_excel(
                 filemodel.file,
                 sheet_name=dataframe_instance.sheet_name or 0,
+                skiprows=dataframe_instance.index_row,
                 engine='calamine',
             )
     except Exception:

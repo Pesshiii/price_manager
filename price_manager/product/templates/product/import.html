@@ -1,0 +1,122 @@
+{% extends 'base.html' %}
+{% load crispy_forms_tags %}
+
+{% block title %}Импорт товаров: {{ object.name }}{% endblock %}
+
+{% block script %}{{ formset.media }}{% endblock %}
+
+{% block body %}
+<div class="container" id="DataFrameForm">
+{%partialdef partial inline%}
+  <div class="d-flex align-items-center gap-3 mb-3">
+    <a href="{% url 'product:product-import-select' %}" class="btn btn-outline-secondary btn-sm">
+      <i class="bi bi-arrow-left"></i> Выбрать другой датафрейм
+    </a>
+    <h2 class="mb-0">Импорт товаров: {{ object.name }}</h2>
+  </div>
+
+  {% crispy form %}
+
+  {% if object.file %}
+  <div class="row mt-3">
+    <ul class="nav nav-tabs mb-0" id="dataframeTabs" role="tablist">
+      <li class="nav-item" role="presentation">
+        <button class="nav-link active" id="source-tab" data-bs-toggle="tab"
+                data-bs-target="#source-pane" type="button" role="tab"
+                aria-controls="source-pane" aria-selected="true">
+          <i class="bi bi-table me-1"></i>Содержимое файла
+        </button>
+      </li>
+      <li class="nav-item" role="presentation">
+        <button class="nav-link" id="result-tab" data-bs-toggle="tab"
+                data-bs-target="#result-pane" type="button" role="tab"
+                aria-controls="result-pane" aria-selected="false"
+                hx-get="{% url 'dataframe:preview-result' pk=object.pk %}"
+                hx-target="#result-content"
+                hx-swap="innerHTML"
+                hx-trigger="click"
+                hx-indicator="#result-loading">
+          <i class="bi bi-magic me-1"></i>Результат привязок
+        </button>
+      </li>
+    </ul>
+    <div class="tab-content border border-top-0 rounded-bottom p-0">
+      <div class="tab-pane fade show active overflow-auto" id="source-pane"
+           role="tabpanel" aria-labelledby="source-tab" tabindex="0">
+        <div id="source-content"
+             hx-get="{% url 'dataframe:preview-file' pk=object.pk %}"
+             hx-trigger="load"
+             hx-swap="innerHTML">
+          <div class="text-center p-3">
+            <div class="spinner-border spinner-border-sm text-secondary" role="status"></div>
+          </div>
+        </div>
+      </div>
+      <div class="tab-pane fade" id="result-pane"
+           role="tabpanel" aria-labelledby="result-tab" tabindex="0">
+        <div id="result-loading" class="htmx-indicator alert alert-light mb-0 py-2 rounded-0">
+          <div class="spinner-border spinner-border-sm text-secondary me-2" role="status"></div>
+          Применение правил...
+        </div>
+        <div id="result-content">
+          <p class="text-muted p-3 mb-0">Откройте вкладку для расчёта результата.</p>
+        </div>
+      </div>
+    </div>
+  </div>
+  {% endif %}
+
+  {% if request.GET.saved == '1' %}
+  <script>
+    window.addEventListener('load', function () {
+      history.replaceState(null, '', location.pathname);
+      var tab = document.getElementById('result-tab');
+      if (!tab) return;
+      bootstrap.Tab.getOrCreateInstance(tab).show();
+      htmx.trigger(tab, 'click');
+    });
+  </script>
+  {% endif %}
+
+  <div class="card mt-4">
+    <div class="card-header">
+      <h5 class="mb-0"><i class="bi bi-box-arrow-in-down me-2"></i>Импорт товаров</h5>
+    </div>
+    <div class="card-body">
+      <form method="post" action="{% url 'product:product-import-execute' pk=object.pk %}">
+        {% csrf_token %}
+        <div class="mb-3">
+          <label for="id_name_field" class="form-label fw-semibold">Поле для имени товара</label>
+          <select name="name_field" id="id_name_field" class="form-select">
+            <option value="">— Выберите поле —</option>
+            {% for ct in content_types %}
+              <option value="{{ ct.name }}">{{ ct.name }}{% if ct.measure %} ({{ ct.measure }}){% endif %}</option>
+            {% endfor %}
+          </select>
+          <div class="form-text">Столбец из результата привязок, используемый как название товара для поиска/создания.</div>
+        </div>
+        <div class="mb-3 form-check">
+          <input type="checkbox" class="form-check-input" id="id_create_new" name="create_new">
+          <label class="form-check-label" for="id_create_new">Добавлять новые товары</label>
+          <div class="form-text">Если включено — товары, не найденные в базе, будут созданы автоматически.</div>
+        </div>
+        <button type="submit" class="btn btn-success">
+          <i class="bi bi-cloud-download me-1"></i>Загрузить
+        </button>
+      </form>
+    </div>
+  </div>
+{%endpartialdef%}
+</div>
+
+<div class="modal fade" id="contenttypeCreateModal" tabindex="-1"
+     aria-labelledby="contenttypeCreateModalLabel" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered">
+    <div class="modal-content" id="contenttypeCreateModalContent">
+      <div class="modal-body text-center py-4">
+        <div class="spinner-border text-secondary" role="status"></div>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}

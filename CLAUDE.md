@@ -80,10 +80,11 @@ All tasks use `execute_locked_task()` (in `core/`) to prevent parallel execution
 
 ## Notes
 
-- Always restart docker container when changes are made and wait untill it restarts.
+- ALWAYS restart docker container when changes are made.
 - UI language is Russian (`LANGUAGE_CODE = 'ru'`). Many `verbose_name` values, messages, and some variable names are in Russian.
 - Price field names (`prime_cost`, `m_price`, etc.) reflect legacy business terminology — see `PRICE_TYPES` and `MP_PRICES` constants in `main_product_manager/` before adding or renaming price fields.
 - PostgreSQL is required (FTS, MPTT indexing). SQLite will not work.
 - Static files are served via WhiteNoise in production. S3 storage is enabled when `AWS_S3_ENDPOINT_URL` + related vars are set.
 - For `Claude_in_chorme` actions use localhost:8000 domain. If login is required use name: claude, password: #3hJDRaf6GRzgx
 - Project uses HTMX version 4
+- When instractions are not clear ask clarifying questions

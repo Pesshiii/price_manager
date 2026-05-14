@@ -19,7 +19,7 @@ class DataFrameForm(forms.ModelForm):
     sheet_name = forms.CharField(required=False)
     class Meta:
         model = Dataframe
-        fields = ('filefield','sheet_name', 'name')
+        fields = ('filefield', 'sheet_name', 'index_row', 'name')
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         if self.instance.pk and self.instance.file:
@@ -66,6 +66,9 @@ class DataFrameForm(forms.ModelForm):
                         Field('sheet_name'),
                     ),
                     Div(
+                        Field('index_row'),
+                    ),
+                    Div(
                         Field('filefield'),
                     ),
                     css_class='col-6',
@@ -96,12 +99,13 @@ class LinkForm(forms.ModelForm):
     def __init__(self, *args, **kwargs):
         self.file_pk = kwargs.pop('file_pk', None)
         self.sheet_name = kwargs.pop('sheet_name', None)
+        self.index_row = kwargs.pop('index_row', None)
         super().__init__(*args, **kwargs)
         if self.instance.pk:
             self.fields['dictitems'].initial = get_json_dicts(self.instance.dicts.all())
         # Populate column choices from the linked file
         if self.file_pk:
-            columns = get_column_names(self.file_pk, self.sheet_name)
+            columns = get_column_names(self.file_pk, self.sheet_name, self.index_row)
             # Keep the existing value in the list even if the file changed
             if self.instance.pk and self.instance.value:
                 if not any(v == self.instance.value for v, _ in columns):
@@ -150,11 +154,13 @@ class LinkBaseFormset(forms.BaseModelFormSet):
     def __init__(self, *args, **kwargs):
         self.file_pk = kwargs.pop('file_pk', None)
         self.sheet_name = kwargs.pop('sheet_name', None)
+        self.index_row = kwargs.pop('index_row', None)
         super().__init__(*args, **kwargs)
 
     def _construct_form(self, i, **kwargs):
         kwargs['file_pk'] = self.file_pk
         kwargs['sheet_name'] = self.sheet_name
+        kwargs['index_row'] = self.index_row
         return super()._construct_form(i, **kwargs)
 
     def add_fields(self, form, index):

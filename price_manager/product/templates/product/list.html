@@ -1,0 +1,31 @@
+{% extends 'base.html' %}
+{% load crispy_forms_tags %}
+
+{% block title %}Товары{% endblock %}
+
+{% block body %}
+<div class="container-fluid mt-3">
+  <div class="row">
+
+    <div class="col-3">
+      <div class="card sticky-top" style="top: 88px;">
+        <div class="card-body">
+          {% include 'product/partials/filter.html' %}
+        </div>
+      </div>
+    </div>
+
+    <div class="col-9">
+      <div class="d-flex justify-content-end mb-2">
+        <a href="{% url 'product:product-import-select' %}" class="btn btn-outline-primary btn-sm">
+          <i class="bi bi-box-arrow-in-down me-1"></i>Импорт
+        </a>
+      </div>
+      <div id="product-cards">
+        {% include 'product/partials/cards.html' %}
+      </div>
+    </div>
+
+  </div>
+</div>
+{% endblock %}

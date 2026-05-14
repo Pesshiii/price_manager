@@ -36,6 +36,12 @@ class Dataframe(TimeStampedModel, SlugModel):
     sheet_name = models.CharField(
         verbose_name='Название листа',
         null=True,
-        )
+    )
+    index_row = models.IntegerField(
+        verbose_name='Начальная строка',
+        null=True,
+        blank=True,
+        default=None,
+    )
     def __str__(self):
         return self.name

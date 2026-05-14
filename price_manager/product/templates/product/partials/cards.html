@@ -1,0 +1,66 @@
+{% if object_list %}
+  <div class="row row-cols-1 row-cols-md-3 g-4">
+    {% for product in object_list %}
+    <div class="col">
+      <div class="card h-100 shadow-sm">
+        <div class="bg-secondary d-flex align-items-center justify-content-center" style="height: 200px;">
+          <i class="bi bi-image text-white" style="font-size: 3rem;"></i>
+        </div>
+        <div class="card-body d-flex flex-column">
+          <h6 class="card-title mb-1">
+            <a href="{% url 'product:product-detail' slug=product.slug %}" class="text-decoration-none stretched-link">
+              {{ product.name|default:product.slug }}
+            </a>
+          </h6>
+          {% if product.category %}
+            <span class="badge bg-secondary mb-2 align-self-start">{{ product.category.name }}</span>
+          {% endif %}
+          {% with active_prices=product.prices.all %}
+            {% for price in active_prices %}
+              {% if not price.mute %}
+                <small class="text-muted">{{ price.ptype.name }}: <strong>{{ price.value }}</strong></small>
+              {% endif %}
+            {% endfor %}
+          {% endwith %}
+          {% with active_stocks=product.stocks.all %}
+            {% for stock in active_stocks %}
+              {% if not stock.mute %}
+                <small class="text-muted">{{ stock.stype.name }}: <strong>{{ stock.value }}</strong> шт.</small>
+              {% endif %}
+            {% endfor %}
+          {% endwith %}
+        </div>
+        <div class="card-footer text-muted small">
+          <small>{{ product.modified|date:"d.m.Y" }}</small>
+        </div>
+      </div>
+    </div>
+    {% endfor %}
+  </div>
+
+  {% if is_paginated %}
+    <nav class="mt-4">
+      <ul class="pagination justify-content-center">
+        {% if page_obj.has_previous %}
+          <li class="page-item">
+            <a class="page-link" href="?{% if request.GET.urlencode %}{{ request.GET.urlencode }}&{% endif %}page={{ page_obj.previous_page_number }}">Назад</a>
+          </li>
+        {% endif %}
+        <li class="page-item disabled">
+          <span class="page-link">{{ page_obj.number }} / {{ page_obj.paginator.num_pages }}</span>
+        </li>
+        {% if page_obj.has_next %}
+          <li class="page-item">
+            <a class="page-link" href="?{% if request.GET.urlencode %}{{ request.GET.urlencode }}&{% endif %}page={{ page_obj.next_page_number }}">Вперед</a>
+          </li>
+        {% endif %}
+      </ul>
+    </nav>
+  {% endif %}
+
+{% else %}
+  <div class="text-center text-muted py-5">
+    <i class="bi bi-inbox" style="font-size: 3rem;"></i>
+    <p class="mt-2">Товары не найдены</p>
+  </div>
+{% endif %}

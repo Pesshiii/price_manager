@@ -18,6 +18,9 @@ class ContentType(SlugModel):
         ]
     )
 
+    def __str__(self):
+        return f'{self.name} ({self.measure})'
+
 
 class Link(models.Model):
     class Meta:

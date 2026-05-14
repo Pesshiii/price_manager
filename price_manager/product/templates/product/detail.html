@@ -1,0 +1,114 @@
+{% extends 'base.html' %}
+
+{% block title %}{{ object.name|default:object.slug }}{% endblock %}
+
+{% block body %}
+<div class="container mt-4">
+
+  <a href="{% url 'product:product-list' %}" class="btn btn-outline-secondary btn-sm mb-3">
+    <i class="bi bi-arrow-left"></i> Назад к товарам
+  </a>
+
+  <div class="row">
+    <div class="col-md-4 mb-4">
+      <div class="bg-secondary d-flex align-items-center justify-content-center rounded" style="height: 300px;">
+        <i class="bi bi-image text-white" style="font-size: 5rem;"></i>
+      </div>
+    </div>
+
+    <div class="col-md-8">
+      <h1 class="h3">{{ object.name|default:"—" }}</h1>
+      <p class="text-muted small mb-2">Артикул: <code>{{ object.slug }}</code></p>
+
+      {% if object.category %}
+        <p class="mb-2">
+          <span class="badge bg-secondary">{{ object.category.name }}</span>
+        </p>
+      {% endif %}
+
+      {% if object.description %}
+        <div class="mt-3">
+          <h5>Описание</h5>
+          <div>{{ object.description|safe }}</div>
+        </div>
+      {% endif %}
+    </div>
+  </div>
+
+  <div class="row mt-4">
+
+    {% with prices=object.prices.all %}
+      {% if prices %}
+        <div class="col-md-6 mb-4">
+          <div class="card">
+            <div class="card-header"><strong>Цены</strong></div>
+            <div class="card-body p-0">
+              <table class="table table-sm mb-0">
+                <thead class="table-light">
+                  <tr>
+                    <th>Тип цены</th>
+                    <th>Значение</th>
+                    <th>Статус</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {% for price in prices %}
+                    <tr {% if price.mute %}class="text-muted"{% endif %}>
+                      <td>{{ price.ptype.name }}</td>
+                      <td>{{ price.value|default:"—" }}</td>
+                      <td>{% if price.mute %}<span class="badge bg-warning text-dark">устар.</span>{% else %}<span class="badge bg-success">актив.</span>{% endif %}</td>
+                    </tr>
+                  {% endfor %}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      {% endif %}
+    {% endwith %}
+
+    {% with stocks=object.stocks.all %}
+      {% if stocks %}
+        <div class="col-md-6 mb-4">
+          <div class="card">
+            <div class="card-header"><strong>Остатки</strong></div>
+            <div class="card-body p-0">
+              <table class="table table-sm mb-0">
+                <thead class="table-light">
+                  <tr>
+                    <th>Тип остатка</th>
+                    <th>Количество</th>
+                    <th>Статус</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {% for stock in stocks %}
+                    <tr {% if stock.mute %}class="text-muted"{% endif %}>
+                      <td>{{ stock.stype.name }}</td>
+                      <td>{{ stock.value|default:"—" }}</td>
+                      <td>{% if stock.mute %}<span class="badge bg-warning text-dark">устар.</span>{% else %}<span class="badge bg-success">актив.</span>{% endif %}</td>
+                    </tr>
+                  {% endfor %}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      {% endif %}
+    {% endwith %}
+
+  </div>
+
+  {% if object.content %}
+    <div class="card mb-4">
+      <div class="card-header"><strong>Контент</strong></div>
+      <div class="card-body">
+        <pre class="mb-0" style="white-space: pre-wrap;">{{ object.content.content }}</pre>
+      </div>
+    </div>
+  {% endif %}
+
+  <p class="text-muted small">Создан: {{ object.created|date:"d.m.Y H:i" }} · Изменён: {{ object.modified|date:"d.m.Y H:i" }}</p>
+
+</div>
+{% endblock %}

@@ -1,3 +1,5 @@
+import uuid
+
 from django.db import models
 from django.utils.text import slugify
 
@@ -19,7 +21,8 @@ class SlugModel(models.Model):
        )
     slug = models.SlugField(
        unique=True,
-       blank=True
+       blank=True,
+       allow_unicode=True,
     )
     
     class Meta:
@@ -27,5 +30,5 @@ class SlugModel(models.Model):
     
     def save(self, *args, **kwargs):
         if not self.slug:
-            self.slug = slugify(self.name)   
+            self.slug = slugify(self.name, allow_unicode=True) or str(uuid.uuid4())[:8]
         super().save(*args, **kwargs)
