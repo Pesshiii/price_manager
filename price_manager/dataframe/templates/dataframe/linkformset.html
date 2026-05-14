@@ -61,6 +61,9 @@
   </div>
 
   <style>
+    /* Hide the underlying <select> after Select2 initialises on it */
+    select.select2-hidden-accessible { display: none !important; }
+
     .link-form-row {
       transition: opacity 0.3s ease, max-height 0.4s ease;
       overflow: hidden;

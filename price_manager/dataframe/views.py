@@ -69,6 +69,7 @@ class DataframeUpdate(HtmxMixin, UpdateView):
         return {
             'file_pk': obj.file_id,
             'sheet_name': obj.sheet_name or None,
+            'index_row': obj.index_row,
         }
 
     def _safe_file(self, instance):
@@ -91,13 +92,18 @@ class DataframeUpdate(HtmxMixin, UpdateView):
     def form_valid(self, form):
         qs = self._link_queryset()
 
-        # Validate linkforms first (using the *current* file state) so that
-        # we don't make destructive changes (e.g. file replacement) if the
-        # link data is invalid.
-        linkforms = LinkFormset(self.request.POST, queryset=qs, **self._file_kwargs())
-        if not linkforms.is_valid():
-            return self.form_invalid(form)
+        # Delete links marked for deletion before validation to avoid unique
+        # constraint violations when the same contenttype is re-added in the
+        # same save operation.
+        total = int(self.request.POST.get('form-TOTAL_FORMS', 0))
+        for i in range(total):
+            pk_str = self.request.POST.get(f'form-{i}-id', '')
+            if pk_str and self.request.POST.get(f'form-{i}-DELETE'):
+                Link.objects.filter(pk=pk_str, dataframe=self.object).delete()
 
+        linkforms = LinkFormset(self.request.POST, queryset=qs, **self._file_kwargs())
+
+        # Always save the dataframe form regardless of link formset validity.
         instance = form.save(commit=False)
 
         new_file = form.cleaned_data.get('filefield')
@@ -115,14 +121,13 @@ class DataframeUpdate(HtmxMixin, UpdateView):
         instance.save()
         self.object = instance
 
-        # Save link forms (forms were already constructed during is_valid()
-        # using the pre-replacement file_pk, but we only access cleaned_data
-        # here — no further file reads needed).
+        linkforms.is_valid()
+
         for link_form in linkforms:
-            if link_form.cleaned_data.get('DELETE'):
-                if link_form.instance.pk:
-                    link_form.instance.delete()
+            if not link_form.is_valid():
                 continue
+            if link_form.cleaned_data.get('DELETE'):
+                continue  # already deleted above
             if not link_form.cleaned_data.get('contenttype'):
                 continue
             if not link_form.has_changed() and not link_form.instance.pk:
@@ -138,8 +143,6 @@ class DataframeUpdate(HtmxMixin, UpdateView):
             ])
 
         messages.success(self.request, 'Данные сохранены')
-        if self.request.htmx:
-            return HttpResponseClientRedirect(self.get_success_url())
         return HttpResponseRedirect(self.get_success_url())
 
     def get_success_url(self):
