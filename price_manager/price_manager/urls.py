@@ -14,6 +14,7 @@ from product_price_manager import views as ppm_views
 
 urlpatterns = [
     path('admin/', admin.site.urls),
+    path('api/', include('api_urls')),
     path('accounts/login/', views.AppLoginView.as_view(), name='login'),
     path('accounts/logout/', views.AppLogoutView.as_view(), name='logout'),
 
@@ -77,7 +78,6 @@ urlpatterns = [
 
 
     path('blog/', include('blogapp.urls')),
-    path('dataframe/', include('dataframe.urls')),
 
     path("toasts/", views.toast_messages, name="toast-messages"),
     path('notifications/<int:pk>/delete/', views.PersistentNotificationDeleteView.as_view(), name='persistent-notification-delete'),

@@ -11,6 +11,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - **Framework**: Django 5.2, PostgreSQL 17
 - **Task Queue**: Celery 5.6 with Redis 7 as broker/backend
 - **Frontend**: Bootstrap 4, HTMX, django-crispy-forms (crispy-bootstrap4)
+- **REST API**: Django REST Framework 3.16, django-cors-headers (session-auth JSON API for SPA frontend at `../price-manager-frontend/`)
 - **Data Processing**: Pandas, openpyxl, python-calamine
 - **Search**: PostgreSQL full-text search with GIN indexes on SearchVector
 - **Storage**: Optional AWS S3-compatible storage (configured via env vars)
@@ -72,8 +73,16 @@ All tasks use `execute_locked_task()` (in `core/task_runner.py`) with Redis dist
 - `update_logs_task()` — writes price history to MainProductLog
 - `rebuild_categories_task()` — rebuilds MPPT category tree
 
+### REST API Layer
+A JSON API is mounted at `/api/` (router: `price_manager/api_urls.py`) for a decoupled SPA frontend.
+- `api_auth` app — session-based auth endpoints: `GET /api/auth/csrf/`, `POST /api/auth/login/`, `POST /api/auth/logout/`, `GET /api/auth/me/`
+- `dataframe/api/` — registry (`GET /api/dataframe/registry/`), pipeline CRUD (`/api/dataframe/pipelines/`), upload sessions (`/api/dataframe/sessions/`), preview (`POST /api/dataframe/preview/`)
+- `product/api/` — Product library: `/api/products/products/`, `/api/products/categories/`, `/api/products/brands/`, `/api/products/characteristic-types/`, faceted filter via `?char__<name>=`, dataframe-driven import at `/api/products/import/{preview,commit}/`
+
+CORS is enabled via `corsheaders` middleware for the SPA origin.
+
 ### Authentication
-`LoginRequiredMiddleware` (in `core/middleware.py`) enforces login for all views except URLs listed in `settings.LOGIN_EXEMPT_URLS`.
+`LoginRequiredMiddleware` (in `core/middleware.py`) enforces login for all views except URLs in `settings.LOGIN_EXEMPT_URLS`. For paths matching `settings.LOGIN_EXEMPT_API_PREFIXES`, unauthenticated requests get a JSON 401 instead of a redirect. API auth is session-based — SPAs must fetch CSRF via `/api/auth/csrf/` before POSTing.
 
 ## Apps
 
@@ -86,7 +95,9 @@ All tasks use `execute_locked_task()` (in `core/task_runner.py`) with Redis dist
 | `product_price_manager` | PriceManager rules, MainProductPrice, price Celery tasks |
 | `file_manager` | Generic file upload model |
 | `blogapp` | Internal article/documentation system |
-| `dataframe` | Excel/CSV parsing utilities |
+| `dataframe` | API-driven pipeline composer: pluggable readers + transforms (`registry.py`), JSON pipeline definitions stored on `Dataframe.instructions`, temp upload sessions (`sessions.py`), preview endpoint. No HTML views — consumed by SPA. |
+| `api_auth` | Session-auth JSON endpoints (csrf, login, logout, me) for the SPA frontend. |
+| `product` | Новый каталог товаров (заменит `main_product_manager`): Product + JSONB `characteristics`, CharacteristicType (M2M к Category, `value_type`/`required`), Category (MPTT) и Brand. REST API с фасетной фильтрацией и импортом через `dataframe`. |
 
 ## Key Environment Variables
 
@@ -104,3 +115,4 @@ AWS_S3_ENDPOINT_URL, AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, AWS_STORAGE_BUCKE
 - Views are class-based (ListView, CreateView, etc.) with `LoginRequiredMixin`
 - Templates use django-template-partials for components, HTMX for interactivity
 - Task execution history is logged in `TaskRunHistory` model — check it when debugging Celery issues
+- API endpoints under `/api/` use DRF and session auth; the SPA lives at `../price-manager-frontend/` (separate repo working dir)

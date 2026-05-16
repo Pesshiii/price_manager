@@ -7,7 +7,9 @@ from typing import Any, Callable
 @dataclass(frozen=True)
 class ArgSpec:
     name: str
-    type: str  # 'str' | 'int' | 'float' | 'bool' | 'list[str]' | 'dict[str,str]'
+    # 'str' | 'int' | 'float' | 'bool' | 'list[str]' | 'dict[str,str]'
+    # | 'column' | 'columns' | 'column_mapping' | 'value_mapping'
+    type: str
     label: str = ''
     required: bool = False
     default: Any = None

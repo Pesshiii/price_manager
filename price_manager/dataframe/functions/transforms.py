@@ -29,7 +29,7 @@ def _as_mapping(v) -> dict[str, str]:
 @transform(
     'select_columns',
     label='Оставить колонки',
-    args=(ArgSpec(name='cols', type='list[str]', label='Колонки (через запятую)', required=True),),
+    args=(ArgSpec(name='cols', type='columns', label='Колонки', required=True),),
 )
 def select_columns(df: pd.DataFrame, cols) -> pd.DataFrame:
     cols = _as_list(cols)
@@ -40,8 +40,8 @@ def select_columns(df: pd.DataFrame, cols) -> pd.DataFrame:
 @transform(
     'rename_columns',
     label='Переименовать колонки',
-    args=(ArgSpec(name='mapping', type='dict[str,str]',
-                  label='Соответствия (old=new по строке)', required=True),),
+    args=(ArgSpec(name='mapping', type='column_mapping',
+                  label='Старое имя → новое', required=True),),
 )
 def rename_columns(df: pd.DataFrame, mapping) -> pd.DataFrame:
     return df.rename(columns=_as_mapping(mapping)).copy()
@@ -50,7 +50,7 @@ def rename_columns(df: pd.DataFrame, mapping) -> pd.DataFrame:
 @transform(
     'drop_na',
     label='Удалить пустые строки',
-    args=(ArgSpec(name='subset', type='list[str]', label='По колонкам (пусто = все)'),),
+    args=(ArgSpec(name='subset', type='columns', label='По колонкам (пусто = все)'),),
 )
 def drop_na(df: pd.DataFrame, subset='') -> pd.DataFrame:
     cols = _as_list(subset)
@@ -62,9 +62,9 @@ def drop_na(df: pd.DataFrame, subset='') -> pd.DataFrame:
     'replace_values',
     label='Заменить значения в колонке',
     args=(
-        ArgSpec(name='column', type='str', label='Колонка', required=True),
-        ArgSpec(name='mapping', type='dict[str,str]',
-                label='Замены (old=new по строке)', required=True),
+        ArgSpec(name='column', type='column', label='Колонка', required=True),
+        ArgSpec(name='mapping', type='value_mapping',
+                label='Старое значение → новое', required=True),
     ),
 )
 def replace_values(df: pd.DataFrame, column, mapping) -> pd.DataFrame:
@@ -78,7 +78,7 @@ def replace_values(df: pd.DataFrame, column, mapping) -> pd.DataFrame:
     'to_numeric',
     label='Привести к числу',
     args=(
-        ArgSpec(name='columns', type='list[str]', label='Колонки', required=True),
+        ArgSpec(name='columns', type='columns', label='Колонки', required=True),
         ArgSpec(name='errors', type='str', label='Ошибки', default='coerce',
                 choices=['raise', 'coerce', 'ignore']),
     ),

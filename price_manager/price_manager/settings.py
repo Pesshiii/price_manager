@@ -54,7 +54,10 @@ INSTALLED_APPS = [
     'crispy_forms',
     'mptt',
     'storages',
+    'rest_framework',
+    'corsheaders',
 
+    'api_auth',
     'core',
     'file_manager',
     'supplier_product_manager',
@@ -63,11 +66,13 @@ INSTALLED_APPS = [
     'supplier_manager',
     'blogapp',
     'dataframe',
+    'product',
 ]
 
 MIDDLEWARE = [
     'django.middleware.security.SecurityMiddleware',
     'whitenoise.middleware.WhiteNoiseMiddleware',
+    'corsheaders.middleware.CorsMiddleware',
     'django.contrib.sessions.middleware.SessionMiddleware',
     'django.middleware.common.CommonMiddleware',
     'django.middleware.csrf.CsrfViewMiddleware',
@@ -188,7 +193,7 @@ CSRF_TRUSTED_ORIGINS = [
     origin.strip()
     for origin in os.environ.get(
         "CSRF_TRUSTED_ORIGINS",
-        "https://localhost:8000,http://localhost:8000",
+        "https://localhost:8000,http://localhost:8000,http://localhost:5173,http://localhost:5174",
     ).split(",")
     if origin.strip()
 ]
@@ -297,6 +302,34 @@ LOGIN_EXEMPT_URLS = (
     'admin:password_reset_confirm',
     'admin:password_reset_complete',
 )
+
+# /api/ paths that anonymous users may hit (CSRF bootstrap + login)
+LOGIN_EXEMPT_API_PREFIXES = (
+    '/api/auth/csrf/',
+    '/api/auth/login/',
+)
+
+REST_FRAMEWORK = {
+    'DEFAULT_AUTHENTICATION_CLASSES': [
+        'rest_framework.authentication.SessionAuthentication',
+    ],
+    'DEFAULT_PERMISSION_CLASSES': [
+        'rest_framework.permissions.IsAuthenticated',
+    ],
+    'DEFAULT_RENDERER_CLASSES': [
+        'rest_framework.renderers.JSONRenderer',
+    ],
+}
+
+CORS_ALLOWED_ORIGINS = [
+    origin.strip()
+    for origin in os.environ.get(
+        'CORS_ALLOWED_ORIGINS',
+        'http://localhost:5173,http://localhost:5174',
+    ).split(',')
+    if origin.strip()
+]
+CORS_ALLOW_CREDENTIALS = True
 
 LOGGING = {
     "version": 1,

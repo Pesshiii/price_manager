@@ -2,7 +2,6 @@ from __future__ import annotations
 
 from django.core.exceptions import ValidationError
 from django.db import models
-from django.urls import reverse
 
 from .registry import READERS, TRANSFORMS
 
@@ -25,9 +24,6 @@ class Dataframe(models.Model):
 
     def __str__(self):
         return self.name
-
-    def get_absolute_url(self):
-        return reverse('dataframe:edit', kwargs={'pk': self.pk})
 
     @property
     def reader_name(self) -> str:
