@@ -41,10 +41,12 @@ docker compose up --build
 
 ### Tests
 ```bash
-python manage.py test                          # all tests
-python manage.py test core                     # single app
-python manage.py test core.tests.MyTestClass  # single class
+python manage.py test                              # all tests
+python manage.py test core                         # single app
+python manage.py test core.tests.MyTestClass       # single class
+python manage.py test product.tests.test_import    # single module (new layout)
 ```
+Test layout is mixed: most apps use a single `tests.py`; the `product` app uses a `tests/` package (`test_api_crud.py`, `test_api_filters.py`, `test_import.py`, `test_models.py`).
 
 ### Migrations
 ```bash
@@ -59,6 +61,9 @@ Three-level structure:
 1. **SupplierProduct** — raw products from uploaded supplier files (XLS/XLSX/CSV)
 2. **MainProduct** — unified master catalog merging SupplierProducts across suppliers
 3. **PriceManager** + **MainProductPrice** — price rules applied to MainProducts
+
+### Product app (in progress)
+The `product` app (active on the `Spreadsheetimport` branch) is the eventual replacement for `main_product_manager`. New model: `Product` with JSONB `characteristics`, MPTT `Category`, `Brand`, and `CharacteristicType` (M2M to Category, with `value_type`/`required`). Imports go through `product/importer.py`, which consumes pipelines defined in the `dataframe` app.
 
 ### Price Calculation
 `PriceManager` rules define: source price field → filters (date range, discount group, category) → `dest_price = source_price * (1 + markup/100) + increase`. Results are pre-calculated into `MainProductPrice` records by Celery tasks.
@@ -97,7 +102,7 @@ CORS is enabled via `corsheaders` middleware for the SPA origin.
 | `blogapp` | Internal article/documentation system |
 | `dataframe` | API-driven pipeline composer: pluggable readers + transforms (`registry.py`), JSON pipeline definitions stored on `Dataframe.instructions`, temp upload sessions (`sessions.py`), preview endpoint. No HTML views — consumed by SPA. |
 | `api_auth` | Session-auth JSON endpoints (csrf, login, logout, me) for the SPA frontend. |
-| `product` | Новый каталог товаров (заменит `main_product_manager`): Product + JSONB `characteristics`, CharacteristicType (M2M к Category, `value_type`/`required`), Category (MPTT) и Brand. REST API с фасетной фильтрацией и импортом через `dataframe`. |
+| `product` | Новый каталог товаров (заменит `main_product_manager`): Product + JSONB `characteristics`, CharacteristicType (M2M к Category, `value_type`/`required`), Category (MPTT) и Brand. REST API с фасетной фильтрацией и импортом через `dataframe`. Import pipeline lives in `product/importer.py`; tests in `product/tests/`. |
 
 ## Key Environment Variables
 
@@ -116,3 +121,4 @@ AWS_S3_ENDPOINT_URL, AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, AWS_STORAGE_BUCKE
 - Templates use django-template-partials for components, HTMX for interactivity
 - Task execution history is logged in `TaskRunHistory` model — check it when debugging Celery issues
 - API endpoints under `/api/` use DRF and session auth; the SPA lives at `../price-manager-frontend/` (separate repo working dir)
+- Multi-stage Dockerfile on Python 3.13-slim; production image runs Gunicorn + WhiteNoise
