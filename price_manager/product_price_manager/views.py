@@ -107,7 +107,7 @@ class PriceManagerCreate(CreateView):
     context['supplier'] = supplier
     form.fields['discounts'].queryset = supplier.discounts.all()
     form.fields['categories'].queryset = Category.objects.filter(pk__in=MainProduct.objects.select_related('supplierproducts', 'category').filter(supplierproducts__in=supplier.supplierproducts.all()).values('category'))
-    context['selected_discount_ids'] = extract_selected_discount_ids(form)
+    context['selected_discount_ids'] = []
     return context
   def form_invalid(self, form):
     messages.error(self.request, 'Ошибка')
@@ -163,10 +163,16 @@ class PriceManagerUpdate(SingleTableMixin, UpdateView):
     return super().post(request, *args, **kwargs)
   def get_context_data(self, **kwargs) -> dict[str, Any]:
     context = super().get_context_data(**kwargs)
+    supplier = self.instance.supplier
     form = context['form']
-    form.initial['price_fixed'] = self.instance.source=='fixed_price'
-    form.fields['discounts'].queryset = self.instance.supplier.discounts.all()
-    context['selected_discount_ids'] = form['discounts'].value() or []
+    form.initial['price_fixed'] = self.instance.source == 'fixed_price'
+    form.fields['discounts'].queryset = supplier.discounts.all()
+    form.fields['categories'].queryset = Category.objects.filter(
+      pk__in=MainProduct.objects.select_related('supplierproducts', 'category')
+        .filter(supplierproducts__in=supplier.supplierproducts.all())
+        .values('category')
+    )
+    context['selected_discount_ids'] = list(self.instance.discounts.values_list('pk', flat=True))
     return context
   def form_valid(self, form):
     cd = form.cleaned_data
