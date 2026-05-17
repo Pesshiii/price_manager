@@ -74,3 +74,6 @@ celerybeat.pid
 
 # Virtual environment
 venv/
+
+# Claude
+.claude/
