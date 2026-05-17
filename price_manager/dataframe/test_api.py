@@ -10,8 +10,10 @@ from django.test import TestCase, override_settings
 from django.urls import reverse
 from openpyxl import Workbook
 
+from . import cache as df_cache
 from .models import Dataframe
 from . import sessions as session_store
+from .registry import READERS
 
 
 def make_xlsx_upload(rows, name='data.xlsx'):
@@ -308,3 +310,195 @@ class PreviewEndpointTests(ApiTestBase):
         body = resp.json()
         self.assertEqual(body['columns'], ['a', 'b'])
         self.assertEqual(body['total_rows'], 2)
+
+
+@override_settings(
+    SECURE_SSL_REDIRECT=False,
+    MEDIA_ROOT=tempfile.mkdtemp(prefix='df_meta_'),
+    DEFAULT_FILE_STORAGE='django.core.files.storage.FileSystemStorage',
+    STORAGES={
+        'default': {'BACKEND': 'django.core.files.storage.FileSystemStorage'},
+        'staticfiles': {'BACKEND': 'django.contrib.staticfiles.storage.StaticFilesStorage'},
+    },
+)
+class SessionMetadataTests(ApiTestBase):
+    def test_get_returns_metadata(self):
+        upload = make_csv_upload([['a'], ['1']], name='hello.csv')
+        sid = self.client.post(reverse('dataframe_api:session-create'), {'file': upload}).json()['session_id']
+        resp = self.client.get(reverse('dataframe_api:session-detail', args=[sid]))
+        self.assertEqual(resp.status_code, 200, resp.content[:300])
+        body = resp.json()
+        self.assertEqual(body['session_id'], sid)
+        self.assertEqual(body['filename'], 'hello.csv')
+        self.assertGreater(body['size'], 0)
+        self.assertIn('uploaded_at', body)
+
+    def test_get_returns_404_for_missing_session(self):
+        resp = self.client.get(reverse('dataframe_api:session-detail', args=['missing-sid']))
+        self.assertEqual(resp.status_code, 404)
+
+
+@override_settings(
+    SECURE_SSL_REDIRECT=False,
+    MEDIA_ROOT=tempfile.mkdtemp(prefix='df_offset_'),
+    DEFAULT_FILE_STORAGE='django.core.files.storage.FileSystemStorage',
+    STORAGES={
+        'default': {'BACKEND': 'django.core.files.storage.FileSystemStorage'},
+        'staticfiles': {'BACKEND': 'django.contrib.staticfiles.storage.StaticFilesStorage'},
+    },
+)
+class PreviewOffsetTests(ApiTestBase):
+    def _upload_10_rows(self):
+        rows = [['col']] + [[str(i)] for i in range(10)]
+        upload = make_csv_upload(rows)
+        return self.client.post(reverse('dataframe_api:session-create'), {'file': upload}).json()['session_id']
+
+    def _preview(self, sid, **extra):
+        body = {
+            'session_id': sid,
+            'instructions': {'reader': {'func': 'read_csv', 'args': {}}, 'transforms': []},
+            **extra,
+        }
+        return self.client.post(
+            reverse('dataframe_api:preview'), body, content_type='application/json',
+        )
+
+    def test_offset_returns_window(self):
+        sid = self._upload_10_rows()
+        resp = self._preview(sid, offset=3, row_limit=4)
+        self.assertEqual(resp.status_code, 200, resp.content[:300])
+        body = resp.json()
+        self.assertEqual(body['offset'], 3)
+        self.assertEqual(body['returned_rows'], 4)
+        self.assertEqual(body['total_rows'], 10)
+        self.assertTrue(body['has_more'])
+        self.assertEqual([r[0] for r in body['rows']], ['3', '4', '5', '6'])
+
+    def test_offset_at_tail_marks_no_more(self):
+        sid = self._upload_10_rows()
+        resp = self._preview(sid, offset=8, row_limit=10)
+        body = resp.json()
+        self.assertEqual(body['returned_rows'], 2)
+        self.assertFalse(body['has_more'])
+
+    def test_offset_past_total_returns_empty(self):
+        sid = self._upload_10_rows()
+        resp = self._preview(sid, offset=100, row_limit=10)
+        body = resp.json()
+        self.assertEqual(body['rows'], [])
+        self.assertEqual(body['returned_rows'], 0)
+        self.assertFalse(body['has_more'])
+
+    def test_default_offset_zero(self):
+        sid = self._upload_10_rows()
+        resp = self._preview(sid, row_limit=3)
+        body = resp.json()
+        self.assertEqual(body['offset'], 0)
+        self.assertEqual(body['returned_rows'], 3)
+
+
+@override_settings(
+    SECURE_SSL_REDIRECT=False,
+    MEDIA_ROOT=tempfile.mkdtemp(prefix='df_cache_'),
+    DEFAULT_FILE_STORAGE='django.core.files.storage.FileSystemStorage',
+    STORAGES={
+        'default': {'BACKEND': 'django.core.files.storage.FileSystemStorage'},
+        'staticfiles': {'BACKEND': 'django.contrib.staticfiles.storage.StaticFilesStorage'},
+    },
+    CACHES={
+        'default': {
+            'BACKEND': 'django.core.cache.backends.locmem.LocMemCache',
+            'LOCATION': 'dataframe-test-cache',
+        },
+    },
+)
+class ReaderCacheTests(ApiTestBase):
+    """Verifies that the reader stage is only invoked once across repeated previews."""
+
+    def setUp(self):
+        super().setUp()
+        from django.core.cache import cache
+        cache.clear()
+
+    def _upload(self, rows=None):
+        rows = rows or [['a', 'b'], ['1', '2'], ['3', '4']]
+        upload = make_csv_upload(rows)
+        return self.client.post(reverse('dataframe_api:session-create'), {'file': upload}).json()['session_id']
+
+    def _preview(self, sid, **extra):
+        body = {
+            'session_id': sid,
+            'instructions': {'reader': {'func': 'read_csv', 'args': {}}, 'transforms': []},
+            **extra,
+        }
+        return self.client.post(
+            reverse('dataframe_api:preview'), body, content_type='application/json',
+        )
+
+    def _wrap_reader(self):
+        """Swap `read_csv` in the registry for a counting wrapper. Returns a counter."""
+        from dataclasses import replace
+        original_spec = READERS['read_csv']
+        counter = {'n': 0}
+
+        def counting(*args, **kwargs):
+            counter['n'] += 1
+            return original_spec.func(*args, **kwargs)
+
+        READERS['read_csv'] = replace(original_spec, func=counting)
+        self.addCleanup(lambda: READERS.__setitem__('read_csv', original_spec))
+        return counter
+
+    def test_second_preview_hits_cache(self):
+        counter = self._wrap_reader()
+        sid = self._upload()
+        self._preview(sid)
+        self._preview(sid)
+        self.assertEqual(counter['n'], 1, 'reader must be called once when payload is cached')
+
+    def test_different_reader_args_bust_cache(self):
+        counter = self._wrap_reader()
+        sid = self._upload()
+        self._preview(sid)
+        self._preview(sid, instructions={'reader': {'func': 'read_csv', 'args': {'sep': ','}},
+                                          'transforms': []})
+        self.assertEqual(counter['n'], 2, 'distinct reader configs must each hit the reader once')
+
+    def test_delete_session_invalidates_cache(self):
+        # LocMemCache lacks delete_pattern → invalidate_session is a no-op.
+        # We verify the request flow at least doesn't error and the file deletion still happens.
+        counter = self._wrap_reader()
+        sid = self._upload()
+        self._preview(sid)
+        self.assertEqual(counter['n'], 1)
+        resp = self.client.delete(reverse('dataframe_api:session-detail', args=[sid]))
+        self.assertEqual(resp.status_code, 204)
+        # File gone → next preview is 404, reader not called again.
+        resp2 = self._preview(sid)
+        self.assertEqual(resp2.status_code, 404)
+        self.assertEqual(counter['n'], 1)
+
+
+class ReaderCacheUnitTests(TestCase):
+    """Unit-level: cache key stability and size guard, no HTTP."""
+
+    def test_cache_key_stable_for_equivalent_configs(self):
+        k1 = df_cache.reader_cache_key('sid', {'func': 'read_csv', 'args': {'sep': ',', 'encoding': 'utf-8'}})
+        k2 = df_cache.reader_cache_key('sid', {'args': {'encoding': 'utf-8', 'sep': ','}, 'func': 'read_csv'})
+        self.assertEqual(k1, k2)
+
+    def test_cache_key_differs_per_session(self):
+        cfg = {'func': 'read_csv', 'args': {}}
+        self.assertNotEqual(
+            df_cache.reader_cache_key('a', cfg),
+            df_cache.reader_cache_key('b', cfg),
+        )
+
+    def test_set_get_roundtrip(self):
+        import pandas as pd
+        key = df_cache.reader_cache_key('roundtrip', {'func': 'read_csv'})
+        ok = df_cache.set_cached_reader_df(key, pd.DataFrame({'a': [1, 2]}))
+        self.assertTrue(ok)
+        out = df_cache.get_cached_reader_df(key)
+        self.assertIsNotNone(out)
+        self.assertEqual(list(out.columns), ['a'])

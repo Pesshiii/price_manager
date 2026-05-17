@@ -54,7 +54,7 @@ class ReaderTests(TestCase):
             name='t',
             instructions={'reader': {'func': 'read_excel', 'args': {}}, 'transforms': []},
         )
-        df = apply(df_obj, upload)
+        df = apply(df_obj, upload, session_id=None)
         self.assertEqual(list(df.columns), ['a', 'b'])
         self.assertEqual(df.shape, (2, 2))
 
@@ -64,7 +64,7 @@ class ReaderTests(TestCase):
             name='t',
             instructions={'reader': {'func': 'read_csv', 'args': {}}, 'transforms': []},
         )
-        df = apply(df_obj, upload)
+        df = apply(df_obj, upload, session_id=None)
         self.assertEqual(list(df.columns), ['a', 'b'])
         self.assertEqual(df.shape, (2, 2))
 
@@ -82,7 +82,7 @@ class PipelineTests(TestCase):
             {'func': 'select_columns', 'args': {'cols': 'a,b'}},
             {'func': 'rename_columns', 'args': {'mapping': 'a=alpha\nb=beta'}},
         ])
-        df = apply(df_obj, upload)
+        df = apply(df_obj, upload, session_id=None)
         self.assertEqual(list(df.columns), ['alpha', 'beta'])
         self.assertEqual(df.shape, (2, 2))
 
@@ -92,7 +92,7 @@ class PipelineTests(TestCase):
             {'func': 'select_columns', 'args': {'cols': 'a,b'}},
             {'func': 'rename_columns', 'args': {'mapping': 'a=alpha'}},
         ])
-        df = apply_partial(df_obj, upload, up_to=1)
+        df = apply_partial(df_obj, upload, up_to=1, session_id=None)
         self.assertEqual(list(df.columns), ['a', 'b'])
 
 

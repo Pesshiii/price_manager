@@ -89,7 +89,7 @@ def _run_pipeline(session_id: str, instructions: dict):
         )
     df_obj = Dataframe(name='_import', instructions=dict(instructions))
     try:
-        df = apply_pipeline(df_obj, file_obj)
+        df = apply_pipeline(df_obj, file_obj, session_id=session_id)
     except Exception as exc:  # noqa: BLE001 — surface pipeline errors to the client
         return None, Response(
             {'error': {'message': f'{type(exc).__name__}: {exc}'}},

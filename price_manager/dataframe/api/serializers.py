@@ -85,6 +85,7 @@ class PreviewRequestSerializer(serializers.Serializer):
     up_to = serializers.IntegerField(required=False, allow_null=True, min_value=0)
     session_id = serializers.CharField(required=False, allow_blank=True)
     row_limit = serializers.IntegerField(required=False, default=100, min_value=1, max_value=1000)
+    offset = serializers.IntegerField(required=False, default=0, min_value=0)
 
     def validate(self, attrs):
         if not attrs.get('session_id'):

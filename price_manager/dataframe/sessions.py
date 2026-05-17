@@ -16,6 +16,8 @@ from django.core.files.base import ContentFile
 from django.core.files.storage import default_storage
 from django.utils import timezone
 
+from . import cache as df_cache
+
 PREFIX = 'dataframe_sessions'
 DEFAULT_TTL = timedelta(hours=24)
 
@@ -64,7 +66,35 @@ def session_filename(session_id: str) -> str:
     return files[0]
 
 
+def session_metadata(session_id: str) -> dict:
+    """Return filename, size, uploaded_at for the session, or raise FileNotFoundError."""
+    base = _session_dir(session_id)
+    try:
+        _, files = default_storage.listdir(base)
+    except FileNotFoundError:
+        raise FileNotFoundError(session_id)
+    if not files:
+        raise FileNotFoundError(session_id)
+    name = files[0]
+    path = f'{base}/{name}'
+    try:
+        size = default_storage.size(path)
+    except Exception:
+        size = 0
+    try:
+        uploaded_at = default_storage.get_modified_time(path).isoformat()
+    except (NotImplementedError, Exception):
+        uploaded_at = None
+    return {
+        'session_id': session_id,
+        'filename': name,
+        'size': size,
+        'uploaded_at': uploaded_at,
+    }
+
+
 def delete_session(session_id: str) -> None:
+    df_cache.invalidate_session(session_id)
     base = _session_dir(session_id)
     try:
         _, files = default_storage.listdir(base)
