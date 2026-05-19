@@ -35,7 +35,8 @@ class CategoryCrudTests(ProductApiTestBase):
 
         list_resp = self.client.get(reverse('product_api:category-list'))
         self.assertEqual(list_resp.status_code, 200)
-        self.assertEqual(len(list_resp.json()), 1)
+        self.assertEqual(list_resp.json()['count'], 1)
+        self.assertEqual(len(list_resp.json()['results']), 1)
 
         upd = self.client.patch(
             reverse('product_api:category-detail', args=[pk]),
@@ -78,7 +79,8 @@ class CharacteristicTypeCrudTests(ProductApiTestBase):
             reverse('product_api:characteristic-type-list') + f'?category={cat.id}'
         )
         self.assertEqual(filtered.status_code, 200)
-        self.assertEqual(len(filtered.json()), 1)
+        self.assertEqual(filtered.json()['count'], 1)
+        self.assertEqual(len(filtered.json()['results']), 1)
 
 
 class ProductCrudTests(ProductApiTestBase):

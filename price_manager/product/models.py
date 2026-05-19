@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import uuid
+
+from django.conf import settings
 from django.contrib.postgres.indexes import GinIndex
 from django.core.exceptions import ValidationError
 from django.db import models
@@ -82,7 +85,7 @@ class CharacteristicType(models.Model):
         (VALUE_CHOICE, 'Выбор из списка'),
     ]
 
-    name = models.SlugField('Ключ', max_length=64, unique=True, allow_unicode=False)
+    name = models.SlugField('Ключ', max_length=64, unique=True, allow_unicode=True)
     label = models.CharField('Название', max_length=255)
     value_type = models.CharField('Тип значения', max_length=16, choices=VALUE_TYPE_CHOICES, default=VALUE_STRING)
     options = models.JSONField('Варианты', default=list, blank=True)
@@ -232,3 +235,47 @@ class Product(models.Model):
             )
 
         self.characteristics = cleaned
+
+
+class ImportJob(models.Model):
+    KIND_PREVIEW = 'preview'
+    KIND_COMMIT = 'commit'
+    KIND_CHOICES = [(KIND_PREVIEW, 'Preview'), (KIND_COMMIT, 'Commit')]
+
+    STATUS_PENDING = 'pending'
+    STATUS_RUNNING = 'running'
+    STATUS_SUCCESS = 'success'
+    STATUS_ERROR = 'error'
+    STATUS_CHOICES = [
+        (STATUS_PENDING, 'Pending'),
+        (STATUS_RUNNING, 'Running'),
+        (STATUS_SUCCESS, 'Success'),
+        (STATUS_ERROR, 'Error'),
+    ]
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='product_import_jobs',
+    )
+    kind = models.CharField(max_length=16, choices=KIND_CHOICES)
+    status = models.CharField(max_length=16, choices=STATUS_CHOICES, default=STATUS_PENDING, db_index=True)
+    stage = models.CharField(max_length=64, blank=True, default='')
+    session_id = models.CharField(max_length=64)
+    instructions = models.JSONField(default=dict, blank=True)
+    mapping = models.JSONField(default=dict, blank=True)
+    row_limit = models.PositiveIntegerField(default=200)
+    result = models.JSONField(null=True, blank=True)
+    error = models.TextField(blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    started_at = models.DateTimeField(null=True, blank=True)
+    finished_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        ordering = ['-created_at']
+        indexes = [
+            models.Index(fields=['user', '-created_at']),
+        ]

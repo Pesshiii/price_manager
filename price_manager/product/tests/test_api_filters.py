@@ -93,5 +93,8 @@ class ProductFacetsTests(TestCase):
         self.assertEqual(resp.status_code, 200, resp.content[:300])
         body = resp.json()
         self.assertIn('color', body)
-        counts = {item['value']: item['count'] for item in body['color']}
+        # Self-describing shape: {label, unit, value_type, buckets}
+        self.assertIn('label', body['color'])
+        self.assertIn('buckets', body['color'])
+        counts = {item['value']: item['count'] for item in body['color']['buckets']}
         self.assertEqual(counts, {'red': 2, 'blue': 1})

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from rest_framework import serializers
 
-from ..models import Brand, Category, CharacteristicType, Product
+from ..models import Brand, Category, CharacteristicType, ImportJob, Product
 
 
 class CategorySerializer(serializers.ModelSerializer):
@@ -65,3 +65,13 @@ class ImportRequestSerializer(serializers.Serializer):
     instructions = serializers.DictField()
     mapping = serializers.DictField()
     row_limit = serializers.IntegerField(required=False, min_value=1, max_value=10000, default=200)
+
+
+class ImportJobSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = ImportJob
+        fields = [
+            'id', 'kind', 'status', 'result', 'error',
+            'created_at', 'started_at', 'finished_at',
+        ]
+        read_only_fields = fields

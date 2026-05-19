@@ -31,18 +31,40 @@ SESSION_URL = 'dataframe_api:session-create'
 PREVIEW_URL = 'dataframe_api:preview'
 IMPORT_PREVIEW_URL = 'product_api:import-preview'
 IMPORT_COMMIT_URL = 'product_api:import-commit'
+IMPORT_JOB_URL = 'product_api:import-job'
+
+
+class _AsyncJobResponse:
+    """Drop-in for the old sync HTTP response. Exposes .status_code and .json()/.content
+    where json() returns the job's result payload (or job envelope on non-success)."""
+
+    def __init__(self, *, status_code: int, result=None, raw: bytes = b''):
+        self.status_code = status_code
+        self._result = result
+        self.content = raw
+
+    def json(self):
+        return self._result
 
 
 @override_settings(
     SECURE_SSL_REDIRECT=False,
     MEDIA_ROOT=tempfile.mkdtemp(prefix='prod_import_'),
+    CELERY_TASK_ALWAYS_EAGER=True,
+    CELERY_TASK_EAGER_PROPAGATES=False,
     STORAGES={
         'default': {'BACKEND': 'django.core.files.storage.FileSystemStorage'},
         'staticfiles': {'BACKEND': 'django.contrib.staticfiles.storage.StaticFilesStorage'},
     },
 )
 class BaseImportTests(TestCase):
-    """Shared scaffolding: login + endpoint wrappers."""
+    """Shared scaffolding: login + endpoint wrappers.
+
+    Preview/commit are async — wrappers POST to /import/{preview,commit}/, then
+    fetch the resulting ImportJob and surface its `result` (on success) so that
+    legacy assertions like ``body['created']`` continue to work. On non-success
+    job status or non-2xx HTTP, the original response is surfaced verbatim.
+    """
 
     @classmethod
     def setUpTestData(cls):
@@ -64,19 +86,34 @@ class BaseImportTests(TestCase):
             payload['up_to'] = up_to
         return self.client.post(reverse(PREVIEW_URL), payload, content_type='application/json')
 
+    def _job_result(self, job_id):
+        """Fetch a job and translate it to a legacy-shaped response."""
+        resp = self.client.get(reverse(IMPORT_JOB_URL, args=[job_id]))
+        if resp.status_code != 200:
+            return resp
+        body = resp.json()
+        if body['status'] == 'success':
+            return _AsyncJobResponse(status_code=200, result=body['result'])
+        if body['status'] == 'error':
+            return _AsyncJobResponse(
+                status_code=400,
+                result={'error': {'message': body['error']}},
+                raw=(body['error'] or '').encode(),
+            )
+        return _AsyncJobResponse(status_code=202, result=body)
+
+    def _dispatch_import(self, url_name, sid, instructions, mapping, **extra):
+        payload = {'session_id': sid, 'instructions': instructions, 'mapping': mapping, **extra}
+        resp = self.client.post(reverse(url_name), payload, content_type='application/json')
+        if resp.status_code != 202:
+            return resp  # 4xx / 5xx — surface as-is for legacy assertions
+        return self._job_result(resp.json()['id'])
+
     def import_preview(self, sid, instructions, mapping, *, row_limit=200):
-        return self.client.post(
-            reverse(IMPORT_PREVIEW_URL),
-            {'session_id': sid, 'instructions': instructions, 'mapping': mapping, 'row_limit': row_limit},
-            content_type='application/json',
-        )
+        return self._dispatch_import(IMPORT_PREVIEW_URL, sid, instructions, mapping, row_limit=row_limit)
 
     def import_commit(self, sid, instructions, mapping):
-        return self.client.post(
-            reverse(IMPORT_COMMIT_URL),
-            {'session_id': sid, 'instructions': instructions, 'mapping': mapping},
-            content_type='application/json',
-        )
+        return self._dispatch_import(IMPORT_COMMIT_URL, sid, instructions, mapping)
 
 
 # ---------------------------------------------------------------------------
