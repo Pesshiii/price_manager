@@ -5,6 +5,7 @@ from .views import (
     BrandViewSet,
     CategoryViewSet,
     CharacteristicTypeViewSet,
+    CharMutationJobView,
     ImportCommitView,
     ImportJobView,
     ImportPreviewView,
@@ -23,5 +24,10 @@ urlpatterns = [
     path('import/preview/', ImportPreviewView.as_view(), name='import-preview'),
     path('import/commit/', ImportCommitView.as_view(), name='import-commit'),
     path('import/jobs/<uuid:job_id>/', ImportJobView.as_view(), name='import-job'),
+    path(
+        'characteristic-types/jobs/<uuid:job_id>/',
+        CharMutationJobView.as_view(),
+        name='char-mutation-job',
+    ),
     path('', include(router.urls)),
 ]

@@ -19,6 +19,9 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Development Commands
 
+### Repo layout
+The Django project lives in the nested `price_manager/` directory (one level below the repo root). `manage.py`, `requirements.txt`, and all apps are there. **Run every `python manage.py …` / `celery …` / `pip install` command from inside `price_manager/`.** The repo root only holds `Dockerfile`, `docker-compose.yml`, `README.md`, `CLAUDE.md`, and `docs/`. The `product` + `dataframe` apps are active on the `Spreadsheetimport` branch; `main` may not have them yet, so verify branch before reasoning about file existence.
+
 ### Local Setup
 ```bash
 python -m venv venv
@@ -46,7 +49,7 @@ python manage.py test core                         # single app
 python manage.py test core.tests.MyTestClass       # single class
 python manage.py test product.tests.test_import    # single module (new layout)
 ```
-Test layout is mixed: most apps use a single `tests.py`; the `product` app uses a `tests/` package (`test_api_crud.py`, `test_api_filters.py`, `test_import.py`, `test_models.py`).
+Test layout is mixed: most apps use a single `tests.py`; the `product` app uses a `tests/` package — `test_api_crud.py`, `test_api_filters.py`, `test_import.py`, `test_import_async.py` (covers `run_import_commit` Celery task + `ImportJob` stage transitions), `test_import_dynamic_chars.py` (EAV dynamic-characteristics behavior), `test_models.py`, plus `fixtures.py` (shared test helpers — not a test module).
 
 ### Migrations
 ```bash
@@ -77,6 +80,7 @@ This legacy flow coexists with the new `product` + `dataframe` import path; the 
 - Upload sessions write the source file to a temp location and persist metadata (filename, size, uploaded_at) alongside it (`dataframe/sessions.py:session_metadata`).
 - Reader-stage output is cached in Redis (`dataframe/cache.py`): cache key = `session_id` + SHA1 of reader cfg, ~1h TTL, 50MB size guard. Backend errors soft-fail (cache miss is acceptable, never blocks the request).
 - `delete_session()` invalidates all cache entries for the session via `cache.delete_pattern` (only available on `django_redis`; LocMemCache is a no-op).
+- `dataframe/` currently has both a `models.py` file and a `models/` package — check `apps.py` / imports before adding new models to avoid shadowing one with the other.
 
 ### Celery Task Orchestration
 All tasks use `execute_locked_task()` (in `core/task_runner.py`) with Redis distributed locking to prevent concurrent execution. Periodic tasks:
@@ -92,6 +96,8 @@ A JSON API is mounted at `/api/` (router: `price_manager/api_urls.py`) for a dec
 - `product/api/` — Product library: `/api/products/products/` (with `GET /api/products/products/facets/` returning aggregated characteristic value counts), `/api/products/categories/`, `/api/products/brands/`, `/api/products/characteristic-types/`. Faceted JSONB filter via `?char__<type_name>=<value>` (repeat the param for OR). Dataframe-driven import at `/api/products/import/{preview,commit}/`; row validation and SKU upsert live in `product/importer.py` via the `RowResult` dataclass.
 
 CORS is enabled via `corsheaders` middleware for the SPA origin.
+
+See `docs/manual_import_walkthrough.md` for an end-to-end curl walkthrough of the product import flow (CSRF → login → session → preview pagination → commit).
 
 ### Authentication
 `LoginRequiredMiddleware` (in `core/middleware.py`) enforces login for all views except URLs in `settings.LOGIN_EXEMPT_URLS`. For paths matching `settings.LOGIN_EXEMPT_API_PREFIXES`, unauthenticated requests get a JSON 401 instead of a redirect. API auth is session-based — SPAs must fetch CSRF via `/api/auth/csrf/` before POSTing.

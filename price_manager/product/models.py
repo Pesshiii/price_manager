@@ -237,21 +237,28 @@ class Product(models.Model):
         self.characteristics = cleaned
 
 
+JOB_STATUS_PENDING = 'pending'
+JOB_STATUS_RUNNING = 'running'
+JOB_STATUS_SUCCESS = 'success'
+JOB_STATUS_ERROR = 'error'
+JOB_STATUS_CHOICES = [
+    (JOB_STATUS_PENDING, 'Pending'),
+    (JOB_STATUS_RUNNING, 'Running'),
+    (JOB_STATUS_SUCCESS, 'Success'),
+    (JOB_STATUS_ERROR, 'Error'),
+]
+
+
 class ImportJob(models.Model):
     KIND_PREVIEW = 'preview'
     KIND_COMMIT = 'commit'
     KIND_CHOICES = [(KIND_PREVIEW, 'Preview'), (KIND_COMMIT, 'Commit')]
 
-    STATUS_PENDING = 'pending'
-    STATUS_RUNNING = 'running'
-    STATUS_SUCCESS = 'success'
-    STATUS_ERROR = 'error'
-    STATUS_CHOICES = [
-        (STATUS_PENDING, 'Pending'),
-        (STATUS_RUNNING, 'Running'),
-        (STATUS_SUCCESS, 'Success'),
-        (STATUS_ERROR, 'Error'),
-    ]
+    STATUS_PENDING = JOB_STATUS_PENDING
+    STATUS_RUNNING = JOB_STATUS_RUNNING
+    STATUS_SUCCESS = JOB_STATUS_SUCCESS
+    STATUS_ERROR = JOB_STATUS_ERROR
+    STATUS_CHOICES = JOB_STATUS_CHOICES
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     user = models.ForeignKey(
@@ -268,6 +275,64 @@ class ImportJob(models.Model):
     instructions = models.JSONField(default=dict, blank=True)
     mapping = models.JSONField(default=dict, blank=True)
     row_limit = models.PositiveIntegerField(default=200)
+    result = models.JSONField(null=True, blank=True)
+    error = models.TextField(blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    started_at = models.DateTimeField(null=True, blank=True)
+    finished_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        ordering = ['-created_at']
+        indexes = [
+            models.Index(fields=['user', '-created_at']),
+        ]
+
+
+class CharacteristicMutationJob(models.Model):
+    """Async job for `CharacteristicType` mutations that need to migrate every
+    product's JSONB ``characteristics``. Two kinds:
+
+    * ``retype`` — change ``value_type``. ``payload`` carries ``new_value_type``,
+      a global ``fallback`` strategy (``drop|null|default``) for values that
+      don't coerce, an optional ``default_value`` (when fallback == 'default'),
+      and an optional per-value override ``value_map: {raw_repr: replacement}``.
+    * ``rename`` — change ``name`` (the JSONB key). ``payload`` carries
+      ``new_name`` and an ``on_conflict`` strategy
+      (``overwrite|keep_existing|skip_row``).
+
+    Status / stage / result / error envelope mirrors :class:`ImportJob` so the
+    SPA can reuse the polling pattern (``GET /characteristic-types/jobs/<id>/``).
+    """
+
+    KIND_RETYPE = 'retype'
+    KIND_RENAME = 'rename'
+    KIND_CHOICES = [(KIND_RETYPE, 'Retype'), (KIND_RENAME, 'Rename')]
+
+    STATUS_PENDING = JOB_STATUS_PENDING
+    STATUS_RUNNING = JOB_STATUS_RUNNING
+    STATUS_SUCCESS = JOB_STATUS_SUCCESS
+    STATUS_ERROR = JOB_STATUS_ERROR
+    STATUS_CHOICES = JOB_STATUS_CHOICES
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='char_mutation_jobs',
+    )
+    char_type = models.ForeignKey(
+        CharacteristicType,
+        on_delete=models.CASCADE,
+        related_name='mutation_jobs',
+    )
+    kind = models.CharField(max_length=16, choices=KIND_CHOICES)
+    status = models.CharField(
+        max_length=16, choices=STATUS_CHOICES, default=STATUS_PENDING, db_index=True
+    )
+    stage = models.CharField(max_length=64, blank=True, default='')
+    payload = models.JSONField(default=dict, blank=True)
     result = models.JSONField(null=True, blank=True)
     error = models.TextField(blank=True)
     created_at = models.DateTimeField(auto_now_add=True)

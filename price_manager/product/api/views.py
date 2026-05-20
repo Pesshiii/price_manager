@@ -12,8 +12,26 @@ from rest_framework.views import APIView
 from dataframe import sessions as session_store
 
 from ..filters import ProductFilter
-from ..models import Brand, Category, CharacteristicType, ImportJob, Product
-from ..tasks import run_import_commit, run_import_preview
+from ..models import (
+    Brand,
+    Category,
+    CharacteristicMutationJob,
+    CharacteristicType,
+    ImportJob,
+    Product,
+)
+from ..services.char_mutation import (
+    RENAME_CONFLICT_STRATEGIES,
+    RETYPE_FALLBACKS,
+    preview_rename,
+    preview_retype,
+)
+from ..tasks import (
+    run_char_rename,
+    run_char_retype,
+    run_import_commit,
+    run_import_preview,
+)
 from .pagination import (
     CharacteristicTypePagination,
     ProductPagination,
@@ -23,10 +41,26 @@ from .serializers import (
     BrandSerializer,
     CategorySerializer,
     CharacteristicTypeSerializer,
+    CharMutationJobSerializer,
     ImportJobSerializer,
     ImportRequestSerializer,
     ProductSerializer,
 )
+
+
+_TRUE = {'1', 'true', 'yes', 'y', 'on'}
+_FALSE = {'0', 'false', 'no', 'n', 'off'}
+
+
+def _parse_bool(raw: str | None) -> bool | None:
+    if raw is None:
+        return None
+    s = raw.strip().lower()
+    if s in _TRUE:
+        return True
+    if s in _FALSE:
+        return False
+    return None
 
 
 class CategoryViewSet(viewsets.ModelViewSet):
@@ -59,21 +93,164 @@ class CharacteristicTypeViewSet(viewsets.ModelViewSet):
 
     def get_queryset(self):
         qs = CharacteristicType.objects.all().prefetch_related('categories')
-        category_id = self.request.query_params.get('category')
-        if category_id:
-            qs = qs.filter(categories=category_id)
-        search = self.request.query_params.get('search')
+        params = self.request.query_params
+
+        # `?category=` supports both single value and repeated multi-value form.
+        # ``getlist`` returns all repetitions for ``?category=1&category=2`` and
+        # a single-element list for ``?category=1`` — uniform handling either way.
+        category_ids = [v for v in params.getlist('category') if v]
+        if category_ids:
+            qs = qs.filter(categories__in=category_ids).distinct()
+
+        search = params.get('search')
         if search:
             from django.db.models import Q
             qs = qs.filter(Q(name__icontains=search) | Q(label__icontains=search))
+
+        value_type = params.get('value_type')
+        if value_type:
+            qs = qs.filter(value_type=value_type)
+
+        required = _parse_bool(params.get('required'))
+        if required is not None:
+            qs = qs.filter(required=required)
+
         # `?name__in=a,b,c` — bulk-fetch metadata for an explicit name list,
         # used by the SPA to label already-bound chars on the import mapping step.
-        name_in = self.request.query_params.get('name__in')
+        name_in = params.get('name__in')
         if name_in:
             names = [n.strip() for n in name_in.split(',') if n.strip()]
             if names:
                 qs = qs.filter(name__in=names)
         return qs
+
+    # ----- migration-aware actions for name / value_type changes -----------
+
+    @action(detail=True, methods=['post'], url_path='retype/preview')
+    def retype_preview(self, request, pk=None):
+        ct = self.get_object()
+        new_value_type = request.data.get('new_value_type')
+        if not new_value_type:
+            return Response(
+                {'new_value_type': 'Поле обязательно.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        if new_value_type not in dict(CharacteristicType.VALUE_TYPE_CHOICES):
+            return Response(
+                {'new_value_type': f'Неизвестный тип {new_value_type!r}.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        return Response(preview_retype(ct, new_value_type))
+
+    @action(detail=True, methods=['post'], url_path='retype/commit')
+    def retype_commit(self, request, pk=None):
+        ct = self.get_object()
+        new_value_type = request.data.get('new_value_type')
+        fallback = request.data.get('fallback', 'drop')
+        if not new_value_type:
+            return Response(
+                {'new_value_type': 'Поле обязательно.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        if new_value_type not in dict(CharacteristicType.VALUE_TYPE_CHOICES):
+            return Response(
+                {'new_value_type': f'Неизвестный тип {new_value_type!r}.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        if fallback not in RETYPE_FALLBACKS:
+            return Response(
+                {'fallback': f'Стратегия должна быть одной из {RETYPE_FALLBACKS}.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        payload = {
+            'new_value_type': new_value_type,
+            'fallback': fallback,
+            'default_value': request.data.get('default_value'),
+            'value_map': request.data.get('value_map') or {},
+        }
+        job = CharacteristicMutationJob.objects.create(
+            user=request.user if request.user.is_authenticated else None,
+            char_type=ct,
+            kind=CharacteristicMutationJob.KIND_RETYPE,
+            payload=payload,
+        )
+        run_char_retype.delay(str(job.id))
+        job.refresh_from_db()
+        return Response(
+            CharMutationJobSerializer(job).data, status=status.HTTP_202_ACCEPTED
+        )
+
+    @action(detail=True, methods=['post'], url_path='rename/preview')
+    def rename_preview(self, request, pk=None):
+        ct = self.get_object()
+        new_name = (request.data.get('new_name') or '').strip()
+        if not new_name:
+            return Response(
+                {'new_name': 'Поле обязательно.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        if new_name == ct.name:
+            return Response(
+                {'new_name': 'Новое имя должно отличаться от текущего.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        if CharacteristicType.objects.filter(name=new_name).exclude(pk=ct.pk).exists():
+            return Response(
+                {'new_name': f"Тип с именем '{new_name}' уже существует."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        return Response(preview_rename(ct, new_name))
+
+    @action(detail=True, methods=['post'], url_path='rename/commit')
+    def rename_commit(self, request, pk=None):
+        ct = self.get_object()
+        new_name = (request.data.get('new_name') or '').strip()
+        on_conflict = request.data.get('on_conflict', 'overwrite')
+        if not new_name:
+            return Response(
+                {'new_name': 'Поле обязательно.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        if new_name == ct.name:
+            return Response(
+                {'new_name': 'Новое имя должно отличаться от текущего.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        if CharacteristicType.objects.filter(name=new_name).exclude(pk=ct.pk).exists():
+            return Response(
+                {'new_name': f"Тип с именем '{new_name}' уже существует."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        if on_conflict not in RENAME_CONFLICT_STRATEGIES:
+            return Response(
+                {'on_conflict': f'Должна быть одной из {RENAME_CONFLICT_STRATEGIES}.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        payload = {'new_name': new_name, 'on_conflict': on_conflict}
+        job = CharacteristicMutationJob.objects.create(
+            user=request.user if request.user.is_authenticated else None,
+            char_type=ct,
+            kind=CharacteristicMutationJob.KIND_RENAME,
+            payload=payload,
+        )
+        run_char_rename.delay(str(job.id))
+        job.refresh_from_db()
+        return Response(
+            CharMutationJobSerializer(job).data, status=status.HTTP_202_ACCEPTED
+        )
+
+
+class CharMutationJobView(APIView):
+    """Polling endpoint for retype/rename jobs (mirrors ``ImportJobView``)."""
+
+    def get(self, request, job_id):
+        qs = CharacteristicMutationJob.objects.all()
+        if request.user.is_authenticated:
+            qs = qs.filter(user=request.user)
+        else:
+            qs = qs.filter(user__isnull=True)
+        job = get_object_or_404(qs, pk=job_id)
+        return Response(CharMutationJobSerializer(job).data)
 
 
 class ProductViewSet(viewsets.ModelViewSet):

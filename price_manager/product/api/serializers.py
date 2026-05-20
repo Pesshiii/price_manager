@@ -2,7 +2,14 @@ from __future__ import annotations
 
 from rest_framework import serializers
 
-from ..models import Brand, Category, CharacteristicType, ImportJob, Product
+from ..models import (
+    Brand,
+    Category,
+    CharacteristicMutationJob,
+    CharacteristicType,
+    ImportJob,
+    Product,
+)
 
 
 class CategorySerializer(serializers.ModelSerializer):
@@ -20,11 +27,53 @@ class BrandSerializer(serializers.ModelSerializer):
 
 
 class CharacteristicTypeSerializer(serializers.ModelSerializer):
+    """CRUD serializer for ``CharacteristicType``.
+
+    ``categories_detail`` is read-only metadata for the SPA detail modal so it
+    doesn't have to fan out to ``/categories/?id__in=…`` just to render names.
+    The writeable ``categories`` field stays a flat list of PKs.
+
+    ``name`` and ``value_type`` are intentionally rejected by ``update()`` —
+    both require a JSONB migration of every product carrying this characteristic,
+    which only the dedicated retype/rename endpoints can do safely. See
+    ``services/char_mutation.py`` and ``tasks.run_char_retype/run_char_rename``.
+    """
+
+    categories_detail = serializers.SerializerMethodField(read_only=True)
+
     class Meta:
         model = CharacteristicType
         fields = [
-            'id', 'name', 'label', 'value_type', 'options', 'unit', 'required', 'categories',
+            'id', 'name', 'label', 'value_type', 'options', 'unit', 'required',
+            'categories', 'categories_detail',
         ]
+
+    def get_categories_detail(self, obj):
+        return [
+            {'id': c.id, 'name': c.name, 'level': c.level}
+            for c in obj.categories.all()
+        ]
+
+    def update(self, instance, validated_data):
+        # Block mutations that need a JSONB migration — route them through
+        # the dedicated async endpoints instead.
+        blocked = {}
+        if 'name' in validated_data and validated_data['name'] != instance.name:
+            blocked['name'] = (
+                'Изменение `name` миграционное: используйте '
+                'POST /characteristic-types/<id>/rename/commit/.'
+            )
+        if (
+            'value_type' in validated_data
+            and validated_data['value_type'] != instance.value_type
+        ):
+            blocked['value_type'] = (
+                'Изменение `value_type` миграционное: используйте '
+                'POST /characteristic-types/<id>/retype/commit/.'
+            )
+        if blocked:
+            raise serializers.ValidationError(blocked)
+        return super().update(instance, validated_data)
 
 
 class ProductSerializer(serializers.ModelSerializer):
@@ -73,5 +122,23 @@ class ImportJobSerializer(serializers.ModelSerializer):
         fields = [
             'id', 'kind', 'status', 'result', 'error',
             'created_at', 'started_at', 'finished_at',
+        ]
+        read_only_fields = fields
+
+
+class CharMutationJobSerializer(serializers.ModelSerializer):
+    """Envelope for ``GET /characteristic-types/jobs/<uuid>/`` polling.
+
+    Includes ``stage`` so the SPA can show the worker's current step
+    ("Сканируем товары" / "Применяем изменения" / "Обновляем тип").
+    """
+
+    char_type = serializers.PrimaryKeyRelatedField(read_only=True)
+
+    class Meta:
+        model = CharacteristicMutationJob
+        fields = [
+            'id', 'kind', 'status', 'stage', 'char_type', 'payload',
+            'result', 'error', 'created_at', 'started_at', 'finished_at',
         ]
         read_only_fields = fields
