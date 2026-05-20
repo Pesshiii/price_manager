@@ -126,7 +126,15 @@ REDIS_URL, CELERY_BROKER_URL, CELERY_RESULT_BACKEND
 CELERY_PRICE_UPDATE_MINUTES, CELERY_STOCK_UPDATE_MINUTES, CELERY_LOG_UPDATE_MINUTES
 AWS_S3_ENDPOINT_URL, AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, AWS_STORAGE_BUCKET_NAME
 IMPORT_COMMIT_BATCH_SIZE  # batch size for product/importer.commit_rows; default 500
+OLLAMA_PORT, OLLAMA_MODEL, OLLAMA_KEEP_ALIVE  # Gemma 3 generative service
 ```
+
+## LLM service (Gemma 3)
+
+The `gemma` service in `docker-compose.yml` runs Ollama on CPU and auto-pulls
+`gemma3:4b` into the `ollama_data` named volume on first start. Reachable
+from other containers at `http://gemma:11434` (Ollama native API + OpenAI-
+compatible endpoints). Currently standalone — no Django client yet.
 
 ## Product import worker memory
 
