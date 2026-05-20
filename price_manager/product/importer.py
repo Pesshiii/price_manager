@@ -213,12 +213,13 @@ def _commit_batch(
     batch: list[RowResult],
     char_types_by_name: dict[str, CharacteristicType],
     linked_pairs: set[tuple[int, int]],
-) -> tuple[int, int, int, list[dict]]:
+) -> tuple[int, int, int, list[dict], list[int]]:
     """Persist a single batch inside one transaction. Returns per-batch counters."""
     created = 0
     updated = 0
     skipped = 0
     errors: list[dict] = []
+    affected_ids: list[int] = []
 
     with transaction.atomic():
         for r in batch:
@@ -263,7 +264,8 @@ def _commit_batch(
                 brand, _ = Brand.objects.get_or_create(name=brand_name)
                 defaults['brand'] = brand
 
-            _, was_created = Product.objects.update_or_create(sku=sku, defaults=defaults)
+            product_obj, was_created = Product.objects.update_or_create(sku=sku, defaults=defaults)
+            affected_ids.append(product_obj.pk)
             if was_created:
                 created += 1
             else:
@@ -283,7 +285,7 @@ def _commit_batch(
                     ct.categories.add(cat)
                     linked_pairs.add(pair)
 
-    return created, updated, skipped, errors
+    return created, updated, skipped, errors, affected_ids
 
 
 def commit_rows(results: list[RowResult]) -> dict:
@@ -319,13 +321,21 @@ def commit_rows(results: list[RowResult]) -> dict:
 
     linked_pairs: set[tuple[int, int]] = set()
     batch_size = max(1, IMPORT_COMMIT_BATCH_SIZE)
+    affected_ids: list[int] = []
 
     for start in range(0, len(results), batch_size):
         batch = results[start:start + batch_size]
-        c, u, s, errs = _commit_batch(batch, char_types_by_name, linked_pairs)
+        c, u, s, errs, ids = _commit_batch(batch, char_types_by_name, linked_pairs)
         created += c
         updated += u
         skipped += s
         errors.extend(errs)
+        affected_ids.extend(ids)
 
-    return {'created': created, 'updated': updated, 'skipped': skipped, 'errors': errors}
+    return {
+        'created': created,
+        'updated': updated,
+        'skipped': skipped,
+        'errors': errors,
+        'affected_ids': affected_ids,
+    }
