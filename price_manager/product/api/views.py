@@ -12,6 +12,7 @@ from rest_framework.views import APIView
 from dataframe import sessions as session_store
 
 from ..filters import ProductFilter
+from ..services.embeddings import EmbeddingServiceError
 from ..models import (
     Brand,
     Category,
@@ -259,6 +260,14 @@ class ProductViewSet(viewsets.ModelViewSet):
     pagination_class = ProductPagination
     filter_backends = [DjangoFilterBackend]
     filterset_class = ProductFilter
+
+    def handle_exception(self, exc):
+        if isinstance(exc, EmbeddingServiceError):
+            return Response(
+                {'detail': f'Embedding service unavailable: {exc}'},
+                status=status.HTTP_503_SERVICE_UNAVAILABLE,
+            )
+        return super().handle_exception(exc)
 
     @action(detail=False, methods=['get'])
     def facets(self, request):

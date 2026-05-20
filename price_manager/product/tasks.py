@@ -12,6 +12,7 @@ from __future__ import annotations
 import logging
 
 from celery import shared_task
+from django.conf import settings
 from django.utils import timezone
 
 from dataframe import sessions as session_store
@@ -20,6 +21,12 @@ from dataframe.services import apply as apply_pipeline
 
 from .importer import IMPORT_COMMIT_BATCH_SIZE, apply_mapping, commit_rows
 from .models import CharacteristicMutationJob, CharacteristicType, ImportJob, Product
+from .services.embeddings import (
+    EmbeddingServiceError,
+    build_embedding_text,
+    embed_texts,
+    text_hash,
+)
 from .services.char_mutation import (
     ONCONFLICT_KEEP_EXISTING,
     ONCONFLICT_OVERWRITE,
@@ -135,6 +142,14 @@ def run_import_commit(job_id: str) -> None:
             session_store.delete_session(job.session_id)
         except Exception:
             logger.warning('delete_session after commit failed for job %s', job_id, exc_info=True)
+
+        # Kick off embedding refresh for affected products in the background.
+        # Chunked so a 50k-row import doesn't put one huge task on the queue.
+        affected_ids = summary.pop('affected_ids', []) or []
+        chunk = max(1, settings.EMBED_BACKFILL_BATCH_SIZE)
+        for i in range(0, len(affected_ids), chunk):
+            embed_products_task.delay(affected_ids[i:i + chunk])
+
         _mark_success(job, summary)
     except FileNotFoundError as exc:
         _mark_error(job, exc)
@@ -298,3 +313,97 @@ def run_char_rename(job_id: str) -> None:
     except Exception as exc:  # noqa: BLE001
         logger.exception('run_char_rename failed for job %s', job_id)
         _mark_error(job, exc)
+
+
+# --- Embedding tasks -------------------------------------------------------
+
+def _embed_and_save(products: list[Product]) -> int:
+    """Compute embeddings for ``products`` and write only the rows whose text
+    actually changed (idempotent re-runs). Returns the number of rows written.
+    """
+    if not products:
+        return 0
+
+    char_keys: set[str] = set()
+    for p in products:
+        if isinstance(p.characteristics, dict):
+            char_keys.update(p.characteristics.keys())
+    types_by_name = (
+        {ct.name: ct for ct in CharacteristicType.objects.filter(name__in=char_keys).only(
+            'name', 'label', 'unit'
+        )}
+        if char_keys else {}
+    )
+
+    texts = [build_embedding_text(p, types_by_name) for p in products]
+    hashes = [text_hash(t) for t in texts]
+
+    todo_idx = [
+        i for i, p in enumerate(products)
+        if p.embedding_text_hash != hashes[i] or p.embedding is None
+    ]
+    if not todo_idx:
+        return 0
+
+    vectors = embed_texts([texts[i] for i in todo_idx])
+    to_update: list[Product] = []
+    for vec_pos, src_idx in enumerate(todo_idx):
+        product = products[src_idx]
+        product.embedding = vectors[vec_pos]
+        product.embedding_text_hash = hashes[src_idx]
+        to_update.append(product)
+
+    Product.objects.bulk_update(to_update, ['embedding', 'embedding_text_hash'])
+    return len(to_update)
+
+
+@shared_task(
+    name='product.embed_products',
+    autoretry_for=(EmbeddingServiceError,),
+    retry_backoff=True,
+    retry_kwargs={'max_retries': 5},
+)
+def embed_products_task(product_ids: list[int]) -> dict:
+    """Compute and persist embeddings for the given product ids.
+
+    Used by post_save signal + after-import hook + manual backfill batches.
+    Idempotent: rows whose ``embedding_text_hash`` matches the current text
+    are skipped (no Ollama call for unchanged rows in a re-run).
+    """
+    if not product_ids:
+        return {'updated': 0}
+    products = list(
+        Product.objects.filter(pk__in=product_ids).select_related('brand', 'category')
+    )
+    updated = _embed_and_save(products)
+    return {'updated': updated, 'requested': len(product_ids)}
+
+
+@shared_task(name='product.embed_missing_products')
+def embed_missing_products_task() -> dict:
+    """Periodic backfill: fill embeddings for products that don't have one yet.
+
+    Bounded by ``EMBED_BACKFILL_BATCH_SIZE`` × ``EMBED_BACKFILL_MAX_BATCHES`` so
+    one beat tick can't monopolize the worker. Remaining products are picked
+    up by the next tick.
+    """
+    batch_size = settings.EMBED_BACKFILL_BATCH_SIZE
+    max_batches = settings.EMBED_BACKFILL_MAX_BATCHES
+    total_updated = 0
+    total_seen = 0
+    for _ in range(max_batches):
+        ids = list(
+            Product.objects.filter(embedding__isnull=True)
+            .order_by('pk')
+            .values_list('pk', flat=True)[:batch_size]
+        )
+        if not ids:
+            break
+        total_seen += len(ids)
+        try:
+            result = embed_products_task.apply(args=[ids]).get()
+        except EmbeddingServiceError as exc:
+            logger.warning('embed_missing_products: embedder down (%s), will retry next tick', exc)
+            break
+        total_updated += result.get('updated', 0)
+    return {'seen': total_seen, 'updated': total_updated}

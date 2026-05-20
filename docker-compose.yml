@@ -1,6 +1,6 @@
 services:
   db:
-    image: postgres:17-alpine
+    image: pgvector/pgvector:pg17
     container_name: price_manager_db
     restart: unless-stopped
     environment:
@@ -54,6 +54,8 @@ services:
       REDIS_URL: ${REDIS_URL:-redis://redis:6379/1}
       CELERY_BROKER_URL: ${CELERY_BROKER_URL:-redis://redis:6379/0}
       CELERY_RESULT_BACKEND: ${CELERY_RESULT_BACKEND:-redis://redis:6379/0}
+      OLLAMA_EMBED_URL: ${OLLAMA_EMBED_URL:-http://embedder:11434}
+      OLLAMA_EMBED_MODEL: ${OLLAMA_EMBED_MODEL:-embeddinggemma}
     ports:
       - "${WEB_PORT:-8000}:8000"
     volumes:
@@ -87,6 +89,8 @@ services:
       REDIS_URL: ${REDIS_URL:-redis://redis:6379/1}
       CELERY_BROKER_URL: ${CELERY_BROKER_URL:-redis://redis:6379/0}
       CELERY_RESULT_BACKEND: ${CELERY_RESULT_BACKEND:-redis://redis:6379/0}
+      OLLAMA_EMBED_URL: ${OLLAMA_EMBED_URL:-http://embedder:11434}
+      OLLAMA_EMBED_MODEL: ${OLLAMA_EMBED_MODEL:-embeddinggemma}
     command: celery -A price_manager worker -l info
 
   frontend:
@@ -137,8 +141,38 @@ services:
       retries: 5
       start_period: 600s
 
+  embedder:
+    image: ollama/ollama:latest
+    container_name: price_manager_embedder
+    restart: unless-stopped
+    ports:
+      - "${OLLAMA_EMBED_PORT:-11435}:11434"
+    volumes:
+      - embedder_data:/root/.ollama
+    environment:
+      OLLAMA_KEEP_ALIVE: ${OLLAMA_EMBED_KEEP_ALIVE:-30m}
+      OLLAMA_MODEL: ${OLLAMA_EMBED_MODEL:-embeddinggemma}
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        ollama serve &
+        SERVER_PID=$$!
+        until ollama list >/dev/null 2>&1; do sleep 1; done
+        if ! ollama list | grep -q "$${OLLAMA_MODEL%%:*}"; then
+          echo "Pulling $$OLLAMA_MODEL ..."
+          ollama pull "$$OLLAMA_MODEL"
+        fi
+        wait $$SERVER_PID
+    healthcheck:
+      test: ["CMD", "ollama", "list"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 300s
+
 volumes:
   postgres_data:
   redis_data:
   frontend_node_modules:
   ollama_data:
+  embedder_data:

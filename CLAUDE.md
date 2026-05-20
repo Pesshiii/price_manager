@@ -127,14 +127,59 @@ CELERY_PRICE_UPDATE_MINUTES, CELERY_STOCK_UPDATE_MINUTES, CELERY_LOG_UPDATE_MINU
 AWS_S3_ENDPOINT_URL, AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, AWS_STORAGE_BUCKET_NAME
 IMPORT_COMMIT_BATCH_SIZE  # batch size for product/importer.commit_rows; default 500
 OLLAMA_PORT, OLLAMA_MODEL, OLLAMA_KEEP_ALIVE  # Gemma 3 generative service
+OLLAMA_EMBED_PORT, OLLAMA_EMBED_MODEL, OLLAMA_EMBED_URL, OLLAMA_EMBED_KEEP_ALIVE,
+OLLAMA_EMBED_TIMEOUT  # EmbeddingGemma service used by product search
+EMBED_BACKFILL_MINUTES, EMBED_BACKFILL_BATCH_SIZE, EMBED_BACKFILL_MAX_BATCHES
 ```
 
-## LLM service (Gemma 3)
+## LLM services (Gemma 3 + EmbeddingGemma)
 
-The `gemma` service in `docker-compose.yml` runs Ollama on CPU and auto-pulls
-`gemma3:4b` into the `ollama_data` named volume on first start. Reachable
-from other containers at `http://gemma:11434` (Ollama native API + OpenAI-
-compatible endpoints). Currently standalone — no Django client yet.
+Two Ollama containers in `docker-compose.yml`:
+
+* `gemma` (port 11434, model `gemma3:4b`) — generative, currently unused from
+  Django but available for future auto-classification work.
+* `embedder` (port 11435, model `embeddinggemma`) — produces 256-dim Matryoshka
+  vectors used by Product search. Reachable from `web`/`celery_worker` at
+  `http://embedder:11434` (env: `OLLAMA_EMBED_URL`).
+
+Both auto-pull their model on first start into separate named volumes
+(`ollama_data` / `embedder_data`).
+
+## Product embeddings + hybrid search
+
+`Product.embedding` is a `pgvector` `VectorField(dimensions=256)` with an
+HNSW cosine index (migration `0008_product_embedding`). The pgvector extension
+itself is created in `0007_pgvector_extension` (requires the
+`pgvector/pgvector:pg17` image — `postgres:17-alpine` is NOT enough).
+
+`product/services/embeddings.py` wraps the Ollama `/api/embed` endpoint:
+* `build_embedding_text(product)` — assembles name + brand + category +
+  description + flat `label: value unit` characteristics.
+* `embed_texts(...)` / `embed_query(...)` — asymmetric document/query modes;
+  use the right one or retrieval quality drops noticeably.
+
+Three triggers keep embeddings fresh, all hash-idempotent
+(`embedding_text_hash` skips re-calls for unchanged products):
+* `post_save` signal on `Product` (`product/signals.py`) schedules
+  `embed_products_task.delay([pk])` on `transaction.on_commit` when one of
+  `{name, description, category, brand, characteristics}` changes.
+* `run_import_commit` enqueues `embed_products_task` chunks for every
+  affected product after a successful import.
+* `embed_missing_products` Celery beat task (default every 5 min, tunable via
+  `EMBED_BACKFILL_MINUTES`) backfills products whose `embedding IS NULL`.
+
+For the **initial backfill** after enabling embeddings on an existing catalog,
+run `python manage.py embed_products` (synchronous, in-process, resumable).
+Supports `--all` (re-embed everything), `--batch N`, `--limit N`, and
+`--sku <sku>` (repeatable).
+
+Search on `/api/products/products/?q=…` is **hybrid by default**: lexical
+`icontains` over `name`/`sku` (top 100) + cosine vector match (top 100)
+merged via Reciprocal Rank Fusion (k=60). Override with
+`?search_mode=lexical|vector|hybrid`. If the embedder is unreachable
+the endpoint returns **503** with `{detail: "Embedding service unavailable: …"}`
+— no silent fallback. When the catalog has no embeddings yet (fresh DB),
+hybrid degrades to pure lexical instead of returning empty.
 
 ## Product import worker memory
 
