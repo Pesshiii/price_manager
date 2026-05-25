@@ -249,8 +249,9 @@ class PreviewEndpointTests(ApiTestBase):
         # Rename not yet applied — columns are still a,b
         self.assertEqual(body['columns'], ['a', 'b'])
 
-    def test_preview_returns_error_on_bad_step(self):
-        sid = self._upload_session([['a', 'b'], ['1', '2']])
+    def test_preview_success_returns_null_step_error(self):
+        """A successful pipeline response always includes step_error: null."""
+        sid = self._upload_session([['a', 'b'], ['1', '2'], ['3', '4']])
         resp = self.client.post(
             reverse('dataframe_api:preview'),
             {
@@ -258,7 +259,7 @@ class PreviewEndpointTests(ApiTestBase):
                 'instructions': {
                     'reader': {'func': 'read_csv', 'args': {}},
                     'transforms': [
-                        {'func': 'replace_values', 'args': {}},  # missing required 'column'
+                        {'func': 'select_columns', 'args': {'cols': 'a'}},
                     ],
                 },
             },
@@ -266,8 +267,46 @@ class PreviewEndpointTests(ApiTestBase):
         )
         self.assertEqual(resp.status_code, 200)
         body = resp.json()
-        self.assertIn('error', body)
-        self.assertIn('message', body['error'])
+        self.assertIsNone(body.get('step_error'))
+        self.assertEqual(body['columns'], ['a'])
+
+    def test_preview_step_error_returns_data_and_error(self):
+        """When a transform step raises, response is HTTP 200 with table data
+        (state before the failing step) AND step_error with the correct index."""
+        sid = self._upload_session([['a', 'b', 'c'], ['1', '2', '3'], ['4', '5', '6']])
+        resp = self.client.post(
+            reverse('dataframe_api:preview'),
+            {
+                'session_id': sid,
+                'instructions': {
+                    'reader': {'func': 'read_csv', 'args': {}},
+                    'transforms': [
+                        # step 0: succeeds — selects a,b
+                        {'func': 'select_columns', 'args': {'cols': 'a,b'}},
+                        # step 1: fails — replace_values with missing required 'column'
+                        {'func': 'replace_values', 'args': {}},
+                        # step 2: never runs
+                        {'func': 'rename_columns', 'args': {'mapping': 'a=sku'}},
+                    ],
+                },
+            },
+            content_type='application/json',
+        )
+        self.assertEqual(resp.status_code, 200)
+        body = resp.json()
+
+        # Data is the state after step 0 (columns a, b — step 1 did not run)
+        self.assertIn('columns', body)
+        self.assertIn('rows', body)
+        self.assertGreater(body['total_rows'], 0)
+        self.assertEqual(body['columns'], ['a', 'b'])
+
+        # Error descriptor points at step 1 (0-based)
+        step_error = body.get('step_error')
+        self.assertIsNotNone(step_error, 'step_error must be present when a step fails')
+        self.assertEqual(step_error['step_index'], 1)
+        self.assertIn('message', step_error)
+        self.assertTrue(len(step_error['message']) > 0)
 
     def test_preview_unknown_session(self):
         resp = self.client.post(

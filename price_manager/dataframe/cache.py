@@ -4,6 +4,10 @@
 Кэшируется только результат reader-а; трансформы исполняются над `.copy()`
 кэшированного DataFrame на каждый запрос.
 
+Сериализация: Apache Arrow / Feather (zstd-сжатие).  Feather даёт 5–10×
+сжатие относительно pickle, что позволяет кэшировать XLSX-каталоги размером
+50–500 MB в памяти.  Размер проверяется по сжатому blob-у (MAX_CACHE_BYTES).
+
 Бекенд кэша определяется в settings.CACHES — Redis (django_redis) в проде,
 LocMemCache локально. `invalidate_session` использует django_redis-only
 `cache.delete_pattern`, поэтому обёрнуто в try/except.
@@ -11,18 +15,20 @@ LocMemCache локально. `invalidate_session` использует django_r
 from __future__ import annotations
 
 import hashlib
+import io
 import json
 import logging
-import pickle
 
 import pandas as pd
+import pyarrow as pa
+import pyarrow.feather as feather
 from django.core.cache import cache
 
 logger = logging.getLogger(__name__)
 
 CACHE_PREFIX = 'dataframe:reader'
 CACHE_TTL_SECONDS = 60 * 60  # 1h
-MAX_PICKLE_BYTES = 50 * 1024 * 1024  # skip caching DataFrames over ~50MB
+MAX_CACHE_BYTES = 200 * 1024 * 1024  # skip caching blobs over ~200MB (compressed)
 
 
 def reader_cache_key(session_id: str, reader_cfg: dict) -> str:
@@ -40,29 +46,28 @@ def get_cached_reader_df(key: str) -> pd.DataFrame | None:
     if not raw:
         return None
     try:
-        return pickle.loads(raw)
+        return feather.read_feather(io.BytesIO(raw))
     except Exception:
-        logger.warning('dataframe.cache unpickle failed for key=%s', key, exc_info=True)
+        logger.warning('dataframe.cache deserialise failed for key=%s', key, exc_info=True)
         return None
 
 
 def set_cached_reader_df(key: str, df: pd.DataFrame) -> bool:
     """Store DataFrame in cache. Returns True on success, False on size guard or backend failure."""
+    buf = io.BytesIO()
     try:
-        approx_size = int(df.memory_usage(deep=True).sum())
+        feather.write_feather(df, buf, compression='zstd')
     except Exception:
-        approx_size = 0
-    if approx_size and approx_size > MAX_PICKLE_BYTES:
-        logger.info('dataframe.cache skip set: df too large (%d bytes) key=%s', approx_size, key)
+        logger.warning('dataframe.cache serialise failed for key=%s', key, exc_info=True)
         return False
-    try:
-        blob = pickle.dumps(df, protocol=pickle.HIGHEST_PROTOCOL)
-    except Exception:
-        logger.warning('dataframe.cache pickle failed for key=%s', key, exc_info=True)
+
+    blob = buf.getvalue()
+    if len(blob) > MAX_CACHE_BYTES:
+        logger.info(
+            'dataframe.cache skip set: blob too large (%d bytes) key=%s', len(blob), key
+        )
         return False
-    if len(blob) > MAX_PICKLE_BYTES:
-        logger.info('dataframe.cache skip set: pickle too large (%d bytes) key=%s', len(blob), key)
-        return False
+
     try:
         cache.set(key, blob, CACHE_TTL_SECONDS)
         return True

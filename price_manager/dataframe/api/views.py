@@ -70,8 +70,17 @@ class UploadSessionView(APIView):
         return Response(status=status.HTTP_204_NO_CONTENT)
 
 
-def _dataframe_to_payload(df: pd.DataFrame, row_limit: int, offset: int = 0) -> dict:
-    """Сериализует окно DataFrame в JSON-friendly формат с пагинацией."""
+def _dataframe_to_payload(
+    df: pd.DataFrame,
+    row_limit: int,
+    offset: int = 0,
+    step_error: dict | None = None,
+) -> dict:
+    """Сериализует окно DataFrame в JSON-friendly формат с пагинацией.
+
+    ``step_error`` включается в ответ как-есть (или ``null`` при отсутствии).
+    Формат: ``{"step_index": int, "message": str}`` либо ``null``.
+    """
     total = int(df.shape[0])
     window = df.iloc[offset:offset + row_limit]
     cleaned = window.where(pd.notna(window), None)
@@ -92,11 +101,18 @@ def _dataframe_to_payload(df: pd.DataFrame, row_limit: int, offset: int = 0) -> 
         'returned_rows': returned,
         'offset': offset,
         'has_more': (offset + returned) < total,
+        'step_error': step_error,
     }
 
 
 class PreviewView(APIView):
-    """POST /api/dataframe/preview/ — запустить пайплайн (опц. до шага up_to) и вернуть JSON."""
+    """POST /api/dataframe/preview/ — запустить пайплайн (опц. до шага up_to) и вернуть JSON.
+
+    Всегда возвращает HTTP 200 при успешном прохождении reader-стадии.
+    Если трансформ K падает с ошибкой — в ответе `step_error.step_index == K` (0-based)
+    и данные соответствуют состоянию после шага K−1.
+    Reader-ошибки (неверный формат файла, истёкшая сессия) возвращают HTTP 404/500.
+    """
     parser_classes = [JSONParser]
 
     def post(self, request):
@@ -118,16 +134,11 @@ class PreviewView(APIView):
         up_to = data.get('up_to')
 
         try:
-            df = apply_partial(df_obj, file_obj, up_to=up_to, session_id=session_id)
-        except Exception as exc:  # noqa: BLE001 — surfacing pipeline errors to UI
+            df, step_error = apply_partial(df_obj, file_obj, up_to=up_to, session_id=session_id)
+        except Exception as exc:  # noqa: BLE001 — reader-stage error (bad format, etc.)
             return Response(
-                {
-                    'error': {
-                        'step_index': up_to,
-                        'message': f'{type(exc).__name__}: {exc}',
-                    },
-                },
-                status=status.HTTP_200_OK,
+                {'detail': f'Reader error: {type(exc).__name__}: {exc}'},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
             )
         finally:
             try:
@@ -135,5 +146,10 @@ class PreviewView(APIView):
             except Exception:
                 pass
 
-        payload = _dataframe_to_payload(df, row_limit=data['row_limit'], offset=data['offset'])
+        payload = _dataframe_to_payload(
+            df,
+            row_limit=data['row_limit'],
+            offset=data['offset'],
+            step_error=step_error,
+        )
         return Response(payload)

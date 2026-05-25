@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import os
 from dataclasses import dataclass, field
-from typing import Any
+from typing import Any, Callable
 
 import pandas as pd
 from django.core.exceptions import ValidationError
@@ -16,6 +16,7 @@ from django.db import transaction
 from django.utils.text import slugify
 
 from .models import Brand, Category, CharacteristicType, Product
+from .signals import suppress_embedding_signal
 
 # Batch size for chunked commit. Each batch is its own transaction so a
 # huge import does not blow up the Postgres rollback log nor pin the entire
@@ -288,7 +289,10 @@ def _commit_batch(
     return created, updated, skipped, errors, affected_ids
 
 
-def commit_rows(results: list[RowResult]) -> dict:
+def commit_rows(
+    results: list[RowResult],
+    progress_callback: Callable[[int], None] | None = None,
+) -> dict:
     """Persist valid rows. Category/Brand are get_or_create by name. SKU is upsert key.
 
     Iterates ``results`` in chunks of ``IMPORT_COMMIT_BATCH_SIZE``, each chunk
@@ -323,14 +327,25 @@ def commit_rows(results: list[RowResult]) -> dict:
     batch_size = max(1, IMPORT_COMMIT_BATCH_SIZE)
     affected_ids: list[int] = []
 
-    for start in range(0, len(results), batch_size):
-        batch = results[start:start + batch_size]
-        c, u, s, errs, ids = _commit_batch(batch, char_types_by_name, linked_pairs)
-        created += c
-        updated += u
-        skipped += s
-        errors.extend(errs)
-        affected_ids.extend(ids)
+    # Suppress per-row embedding signal: a chunked embed task is enqueued for
+    # all affected ids by run_import_commit after this returns.
+    with suppress_embedding_signal():
+        processed = 0
+        for start in range(0, len(results), batch_size):
+            batch = results[start:start + batch_size]
+            c, u, s, errs, ids = _commit_batch(batch, char_types_by_name, linked_pairs)
+            created += c
+            updated += u
+            skipped += s
+            errors.extend(errs)
+            affected_ids.extend(ids)
+            processed += len(batch)
+            if progress_callback is not None:
+                try:
+                    progress_callback(processed)
+                except Exception:
+                    # Progress is best-effort — never fail the commit on a bad callback.
+                    pass
 
     return {
         'created': created,

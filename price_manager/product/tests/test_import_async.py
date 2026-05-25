@@ -123,12 +123,12 @@ class AsyncImportFlowTests(TestCase):
         observed: dict[str, str] = {}
         original_commit_rows = product_importer.commit_rows
 
-        def spying_commit_rows(results):
+        def spying_commit_rows(results, progress_callback=None):
             job = ImportJob.objects.filter(status=ImportJob.STATUS_RUNNING).order_by('-created_at').first()
             if job is not None:
                 job.refresh_from_db(fields=['stage'])
                 observed['stage_during_commit'] = job.stage
-            return original_commit_rows(results)
+            return original_commit_rows(results, progress_callback=progress_callback)
 
         with patch.object(product_tasks, 'commit_rows', side_effect=spying_commit_rows):
             resp = self._post(IMPORT_COMMIT_URL, sid)
@@ -160,6 +160,62 @@ class AsyncImportFlowTests(TestCase):
         self.assertEqual(body['status'], 'success')
         self.assertEqual(body['result']['created'], 1200)
         self.assertEqual(Product.objects.count(), 1200)
+
+    def test_commit_does_not_enqueue_per_row_embed_via_signal(self):
+        """During chunked commit, the post_save signal must NOT enqueue per-pk
+        embed tasks — only the post-commit chunked enqueue should fire.
+        """
+        rows = [DEFAULT_HEADER]
+        for i in range(1, 6):
+            rows.append([f'S{i}', f'N{i}', 'Cat', 'B', 'red', str(i)])
+        sid = self._upload(rows)
+
+        with patch.object(product_tasks.embed_products_task, 'delay') as delay_mock:
+            with override_settings(EMBED_BACKFILL_BATCH_SIZE=100):
+                resp = self._post(IMPORT_COMMIT_URL, sid)
+
+        self.assertEqual(resp.status_code, 202)
+        self.assertEqual(resp.json()['status'], 'success')
+        # Exactly one chunked call for 5 ids (well below batch size of 100).
+        self.assertEqual(delay_mock.call_count, 1, delay_mock.call_args_list)
+        ids_arg = delay_mock.call_args_list[0].args[0]
+        self.assertEqual(len(ids_arg), 5)
+
+    def test_commit_publishes_row_progress(self):
+        """rows_total set to result count and rows_done climbs to it after success."""
+        rows = [DEFAULT_HEADER]
+        for i in range(1, 8):  # 7 rows
+            rows.append([f'S{i}', f'N{i}', 'Cat', 'B', 'red', str(i)])
+        sid = self._upload(rows)
+
+        observed: list[int] = []
+        original = product_importer.commit_rows
+
+        def spying_commit(results, progress_callback=None):
+            job = ImportJob.objects.filter(status=ImportJob.STATUS_RUNNING).order_by('-created_at').first()
+            self.assertIsNotNone(job)
+            job.refresh_from_db()
+            # rows_total is published before commit starts.
+            self.assertEqual(job.rows_total, len(results))
+
+            def tap(n):
+                observed.append(n)
+                if progress_callback is not None:
+                    progress_callback(n)
+
+            return original(results, progress_callback=tap)
+
+        with patch.object(product_importer, 'IMPORT_COMMIT_BATCH_SIZE', 3):
+            with patch.object(product_tasks, 'commit_rows', side_effect=spying_commit):
+                resp = self._post(IMPORT_COMMIT_URL, sid)
+
+        self.assertEqual(resp.status_code, 202)
+        self.assertEqual(resp.json()['status'], 'success')
+        # 7 rows / batch 3 → progress emitted at 3, 6, 7.
+        self.assertEqual(observed, [3, 6, 7])
+        job = ImportJob.objects.get(pk=resp.json()['id'])
+        self.assertEqual(job.rows_total, 7)
+        self.assertEqual(job.rows_done, 7)
 
     def test_pipeline_error_records_error_status(self):
         sid = self._upload([DEFAULT_HEADER, ['S1', 'A', 'C', 'B', 'red', '1']])
