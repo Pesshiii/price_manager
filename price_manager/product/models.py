@@ -296,6 +296,10 @@ class ImportJob(models.Model):
     row_limit = models.PositiveIntegerField(default=200)
     result = models.JSONField(null=True, blank=True)
     error = models.TextField(blank=True)
+    # Coarse-grained progress: rows_total is set once after apply_mapping;
+    # rows_done is bumped after each commit batch. UI shows them as a bar.
+    rows_total = models.PositiveIntegerField(default=0)
+    rows_done = models.PositiveIntegerField(default=0)
     created_at = models.DateTimeField(auto_now_add=True)
     started_at = models.DateTimeField(null=True, blank=True)
     finished_at = models.DateTimeField(null=True, blank=True)
@@ -354,6 +358,11 @@ class CharacteristicMutationJob(models.Model):
     payload = models.JSONField(default=dict, blank=True)
     result = models.JSONField(null=True, blank=True)
     error = models.TextField(blank=True)
+    # Coarse-grained progress: rows_total set once from DB count before
+    # iterating; rows_done bumped after each bulk_update batch. Mirrors the
+    # ImportJob pattern so the SPA can reuse the same progress-bar component.
+    rows_total = models.PositiveIntegerField(default=0)
+    rows_done = models.PositiveIntegerField(default=0)
     created_at = models.DateTimeField(auto_now_add=True)
     started_at = models.DateTimeField(null=True, blank=True)
     finished_at = models.DateTimeField(null=True, blank=True)

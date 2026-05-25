@@ -120,7 +120,8 @@ class ImportJobSerializer(serializers.ModelSerializer):
     class Meta:
         model = ImportJob
         fields = [
-            'id', 'kind', 'status', 'result', 'error',
+            'id', 'kind', 'status', 'stage', 'rows_total', 'rows_done',
+            'result', 'error',
             'created_at', 'started_at', 'finished_at',
         ]
         read_only_fields = fields
@@ -138,7 +139,8 @@ class CharMutationJobSerializer(serializers.ModelSerializer):
     class Meta:
         model = CharacteristicMutationJob
         fields = [
-            'id', 'kind', 'status', 'stage', 'char_type', 'payload',
+            'id', 'kind', 'status', 'stage', 'rows_total', 'rows_done',
+            'char_type', 'payload',
             'result', 'error', 'created_at', 'started_at', 'finished_at',
         ]
         read_only_fields = fields
