@@ -67,6 +67,7 @@ INSTALLED_APPS = [
     'blogapp',
     'dataframe',
     'product',
+    'supplier_feed',
 ]
 
 MIDDLEWARE = [
