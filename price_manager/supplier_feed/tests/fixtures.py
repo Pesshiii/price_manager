@@ -1,23 +1,10 @@
 """Shared test helpers for supplier_feed tests."""
-from supplier_manager.models import Currency, Supplier
+from supplier.models import Supplier
 from supplier_feed.models import FeedMapping
 
 
-def make_currency(name='KZT', value='1.00'):
-    return Currency.objects.get_or_create(name=name, defaults={'value': value})[0]
-
-
-def make_supplier(name='Тест Поставщик', currency=None):
-    if currency is None:
-        currency = make_currency()
-    return Supplier.objects.get_or_create(
-        name=name,
-        defaults={
-            'currency': currency,
-            'price_update_rate': '',
-            'stock_update_rate': '',
-        },
-    )[0]
+def make_supplier(name='Тест Поставщик'):
+    return Supplier.objects.get_or_create(name=name)[0]
 
 
 def make_feed_mapping(supplier=None, name='Прайс', supplier_sku_column='article', **kwargs):

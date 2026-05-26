@@ -22,7 +22,7 @@ STATUS_CHOICES = [
 
 class FeedMapping(models.Model):
     supplier = models.ForeignKey(
-        'supplier_manager.Supplier',
+        'supplier.Supplier',
         on_delete=models.CASCADE,
         verbose_name='Поставщик',
         related_name='feed_mappings',
@@ -46,7 +46,7 @@ class SupplierFeed(models.Model):
     """Сессия выгрузки прайса поставщика."""
 
     supplier = models.ForeignKey(
-        'supplier_manager.Supplier',
+        'supplier.Supplier',
         on_delete=models.PROTECT,
         verbose_name='Поставщик',
         related_name='supplier_feeds',
@@ -115,7 +115,7 @@ class SupplierLink(models.Model):
     """Постоянная связь артикула поставщика с товаром в каталоге."""
 
     supplier = models.ForeignKey(
-        'supplier_manager.Supplier',
+        'supplier.Supplier',
         on_delete=models.CASCADE,
         verbose_name='Поставщик',
     )

@@ -4,7 +4,7 @@ from django.test import TestCase, override_settings
 from django.urls import reverse
 
 from supplier_feed.models import FeedMapping
-from .fixtures import make_currency, make_supplier, make_feed_mapping
+from .fixtures import make_supplier, make_feed_mapping
 
 MAPPING_LIST_URL = 'supplier_feed_api:feedmapping-list'
 MAPPING_DETAIL_URL = 'supplier_feed_api:feedmapping-detail'
