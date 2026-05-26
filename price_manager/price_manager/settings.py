@@ -68,6 +68,7 @@ INSTALLED_APPS = [
     'dataframe',
     'product',
     'supplier_feed',
+    'supplier',
 ]
 
 MIDDLEWARE = [

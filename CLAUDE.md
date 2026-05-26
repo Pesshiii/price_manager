@@ -222,3 +222,9 @@ takes precedence on slug collisions. `CharacteristicType.name` uses
 - API endpoints under `/api/` use DRF and session auth; the SPA lives at `../price-manager-frontend/` (separate repo working dir)
 - New apps should use the `tests/` package layout (see `product/tests/`) instead of a single `tests.py`
 - Multi-stage Dockerfile on Python 3.13-slim; production image runs Gunicorn + WhiteNoise
+
+## Agent skills
+
+### Domain docs
+
+Single-context layout: `CONTEXT.md` at the repo root, ADRs under `docs/adr`.
