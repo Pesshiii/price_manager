@@ -223,9 +223,9 @@ takes precedence on slug collisions. `CharacteristicType.name` uses
 - Templates use django-template-partials for components, HTMX for interactivity
 - Task execution history is logged in `TaskRunHistory` model — check it when debugging Celery issues
 - API endpoints under `/api/` use DRF and session auth; the SPA lives at `../price-manager-frontend/` (separate repo working dir)
-- When any API endpoints are updated/created update api endpoint map in `../price-manager-frontend/CLAUDE.md`
 - New apps should use the `tests/` package layout (see `product/tests/`) instead of a single `tests.py`
 - Multi-stage Dockerfile on Python 3.13-slim; production image runs Gunicorn + WhiteNoise
+- Every time api layout is changed **ALWAYS** update the `API_MAP.md` file
 
 ## Agent skills
 

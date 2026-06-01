@@ -38,7 +38,7 @@ def run_matching(feed, rows: list[dict[str, Any]]) -> dict[str, int]:
     records for every automatic match (either via cached link or high-score
     vector similarity).
 
-    Returns ``{'matched': int, 'queued': int}``.
+    Returns ``{'matched': int, 'queued': int, 'skipped': int}``.
     """
     mapping = feed.feed_mapping
     sku_col: str = mapping.supplier_sku_column
@@ -47,7 +47,8 @@ def run_matching(feed, rows: list[dict[str, Any]]) -> dict[str, int]:
     threshold: float = float(mapping.auto_match_threshold)
 
     # ── Step 1: load all SupplierLink records for this supplier (one query) ──
-    cached_links: dict[str, int] = {
+    # product_id=None means ignore-link (permanent skip marker).
+    cached_links: dict[str, int | None] = {
         sl.supplier_sku: sl.product_id
         for sl in SupplierLink.objects.filter(supplier=feed.supplier)
     }
@@ -58,22 +59,36 @@ def run_matching(feed, rows: list[dict[str, Any]]) -> dict[str, int]:
 
     matched = 0
     queued = 0
+    skipped = 0
 
-    # ── Step 2: partition rows into linked / unlinked ─────────────────────────
+    # ── Step 2: partition rows into linked / ignore-linked / unlinked ─────────
     for row in rows:
         supplier_sku = str(row.get(sku_col) or '').strip()
         if not supplier_sku:
             continue
-        data = {col: row.get(col) for col in var_cols if col in row}
+        data = {
+            **{col: row.get(col) for col in id_cols if col in row},
+            **{col: row.get(col) for col in var_cols if col in row},
+        }
 
         if supplier_sku in cached_links:
-            entries_to_create.append(SupplierFeedEntry(
-                feed=feed,
-                supplier_sku=supplier_sku,
-                product_id=cached_links[supplier_sku],
-                data=data,
-            ))
-            matched += 1
+            product_id = cached_links[supplier_sku]
+            if product_id is None:
+                entries_to_create.append(SupplierFeedEntry(
+                    feed=feed,
+                    supplier_sku=supplier_sku,
+                    data=data,
+                    skipped=True,
+                ))
+                skipped += 1
+            else:
+                entries_to_create.append(SupplierFeedEntry(
+                    feed=feed,
+                    supplier_sku=supplier_sku,
+                    product_id=product_id,
+                    data=data,
+                ))
+                matched += 1
         else:
             need_embed.append((row, supplier_sku, data))
 
@@ -88,6 +103,7 @@ def run_matching(feed, rows: list[dict[str, Any]]) -> dict[str, int]:
         candidates = list(
             Product.objects
             .filter(embedding__isnull=False)
+            .select_related('category', 'brand')
             .annotate(distance=CosineDistance('embedding', vec))
             .order_by('distance')[:TOP_N_CANDIDATES]
         )
@@ -107,6 +123,7 @@ def run_matching(feed, rows: list[dict[str, Any]]) -> dict[str, int]:
                 supplier_sku=supplier_sku,
                 product_id=best.pk,
                 data=data,
+                best_score=round(similarity, 4),
             ))
             links_to_create.append(SupplierLink(
                 supplier=feed.supplier,
@@ -121,15 +138,20 @@ def run_matching(feed, rows: list[dict[str, Any]]) -> dict[str, int]:
                     'product_id': p.pk,
                     'score': round(1.0 - float(p.distance), 4),
                     'name': p.name,
+                    'sku': p.sku,
+                    'category': p.category.name if p.category_id else None,
+                    'brand': p.brand.name if p.brand_id else None,
                 }
                 for p in candidates
             ]
+            queued_score = round(similarity, 4) if best is not None else None
             entries_to_create.append(SupplierFeedEntry(
                 feed=feed,
                 supplier_sku=supplier_sku,
                 product_id=None,
                 data=data,
                 match_candidates=candidate_list,
+                best_score=queued_score,
             ))
             queued += 1
 
@@ -146,6 +168,6 @@ def run_matching(feed, rows: list[dict[str, Any]]) -> dict[str, int]:
         )
 
     logger.info(
-        'run_matching feed=%s matched=%d queued=%d', feed.pk, matched, queued
+        'run_matching feed=%s matched=%d queued=%d skipped=%d', feed.pk, matched, queued, skipped
     )
-    return {'matched': matched, 'queued': queued}
+    return {'matched': matched, 'queued': queued, 'skipped': skipped}

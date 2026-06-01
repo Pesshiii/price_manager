@@ -20,7 +20,7 @@ class SupplierLinkSerializer(serializers.ModelSerializer):
     """Read serializer — nested supplier and product objects."""
 
     supplier = _SupplierMinSerializer(read_only=True)
-    product = _ProductMiniSerializer(read_only=True)
+    product = _ProductMiniSerializer(read_only=True, allow_null=True)
 
     class Meta:
         model = SupplierLink
@@ -53,22 +53,33 @@ class SupplierFeedEntrySerializer(serializers.ModelSerializer):
 
     class Meta:
         model = SupplierFeedEntry
-        fields = ['id', 'supplier_sku', 'data', 'match_candidates']
+        fields = ['id', 'supplier_sku', 'data', 'match_candidates', 'best_score']
 
 
 # ── FeedMapping / SupplierFeed serializers ────────────────────────────────────
 
+class _DataframeMiniSerializer(serializers.Serializer):
+    id = serializers.IntegerField()
+    name = serializers.CharField()
+
+
 class FeedMappingSerializer(serializers.ModelSerializer):
+    dataframe_detail = _DataframeMiniSerializer(source='dataframe', read_only=True)
+
     class Meta:
         model = FeedMapping
         fields = [
             'id',
             'supplier',
             'name',
+            'dataframe',
+            'dataframe_detail',
             'supplier_sku_column',
             'identity_columns',
             'variable_columns',
             'auto_match_threshold',
+            'product_name_column',
+            'product_sku_column',
         ]
 
 

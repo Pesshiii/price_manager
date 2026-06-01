@@ -1,3 +1,4 @@
+from django.db import models
 from rest_framework import mixins, status, viewsets
 from rest_framework.authentication import SessionAuthentication
 from rest_framework.decorators import action
@@ -37,7 +38,7 @@ class _QueuePagination(PageNumberPagination):
 class FeedMappingViewSet(viewsets.ModelViewSet):
     """CRUD для конфигурации выгрузок поставщика."""
 
-    queryset = FeedMapping.objects.select_related('supplier').order_by('supplier', 'name')
+    queryset = FeedMapping.objects.select_related('supplier', 'dataframe').order_by('supplier', 'name')
     serializer_class = FeedMappingSerializer
     authentication_classes = [SessionAuthentication]
     permission_classes = [IsAuthenticated]
@@ -154,7 +155,7 @@ class SupplierFeedViewSet(viewsets.ModelViewSet):
         qs = (
             SupplierFeedEntry.objects
             .filter(feed=feed, product__isnull=True, skipped=False)
-            .order_by('id')
+            .order_by(models.F('best_score').desc(nulls_first=True))
         )
         paginator = _QueuePagination()
         page = paginator.paginate_queryset(qs, request, view=self)
@@ -228,6 +229,209 @@ class SupplierFeedViewSet(viewsets.ModelViewSet):
             )
 
         # Auto-done: if the queue is now empty, transition the feed to 'done'.
+        remaining = SupplierFeedEntry.objects.filter(
+            feed=feed, product__isnull=True, skipped=False
+        ).exists()
+        if not remaining:
+            feed.status = STATUS_DONE
+            feed.save(update_fields=['status'])
+
+        return Response(SupplierFeedEntrySerializer(entry).data, status=status.HTTP_200_OK)
+
+
+    # ── Create product from queue entry ───────────────────────────────────────
+
+    @action(
+        detail=True,
+        methods=['post'],
+        url_path=r'queue/(?P<entry_id>\d+)/create-product',
+        url_name='create-product',
+    )
+    def create_product(self, request, pk=None, entry_id=None):
+        """Create a new Product from a queued entry and link it.
+
+        Request body: {sku: str, name: str}
+        Atomically creates the Product (status=draft), a SupplierLink, and
+        resolves the entry.  Returns 201 with the updated entry.
+        """
+        from django.db import transaction
+        from product.models import Product
+
+        feed = self.get_object()
+        try:
+            entry = SupplierFeedEntry.objects.get(pk=entry_id, feed=feed)
+        except SupplierFeedEntry.DoesNotExist:
+            return Response(
+                {'detail': 'Запись не найдена в данной сессии.'},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        if entry.product_id is not None or entry.skipped:
+            return Response(
+                {'detail': 'Запись уже обработана.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        sku = request.data.get('sku', '').strip()
+        name = request.data.get('name', '').strip()
+        if not sku or not name:
+            return Response(
+                {'detail': 'Необходимо передать sku и name.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        if Product.objects.filter(sku=sku).exists():
+            return Response(
+                {'detail': f'Товар с артикулом «{sku}» уже существует.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        with transaction.atomic():
+            product = Product.objects.create(sku=sku, name=name)
+            SupplierLink.objects.update_or_create(
+                supplier=feed.supplier,
+                supplier_sku=entry.supplier_sku,
+                defaults={'product': product},
+            )
+            entry.product = product
+            entry.save(update_fields=['product'])
+
+        remaining = SupplierFeedEntry.objects.filter(
+            feed=feed, product__isnull=True, skipped=False
+        ).exists()
+        if not remaining:
+            feed.status = STATUS_DONE
+            feed.save(update_fields=['status'])
+
+        return Response(SupplierFeedEntrySerializer(entry).data, status=status.HTTP_201_CREATED)
+
+    # ── Bulk-create products from queue ───────────────────────────────────────
+
+    @action(
+        detail=True,
+        methods=['post'],
+        url_path='queue/bulk-create-products',
+        url_name='bulk-create-products',
+    )
+    def bulk_create_products(self, request, pk=None):
+        """Create new Products for all remaining queued entries in one request.
+
+        Request body: {name_column: str}
+        For each product=None, skipped=False entry:
+          - name = entry.data[name_column] (error if missing or empty)
+          - sku  = entry.data[feed_mapping.product_sku_column] if set,
+                   else entry.supplier_sku
+        Behaviour: skip-and-continue on per-entry errors.
+        Returns {created, failed, errors: [{entry_id, reason}]}.
+        Auto-transitions feed to 'done' if queue empties.
+        """
+        from django.db import transaction
+        from product.models import Product
+
+        feed = self.get_object()
+        name_column = request.data.get('name_column', '').strip()
+        if not name_column:
+            return Response(
+                {'detail': 'Необходимо передать name_column.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        mapping = feed.feed_mapping
+        sku_column = mapping.product_sku_column or ''
+
+        entries = list(
+            SupplierFeedEntry.objects
+            .filter(feed=feed, product__isnull=True, skipped=False)
+        )
+
+        created_count = 0
+        failed_count = 0
+        errors = []
+
+        for entry in entries:
+            name = str(entry.data.get(name_column) or '').strip()
+            if not name:
+                failed_count += 1
+                errors.append({'entry_id': entry.pk, 'reason': f'Колонка «{name_column}» пуста или отсутствует.'})
+                continue
+
+            if sku_column and sku_column in entry.data:
+                sku = str(entry.data[sku_column]).strip() or entry.supplier_sku
+            else:
+                sku = entry.supplier_sku
+
+            if Product.objects.filter(sku=sku).exists():
+                failed_count += 1
+                errors.append({'entry_id': entry.pk, 'reason': f'Товар с артикулом «{sku}» уже существует.'})
+                continue
+
+            try:
+                with transaction.atomic():
+                    product = Product.objects.create(sku=sku, name=name)
+                    SupplierLink.objects.update_or_create(
+                        supplier=feed.supplier,
+                        supplier_sku=entry.supplier_sku,
+                        defaults={'product': product},
+                    )
+                    entry.product = product
+                    entry.save(update_fields=['product'])
+                created_count += 1
+            except Exception as exc:
+                failed_count += 1
+                errors.append({'entry_id': entry.pk, 'reason': str(exc)})
+
+        remaining = SupplierFeedEntry.objects.filter(
+            feed=feed, product__isnull=True, skipped=False
+        ).exists()
+        if not remaining:
+            feed.status = STATUS_DONE
+            feed.save(update_fields=['status'])
+
+        return Response(
+            {'created': created_count, 'failed': failed_count, 'errors': errors},
+            status=status.HTTP_200_OK,
+        )
+
+    # ── Ignore a queue entry ───────────────────────────────────────────────────
+
+    @action(
+        detail=True,
+        methods=['post'],
+        url_path=r'queue/(?P<entry_id>\d+)/ignore',
+        url_name='ignore',
+    )
+    def ignore(self, request, pk=None, entry_id=None):
+        """Mark a queued entry as permanently ignored.
+
+        Creates an ignore-link (SupplierLink with product=None) and sets
+        entry.skipped=True.  Returns 200 with the updated entry.
+        """
+        from django.db import transaction
+
+        feed = self.get_object()
+        try:
+            entry = SupplierFeedEntry.objects.get(pk=entry_id, feed=feed)
+        except SupplierFeedEntry.DoesNotExist:
+            return Response(
+                {'detail': 'Запись не найдена в данной сессии.'},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        if entry.product_id is not None or entry.skipped:
+            return Response(
+                {'detail': 'Запись уже обработана.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        with transaction.atomic():
+            SupplierLink.objects.update_or_create(
+                supplier=feed.supplier,
+                supplier_sku=entry.supplier_sku,
+                defaults={'product': None},
+            )
+            entry.skipped = True
+            entry.save(update_fields=['skipped'])
+
         remaining = SupplierFeedEntry.objects.filter(
             feed=feed, product__isnull=True, skipped=False
         ).exists()

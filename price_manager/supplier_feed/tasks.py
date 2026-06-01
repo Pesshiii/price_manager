@@ -12,13 +12,12 @@ Concurrency: a per-feed Redis lock prevents parallel runs for the same feed.
 """
 from __future__ import annotations
 
-import io
 import logging
 
-import pandas as pd
 from celery import shared_task
 from django.core.cache import cache
 
+from dataframe import services as dataframe_services
 from dataframe import sessions as session_store
 
 from . import matcher
@@ -39,18 +38,17 @@ def _build_lock_key(feed_id: int) -> str:
 
 
 def _read_rows_from_sessions(feed: SupplierFeed) -> list[dict]:
-    """Open each session file attached to the feed and parse it to a list of row dicts."""
+    """Apply the FeedMapping pipeline to each session file and return combined rows."""
+    pipeline = feed.feed_mapping.dataframe
     all_rows: list[dict] = []
     for session_id in feed.session_ids:
         fobj = session_store.open_session_file(session_id)
         try:
-            raw = fobj.read()
-            filename = session_store.session_filename(session_id)
-            if filename.lower().endswith(('.xlsx', '.xls')):
-                df = pd.read_excel(io.BytesIO(raw))
-            else:
-                df = pd.read_csv(io.BytesIO(raw))
-            all_rows.extend(df.to_dict(orient='records'))
+            df = dataframe_services.apply(pipeline, fobj, session_id=session_id)
+            # Replace NaN/NaT/NA with None so JSONB serialization never sees
+            # the bare "NaN" token, which PostgreSQL rejects as invalid JSON.
+            clean = df.where(df.notna(), other=None)
+            all_rows.extend(clean.to_dict(orient='records'))
         finally:
             try:
                 fobj.close()
@@ -84,7 +82,7 @@ def run_feed_matching_task(feed_id: int) -> None:
 
     try:
         try:
-            feed = SupplierFeed.objects.select_related('feed_mapping', 'supplier').get(
+            feed = SupplierFeed.objects.select_related('feed_mapping__dataframe', 'supplier').get(
                 pk=feed_id
             )
         except SupplierFeed.DoesNotExist:

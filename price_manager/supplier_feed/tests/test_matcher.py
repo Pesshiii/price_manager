@@ -109,6 +109,16 @@ class SupplierLinkMatchTests(TestCase):
         entry = SupplierFeedEntry.objects.get(feed=self.feed, supplier_sku='SKU-001')
         self.assertEqual(entry.data.get('price'), '750')
 
+    def test_sku_match_stores_identity_data(self):
+        """Identity columns are merged into entry.data alongside variable columns."""
+        rows = [{'article': 'SKU-001', 'name': 'Дрель', 'price': '750'}]
+
+        with patch(EMBED_PATH):
+            run_matching(self.feed, rows)
+
+        entry = SupplierFeedEntry.objects.get(feed=self.feed, supplier_sku='SKU-001')
+        self.assertEqual(entry.data.get('name'), 'Дрель')
+
     def test_multiple_linked_skus_all_matched(self):
         """Two known SKUs → both entries created, matched=2."""
         product2 = _make_product('Перфоратор', 'P-002')
@@ -218,13 +228,15 @@ class VectorQueueTests(TestCase):
         entry = SupplierFeedEntry.objects.get(feed=self.feed, supplier_sku='UNKNOWN-SKU')
         self.assertIsNone(entry.product_id)
 
-        # Candidates list contains the product with its score
+        # Candidates list contains the product with its score and catalogue fields
         self.assertGreater(len(entry.match_candidates), 0)
         first = entry.match_candidates[0]
-        self.assertIn('product_id', first)
-        self.assertIn('score', first)
-        self.assertIn('name', first)
         self.assertEqual(first['product_id'], self.product.pk)
+        self.assertIn('score', first)
+        self.assertEqual(first['name'], self.product.name)
+        self.assertEqual(first['sku'], self.product.sku)
+        self.assertEqual(first['category'], 'TestCat')
+        self.assertEqual(first['brand'], 'TestBrand')
 
     def test_no_supplier_link_created_for_queued_entry(self):
         """Low-similarity match must NOT create a SupplierLink."""
@@ -239,9 +251,20 @@ class VectorQueueTests(TestCase):
             ).exists()
         )
 
+    def test_low_similarity_entry_has_best_score_set(self):
+        """Queued entry with candidates must have best_score populated."""
+        rows = [{'article': 'SCORE-SKU', 'name': 'Утюг'}]
+
+        with patch(EMBED_PATH, return_value=_unit_vec(1)):
+            run_matching(self.feed, rows)
+
+        entry = SupplierFeedEntry.objects.get(feed=self.feed, supplier_sku='SCORE-SKU')
+        self.assertIsNotNone(entry.best_score)
+        # Perpendicular vectors → cosine similarity = 0
+        self.assertAlmostEqual(entry.best_score, 0.0, places=3)
+
     def test_no_products_with_embeddings_still_queues(self):
         """When no products have embeddings, entry is queued with empty candidates."""
-        # Remove the embedding so there are no indexed products
         self.product.embedding = None
         self.product.save(update_fields=['embedding'])
 
@@ -254,6 +277,19 @@ class VectorQueueTests(TestCase):
         entry = SupplierFeedEntry.objects.get(feed=self.feed, supplier_sku='GHOST-SKU')
         self.assertIsNone(entry.product_id)
         self.assertEqual(entry.match_candidates, [])
+
+    def test_no_products_with_embeddings_gives_null_best_score(self):
+        """Entry with no candidates must have best_score=None (anomaly marker)."""
+        self.product.embedding = None
+        self.product.save(update_fields=['embedding'])
+
+        rows = [{'article': 'NULL-SCORE-SKU', 'name': 'Что-то'}]
+
+        with patch(EMBED_PATH, return_value=_unit_vec(0)):
+            run_matching(self.feed, rows)
+
+        entry = SupplierFeedEntry.objects.get(feed=self.feed, supplier_sku='NULL-SCORE-SKU')
+        self.assertIsNone(entry.best_score)
 
 
 # ── Cycle 4: Mixed batch ──────────────────────────────────────────────────────
@@ -288,6 +324,13 @@ class MixedBatchTests(TestCase):
         # product_c: exists but only as low-similarity candidate (vec index 3)
         self.product_c = _make_product('Товар C', 'PC', embedding=_unit_vec(3))
 
+    def test_mixed_batch_returns_correct_stats_includes_skipped_key(self):
+        """run_matching return dict must include 'skipped' key."""
+        rows = []
+        with patch(EMBED_PATH, return_value=_unit_vec(0)):
+            stats = run_matching(self.feed, rows)
+        self.assertIn('skipped', stats)
+
     def test_mixed_batch_returns_correct_stats(self):
         """1 linked + 1 auto-match + 1 queued → matched=2, queued=1."""
         rows = [
@@ -316,3 +359,69 @@ class MixedBatchTests(TestCase):
         # Queued entry has product=None
         queued_entry = SupplierFeedEntry.objects.get(feed=self.feed, supplier_sku='SKU-C')
         self.assertIsNone(queued_entry.product_id)
+
+
+# ── Cycle 5: Ignore-link ─────────────────────────────────────────────────────
+
+class IgnoreLinkTests(TestCase):
+    """Branch 5: SupplierLink with product=None (ignore-link) → entry skipped, no embedding."""
+
+    def setUp(self):
+        self.supplier = make_supplier(name='Supplier E')
+        self.mapping = make_feed_mapping(
+            supplier=self.supplier,
+            supplier_sku_column='article',
+            identity_columns=['name'],
+            variable_columns=['price'],
+        )
+        self.feed = SupplierFeed.objects.create(
+            supplier=self.supplier,
+            feed_mapping=self.mapping,
+            status='processing',
+        )
+        SupplierLink.objects.create(
+            supplier=self.supplier,
+            supplier_sku='IGN-001',
+            product=None,
+        )
+
+    def test_ignore_link_creates_skipped_entry(self):
+        """Row matching an ignore-link → entry.skipped=True, not matched."""
+        rows = [{'article': 'IGN-001', 'name': 'Что-то', 'price': '100'}]
+
+        with patch(EMBED_PATH) as mock_embed:
+            stats = run_matching(self.feed, rows)
+
+        mock_embed.assert_not_called()
+        self.assertEqual(stats.get('skipped', 0), 1)
+
+        entry = SupplierFeedEntry.objects.get(feed=self.feed, supplier_sku='IGN-001')
+        self.assertTrue(entry.skipped)
+        self.assertIsNone(entry.product_id)
+
+    def test_ignore_link_does_not_count_as_matched(self):
+        """Ignored row must NOT increment the matched counter."""
+        rows = [{'article': 'IGN-001', 'name': 'Что-то', 'price': '100'}]
+
+        with patch(EMBED_PATH):
+            stats = run_matching(self.feed, rows)
+
+        self.assertEqual(stats['matched'], 0)
+
+    def test_normal_link_still_auto_matches(self):
+        """Regression: a normal SupplierLink (product≠None) still resolves instantly."""
+        product = _make_product('Дрель', 'P-REG-001')
+        SupplierLink.objects.create(
+            supplier=self.supplier,
+            supplier_sku='REG-001',
+            product=product,
+        )
+        rows = [{'article': 'REG-001', 'name': 'Дрель', 'price': '500'}]
+
+        with patch(EMBED_PATH) as mock_embed:
+            stats = run_matching(self.feed, rows)
+
+        mock_embed.assert_not_called()
+        self.assertEqual(stats['matched'], 1)
+        entry = SupplierFeedEntry.objects.get(feed=self.feed, supplier_sku='REG-001')
+        self.assertEqual(entry.product_id, product.pk)

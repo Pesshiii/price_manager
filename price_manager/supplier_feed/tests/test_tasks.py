@@ -10,8 +10,11 @@ in test_matcher.py).
 """
 from __future__ import annotations
 
+import math
 import tempfile
 from unittest.mock import patch, MagicMock
+
+import pandas as pd
 
 from django.core.cache import cache
 from django.test import TestCase, override_settings
@@ -146,3 +149,49 @@ class FeedMatchingTaskTests(TestCase):
     def test_missing_feed_does_not_raise(self):
         """Task called with nonexistent feed_id returns silently."""
         run_feed_matching_task(999_999_999)  # must not raise
+
+
+class ReadRowsNanSanitizationTests(TestCase):
+    """_read_rows_from_sessions must replace NaN/NaT with None.
+
+    Without sanitization, float NaN ends up in SupplierFeedEntry.data as the
+    bare token "NaN", which PostgreSQL rejects as invalid JSON.
+    """
+
+    def test_nan_values_become_none(self):
+        from supplier_feed.tasks import _read_rows_from_sessions
+
+        df_with_nan = pd.DataFrame([
+            {'article': 'SKU-1', 'price': float('nan'), 'stock': 10},
+            {'article': 'SKU-2', 'price': 99.0,         'stock': float('nan')},
+        ])
+
+        feed = MagicMock()
+        feed.session_ids = ['session-abc']
+        feed.feed_mapping.dataframe = MagicMock()
+
+        with patch('supplier_feed.tasks.session_store.open_session_file', return_value=MagicMock()):
+            with patch('supplier_feed.tasks.dataframe_services.apply', return_value=df_with_nan):
+                rows = _read_rows_from_sessions(feed)
+
+        self.assertEqual(len(rows), 2)
+        self.assertIsNone(rows[0]['price'])
+        self.assertIsNone(rows[1]['stock'])
+        # Non-NaN values must be preserved
+        self.assertEqual(rows[0]['stock'], 10)
+        self.assertEqual(rows[1]['price'], 99.0)
+
+    def test_non_nan_values_are_preserved(self):
+        from supplier_feed.tasks import _read_rows_from_sessions
+
+        df_clean = pd.DataFrame([{'article': 'A', 'price': 5.5, 'name': 'Widget'}])
+
+        feed = MagicMock()
+        feed.session_ids = ['session-xyz']
+        feed.feed_mapping.dataframe = MagicMock()
+
+        with patch('supplier_feed.tasks.session_store.open_session_file', return_value=MagicMock()):
+            with patch('supplier_feed.tasks.dataframe_services.apply', return_value=df_clean):
+                rows = _read_rows_from_sessions(feed)
+
+        self.assertEqual(rows, [{'article': 'A', 'price': 5.5, 'name': 'Widget'}])

@@ -15,6 +15,9 @@ from .fixtures import make_supplier, make_feed_mapping
 FEED_LIST_URL = 'supplier_feed_api:supplierfeed-list'
 QUEUE_URL = 'supplier_feed_api:supplierfeed-queue'
 RESOLVE_URL = 'supplier_feed_api:supplierfeed-resolve'
+CREATE_PRODUCT_URL = 'supplier_feed_api:supplierfeed-create-product'
+IGNORE_URL = 'supplier_feed_api:supplierfeed-ignore'
+BULK_CREATE_URL = 'supplier_feed_api:supplierfeed-bulk-create-products'
 
 
 def _make_product(name='Prod', sku='SKU-1'):
@@ -51,7 +54,7 @@ class QueueApiBase(TestCase):
         self.feed = SupplierFeed.objects.get(pk=self.feed_id)
 
     def _make_entry(self, product=None, skipped=False, sku='SKU-X', data=None,
-                    match_candidates=None):
+                    match_candidates=None, best_score=None):
         return SupplierFeedEntry.objects.create(
             feed=self.feed,
             supplier_sku=sku,
@@ -59,6 +62,7 @@ class QueueApiBase(TestCase):
             skipped=skipped,
             data=data or {},
             match_candidates=match_candidates or [],
+            best_score=best_score,
         )
 
     def _queue_url(self):
@@ -66,6 +70,15 @@ class QueueApiBase(TestCase):
 
     def _resolve_url(self, entry_id):
         return reverse(RESOLVE_URL, args=[self.feed_id, entry_id])
+
+    def _create_product_url(self, entry_id):
+        return reverse(CREATE_PRODUCT_URL, args=[self.feed_id, entry_id])
+
+    def _ignore_url(self, entry_id):
+        return reverse(IGNORE_URL, args=[self.feed_id, entry_id])
+
+    def _bulk_create_url(self):
+        return reverse(BULK_CREATE_URL, args=[self.feed_id])
 
 
 # ── Cycle 1 (tracer): GET queue returns 200 with paginated shape ─────────────
@@ -108,11 +121,13 @@ class QueueFilterTest(QueueApiBase):
 
 class QueueEntryShapeTest(QueueApiBase):
     def test_queue_entry_has_required_fields(self):
-        candidates = [{'product_id': 99, 'score': 0.87, 'name': '候補'}]
+        candidates = [{'product_id': 99, 'score': 0.87, 'name': 'Насос', 'sku': 'NB-100',
+                       'category': 'Насосы', 'brand': 'Grundfos'}]
         self._make_entry(
             sku='SHAPE-SKU',
             data={'col': 'val'},
             match_candidates=candidates,
+            best_score=0.87,
         )
         resp = self.client.get(self._queue_url())
         entry = resp.json()['results'][0]
@@ -120,6 +135,13 @@ class QueueEntryShapeTest(QueueApiBase):
         self.assertEqual(entry['supplier_sku'], 'SHAPE-SKU')
         self.assertEqual(entry['data'], {'col': 'val'})
         self.assertEqual(entry['match_candidates'], candidates)
+        self.assertAlmostEqual(entry['best_score'], 0.87)
+
+    def test_entry_with_no_candidates_has_null_best_score(self):
+        self._make_entry(sku='NULL-SCORE', best_score=None)
+        resp = self.client.get(self._queue_url())
+        entry = resp.json()['results'][0]
+        self.assertIsNone(entry['best_score'])
 
 
 # ── Cycle 4: GET queue anonymous → 401 ─────────────────────────────────────
@@ -321,6 +343,332 @@ class ResolveAuthTest(QueueApiBase):
         resp = self.client.post(
             self._resolve_url(entry.pk),
             {'skipped': True},
+            content_type='application/json',
+        )
+        self.assertEqual(resp.status_code, 401)
+
+
+# ── Cycle 13: POST create-product happy path ──────────────────────────────────
+
+class CreateProductHappyPathTest(QueueApiBase):
+    def test_creates_product_link_and_resolves_entry(self):
+        """create-product: Product created with draft status, SupplierLink set, entry resolved."""
+        entry = self._make_entry(sku='CREATE-1')
+
+        resp = self.client.post(
+            self._create_product_url(entry.pk),
+            {'sku': 'NEW-SKU-001', 'name': 'Новый Товар'},
+            content_type='application/json',
+        )
+        self.assertEqual(resp.status_code, 201, resp.content[:300])
+
+        from product.models import Product
+        product = Product.objects.get(sku='NEW-SKU-001')
+        self.assertEqual(product.name, 'Новый Товар')
+        self.assertEqual(product.status, 'draft')
+
+        entry.refresh_from_db()
+        self.assertEqual(entry.product_id, product.pk)
+
+        link = SupplierLink.objects.get(supplier=self.supplier, supplier_sku='CREATE-1')
+        self.assertEqual(link.product_id, product.pk)
+
+    def test_transitions_feed_to_done_when_last_entry(self):
+        entry = self._make_entry(sku='CREATE-LAST')
+
+        self.client.post(
+            self._create_product_url(entry.pk),
+            {'sku': 'LAST-SKU-001', 'name': 'Последний'},
+            content_type='application/json',
+        )
+        self.feed.refresh_from_db()
+        self.assertEqual(self.feed.status, 'done')
+
+
+# ── Cycle 14: POST create-product validation ──────────────────────────────────
+
+class CreateProductValidationTest(QueueApiBase):
+    def test_duplicate_sku_returns_400(self):
+        _make_product(sku='EXISTING-SKU-X')
+        entry = self._make_entry(sku='CREATE-DUP')
+
+        resp = self.client.post(
+            self._create_product_url(entry.pk),
+            {'sku': 'EXISTING-SKU-X', 'name': 'Попытка дублирования'},
+            content_type='application/json',
+        )
+        self.assertEqual(resp.status_code, 400)
+
+    def test_on_already_resolved_entry_returns_400(self):
+        product = _make_product(name='Already', sku='ALREADY-001')
+        entry = self._make_entry(sku='CREATE-RESOLVED', product=product)
+
+        resp = self.client.post(
+            self._create_product_url(entry.pk),
+            {'sku': 'NEW-002', 'name': 'Что-то'},
+            content_type='application/json',
+        )
+        self.assertEqual(resp.status_code, 400)
+
+
+# ── Cycle 15: POST ignore happy path ─────────────────────────────────────────
+
+class IgnoreHappyPathTest(QueueApiBase):
+    def test_creates_ignore_link_and_skips_entry(self):
+        """ignore: ignore-link (product=None) created, entry.skipped=True."""
+        entry = self._make_entry(sku='IGN-1')
+
+        resp = self.client.post(
+            self._ignore_url(entry.pk),
+            {},
+            content_type='application/json',
+        )
+        self.assertEqual(resp.status_code, 200, resp.content[:300])
+
+        entry.refresh_from_db()
+        self.assertTrue(entry.skipped)
+
+        link = SupplierLink.objects.get(supplier=self.supplier, supplier_sku='IGN-1')
+        self.assertIsNone(link.product_id)
+
+    def test_transitions_feed_to_done_when_last_entry(self):
+        entry = self._make_entry(sku='IGN-LAST')
+
+        self.client.post(self._ignore_url(entry.pk), {}, content_type='application/json')
+        self.feed.refresh_from_db()
+        self.assertEqual(self.feed.status, 'done')
+
+
+# ── Cycle 16: POST ignore validation ─────────────────────────────────────────
+
+class IgnoreValidationTest(QueueApiBase):
+    def test_on_already_resolved_entry_returns_400(self):
+        product = _make_product(name='Resolved', sku='RES-IGN-001')
+        entry = self._make_entry(sku='IGN-RESOLVED', product=product)
+
+        resp = self.client.post(
+            self._ignore_url(entry.pk),
+            {},
+            content_type='application/json',
+        )
+        self.assertEqual(resp.status_code, 400)
+
+    def test_on_already_skipped_entry_returns_400(self):
+        entry = self._make_entry(sku='IGN-SKIP', skipped=True)
+
+        resp = self.client.post(
+            self._ignore_url(entry.pk),
+            {},
+            content_type='application/json',
+        )
+        self.assertEqual(resp.status_code, 400)
+
+
+# ── Cycle 17: Queue sort order ────────────────────────────────────────────────
+
+class QueueSortOrderTest(QueueApiBase):
+    """Queue must be sorted: NULL best_score first, then DESC by score."""
+
+    def test_null_score_entry_appears_before_scored_entries(self):
+        """Entry with best_score=None (anomaly) must appear before scored entries."""
+        self._make_entry(sku='HIGH', best_score=0.85)
+        self._make_entry(sku='NULL', best_score=None)
+        self._make_entry(sku='LOW', best_score=0.30)
+
+        resp = self.client.get(self._queue_url())
+        skus = [e['supplier_sku'] for e in resp.json()['results']]
+        self.assertEqual(skus[0], 'NULL')
+
+    def test_higher_score_appears_before_lower_score(self):
+        """Among scored entries, higher best_score comes first."""
+        self._make_entry(sku='LOW', best_score=0.30)
+        self._make_entry(sku='HIGH', best_score=0.85)
+
+        resp = self.client.get(self._queue_url())
+        skus = [e['supplier_sku'] for e in resp.json()['results']]
+        self.assertEqual(skus, ['HIGH', 'LOW'])
+
+    def test_full_sort_order(self):
+        """NULL first, then descending score."""
+        self._make_entry(sku='MID', best_score=0.60)
+        self._make_entry(sku='NULL', best_score=None)
+        self._make_entry(sku='HIGH', best_score=0.85)
+        self._make_entry(sku='LOW', best_score=0.20)
+
+        resp = self.client.get(self._queue_url())
+        skus = [e['supplier_sku'] for e in resp.json()['results']]
+        self.assertEqual(skus, ['NULL', 'HIGH', 'MID', 'LOW'])
+
+
+# ── Cycle 18: POST bulk-create-products happy path ───────────────────────────
+
+class BulkCreateProductsHappyPathTest(QueueApiBase):
+    def test_creates_products_for_all_queued_entries(self):
+        """All queued entries get Product(draft) + SupplierLink created."""
+        self._make_entry(sku='BULK-1', data={'name': 'Товар 1', 'price': '100'})
+        self._make_entry(sku='BULK-2', data={'name': 'Товар 2', 'price': '200'})
+
+        resp = self.client.post(
+            self._bulk_create_url(),
+            {'name_column': 'name'},
+            content_type='application/json',
+        )
+        self.assertEqual(resp.status_code, 200, resp.content[:300])
+        data = resp.json()
+        self.assertEqual(data['created'], 2)
+        self.assertEqual(data['failed'], 0)
+        self.assertEqual(data['errors'], [])
+
+        from product.models import Product
+        self.assertTrue(Product.objects.filter(name='Товар 1').exists())
+        self.assertTrue(Product.objects.filter(name='Товар 2').exists())
+
+    def test_creates_supplier_links_for_each_entry(self):
+        self._make_entry(sku='BLINK-1', data={'name': 'Насос'})
+
+        self.client.post(
+            self._bulk_create_url(),
+            {'name_column': 'name'},
+            content_type='application/json',
+        )
+        link = SupplierLink.objects.get(supplier=self.supplier, supplier_sku='BLINK-1')
+        self.assertIsNotNone(link.product_id)
+
+    def test_entry_product_is_set_after_bulk_create(self):
+        entry = self._make_entry(sku='BPROD-1', data={'name': 'Дрель'})
+
+        self.client.post(
+            self._bulk_create_url(),
+            {'name_column': 'name'},
+            content_type='application/json',
+        )
+        entry.refresh_from_db()
+        self.assertIsNotNone(entry.product_id)
+
+    def test_transitions_feed_to_done_when_queue_empties(self):
+        self._make_entry(sku='BDONE-1', data={'name': 'Товар'})
+
+        self.client.post(
+            self._bulk_create_url(),
+            {'name_column': 'name'},
+            content_type='application/json',
+        )
+        self.feed.refresh_from_db()
+        self.assertEqual(self.feed.status, 'done')
+
+    def test_sku_from_product_sku_column_when_configured(self):
+        """SKU is taken from product_sku_column if configured in FeedMapping."""
+        self.mapping.product_sku_column = 'internal_sku'
+        self.mapping.save(update_fields=['product_sku_column'])
+        self._make_entry(sku='BSKU-1', data={'name': 'Фен', 'internal_sku': 'INT-001'})
+
+        self.client.post(
+            self._bulk_create_url(),
+            {'name_column': 'name'},
+            content_type='application/json',
+        )
+        from product.models import Product
+        self.assertTrue(Product.objects.filter(sku='INT-001').exists())
+
+    def test_sku_falls_back_to_supplier_sku_when_no_column(self):
+        """Without product_sku_column, supplier_sku is used as product SKU."""
+        self._make_entry(sku='BFALLBACK-1', data={'name': 'Шуруп'})
+
+        self.client.post(
+            self._bulk_create_url(),
+            {'name_column': 'name'},
+            content_type='application/json',
+        )
+        from product.models import Product
+        self.assertTrue(Product.objects.filter(sku='BFALLBACK-1').exists())
+
+
+# ── Cycle 19: POST bulk-create-products skip-and-continue ────────────────────
+
+class BulkCreateProductsSkipTest(QueueApiBase):
+    def test_sku_conflict_is_skipped_and_rest_created(self):
+        """Conflicting SKU entry is skipped; other entries are still created."""
+        from product.models import Product, Brand, Category
+        brand = Brand.objects.get_or_create(name='B')[0]
+        cat = Category.objects.get_or_create(name='C', defaults={'slug': 'c'})[0]
+        Product.objects.create(sku='CONFLICT-SKU', name='Существующий', brand=brand, category=cat)
+
+        self._make_entry(sku='CONFLICT-SKU', data={'name': 'Дубль'})
+        self._make_entry(sku='OK-SKU', data={'name': 'Новый'})
+
+        resp = self.client.post(
+            self._bulk_create_url(),
+            {'name_column': 'name'},
+            content_type='application/json',
+        )
+        data = resp.json()
+        self.assertEqual(data['created'], 1)
+        self.assertEqual(data['failed'], 1)
+        self.assertEqual(len(data['errors']), 1)
+        self.assertTrue(Product.objects.filter(sku='OK-SKU').exists())
+
+    def test_missing_name_column_is_skipped(self):
+        """Entry without the specified name column is skipped."""
+        self._make_entry(sku='NO-NAME', data={'price': '100'})
+
+        resp = self.client.post(
+            self._bulk_create_url(),
+            {'name_column': 'name'},
+            content_type='application/json',
+        )
+        data = resp.json()
+        self.assertEqual(data['created'], 0)
+        self.assertEqual(data['failed'], 1)
+        self.assertEqual(len(data['errors']), 1)
+        self.assertIn('name', data['errors'][0]['reason'])
+
+    def test_skipped_entry_remains_in_queue(self):
+        """Failed entry stays in queue (product=None, skipped=False)."""
+        from product.models import Product, Brand, Category
+        brand = Brand.objects.get_or_create(name='B2')[0]
+        cat = Category.objects.get_or_create(name='C2', defaults={'slug': 'c2'})[0]
+        Product.objects.create(sku='DUP-QUEUE', name='Dup', brand=brand, category=cat)
+
+        entry = self._make_entry(sku='DUP-QUEUE', data={'name': 'Дубль'})
+
+        self.client.post(
+            self._bulk_create_url(),
+            {'name_column': 'name'},
+            content_type='application/json',
+        )
+        entry.refresh_from_db()
+        self.assertIsNone(entry.product_id)
+        self.assertFalse(entry.skipped)
+
+
+# ── Cycle 20: POST bulk-create-products validation ───────────────────────────
+
+class BulkCreateProductsValidationTest(QueueApiBase):
+    def test_missing_name_column_param_returns_400(self):
+        resp = self.client.post(
+            self._bulk_create_url(),
+            {},
+            content_type='application/json',
+        )
+        self.assertEqual(resp.status_code, 400)
+
+    def test_empty_queue_returns_zero_counts(self):
+        """With no queued entries, returns {created:0, failed:0, errors:[]}."""
+        resp = self.client.post(
+            self._bulk_create_url(),
+            {'name_column': 'name'},
+            content_type='application/json',
+        )
+        self.assertEqual(resp.status_code, 200)
+        data = resp.json()
+        self.assertEqual(data['created'], 0)
+        self.assertEqual(data['failed'], 0)
+
+    def test_anonymous_returns_401(self):
+        self.client.logout()
+        resp = self.client.post(
+            self._bulk_create_url(),
+            {'name_column': 'name'},
             content_type='application/json',
         )
         self.assertEqual(resp.status_code, 401)

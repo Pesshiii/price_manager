@@ -4,7 +4,7 @@ from django.test import TestCase, override_settings
 from django.urls import reverse
 
 from supplier_feed.models import FeedMapping
-from .fixtures import make_supplier, make_feed_mapping
+from .fixtures import make_supplier, make_feed_mapping, make_dataframe
 
 MAPPING_LIST_URL = 'supplier_feed_api:feedmapping-list'
 MAPPING_DETAIL_URL = 'supplier_feed_api:feedmapping-detail'
@@ -17,6 +17,7 @@ class FeedMappingApiBase(TestCase):
         User = get_user_model()
         cls.user = User.objects.create_user(username='u', password='p')
         cls.supplier = make_supplier()
+        cls.dataframe = make_dataframe()
 
     def setUp(self):
         self.client.force_login(self.user)
@@ -40,6 +41,7 @@ class CreateFeedMappingTests(FeedMappingApiBase):
             {
                 'supplier': self.supplier.pk,
                 'name': 'Прайс Рога',
+                'dataframe': self.dataframe.pk,
                 'supplier_sku_column': 'article',
                 'identity_columns': ['article', 'name'],
                 'variable_columns': ['price', 'stock'],
@@ -50,6 +52,8 @@ class CreateFeedMappingTests(FeedMappingApiBase):
         self.assertEqual(resp.status_code, 201, resp.content[:300])
         data = resp.json()
         self.assertEqual(data['name'], 'Прайс Рога')
+        self.assertEqual(data['dataframe'], self.dataframe.pk)
+        self.assertEqual(data['dataframe_detail']['name'], self.dataframe.name)
         self.assertEqual(data['supplier_sku_column'], 'article')
         self.assertAlmostEqual(data['auto_match_threshold'], 0.88)
         self.assertEqual(FeedMapping.objects.count(), 1)
@@ -60,6 +64,7 @@ class CreateFeedMappingTests(FeedMappingApiBase):
             {
                 'supplier': self.supplier.pk,
                 'name': 'Остатки',
+                'dataframe': self.dataframe.pk,
                 'supplier_sku_column': 'sku',
             },
             content_type='application/json',
@@ -133,3 +138,41 @@ class DeleteProtectionTests(FeedMappingApiBase):
 
         self.assertEqual(resp.status_code, 409)
         self.assertTrue(FeedMapping.objects.filter(pk=mapping.pk).exists())
+
+
+# ── Cycle 9: FeedMapping product columns ─────────────────────────────────────
+
+class FeedMappingProductColumnsTest(FeedMappingApiBase):
+    def test_create_with_product_columns(self):
+        resp = self.client.post(
+            reverse(MAPPING_LIST_URL),
+            {
+                'supplier': self.supplier.pk,
+                'name': 'Прайс с товарами',
+                'dataframe': self.dataframe.pk,
+                'supplier_sku_column': 'article',
+                'product_name_column': 'product_name',
+                'product_sku_column': 'product_sku',
+            },
+            content_type='application/json',
+        )
+        self.assertEqual(resp.status_code, 201, resp.content[:300])
+        data = resp.json()
+        self.assertEqual(data['product_name_column'], 'product_name')
+        self.assertEqual(data['product_sku_column'], 'product_sku')
+
+    def test_product_columns_default_to_empty(self):
+        resp = self.client.post(
+            reverse(MAPPING_LIST_URL),
+            {
+                'supplier': self.supplier.pk,
+                'name': 'Прайс без товаров',
+                'dataframe': self.dataframe.pk,
+                'supplier_sku_column': 'article',
+            },
+            content_type='application/json',
+        )
+        self.assertEqual(resp.status_code, 201, resp.content[:300])
+        data = resp.json()
+        self.assertEqual(data['product_name_column'], '')
+        self.assertEqual(data['product_sku_column'], '')

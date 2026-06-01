@@ -27,11 +27,19 @@ class FeedMapping(models.Model):
         verbose_name='Поставщик',
         related_name='feed_mappings',
     )
+    dataframe = models.ForeignKey(
+        'dataframe.Dataframe',
+        on_delete=models.PROTECT,
+        verbose_name='Pipeline',
+        related_name='feed_mappings',
+    )
     name = models.CharField('Название', max_length=255)
     supplier_sku_column = models.CharField('Колонка артикула поставщика', max_length=128)
     identity_columns = models.JSONField('Identity-колонки', default=list, blank=True)
     variable_columns = models.JSONField('Переменные колонки', default=list, blank=True)
     auto_match_threshold = models.FloatField('Порог авто-матчинга', default=0.92)
+    product_name_column = models.CharField('Колонка названия товара', max_length=128, blank=True)
+    product_sku_column = models.CharField('Колонка артикула товара', max_length=128, blank=True)
 
     class Meta:
         verbose_name = 'Конфигурация выгрузки'
@@ -96,6 +104,7 @@ class SupplierFeedEntry(models.Model):
     supplier_sku = models.CharField('Артикул поставщика', max_length=128, db_index=True)
     data = models.JSONField('Данные строки', default=dict)
     match_candidates = models.JSONField('Кандидаты на матчинг', default=list)
+    best_score = models.FloatField('Лучший скор матчинга', null=True, blank=True)
     skipped = models.BooleanField('Пропущено', default=False)
     created_at = models.DateTimeField('Создано', auto_now_add=True)
 
@@ -123,6 +132,8 @@ class SupplierLink(models.Model):
     product = models.ForeignKey(
         'product.Product',
         on_delete=models.CASCADE,
+        null=True,
+        blank=True,
         verbose_name='Товар',
     )
 
