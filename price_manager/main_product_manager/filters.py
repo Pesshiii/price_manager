@@ -142,22 +142,11 @@ class MainProductFilter(FilterSet):
 
     return None
 
-  def _get_terms(self, value):
-      first_pass = value.split()
-      terms = first_pass
-      for bits in first_pass:
-        terms.extend(re.sub(r"[^\w\-\\\/]+", " ", bits, flags=re.UNICODE).split())
-      return terms
+
   def _build_partial_query(self, value):
-      terms = self._get_terms(value)
-      if not terms:
-        return None
-      query = SearchQuery('')
-      for term in terms:
-        query &= SearchQuery(f'{term}:*', search_type='raw', config='russian')
-      return query
-  def _build_partial_ranker(self, value):
-      terms = self._get_terms(value)
+      value = re.sub(r"[^\w\-\\\/]+", " ", value, flags=re.UNICODE)
+      first_terms = value.split()
+      terms = [bit for bit in value.split() if bit] + first_terms
       if not terms:
         return None
       query = SearchQuery('')
@@ -166,10 +155,9 @@ class MainProductFilter(FilterSet):
       return query
   def search_method(self, queryset, name, value):
     query = self._build_partial_query(value)
-    ranker = self._build_partial_ranker(value)
     if query is None:
       return queryset
-    rank = SearchRank("search_vector", ranker)
+    rank = SearchRank("search_vector", query)
     return queryset.annotate(rank=rank).filter(search_vector=query).order_by("-rank")
 
   def available_method(self, queryset, name, value):
