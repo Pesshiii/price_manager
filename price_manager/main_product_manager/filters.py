@@ -152,7 +152,7 @@ class MainProductFilter(FilterSet):
         return None
       query = SearchQuery('')
       for term in terms:
-        query |= SearchQuery(f'{term}:*', search_type='raw', config='russian')
+        query &= SearchQuery(f'{term}:*', search_type='raw', config='russian')
       return query
   def search_method(self, queryset, name, value):
     query = self._build_partial_query(value)
