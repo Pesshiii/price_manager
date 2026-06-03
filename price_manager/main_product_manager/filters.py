@@ -155,21 +155,11 @@ class MainProductFilter(FilterSet):
       for term in terms:
         query |= SearchQuery(f'{term}:*', search_type='raw', config='russian')
       return query
-  def _build_partial_rank(self, value):
-      terms = self._get_terms(value)
-      if not terms:
-        return None
-      query = SearchQuery('')
-      for term in terms:
-        query &= SearchQuery(f'{term}:*', search_type='raw', config='russian')
-      return query
   def search_method(self, queryset, name, value):
     query = self._build_partial_query(value)
     if query is None:
       return queryset
-    rank = SearchRank("search_vector", self._build_partial_rank(value))
-    if rank is None:
-      return queryset
+    rank = SearchRank("search_vector", query)
     return queryset.annotate(rank=rank).filter(search_vector=query).order_by("-rank")
 
   def available_method(self, queryset, name, value):
