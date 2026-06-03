@@ -147,8 +147,7 @@ class MainProductFilter(FilterSet):
       terms = first_pass
       for bits in first_pass:
         terms.extend(re.sub(r"[^\w\-\\\/]+", " ", bits, flags=re.UNICODE).split())
-      value = re.sub(r"[^\w\-\\\/]+", " ", value, flags=re.UNICODE)
-      terms = [bit for bit in value.split() if bit]
+      return terms
   def _build_partial_query(self, value):
       terms = self._get_terms(value)
       if not terms:
