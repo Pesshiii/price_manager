@@ -142,7 +142,7 @@ class MainProductFilter(FilterSet):
 
     return None
 
-  def _get_terms(value):
+  def _get_terms(self, value):
       first_pass = value.split()
       terms = first_pass
       for bits in first_pass:
