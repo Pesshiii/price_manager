@@ -3,6 +3,9 @@ from rest_framework.routers import DefaultRouter
 
 from .views import (
     BrandViewSet,
+    CategoryImportCommitView,
+    CategoryImportJobView,
+    CategoryImportPreviewView,
     CategoryViewSet,
     CharacteristicTypeViewSet,
     CharMutationJobView,
@@ -24,6 +27,9 @@ urlpatterns = [
     path('import/preview/', ImportPreviewView.as_view(), name='import-preview'),
     path('import/commit/', ImportCommitView.as_view(), name='import-commit'),
     path('import/jobs/<uuid:job_id>/', ImportJobView.as_view(), name='import-job'),
+    path('categories/import/preview/', CategoryImportPreviewView.as_view(), name='category-import-preview'),
+    path('categories/import/commit/', CategoryImportCommitView.as_view(), name='category-import-commit'),
+    path('categories/import/jobs/<uuid:job_id>/', CategoryImportJobView.as_view(), name='category-import-job'),
     path(
         'characteristic-types/jobs/<uuid:job_id>/',
         CharMutationJobView.as_view(),

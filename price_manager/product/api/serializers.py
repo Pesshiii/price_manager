@@ -109,11 +109,33 @@ class _MappingFieldSerializer(serializers.Serializer):
         return attrs
 
 
+class _StrictCharField(serializers.CharField):
+    """CharField that rejects non-string input (DRF's default coerces int → str)."""
+
+    def to_internal_value(self, data):
+        if not isinstance(data, str):
+            self.fail('invalid')
+        return super().to_internal_value(data)
+
+
+class _CategoryFieldSerializer(_MappingFieldSerializer):
+    separator = _StrictCharField(required=False, default='>')
+    create_missing = serializers.BooleanField(required=False, default=False)
+
+
 class ImportRequestSerializer(serializers.Serializer):
     session_id = serializers.CharField()
     instructions = serializers.DictField()
     mapping = serializers.DictField()
     row_limit = serializers.IntegerField(required=False, min_value=1, max_value=10000, default=200)
+
+    def validate_mapping(self, mapping):
+        cat_spec = mapping.get('category')
+        if isinstance(cat_spec, dict):
+            s = _CategoryFieldSerializer(data=cat_spec)
+            if not s.is_valid():
+                raise serializers.ValidationError({'category': s.errors})
+        return mapping
 
 
 class ImportJobSerializer(serializers.ModelSerializer):

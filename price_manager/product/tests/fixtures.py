@@ -51,7 +51,7 @@ def default_mapping(extra_chars: dict | None = None):
     mapping = {
         'sku': {'column': 'sku'},
         'name': {'column': 'name'},
-        'category': {'column': 'category'},
+        'category': {'column': 'category', 'create_missing': True},
         'brand': {'column': 'brand'},
         'status': {'const': 'active'},
         'characteristics': {

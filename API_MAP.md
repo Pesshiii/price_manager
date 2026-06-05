@@ -11,8 +11,9 @@ All routes are mounted under `/api/`. Authentication is **session-based** (Djang
 3. [Products — `/api/products/`](#3-products--apiproducts)
 4. [Supplier Feeds — `/api/supplier-feed/`](#4-supplier-feeds--apisupplier-feed)
 5. [Suppliers — `/api/suppliers/`](#5-suppliers--apisuppliers)
-6. [Async Job Lifecycle](#6-async-job-lifecycle)
-7. [Error Conventions](#7-error-conventions)
+6. [Transform — `/api/transform/`](#6-transform--apitransform) — SnapshotField, TransformRule, ProductSnapshot (read-only)
+7. [Async Job Lifecycle](#7-async-job-lifecycle)
+8. [Error Conventions](#8-error-conventions)
 
 ---
 
@@ -312,6 +313,67 @@ Deletes a category (blocked if it has children or products — MPTT PROTECT).
 
 ---
 
+#### `POST /api/products/categories/<id>/characteristics/`
+
+Adds a `CharacteristicType` to this category's M2M. Two forms:
+
+**Form 1 — link existing type:**
+```json
+{ "char_type_id": 5 }
+```
+
+**Form 2 — inline create + link:**
+```json
+{ "create": { "name": "цвет", "label": "Цвет", "value_type": "string", "unit": "" } }
+```
+
+**Response `201`:** `CharacteristicType` object.  
+**Response `400`:** Neither key provided, or inline `create` fails validation (e.g. `name` collision).  
+**Response `404`:** `char_type_id` not found.
+
+Adding an already-linked type is idempotent — returns `201` with the existing type.
+
+---
+
+#### `DELETE /api/products/categories/<id>/characteristics/<char_id>/`
+
+Removes a `CharacteristicType` from this category's M2M. Does **not** touch product JSONB data.
+
+**Response `204`:** Removed.  
+**Response `404`:** CharacteristicType not found, or not linked to this category.
+
+---
+
+#### `GET /api/products/categories/<id>/characteristics/<char_id>/usage/`
+
+Returns the count of products **in this category** that have a non-null value for this characteristic's JSONB key. Used to warn before removal.
+
+**Response `200`:**
+```json
+{ "count": 42 }
+```
+**Response `404`:** CharacteristicType not found.
+
+---
+
+#### `POST /api/products/categories/<id>/assign-products/`
+
+Bulk-assigns products with `category IS NULL` to this category. Products that already have a category are silently skipped (not overwritten). Non-existent IDs are ignored.
+
+**Request body:**
+```json
+{ "product_ids": [1, 2, 3] }
+```
+
+**Response `200`:**
+```json
+{ "assigned": 2 }
+```
+
+`assigned` is the count of products whose category was actually changed (excludes already-assigned and missing).
+
+---
+
 ### Brands
 
 Auto-slug from name. Ordered alphabetically.
@@ -522,6 +584,7 @@ Lists products with filtering and hybrid search.
 | `q` | Full-text search. Hybrid by default: lexical `icontains` on `name`/`sku` merged with pgvector cosine similarity via RRF (k=60). Falls back to pure lexical when no embeddings exist. Returns `503` if embedder is unreachable in `vector`/`hybrid` mode. |
 | `search_mode` | `hybrid` (default), `lexical`, `vector` |
 | `category` | Filter by category PK; includes all MPTT descendants automatically |
+| `category__isnull` | `true` — only products with no category (unassigned pool); `false` — only products that have a category |
 | `brand` | Filter by brand PK |
 | `status` | `draft`, `active`, `archived` |
 | `char__<type_name>` | Filter by JSONB characteristic value. Repeat param for OR. Type-coerced: int → float → bool → string. Example: `?char__цвет=красный&char__цвет=синий` |
@@ -734,6 +797,99 @@ After successful commit:
 #### `GET /api/products/import/jobs/<uuid:job_id>/`
 
 Polls an `ImportJob`. Only the job's owner (matched by session) can read it.
+
+**Response `200`:** See [Job lifecycle](#6-async-job-lifecycle).
+
+---
+
+### Category Import
+
+Async import of MPTT category paths from a spreadsheet column. Each row supplies a path-string (e.g. `"Электроника > Смартфоны > Android"`) that is split into segments and resolved against the existing category tree.
+
+**Flow:** same two-phase pattern as product import — preview first, then commit.
+
+#### `POST /api/products/categories/import/preview/`
+
+Creates a preview `ImportJob` (target=`category`) and queues it on Celery.
+
+**Request body:**
+```json
+{
+  "session_id": "abcdef...",
+  "instructions": { "reader": { "func": "excel", "args": {} }, "transforms": [] },
+  "mapping": {
+    "path_column": "Категория",
+    "separator": ">"
+  },
+  "row_limit": 200
+}
+```
+
+| Field | Required | Notes |
+|---|---|---|
+| `session_id` | ✓ | From upload step |
+| `instructions` | ✓ | Pipeline definition |
+| `mapping.path_column` | ✓ | DataFrame column containing the path string |
+| `mapping.separator` | — | Segment delimiter, default `>` |
+| `row_limit` | — | 1–10000, default 200 |
+
+**Response `202`:** `ImportJob` envelope.
+
+**Worker stages:**
+1. `Открываем сессию`
+2. `Применяем pipeline`
+3. `Валидируем строки`
+4. → success (no DB writes)
+
+**Success `result` shape:**
+```json
+{
+  "rows": [
+    { "index": 0, "path": "Электроника > Смартфоны", "segments": ["Электроника", "Смартфоны"], "status": "new" }
+  ],
+  "total": 50,
+  "returned": 50,
+  "new": 12,
+  "exists": 35,
+  "invalid": 3
+}
+```
+
+`status` per row: `new` — will be created; `exists` — already in tree; `invalid` — empty/malformed path.
+
+---
+
+#### `POST /api/products/categories/import/commit/`
+
+Same request shape as category preview. Commits only `status=new` rows to the DB.
+
+**Response `202`:** `ImportJob` envelope.
+
+**Worker stages:**
+1. `Открываем сессию`
+2. `Применяем pipeline`
+3. `Валидируем строки`
+4. `Записываем в БД`
+
+After a successful commit the upload session is deleted from Redis.
+
+**Success `result` shape:**
+```json
+{
+  "created": 12,
+  "skipped": 35,
+  "invalid": 3,
+  "errors": []
+}
+```
+
+`created` counts individual category **nodes** created (not paths). A new path `A > B > C` where `A` already exists creates 2 nodes (`B` and `C`).
+
+---
+
+#### `GET /api/products/categories/import/jobs/<uuid:job_id>/`
+
+Polls a category `ImportJob`. Only the job's owner can read it.
 
 **Response `200`:** See [Job lifecycle](#6-async-job-lifecycle).
 
@@ -1058,7 +1214,190 @@ Deletes a supplier. Blocked if referenced by feeds or feed mappings (CASCADE or 
 
 ---
 
-## 6. Async Job Lifecycle
+## 6. Transform — `/api/transform/`
+
+Configuration of named, typed fields that transform rules can reference in formulas and conditions.
+
+### SnapshotField
+
+#### `GET /api/transform/snapshot-fields/`
+
+Lists all snapshot fields.
+
+**Auth required:** Yes  
+**Pagination:** 200 per page (`page_size` up to 1000).  
+**Response fields:** `id`, `slug`, `name`, `value_type`, `description`.
+
+---
+
+#### `POST /api/transform/snapshot-fields/`
+
+Creates a snapshot field.
+
+**Auth required:** Yes  
+**Request body:**
+```json
+{
+  "slug": "price",
+  "name": "Цена",
+  "value_type": "number",
+  "description": "Розничная цена товара"
+}
+```
+
+| Field | Required | Notes |
+|---|---|---|
+| `slug` | ✓ | Unique URL-safe identifier |
+| `name` | ✓ | Human-readable label |
+| `value_type` | ✓ | One of `number`, `string`, `boolean` |
+| `description` | — | Optional free text |
+
+**Response `201`:** Created snapshot field.  
+**Response `400`:** Duplicate `slug`, or invalid `value_type`.
+
+---
+
+#### `GET /api/transform/snapshot-fields/<id>/`
+
+Retrieves a single snapshot field.
+
+**Auth required:** Yes  
+**Response `200`:** Snapshot field object.
+
+---
+
+#### `PUT/PATCH /api/transform/snapshot-fields/<id>/`
+
+Updates a snapshot field.
+
+**Auth required:** Yes  
+**Response `200`:** Updated object.
+
+---
+
+#### `DELETE /api/transform/snapshot-fields/<id>/`
+
+Deletes a snapshot field.
+
+**Auth required:** Yes  
+**Response `204`:** No content.
+
+---
+
+### TransformRule
+
+Rules that map a feed column formula to a snapshot field, scoped to a feed mapping.
+
+#### `GET /api/transform/rules/`
+
+Lists all transform rules. Optionally filter by feed mapping.
+
+**Auth required:** Yes  
+**Pagination:** 200 per page (`page_size` up to 1000).  
+**Query params:**
+
+| Param | Type | Notes |
+|---|---|---|
+| `feed_mapping` | int | Return only rules for this FeedMapping ID |
+
+**Response fields:** `id`, `feed_mapping`, `target_field`, `priority`, `condition`, `formula`.
+
+---
+
+#### `POST /api/transform/rules/`
+
+Creates a transform rule.
+
+**Auth required:** Yes  
+**Request body:**
+```json
+{
+  "feed_mapping": 1,
+  "target_field": 1,
+  "priority": 10,
+  "condition": null,
+  "formula": {"type": "literal", "value": 100}
+}
+```
+
+| Field | Required | Notes |
+|---|---|---|
+| `feed_mapping` | ✓ | FK to FeedMapping (CASCADE on delete) |
+| `target_field` | ✓ | FK to SnapshotField (PROTECT on delete) |
+| `priority` | ✓ | Integer; lower value = higher priority |
+| `condition` | — | JSON condition tree; `null` means always fires |
+| `formula` | ✓ | JSON formula; no schema validation at API layer |
+
+**Response `201`:** Created rule.  
+**Response `400`:** Missing required field.
+
+---
+
+#### `GET /api/transform/rules/<id>/`
+
+Retrieves a single rule.
+
+**Auth required:** Yes  
+**Response `200`:** Rule object.
+
+---
+
+#### `PUT/PATCH /api/transform/rules/<id>/`
+
+Updates a rule.
+
+**Auth required:** Yes  
+**Response `200`:** Updated object.
+
+---
+
+#### `DELETE /api/transform/rules/<id>/`
+
+Deletes a rule.
+
+**Auth required:** Yes  
+**Response `204`:** No content.
+
+---
+
+### ProductSnapshot
+
+Read-only materialized snapshots of a supplier's data for a product. Written by the transform engine (Celery task, slice #114) — not writable via API.
+
+#### `GET /api/transform/snapshots/`
+
+Lists all product snapshots.
+
+**Auth required:** Yes  
+**Pagination:** 200 per page (`page_size` up to 1000).  
+**Query params:**
+
+| Param | Type | Notes |
+|---|---|---|
+| `product` | int | Filter by product ID |
+| `supplier` | int | Filter by supplier ID |
+
+Both params are combinable (AND semantics).
+
+**Response fields:** `id`, `product`, `supplier`, `source_feed` (nullable FK to SupplierFeed), `data` (JSON object, keys = SnapshotField slugs), `updated_at`.
+
+---
+
+#### `GET /api/transform/snapshots/<id>/`
+
+Retrieves a single snapshot.
+
+**Auth required:** Yes  
+**Response `200`:** Snapshot object.  
+**Response `404`:** Not found.
+
+---
+
+`POST`, `PUT`, `PATCH`, `DELETE` → **`405 Method Not Allowed`** (snapshots are written by the transform engine, not the API).
+
+---
+
+## 7. Async Job Lifecycle
 
 `ImportJob` and `CharacteristicMutationJob` share the same envelope and polling pattern.
 
@@ -1101,7 +1440,7 @@ Use `rows_done / rows_total` as a fraction. Both are `0` until the worker reache
 
 ---
 
-## 7. Error Conventions
+## 8. Error Conventions
 
 | Status | Meaning |
 |---|---|

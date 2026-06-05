@@ -27,6 +27,18 @@ SCALAR_FIELDS = ('sku', 'name', 'description', 'status')
 FK_FIELDS = ('category', 'brand')
 
 
+def _chain_exists(segments: list[str]) -> bool:
+    """Return True iff the full parent→leaf chain already exists in Category tree."""
+    parent_id = None
+    for name in segments:
+        try:
+            cat = Category.objects.get(parent_id=parent_id, name=name)
+            parent_id = cat.pk
+        except Category.DoesNotExist:
+            return False
+    return True
+
+
 @dataclass
 class RowResult:
     index: int
@@ -102,7 +114,20 @@ def apply_mapping(df: pd.DataFrame, mapping: dict) -> list[RowResult]:
             value = _resolve_source(row, spec)
             if value in (None, ''):
                 continue
-            payload[field_name] = str(value).strip()
+
+            if field_name == 'category':
+                separator = spec.get('separator', '>') if isinstance(spec, dict) else '>'
+                create_missing = spec.get('create_missing', False) if isinstance(spec, dict) else False
+                segments = [s.strip() for s in str(value).split(separator)]
+                if any(s == '' for s in segments):
+                    errors['category'] = 'Путь содержит пустые сегменты.'
+                    continue
+                if not create_missing and not _chain_exists(segments):
+                    errors['category'] = f'Категория не найдена: {str(value).strip()}'
+                    continue
+                payload['category_segments'] = segments
+            else:
+                payload[field_name] = str(value).strip()
 
         chars_mapping = (mapping or {}).get('characteristics') or {}
         for char_name, spec in chars_mapping.items():
@@ -230,7 +255,7 @@ def _commit_batch(
                 continue
 
             payload = dict(r.payload)
-            cat_name = payload.pop('category', None)
+            cat_segments = payload.pop('category_segments', None)
             brand_name = payload.pop('brand', None)
             sku = payload.pop('sku')
             dynamic_entries = payload.pop('_dynamic_characteristics', []) or []
@@ -258,8 +283,11 @@ def _commit_batch(
             defaults.setdefault('status', Product.STATUS_DRAFT)
 
             cat = None
-            if cat_name:
-                cat, _ = Category.objects.get_or_create(parent=None, name=cat_name)
+            if cat_segments:
+                parent = None
+                for seg_name in cat_segments:
+                    cat, _ = Category.objects.get_or_create(parent=parent, name=seg_name)
+                    parent = cat
                 defaults['category'] = cat
             if brand_name:
                 brand, _ = Brand.objects.get_or_create(name=brand_name)

@@ -116,6 +116,11 @@ class ProductFilter(django_filters.FilterSet):
     @property
     def qs(self):
         parent_qs = super().qs
+        if self.request:
+            raw = self.request.GET.get('category__isnull')
+            if raw is not None:
+                is_null = raw.lower() in ('1', 'true', 'yes', 'y', 'on')
+                parent_qs = parent_qs.filter(category__isnull=is_null)
         # Apply ?char__<name>=<value> dynamic filters.
         for key, val in self.request.GET.lists() if self.request else []:
             if not key.startswith('char__'):

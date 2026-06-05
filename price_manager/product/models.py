@@ -273,6 +273,10 @@ class ImportJob(models.Model):
     KIND_COMMIT = 'commit'
     KIND_CHOICES = [(KIND_PREVIEW, 'Preview'), (KIND_COMMIT, 'Commit')]
 
+    TARGET_PRODUCT = 'product'
+    TARGET_CATEGORY = 'category'
+    TARGET_CHOICES = [('product', 'Товары'), ('category', 'Категории')]
+
     STATUS_PENDING = JOB_STATUS_PENDING
     STATUS_RUNNING = JOB_STATUS_RUNNING
     STATUS_SUCCESS = JOB_STATUS_SUCCESS
@@ -288,6 +292,7 @@ class ImportJob(models.Model):
         related_name='product_import_jobs',
     )
     kind = models.CharField(max_length=16, choices=KIND_CHOICES)
+    target = models.CharField(max_length=16, choices=TARGET_CHOICES, default='product')
     status = models.CharField(max_length=16, choices=STATUS_CHOICES, default=STATUS_PENDING, db_index=True)
     stage = models.CharField(max_length=64, blank=True, default='')
     session_id = models.CharField(max_length=64)

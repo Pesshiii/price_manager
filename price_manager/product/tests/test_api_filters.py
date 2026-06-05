@@ -79,11 +79,14 @@ class ProductFacetsTests(TestCase):
     def setUpTestData(cls):
         User = get_user_model()
         cls.user = User.objects.create_user(username='u', password='p')
-        CharacteristicType.objects.create(name='color', label='Цвет', value_type='string')
 
-        Product.objects.create(sku='A', name='a', characteristics={'color': 'red'})
-        Product.objects.create(sku='B', name='b', characteristics={'color': 'red'})
-        Product.objects.create(sku='C', name='c', characteristics={'color': 'blue'})
+        cls.cat = Category.objects.create(name='Тест')
+        ct = CharacteristicType.objects.create(name='color', label='Цвет', value_type='string')
+        ct.categories.set([cls.cat])
+
+        Product.objects.create(sku='A', name='a', category=cls.cat, characteristics={'color': 'red'})
+        Product.objects.create(sku='B', name='b', category=cls.cat, characteristics={'color': 'red'})
+        Product.objects.create(sku='C', name='c', category=cls.cat, characteristics={'color': 'blue'})
 
     def setUp(self):
         self.client.force_login(self.user)

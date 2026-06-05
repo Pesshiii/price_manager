@@ -19,6 +19,8 @@ from dataframe import sessions as session_store
 from dataframe.models import Dataframe
 from dataframe.services import apply as apply_pipeline
 
+from .category_importer import apply_mapping as cat_apply_mapping
+from .category_importer import commit_rows as cat_commit_rows
 from .importer import IMPORT_COMMIT_BATCH_SIZE, apply_mapping, commit_rows
 from .models import CharacteristicMutationJob, CharacteristicType, ImportJob, Product
 from .services.embeddings import (
@@ -167,6 +169,75 @@ def run_import_commit(job_id: str) -> None:
         _mark_error(job, exc)
     except Exception as exc:  # noqa: BLE001
         logger.exception('run_import_commit failed for job %s', job_id)
+        _mark_error(job, exc)
+
+
+# --- Category import tasks -------------------------------------------------
+
+@shared_task
+def run_category_import_preview(job_id: str) -> None:
+    try:
+        job = ImportJob.objects.get(
+            pk=job_id, kind=ImportJob.KIND_PREVIEW, target=ImportJob.TARGET_CATEGORY
+        )
+    except ImportJob.DoesNotExist:
+        logger.warning('run_category_import_preview: job %s not found', job_id)
+        return
+
+    _mark_running(job)
+    try:
+        _set_stage(job, STAGE_APPLYING_PIPELINE)
+        df = _run_pipeline_for_job(job)
+        _set_stage(job, STAGE_VALIDATING_ROWS)
+        results = cat_apply_mapping(df, job.mapping or {})
+        limit = job.row_limit or 200
+        preview_rows = [r.to_json() for r in results[:limit]]
+        new_count = sum(1 for r in results if r.status == 'new')
+        exists_count = sum(1 for r in results if r.status == 'exists')
+        invalid_count = sum(1 for r in results if r.status == 'invalid')
+        _mark_success(job, {
+            'rows': preview_rows,
+            'total': len(results),
+            'returned': len(preview_rows),
+            'new': new_count,
+            'exists': exists_count,
+            'invalid': invalid_count,
+        })
+    except FileNotFoundError as exc:
+        _mark_error(job, exc)
+    except Exception as exc:  # noqa: BLE001
+        logger.exception('run_category_import_preview failed for job %s', job_id)
+        _mark_error(job, exc)
+
+
+@shared_task
+def run_category_import_commit(job_id: str) -> None:
+    try:
+        job = ImportJob.objects.get(
+            pk=job_id, kind=ImportJob.KIND_COMMIT, target=ImportJob.TARGET_CATEGORY
+        )
+    except ImportJob.DoesNotExist:
+        logger.warning('run_category_import_commit: job %s not found', job_id)
+        return
+
+    _mark_running(job)
+    try:
+        _set_stage(job, STAGE_APPLYING_PIPELINE)
+        df = _run_pipeline_for_job(job)
+        _set_stage(job, STAGE_VALIDATING_ROWS)
+        results = cat_apply_mapping(df, job.mapping or {})
+        ImportJob.objects.filter(pk=job.pk).update(rows_total=len(results), rows_done=0)
+        _set_stage(job, STAGE_WRITING_DB)
+        summary = cat_commit_rows(results)
+        try:
+            session_store.delete_session(job.session_id)
+        except Exception:
+            logger.warning('delete_session after category commit failed for job %s', job_id, exc_info=True)
+        _mark_success(job, summary)
+    except FileNotFoundError as exc:
+        _mark_error(job, exc)
+    except Exception as exc:  # noqa: BLE001
+        logger.exception('run_category_import_commit failed for job %s', job_id)
         _mark_error(job, exc)
 
 

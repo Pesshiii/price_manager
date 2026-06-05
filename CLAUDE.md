@@ -22,15 +22,6 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ### Repo layout
 The Django project lives in the nested `price_manager/` directory (one level below the repo root). `manage.py`, `requirements.txt`, and all apps are there. **Run every `python manage.py …` / `celery …` / `pip install` command from inside `price_manager/`.** The repo root only holds `Dockerfile`, `docker-compose.yml`, `README.md`, `CLAUDE.md`, and `docs/`. The `product` + `dataframe` apps are active on the `Spreadsheetimport` branch; `main` may not have them yet, so verify branch before reasoning about file existence.
 
-### Local Setup
-```bash
-python -m venv venv
-venv\Scripts\activate          # Windows
-pip install -r requirements.txt
-python manage.py migrate
-python manage.py createsuperuser
-python manage.py runserver
-```
 
 ### Celery Worker (separate terminal)
 ```bash
@@ -39,11 +30,7 @@ celery -A price_manager worker -l info
 
 ### Docker
 
-Used for testing, if not running:
-
-```bash
-docker compose up --build
-```
+**Always** use for testing. If engine not running, demmand user to turn it on
 
 ### Tests
 ```bash
@@ -226,6 +213,7 @@ takes precedence on slug collisions. `CharacteristicType.name` uses
 - New apps should use the `tests/` package layout (see `product/tests/`) instead of a single `tests.py`
 - Multi-stage Dockerfile on Python 3.13-slim; production image runs Gunicorn + WhiteNoise
 - Every time api layout is changed **ALWAYS** update the `API_MAP.md` file
+- frontend documentation is stored at `../price-manager-frontend/FRONTEND_MAP.md`
 
 ## Agent skills
 

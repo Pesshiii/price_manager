@@ -241,7 +241,7 @@ class TransformPipelineTests(BaseImportTests):
         mapping = {
             'sku': {'column': 'sku'},
             'name': {'column': 'name'},
-            'category': {'column': 'category'},
+            'category': {'column': 'category', 'create_missing': True},
             'brand': {'column': 'brand'},
             'characteristics': {'color': {'column': 'color'}},
         }
@@ -387,7 +387,7 @@ class CategoryBrandResolutionTests(BaseImportTests):
         mapping = {
             'sku': {'column': 'sku'},
             'name': {'column': 'name'},
-            'category': {'const': 'Стандарт'},
+            'category': {'const': 'Стандарт', 'create_missing': True},
         }
         resp = self.import_commit(sid, csv_instructions(), mapping)
         self.assertEqual(resp.status_code, 200, resp.content[:300])
@@ -438,7 +438,7 @@ class UpsertTests(BaseImportTests):
         mapping = {
             'sku': {'column': 'sku'},
             'name': {'column': 'name'},
-            'category': {'column': 'category'},
+            'category': {'column': 'category', 'create_missing': True},
             'brand': {'column': 'brand'},
             'characteristics': {'color': {'column': 'color'}},
         }
@@ -534,3 +534,131 @@ class ErrorCasesTests(BaseImportTests):
         body = resp.json()
         self.assertEqual(body['created'], 0)
         self.assertEqual(body['skipped'], 1)  # sku + name missing
+
+
+# ---------------------------------------------------------------------------
+# 8. Category path resolution with configurable separator
+# ---------------------------------------------------------------------------
+class CategoryPathTests(BaseImportTests):
+    """Category field is always a path string; separator and create_missing are configurable."""
+
+    def _mapping(self, *, separator='>', create_missing=False):
+        return {
+            'sku': {'column': 'sku'},
+            'name': {'column': 'name'},
+            'category': {'column': 'category', 'separator': separator, 'create_missing': create_missing},
+        }
+
+    def _upload_one(self, category_value):
+        return self.upload(csv_upload([
+            ['sku', 'name', 'category'],
+            ['S1', 'Дрель', category_value],
+        ]))
+
+    def test_single_segment_existing_category_assigns_product(self):
+        cat = Category.objects.create(name='Инструменты')
+        sid = self._upload_one('Инструменты')
+        resp = self.import_commit(sid, csv_instructions(), self._mapping())
+        self.assertEqual(resp.status_code, 200)
+        body = resp.json()
+        self.assertEqual(body['created'], 1)
+        self.assertEqual(body['skipped'], 0)
+        self.assertEqual(Product.objects.get(sku='S1').category, cat)
+
+    def test_multi_segment_path_assigns_to_leaf(self):
+        root = Category.objects.create(name='Электроника')
+        leaf = Category.objects.create(name='Смартфоны', parent=root)
+        sid = self._upload_one('Электроника > Смартфоны')
+        resp = self.import_commit(sid, csv_instructions(), self._mapping())
+        self.assertEqual(resp.json()['created'], 1)
+        self.assertEqual(Product.objects.get(sku='S1').category, leaf)
+
+    def test_missing_path_marks_row_invalid(self):
+        sid = self._upload_one('Несуществующая')
+        resp = self.import_commit(sid, csv_instructions(), self._mapping())
+        body = resp.json()
+        self.assertEqual(body['created'], 0)
+        self.assertEqual(body['skipped'], 1)
+        err = body['errors'][0]['errors']
+        self.assertIn('category', err)
+        self.assertIn('Категория не найдена', err['category'])
+        self.assertIn('Несуществующая', err['category'])
+
+    def test_create_missing_creates_chain_and_assigns_leaf(self):
+        sid = self._upload_one('Электроника > Смартфоны')
+        resp = self.import_commit(sid, csv_instructions(), self._mapping(create_missing=True))
+        self.assertEqual(resp.json()['created'], 1)
+        p = Product.objects.get(sku='S1')
+        self.assertEqual(p.category.name, 'Смартфоны')
+        self.assertEqual(p.category.parent.name, 'Электроника')
+
+    def test_custom_separator(self):
+        root = Category.objects.create(name='Электроника')
+        leaf = Category.objects.create(name='Телефоны', parent=root)
+        sid = self._upload_one('Электроника|Телефоны')
+        resp = self.import_commit(sid, csv_instructions(), self._mapping(separator='|'))
+        self.assertEqual(resp.json()['created'], 1)
+        self.assertEqual(Product.objects.get(sku='S1').category, leaf)
+
+    def test_whitespace_around_separator_stripped(self):
+        root = Category.objects.create(name='Электроника')
+        leaf = Category.objects.create(name='Смартфоны', parent=root)
+        sid = self._upload_one('Электроника  >  Смартфоны')
+        resp = self.import_commit(sid, csv_instructions(), self._mapping())
+        self.assertEqual(resp.json()['created'], 1)
+        self.assertEqual(Product.objects.get(sku='S1').category, leaf)
+
+    def test_empty_segment_marks_row_invalid(self):
+        sid = self._upload_one('Электроника > > Смартфоны')
+        resp = self.import_commit(sid, csv_instructions(), self._mapping())
+        body = resp.json()
+        self.assertEqual(body['skipped'], 1)
+        self.assertIn('category', body['errors'][0]['errors'])
+
+    def test_blank_category_value_no_error_no_assignment(self):
+        sid = self._upload_one('')
+        resp = self.import_commit(sid, csv_instructions(), self._mapping())
+        self.assertEqual(resp.json()['created'], 1)
+        self.assertIsNone(Product.objects.get(sku='S1').category)
+
+    def test_create_missing_existing_chain_no_duplicates(self):
+        root = Category.objects.create(name='Электроника')
+        leaf = Category.objects.create(name='Смартфоны', parent=root)
+        sid = self._upload_one('Электроника > Смартфоны')
+        resp = self.import_commit(sid, csv_instructions(), self._mapping(create_missing=True))
+        self.assertEqual(resp.json()['created'], 1)
+        self.assertEqual(Category.objects.filter(name='Электроника').count(), 1)
+        self.assertEqual(Category.objects.filter(name='Смартфоны').count(), 1)
+        self.assertEqual(Product.objects.get(sku='S1').category, leaf)
+
+
+# ---------------------------------------------------------------------------
+# 9. _CategoryFieldSerializer unit tests
+# ---------------------------------------------------------------------------
+class CategoryFieldSerializerTests(TestCase):
+
+    def _ser(self, data):
+        from product.api.serializers import _CategoryFieldSerializer
+        s = _CategoryFieldSerializer(data=data)
+        s.is_valid()
+        return s
+
+    def test_separator_defaults_to_gt(self):
+        s = self._ser({'column': 'Категория'})
+        self.assertTrue(s.is_valid(), s.errors)
+        self.assertEqual(s.validated_data['separator'], '>')
+
+    def test_create_missing_defaults_to_false(self):
+        s = self._ser({'column': 'Категория'})
+        self.assertTrue(s.is_valid(), s.errors)
+        self.assertIs(s.validated_data['create_missing'], False)
+
+    def test_separator_as_integer_invalid(self):
+        s = self._ser({'column': 'Категория', 'separator': 123})
+        self.assertFalse(s.is_valid())
+        self.assertIn('separator', s.errors)
+
+    def test_create_missing_non_boolean_invalid(self):
+        s = self._ser({'column': 'Категория', 'create_missing': 'maybe'})
+        self.assertFalse(s.is_valid())
+        self.assertIn('create_missing', s.errors)
