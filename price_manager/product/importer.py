@@ -103,6 +103,10 @@ def apply_mapping(df: pd.DataFrame, mapping: dict) -> list[RowResult]:
             if value in (None, ''):
                 continue
             payload[field_name] = str(value).strip()
+            if field_name == 'category' and isinstance(spec, dict):
+                sep = spec.get('path_separator')
+                if sep:
+                    payload['_category_separator'] = sep
 
         chars_mapping = (mapping or {}).get('characteristics') or {}
         for char_name, spec in chars_mapping.items():
@@ -210,6 +214,29 @@ def _resolve_dynamic_types(
     return existing
 
 
+def _resolve_category_path(path: str, separator: str | None) -> Category | None:
+    """Walk (or create) the Category tree for a path string.
+
+    With a separator: splits on it, strips each segment, drops empty ones,
+    then get_or_create from root down — returns the leaf node.
+    Without a separator: single get_or_create at root level (legacy behaviour).
+    Returns None when the effective segment list is empty.
+    """
+    if separator:
+        segments = [s.strip() for s in path.split(separator) if s.strip()]
+    else:
+        segment = path.strip()
+        segments = [segment] if segment else []
+    if not segments:
+        return None
+    parent = None
+    cat = None
+    for segment in segments:
+        cat, _ = Category.objects.get_or_create(parent=parent, name=segment)
+        parent = cat
+    return cat
+
+
 def _commit_batch(
     batch: list[RowResult],
     char_types_by_name: dict[str, CharacteristicType],
@@ -231,6 +258,7 @@ def _commit_batch(
 
             payload = dict(r.payload)
             cat_name = payload.pop('category', None)
+            cat_separator = payload.pop('_category_separator', None)
             brand_name = payload.pop('brand', None)
             sku = payload.pop('sku')
             dynamic_entries = payload.pop('_dynamic_characteristics', []) or []
@@ -259,8 +287,9 @@ def _commit_batch(
 
             cat = None
             if cat_name:
-                cat, _ = Category.objects.get_or_create(parent=None, name=cat_name)
-                defaults['category'] = cat
+                cat = _resolve_category_path(cat_name, cat_separator)
+                if cat is not None:
+                    defaults['category'] = cat
             if brand_name:
                 brand, _ = Brand.objects.get_or_create(name=brand_name)
                 defaults['brand'] = brand

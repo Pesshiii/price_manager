@@ -394,6 +394,88 @@ class CategoryBrandResolutionTests(BaseImportTests):
         self.assertEqual(resp.json()['created'], 1)
         self.assertTrue(Category.objects.filter(name='Стандарт').exists())
 
+    def test_category_path_creates_hierarchy(self):
+        sid = self.upload(csv_upload([
+            ['sku', 'name', 'cat'],
+            ['S1', 'Дрель', 'Инструменты/Электроинструмент/Дрели'],
+        ]))
+        mapping = {
+            'sku': {'column': 'sku'},
+            'name': {'column': 'name'},
+            'category': {'column': 'cat', 'path_separator': '/'},
+        }
+        resp = self.import_commit(sid, csv_instructions(), mapping)
+        self.assertEqual(resp.status_code, 200, resp.content[:300])
+        self.assertEqual(resp.json()['created'], 1)
+
+        root = Category.objects.get(name='Инструменты', parent=None)
+        mid = Category.objects.get(name='Электроинструмент', parent=root)
+        leaf = Category.objects.get(name='Дрели', parent=mid)
+        self.assertEqual(Product.objects.get(sku='S1').category, leaf)
+
+    def test_category_path_reuses_existing_nodes(self):
+        """Second import with same path does not create duplicate Category nodes."""
+        mapping = {
+            'sku': {'column': 'sku'},
+            'name': {'column': 'name'},
+            'category': {'column': 'cat', 'path_separator': '/'},
+        }
+        row = [['sku', 'name', 'cat'], ['S1', 'A', 'Root/Child']]
+        sid1 = self.upload(csv_upload(row))
+        self.import_commit(sid1, csv_instructions(), mapping)
+        sid2 = self.upload(csv_upload(row))
+        self.import_commit(sid2, csv_instructions(), mapping)
+
+        self.assertEqual(Category.objects.filter(name='Root').count(), 1)
+        self.assertEqual(Category.objects.filter(name='Child').count(), 1)
+
+    def test_category_path_strips_and_skips_empty_segments(self):
+        sid = self.upload(csv_upload([
+            ['sku', 'name', 'cat'],
+            ['S1', 'A', ' Root // Child '],
+        ]))
+        mapping = {
+            'sku': {'column': 'sku'},
+            'name': {'column': 'name'},
+            'category': {'column': 'cat', 'path_separator': '/'},
+        }
+        resp = self.import_commit(sid, csv_instructions(), mapping)
+        self.assertEqual(resp.json()['created'], 1)
+        root = Category.objects.get(name='Root', parent=None)
+        leaf = Category.objects.get(name='Child', parent=root)
+        self.assertEqual(Product.objects.get(sku='S1').category, leaf)
+
+    def test_category_path_empty_after_strip_leaves_category_unset(self):
+        sid = self.upload(csv_upload([
+            ['sku', 'name', 'cat'],
+            ['S1', 'A', '///'],
+        ]))
+        mapping = {
+            'sku': {'column': 'sku'},
+            'name': {'column': 'name'},
+            'category': {'column': 'cat', 'path_separator': '/'},
+        }
+        resp = self.import_commit(sid, csv_instructions(), mapping)
+        self.assertEqual(resp.json()['created'], 1)
+        self.assertIsNone(Product.objects.get(sku='S1').category)
+
+    def test_category_without_separator_creates_root(self):
+        """No path_separator → legacy single root category behaviour."""
+        sid = self.upload(csv_upload([
+            ['sku', 'name', 'cat'],
+            ['S1', 'A', 'Корень'],
+        ]))
+        mapping = {
+            'sku': {'column': 'sku'},
+            'name': {'column': 'name'},
+            'category': {'column': 'cat'},
+        }
+        resp = self.import_commit(sid, csv_instructions(), mapping)
+        self.assertEqual(resp.json()['created'], 1)
+        cat = Category.objects.get(name='Корень')
+        self.assertIsNone(cat.parent)
+        self.assertEqual(Product.objects.get(sku='S1').category, cat)
+
 
 # ---------------------------------------------------------------------------
 # 6. Upsert by SKU

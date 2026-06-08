@@ -650,7 +650,7 @@ Creates a preview `ImportJob` and queues it on Celery. Returns immediately with 
   "mapping": {
     "sku":         { "column": "Артикул" },
     "name":        { "column": "Наименование" },
-    "category":    { "const": "Электроника" },
+    "category":    { "column": "Категория", "path_separator": "/" },
     "brand":       { "column": "Бренд" },
     "description": { "column": "Описание" },
     "status":      { "const": "active" },
@@ -670,7 +670,8 @@ Creates a preview `ImportJob` and queues it on Celery. Returns immediately with 
 |---|---|---|
 | `session_id` | ✓ | From upload step |
 | `instructions` | ✓ | Pipeline definition (reader + transforms) |
-| `mapping` | ✓ | Column → field mapping. Each field is `{column}` or `{const}` or `{lookup}` |
+| `mapping` | ✓ | Column → field mapping. Each field is `{column}` or `{const}` |
+| `mapping.category.path_separator` | — | If set, the category value is treated as a hierarchical path (e.g. `"Инструменты/Электроинструмент/Дрели"`). The system creates the full chain of `Category` nodes top-down (`get_or_create` by `(parent, name)`). Empty segments after strip are ignored. If the entire path is empty after cleaning, `Product.category` is left unchanged. Omit to use legacy behaviour (single root category). |
 | `row_limit` | — | 1–10000, default 200. Preview is capped at this many rows |
 
 **Response `202`:** `ImportJob` envelope (pending status).  
@@ -766,7 +767,7 @@ Configuration templates that describe how to parse a supplier's file format. Eac
 
 #### `GET /api/supplier-feed/mappings/`
 
-Lists all feed mapping configurations, ordered by supplier + name.
+Lists all feed mapping configurations, ordered by supplier + name. Supports `?supplier=<id>` filter.
 
 **Response fields:** `id`, `supplier`, `name`, `dataframe` (PK), `dataframe_detail` `{id, name}`, `supplier_sku_column`, `identity_columns`, `variable_columns`, `auto_match_threshold`, `product_name_column`, `product_sku_column`.
 
@@ -991,6 +992,88 @@ Marks an unresolved queue entry as permanently ignored. Creates an **игнор-
 **Response `200`:** Updated entry.  
 **Response `400`:** Entry already resolved or skipped.  
 **Response `404`:** Entry not found in this feed.
+
+---
+
+### Markup Sets
+
+A `FeedMarkupSet` defines one price calculation pair for a `FeedMapping`: which pipeline-output column is the **source price** (`price_column`) and which key to write the **calculated price** into (`output_column` in `SupplierFeedEntry.data`). One mapping can have multiple sets (e.g. purchase price → retail, purchase price → wholesale).
+
+Markup rules inside a set are applied **once** when `SupplierFeed` transitions to `done`. Only matched entries (`product` is set) are updated. If no rule covers an entry's price, or the price column is missing/non-numeric, `output_column` is simply not written.
+
+#### `GET /api/supplier-feed/markup-sets/`
+
+Lists all markup sets. Supports `?mapping=<feed_mapping_id>` filter.
+
+**Response fields:** `id`, `feed_mapping`, `name`, `price_column`, `output_column`, `rules` (inline list of rules, see below).
+
+#### `POST /api/supplier-feed/markup-sets/`
+
+Creates a markup set.
+
+```json
+{
+  "feed_mapping": 1,
+  "name": "Розничная цена",
+  "price_column": "price",
+  "output_column": "sale_price"
+}
+```
+
+#### `GET /api/supplier-feed/markup-sets/<id>/`
+
+Retrieves a single set with its rules.
+
+#### `PUT/PATCH /api/supplier-feed/markup-sets/<id>/`
+
+Updates a markup set.
+
+#### `DELETE /api/supplier-feed/markup-sets/<id>/`
+
+Deletes a markup set and all its rules.
+
+---
+
+### Markup Rules
+
+Each `FeedMarkupRule` belongs to a `FeedMarkupSet` and covers a price range. Formula: `output = price × (1 + markup / 100) + increase` (no rounding). When multiple rules match, the one with the smallest `order` wins.
+
+#### `GET /api/supplier-feed/markup-rules/`
+
+Lists all markup rules. Supports `?markup_set=<id>` filter.
+
+**Response fields:** `id`, `markup_set`, `order`, `price_from` (nullable), `price_to` (nullable), `markup`, `increase`.
+
+`price_from` and `price_to` are inclusive bounds. `null` means open-ended: `null–1000` = up to 1000, `1000–null` = 1000 and above.
+
+#### `POST /api/supplier-feed/markup-rules/`
+
+Creates a markup rule.
+
+```json
+{
+  "markup_set": 1,
+  "order": 10,
+  "price_from": "0.0000",
+  "price_to": "1000.0000",
+  "markup": "15.0000",
+  "increase": "50.0000"
+}
+```
+
+**Response `400`:** If `price_from > price_to`.
+
+#### `GET /api/supplier-feed/markup-rules/<id>/`
+
+Retrieves a single rule.
+
+#### `PUT/PATCH /api/supplier-feed/markup-rules/<id>/`
+
+Updates a rule. Same `price_from ≤ price_to` validation applies.
+
+#### `DELETE /api/supplier-feed/markup-rules/<id>/`
+
+Deletes a rule.
 
 ---
 
