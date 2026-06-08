@@ -8,6 +8,8 @@ from rest_framework.response import Response
 
 from supplier_feed.models import (
     FeedMapping,
+    FeedMarkupRule,
+    FeedMarkupSet,
     SupplierFeed,
     SupplierFeedEntry,
     SupplierLink,
@@ -15,16 +17,30 @@ from supplier_feed.models import (
     STATUS_DRAFT,
     STATUS_PROCESSING,
 )
+from supplier_feed.markup import apply_markups
 from supplier_feed.tasks import run_feed_matching_task
 from dataframe import sessions as session_store
 from .serializers import (
     FeedMappingSerializer,
+    FeedMarkupRuleSerializer,
+    FeedMarkupSetSerializer,
     SupplierFeedSerializer,
     SupplierFeedDetailSerializer,
     SupplierFeedEntrySerializer,
     SupplierLinkSerializer,
     SupplierLinkPatchSerializer,
 )
+
+
+def _try_close_feed(feed):
+    """Transition feed to 'done' if MatchQueue is empty, then apply markup rules."""
+    remaining = SupplierFeedEntry.objects.filter(
+        feed=feed, product__isnull=True, skipped=False
+    ).exists()
+    if not remaining:
+        apply_markups(feed)
+        feed.status = STATUS_DONE
+        feed.save(update_fields=['status'])
 
 
 class _QueuePagination(PageNumberPagination):
@@ -38,10 +54,16 @@ class _QueuePagination(PageNumberPagination):
 class FeedMappingViewSet(viewsets.ModelViewSet):
     """CRUD для конфигурации выгрузок поставщика."""
 
-    queryset = FeedMapping.objects.select_related('supplier', 'dataframe').order_by('supplier', 'name')
     serializer_class = FeedMappingSerializer
     authentication_classes = [SessionAuthentication]
     permission_classes = [IsAuthenticated]
+
+    def get_queryset(self):
+        qs = FeedMapping.objects.select_related('supplier', 'dataframe').order_by('supplier', 'name')
+        supplier = self.request.query_params.get('supplier')
+        if supplier:
+            qs = qs.filter(supplier_id=supplier)
+        return qs
 
     def destroy(self, request, *args, **kwargs):
         instance = self.get_object()
@@ -228,13 +250,7 @@ class SupplierFeedViewSet(viewsets.ModelViewSet):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-        # Auto-done: if the queue is now empty, transition the feed to 'done'.
-        remaining = SupplierFeedEntry.objects.filter(
-            feed=feed, product__isnull=True, skipped=False
-        ).exists()
-        if not remaining:
-            feed.status = STATUS_DONE
-            feed.save(update_fields=['status'])
+        _try_close_feed(feed)
 
         return Response(SupplierFeedEntrySerializer(entry).data, status=status.HTTP_200_OK)
 
@@ -296,12 +312,7 @@ class SupplierFeedViewSet(viewsets.ModelViewSet):
             entry.product = product
             entry.save(update_fields=['product'])
 
-        remaining = SupplierFeedEntry.objects.filter(
-            feed=feed, product__isnull=True, skipped=False
-        ).exists()
-        if not remaining:
-            feed.status = STATUS_DONE
-            feed.save(update_fields=['status'])
+        _try_close_feed(feed)
 
         return Response(SupplierFeedEntrySerializer(entry).data, status=status.HTTP_201_CREATED)
 
@@ -380,12 +391,7 @@ class SupplierFeedViewSet(viewsets.ModelViewSet):
                 failed_count += 1
                 errors.append({'entry_id': entry.pk, 'reason': str(exc)})
 
-        remaining = SupplierFeedEntry.objects.filter(
-            feed=feed, product__isnull=True, skipped=False
-        ).exists()
-        if not remaining:
-            feed.status = STATUS_DONE
-            feed.save(update_fields=['status'])
+        _try_close_feed(feed)
 
         return Response(
             {'created': created_count, 'failed': failed_count, 'errors': errors},
@@ -432,14 +438,39 @@ class SupplierFeedViewSet(viewsets.ModelViewSet):
             entry.skipped = True
             entry.save(update_fields=['skipped'])
 
-        remaining = SupplierFeedEntry.objects.filter(
-            feed=feed, product__isnull=True, skipped=False
-        ).exists()
-        if not remaining:
-            feed.status = STATUS_DONE
-            feed.save(update_fields=['status'])
+        _try_close_feed(feed)
 
         return Response(SupplierFeedEntrySerializer(entry).data, status=status.HTTP_200_OK)
+
+
+class FeedMarkupSetViewSet(viewsets.ModelViewSet):
+    """CRUD для наборов наценок. Фильтрация: ?mapping=<feed_mapping_id>."""
+
+    serializer_class = FeedMarkupSetSerializer
+    authentication_classes = [SessionAuthentication]
+    permission_classes = [IsAuthenticated]
+
+    def get_queryset(self):
+        qs = FeedMarkupSet.objects.prefetch_related('rules').order_by('feed_mapping', 'name')
+        mapping = self.request.query_params.get('mapping')
+        if mapping:
+            qs = qs.filter(feed_mapping_id=mapping)
+        return qs
+
+
+class FeedMarkupRuleViewSet(viewsets.ModelViewSet):
+    """CRUD для правил наценки. Фильтрация: ?markup_set=<id>."""
+
+    serializer_class = FeedMarkupRuleSerializer
+    authentication_classes = [SessionAuthentication]
+    permission_classes = [IsAuthenticated]
+
+    def get_queryset(self):
+        qs = FeedMarkupRule.objects.order_by('markup_set', 'order')
+        markup_set = self.request.query_params.get('markup_set')
+        if markup_set:
+            qs = qs.filter(markup_set_id=markup_set)
+        return qs
 
 
 class SupplierLinkViewSet(

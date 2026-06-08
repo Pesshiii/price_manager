@@ -85,6 +85,16 @@ class ListFeedMappingTests(FeedMappingApiBase):
         # DefaultRouter without pagination returns a plain list
         self.assertEqual(len(body), 2)
 
+    def test_filter_by_supplier(self):
+        other_supplier = make_supplier(name='Другой поставщик')
+        make_feed_mapping(supplier=self.supplier, name='Прайс А')
+        make_feed_mapping(supplier=other_supplier, name='Прайс Б')
+        resp = self.client.get(reverse(MAPPING_LIST_URL), {'supplier': self.supplier.pk})
+        self.assertEqual(resp.status_code, 200)
+        body = resp.json()
+        self.assertEqual(len(body), 1)
+        self.assertEqual(body[0]['name'], 'Прайс А')
+
 
 # ── Cycle 5 ──────────────────────────────────────────────────────────────────
 
