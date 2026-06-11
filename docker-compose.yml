@@ -94,9 +94,8 @@ services:
     command: celery -A price_manager worker -l info
 
   frontend:
-    # Frontend lives in a sibling repo: ../price-manager-frontend
     build:
-      context: ../price-manager-frontend
+      context: ./frontend
       dockerfile: Dockerfile.dev
     container_name: price_manager_frontend
     restart: unless-stopped
@@ -108,7 +107,7 @@ services:
     ports:
       - "${FRONTEND_PORT:-5173}:5173"
     volumes:
-      - ../price-manager-frontend:/app
+      - ./frontend:/app
       - frontend_node_modules:/app/node_modules
     command: pnpm dev --host 0.0.0.0
 

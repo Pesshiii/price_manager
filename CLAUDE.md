@@ -11,7 +11,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - **Framework**: Django 5.2, PostgreSQL 17
 - **Task Queue**: Celery 5.6 with Redis 7 as broker/backend
 - **Frontend**: Bootstrap 4, HTMX, django-crispy-forms (crispy-bootstrap4)
-- **REST API**: Django REST Framework 3.16, django-cors-headers (session-auth JSON API for SPA frontend at `../price-manager-frontend/`)
+- **REST API**: Django REST Framework 3.16, django-cors-headers (session-auth JSON API for SPA frontend at `./frontend/`)
 - **Data Processing**: Pandas, openpyxl, python-calamine
 - **Search**: PostgreSQL full-text search with GIN indexes on SearchVector
 - **Storage**: Optional AWS S3-compatible storage (configured via env vars)
@@ -222,7 +222,7 @@ takes precedence on slug collisions. `CharacteristicType.name` uses
 - Views are class-based (ListView, CreateView, etc.) with `LoginRequiredMixin`
 - Templates use django-template-partials for components, HTMX for interactivity
 - Task execution history is logged in `TaskRunHistory` model — check it when debugging Celery issues
-- API endpoints under `/api/` use DRF and session auth; the SPA lives at `../price-manager-frontend/` (separate repo working dir)
+- API endpoints under `/api/` use DRF and session auth; the SPA lives at `./frontend/`
 - New apps should use the `tests/` package layout (see `product/tests/`) instead of a single `tests.py`
 - Multi-stage Dockerfile on Python 3.13-slim; production image runs Gunicorn + WhiteNoise
 - Every time api layout is changed **ALWAYS** update the `API_MAP.md` file
