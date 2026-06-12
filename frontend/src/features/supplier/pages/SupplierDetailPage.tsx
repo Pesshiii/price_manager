@@ -23,6 +23,7 @@ import { Link, useNavigate, useParams } from 'react-router-dom';
 import { createFeed, deleteFeedMapping, getSupplier, listFeedMappings, listFeeds } from '../api';
 import { supplierKeys } from '../queryKeys';
 import type { FeedMapping, SupplierFeedStatus } from '../types';
+import { PricingRulesSection } from '@/features/pricing/components/PricingRulesSection';
 
 type MappingSortField = 'name' | 'pipeline' | 'sku_column' | 'threshold';
 type SortDir = 'asc' | 'desc';
@@ -320,6 +321,8 @@ export function SupplierDetailPage() {
           )}
         </Stack>
       )}
+
+      {!isLoading && <PricingRulesSection supplierId={supplierId} />}
 
       <Modal opened={modalOpen} onClose={closeModal} title="Новая выгрузка">
         <Stack>

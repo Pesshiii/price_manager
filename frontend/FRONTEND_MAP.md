@@ -405,9 +405,44 @@ No top-level nav entry. All pages reachable contextually (from mapping edit page
 
 ---
 
-## Prices — `/prices`
+## Prices
 
-Placeholder page — not yet implemented.
+### `/prices` — PriceTypesPage
+File: `src/features/pricing/pages/PriceTypesPage.tsx`
+
+| Action | Endpoint |
+|--------|----------|
+| List price types | `GET /pricing/price-types/` |
+| Create price type | `POST /pricing/price-types/` |
+| Update label | `PATCH /pricing/price-types/{id}/` |
+| Delete price type | `DELETE /pricing/price-types/{id}/` |
+
+Query keys: `pricingKeys.priceTypes()`
+
+- Table with Ключ (slug, read-only) and Название (label) columns.
+- Create modal warns that the key cannot be changed after creation.
+- Edit modal allows updating only the label.
+- Delete shows a confirmation dialog.
+
+### PricingRulesSection (embedded in `/suppliers/:id`)
+File: `src/features/pricing/components/PricingRulesSection.tsx`
+
+| Action | Endpoint |
+|--------|----------|
+| List rules for supplier | `GET /pricing/rules/?supplier={id}` |
+| Create rule | `POST /pricing/rules/` |
+| Update rule | `PATCH /pricing/rules/{id}/` |
+| Delete rule | `DELETE /pricing/rules/{id}/` |
+| List price types (for labels) | `GET /pricing/price-types/` |
+
+Query keys: `pricingKeys.rules(supplierId)`, `pricingKeys.priceTypes()`
+
+- Rule cards show: `source_price_type label → dest_price_type label`, mode badge, priority.
+- Modal fields: source/dest price type Selects, mode SegmentedControl (formula/fixed).
+- Formula mode: markup % + increase NumberInputs.
+- Fixed mode: value NumberInput.
+- Optional conditions (Collapse): price_from, price_to, date_from, date_to.
+- Invalidates `pricingKeys.rules(supplierId)` on create/update/delete.
 
 ---
 
@@ -527,6 +562,19 @@ DELETE /supplier-feed/mappings/{id}/column-mappings/{cm_id}/
 GET    /pricing/price-types/
 ```
 
+### Pricing
+```
+GET    /pricing/price-types/
+POST   /pricing/price-types/
+PATCH  /pricing/price-types/{id}/
+DELETE /pricing/price-types/{id}/
+
+GET    /pricing/rules/              # ?supplier={id}
+POST   /pricing/rules/
+PATCH  /pricing/rules/{id}/
+DELETE /pricing/rules/{id}/
+```
+
 ---
 
 ## Polling Summary
@@ -567,3 +615,5 @@ GET    /pricing/price-types/
 | `transformKeys.snapshotField(id)` | field update |
 | `transformKeys.rules(mappingId)` | rule create/update/delete |
 | `transformKeys.snapshots(productId)` | read-only (transform task writes via backend) |
+| `pricingKeys.priceTypes()` | price type create/update/delete |
+| `pricingKeys.rules(supplierId)` | pricing rule create/update/delete |
