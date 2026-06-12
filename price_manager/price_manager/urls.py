@@ -14,6 +14,7 @@ from product_price_manager import views as ppm_views
 
 urlpatterns = [
     path('admin/', admin.site.urls),
+    path('api/', include('api_urls')),
     path('accounts/login/', views.AppLoginView.as_view(), name='login'),
     path('accounts/logout/', views.AppLogoutView.as_view(), name='logout'),
 
