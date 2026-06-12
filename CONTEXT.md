@@ -52,11 +52,9 @@
 
 Жизненный цикл: `draft → processing → matched | partial | error`. Переход `partial → done` происходит автоматически, когда все записи MatchQueue разобраны (`SupplierFeedEntry.objects.filter(feed=…, product=None, skipped=False).count() == 0`).
 
-**FeedMapping** — постоянная конфигурация на одного поставщика (`Supplier`). Содержит обязательную ссылку на **Pipeline** (`Dataframe` FK) — pipeline применяется к каждому загруженному файлу сессии и возвращает чистый `pd.DataFrame`. Описывает: какая колонка **выхода pipeline** является `supplier_sku` (обязательный primary identity), какие — дополнительные identity-поля (для эмбеддинга при матчинге), какие — переменные поля (цена, остаток и т.д.); а также `auto_match_threshold`. Дополнительно — опциональные маппинги для создания товара из выгрузки: `product_name_column` и `product_sku_column` (см. «Создание товара из выгрузки»). Может содержать один или несколько **FeedMarkupSet** для расчёта цен продажи. Создаётся один раз, переиспользуется для всех последующих `SupplierFeed` этого поставщика. Сырые файлы никогда не читаются напрямую — только через Pipeline.
+**FeedMapping** — постоянная конфигурация на одного поставщика (`Supplier`). Содержит обязательную ссылку на **Pipeline** (`Dataframe` FK) — pipeline применяется к каждому загруженному файлу сессии и возвращает чистый `pd.DataFrame`. Описывает: какая колонка **выхода pipeline** является `supplier_sku` (обязательный primary identity), какие — дополнительные identity-поля (для эмбеддинга при матчинге), какие — переменные поля (цена, остаток и т.д.); а также `auto_match_threshold`. Дополнительно — опциональные маппинги для создания товара из выгрузки: `product_name_column` и `product_sku_column` (см. «Создание товара из выгрузки»). Может содержать один или несколько **FeedColumnMapping** для декларации ролей колонок при ценообразовании. Создаётся один раз, переиспользуется для всех последующих `SupplierFeed` этого поставщика. Сырые файлы никогда не читаются напрямую — только через Pipeline.
 
-**FeedMarkupSet** — набор правил наценки в рамках одного `FeedMapping`. Задаёт: `price_column` — колонка-источник цены из `SupplierFeedEntry.data`; `output_column` — ключ, под которым расчётная цена записывается обратно в `SupplierFeedEntry.data`. Один `FeedMapping` может содержать несколько `FeedMarkupSet` — по одному на каждую пару источник/результат (например, закупочная цена → розничная, закупочная цена → оптовая). Правила применяются один раз при переходе `SupplierFeed → done`; изменение правил не пересчитывает исторические сессии.
-
-**FeedMarkupRule** — одно ценовое правило внутри `FeedMarkupSet`. Поля: `order` (приоритет — меньше = выше), `price_from` (nullable, включительно), `price_to` (nullable, включительно), `markup` (процент), `increase` (фиксированная надбавка). Формула: `output = source_price × (1 + markup / 100) + increase`, без округления. При нескольких совпавших правилах побеждает то, у которого наименьший `order`. Правила применяются только к смэтченным записям (`entry.product` заполнен); если `price_column` отсутствует в `data` или нет подходящего правила — `output_column` не записывается.
+**FeedColumnMapping** — объявление роли одной колонки из выхода pipeline в рамках `FeedMapping`. Поля: `column_name` — имя колонки; `role` (`price`|`stock`|`other`) — роль колонки в ценообразовании; `price_type` — FK на `PriceType` (обязателен при `role='price'`, иначе null). Пример: колонка `zakup_price` → `role=price`, `price_type=закупочная`. При обработке выгрузки (`SupplierFeed → done`) система читает эти декларации и создаёт `ProductPrice` с сырыми ценами поставщика. Затем Celery-задача `apply_feed_pricing` применяет `PricingRule` для расчёта производных типов цен.
 
 **Identity-поля** — поля строки выгрузки, маркированные пользователем в `FeedMapping` как идентификаторы товара у поставщика (например: артикул поставщика, название у поставщика). Используются для построения эмбеддинга строки выгрузки при первичном матчинге. Не путать с `supplier_sku` — тот является ключом `SupplierLink`, остальные identity-поля идут только в эмбеддинг.
 
@@ -94,6 +92,7 @@
 Весь функционал выгрузок живёт в новом Django-приложении **`supplier_feed`**. FKи: `product.Product`, `supplier_manager.Supplier`.
 
 ### Границы текущего скоупа
+<<<<<<< Updated upstream
 Интеграция `SupplierFeedEntry.data` с legacy `PriceManager` (пересчёт `MainProductPrice`) — **вне скоупа**. Наценки для выгрузок реализованы через `FeedMarkupSet` / `FeedMarkupRule` независимо от `PriceManager`.
 
 > **Устаревает:** `FeedMarkupSet` и `FeedMarkupRule` заменяются приложением `pricing` (см. ниже). `FeedMapping.variable_columns` заменяется `FeedColumnMapping`.
@@ -111,3 +110,28 @@
 **Stock** — текущий остаток товара у поставщика. Upsert по `(product, supplier)`. При завершении выгрузки: остатки присутствующих в фиде товаров обновляются; остатки отсутствующих товаров обнуляются (`quantity=0`).
 
 **FeedColumnMapping** — конфигурация колонок выгрузки. Заменяет `FeedMapping.variable_columns`. Одна запись на колонку: `column_name`, `role` (`price | stock | other`), `price_type` (FK на `PriceType`, только для `role=price`). Роль `other` — колонка сохраняется в `SupplierFeedEntry.data`, но не извлекается в `ProductPrice` или `Stock`.
+=======
+Интеграция `SupplierFeedEntry.data` с legacy `PriceManager` (пересчёт `MainProductPrice`) — **вне скоупа**. Ценообразование для выгрузок реализовано через `FeedColumnMapping` + `PricingRule` приложения `pricing`; `FeedMarkupSet` / `FeedMarkupRule` удалены.
+
+---
+
+## Ценообразование (Pricing)
+
+**Тип цены (PriceType)** — именованная роль цены в системе. Поля: `name` (slug, unique, напр. `zakupochnaya`), `label` (отображаемое название, напр. «Закупочная»). Глобальная справочная сущность, не привязана к поставщику. Примеры: «Закупочная», «Розничная», «Оптовая».
+
+**Правило ценообразования (PricingRule)** — формула расчёта одного `PriceType` из другого для конкретного поставщика. Поля: `supplier` (FK), `source_price_type`, `dest_price_type`, `mode` (`fixed`|`formula`), `params` (JSON: `{markup, increase}` для formula, `{value}` для fixed), `priority`. Условия применения (все опциональны): `category` (FK), `price_from`, `price_to`, `date_from`, `date_to`. При нескольких совпавших правилах побеждает правило с наименьшим `priority`. Правила применяются задачей `apply_feed_pricing` при переходе `SupplierFeed → done`.
+
+**Цена товара (ProductPrice)** — рассчитанное значение конкретного `PriceType` для пары товар/поставщик. Поля: `product`, `supplier`, `price_type`, `value`, `rule` (FK на `PricingRule`, nullable — null означает сырую цену из выгрузки, not null — расчётную), `updated_at`. Хранит как исходные цены поставщика (сырые), так и производные (по правилам).
+
+**Остаток (Stock)** — текущий складской остаток товара у поставщика. Поля: `product`, `supplier`, `quantity`, `updated_at`. Заполняется задачей `apply_feed_pricing` из колонок с `role=stock` в `FeedColumnMapping`.
+
+### Цепочка ценообразования
+
+1. `FeedColumnMapping`: объявляет, что колонка `X` выхода pipeline = `PriceType Y` (role=price) или остаток (role=stock).
+2. При `SupplierFeed → done` задача `apply_feed_pricing` создаёт `ProductPrice` с сырыми значениями (`rule=null`).
+3. Для каждого `PricingRule` поставщика задача создаёт расчётные `ProductPrice` (`rule` заполнен).
+4. Результат — `ProductPrice` на каждую пару (товар, поставщик, тип цены).
+
+### Приложение
+Весь функционал ценообразования живёт в Django-приложении **`pricing`**.
+>>>>>>> Stashed changes
