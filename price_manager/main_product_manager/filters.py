@@ -142,10 +142,12 @@ class MainProductFilter(FilterSet):
 
     return None
 
-
+  def _get_terms(self, value):
+    first_terms = value.split()
+    value = re.sub(r"[^\w\-\\\/]+", " ", value, flags=re.UNICODE)
+    return [*value.split(), *first_terms]
   def _build_partial_query(self, value):
-      value = re.sub(r"[^\w\-\\\/]+", " ", value, flags=re.UNICODE)
-      terms = [bit for bit in value.split() if bit]
+      terms = self._get_terms(value)
       if not terms:
         return None
       query = SearchQuery('')
