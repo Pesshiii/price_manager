@@ -23,8 +23,8 @@ import { Link, useNavigate, useParams } from 'react-router-dom';
 import { listPipelines } from '@/features/dataframe/api';
 import { dataframeKeys } from '@/features/dataframe/queryKeys';
 import type { DataframePayload } from '@/features/dataframe/types';
+import { FeedColumnMappingSection } from '../components/FeedColumnMappingSection';
 import { NewPipelineDrawer } from '../components/NewPipelineDrawer';
-import { MarkupSetsSection } from '../components/MarkupSetsSection';
 import { getFeedMapping, updateFeedMapping } from '../api';
 import { supplierKeys } from '../queryKeys';
 
@@ -224,7 +224,7 @@ export function FeedMappingEditPage() {
           </Button>
         </Group>
 
-        <MarkupSetsSection
+        <FeedColumnMappingSection
           mappingId={feedMappingId}
           availableColumns={availableColumns.length > 0 ? availableColumns : variableColumns}
         />

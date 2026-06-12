@@ -2,12 +2,10 @@ import { api } from '@/api/client';
 import type { Paginated } from '@/features/product/types';
 import type {
   BulkCreateProductsResult,
+  FeedColumnMapping,
+  FeedColumnMappingWritePayload,
   FeedMapping,
   FeedMappingWritePayload,
-  FeedMarkupRule,
-  FeedMarkupRuleWritePayload,
-  FeedMarkupSet,
-  FeedMarkupSetWritePayload,
   ProductSearchResult,
   Supplier,
   SupplierFeed,
@@ -21,8 +19,8 @@ import type {
 const BASE = '/suppliers';
 const MAPPINGS_BASE = '/supplier-feed/mappings';
 const FEEDS_BASE = '/supplier-feed/feeds';
-const MARKUP_SETS_BASE = '/supplier-feed/markup-sets';
-const MARKUP_RULES_BASE = '/supplier-feed/markup-rules';
+const columnMappingsBase = (mappingId: number) =>
+  `/supplier-feed/mappings/${mappingId}/column-mappings`;
 
 export async function listSuppliers(): Promise<Supplier[]> {
   const { data } = await api.get<Supplier[]>(`${BASE}/`);
@@ -177,43 +175,31 @@ export async function bulkCreateProducts(
   return data;
 }
 
-export async function listMarkupSets(mappingId: number): Promise<FeedMarkupSet[]> {
-  const { data } = await api.get<FeedMarkupSet[]>(`${MARKUP_SETS_BASE}/`, {
-    params: { mapping: mappingId },
-  });
+export async function listColumnMappings(mappingId: number): Promise<FeedColumnMapping[]> {
+  const { data } = await api.get<FeedColumnMapping[]>(`${columnMappingsBase(mappingId)}/`);
   return data;
 }
 
-export async function createMarkupSet(payload: FeedMarkupSetWritePayload): Promise<FeedMarkupSet> {
-  const { data } = await api.post<FeedMarkupSet>(`${MARKUP_SETS_BASE}/`, payload);
+export async function createColumnMapping(
+  mappingId: number,
+  payload: Omit<FeedColumnMappingWritePayload, 'feed_mapping'>,
+): Promise<FeedColumnMapping> {
+  const { data } = await api.post<FeedColumnMapping>(`${columnMappingsBase(mappingId)}/`, payload);
   return data;
 }
 
-export async function updateMarkupSet(
+export async function updateColumnMapping(
+  mappingId: number,
   id: number,
-  payload: Partial<FeedMarkupSetWritePayload>,
-): Promise<FeedMarkupSet> {
-  const { data } = await api.patch<FeedMarkupSet>(`${MARKUP_SETS_BASE}/${id}/`, payload);
+  payload: Partial<Omit<FeedColumnMappingWritePayload, 'feed_mapping'>>,
+): Promise<FeedColumnMapping> {
+  const { data } = await api.patch<FeedColumnMapping>(
+    `${columnMappingsBase(mappingId)}/${id}/`,
+    payload,
+  );
   return data;
 }
 
-export async function deleteMarkupSet(id: number): Promise<void> {
-  await api.delete(`${MARKUP_SETS_BASE}/${id}/`);
-}
-
-export async function createMarkupRule(payload: FeedMarkupRuleWritePayload): Promise<FeedMarkupRule> {
-  const { data } = await api.post<FeedMarkupRule>(`${MARKUP_RULES_BASE}/`, payload);
-  return data;
-}
-
-export async function updateMarkupRule(
-  id: number,
-  payload: Partial<Omit<FeedMarkupRuleWritePayload, 'markup_set'>>,
-): Promise<FeedMarkupRule> {
-  const { data } = await api.patch<FeedMarkupRule>(`${MARKUP_RULES_BASE}/${id}/`, payload);
-  return data;
-}
-
-export async function deleteMarkupRule(id: number): Promise<void> {
-  await api.delete(`${MARKUP_RULES_BASE}/${id}/`);
+export async function deleteColumnMapping(mappingId: number, id: number): Promise<void> {
+  await api.delete(`${columnMappingsBase(mappingId)}/${id}/`);
 }
