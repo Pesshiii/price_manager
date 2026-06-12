@@ -95,3 +95,19 @@
 
 ### Границы текущего скоупа
 Интеграция `SupplierFeedEntry.data` с legacy `PriceManager` (пересчёт `MainProductPrice`) — **вне скоупа**. Наценки для выгрузок реализованы через `FeedMarkupSet` / `FeedMarkupRule` независимо от `PriceManager`.
+
+> **Устаревает:** `FeedMarkupSet` и `FeedMarkupRule` заменяются приложением `pricing` (см. ниже). `FeedMapping.variable_columns` заменяется `FeedColumnMapping`.
+
+---
+
+## Pricing (Ценообразование и остатки)
+
+**PriceType** — тип цены: конфигурируемая сущность (`name: slug`, `label`). Заменяет хардкоженные поля цены (`basic_price`, `m_price` и т.д.) в legacy-системе. Позволяет добавлять новые типы цен без миграции схемы.
+
+**ProductPrice** — текущая цена товара. Хранит значение, тип, поставщика и правило-источник. Upsert-семантика: одна строка на `(product, supplier, price_type)`. Если `rule IS NULL` — это сырая цена поставщика, извлечённая из выгрузки. Если `rule IS NOT NULL` — расчётная цена, порождённая `PricingRule`. Поставщик заполнен всегда — различие «цена поставщика vs расчётная цена» выражается через `rule`, а не через `supplier=null`.
+
+**PricingRule** — правило ценообразования уровня поставщика. Содержит: поставщик, тип цены-источника (`source_price_type`), тип цены-назначения (`dest_price_type`), режим (`mode`: `fixed`, `formula`, расширяемо), параметры режима (`params: JSONField`), фильтр (`category`, `price_from`, `price_to`, `date_from`, `date_to`), приоритет (`priority`: меньше = выше). Заменяет `FeedMarkupSet` / `FeedMarkupRule`. Срабатывает как Celery-задача при переходе `SupplierFeed → done` (через `transaction.on_commit`).
+
+**Stock** — текущий остаток товара у поставщика. Upsert по `(product, supplier)`. При завершении выгрузки: остатки присутствующих в фиде товаров обновляются; остатки отсутствующих товаров обнуляются (`quantity=0`).
+
+**FeedColumnMapping** — конфигурация колонок выгрузки. Заменяет `FeedMapping.variable_columns`. Одна запись на колонку: `column_name`, `role` (`price | stock | other`), `price_type` (FK на `PriceType`, только для `role=price`). Роль `other` — колонка сохраняется в `SupplierFeedEntry.data`, но не извлекается в `ProductPrice` или `Stock`.
