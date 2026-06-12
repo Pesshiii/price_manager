@@ -2,8 +2,6 @@ from rest_framework import serializers
 
 from supplier_feed.models import (
     FeedMapping,
-    FeedMarkupRule,
-    FeedMarkupSet,
     SupplierFeed,
     SupplierFeedEntry,
     SupplierLink,
@@ -61,31 +59,6 @@ class SupplierFeedEntrySerializer(serializers.ModelSerializer):
     class Meta:
         model = SupplierFeedEntry
         fields = ['id', 'supplier_sku', 'data', 'match_candidates', 'best_score']
-
-
-# ── FeedMarkupSet / FeedMarkupRule serializers ───────────────────────────────
-
-class FeedMarkupRuleSerializer(serializers.ModelSerializer):
-    class Meta:
-        model = FeedMarkupRule
-        fields = ['id', 'markup_set', 'order', 'price_from', 'price_to', 'markup', 'increase']
-
-    def validate(self, data):
-        price_from = data.get('price_from', getattr(self.instance, 'price_from', None))
-        price_to = data.get('price_to', getattr(self.instance, 'price_to', None))
-        if price_from is not None and price_to is not None and price_from > price_to:
-            raise serializers.ValidationError(
-                {'price_to': 'Цена «до» должна быть не меньше цены «от».'}
-            )
-        return data
-
-
-class FeedMarkupSetSerializer(serializers.ModelSerializer):
-    rules = FeedMarkupRuleSerializer(many=True, read_only=True)
-
-    class Meta:
-        model = FeedMarkupSet
-        fields = ['id', 'feed_mapping', 'name', 'price_column', 'output_column', 'rules']
 
 
 # ── FeedMapping / SupplierFeed serializers ────────────────────────────────────
