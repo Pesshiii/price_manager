@@ -3,8 +3,6 @@ from rest_framework import serializers
 from supplier_feed.models import (
     FeedColumnMapping,
     FeedMapping,
-    FeedMarkupRule,
-    FeedMarkupSet,
     SupplierFeed,
     SupplierFeedEntry,
     SupplierLink,
@@ -64,31 +62,6 @@ class SupplierFeedEntrySerializer(serializers.ModelSerializer):
         fields = ['id', 'supplier_sku', 'data', 'match_candidates', 'best_score']
 
 
-# ── FeedMarkupSet / FeedMarkupRule serializers ───────────────────────────────
-
-class FeedMarkupRuleSerializer(serializers.ModelSerializer):
-    class Meta:
-        model = FeedMarkupRule
-        fields = ['id', 'markup_set', 'order', 'price_from', 'price_to', 'markup', 'increase']
-
-    def validate(self, data):
-        price_from = data.get('price_from', getattr(self.instance, 'price_from', None))
-        price_to = data.get('price_to', getattr(self.instance, 'price_to', None))
-        if price_from is not None and price_to is not None and price_from > price_to:
-            raise serializers.ValidationError(
-                {'price_to': 'Цена «до» должна быть не меньше цены «от».'}
-            )
-        return data
-
-
-class FeedMarkupSetSerializer(serializers.ModelSerializer):
-    rules = FeedMarkupRuleSerializer(many=True, read_only=True)
-
-    class Meta:
-        model = FeedMarkupSet
-        fields = ['id', 'feed_mapping', 'name', 'price_column', 'output_column', 'rules']
-
-
 # ── FeedMapping / SupplierFeed serializers ────────────────────────────────────
 
 class _DataframeMiniSerializer(serializers.Serializer):
@@ -133,22 +106,6 @@ class SupplierFeedSerializer(serializers.ModelSerializer):
         read_only_fields = ['status', 'session_ids', 'error', 'created_at']
 
 
-class FeedColumnMappingSerializer(serializers.ModelSerializer):
-    class Meta:
-        model = FeedColumnMapping
-        fields = ['id', 'feed_mapping', 'column_name', 'role', 'price_type']
-
-    def validate(self, attrs):
-        # For PATCH requests only the submitted fields are in attrs; fall back to
-        # the instance values so that a partial update cannot silently clear
-        # price_type on an existing price-role record.
-        role = attrs.get('role', getattr(self.instance, 'role', None))
-        price_type = attrs.get('price_type', getattr(self.instance, 'price_type_id', None))
-        if role == FeedColumnMapping.ROLE_PRICE and not price_type:
-            raise serializers.ValidationError({'price_type': 'Обязательно для роли "Цена".'})
-        return attrs
-
-
 class SupplierFeedDetailSerializer(SupplierFeedSerializer):
     """Detail serializer — adds computed entry statistics."""
 
@@ -171,3 +128,46 @@ class SupplierFeedDetailSerializer(SupplierFeedSerializer):
 
     def get_skipped(self, obj) -> int:
         return obj.entries.filter(skipped=True).count()
+
+
+# ── FeedColumnMapping serializer ──────────────────────────────────────────────
+
+class FeedColumnMappingSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = FeedColumnMapping
+        fields = ['id', 'feed_mapping', 'column_name', 'role', 'price_type']
+        read_only_fields = ['feed_mapping']
+
+    def validate(self, data):
+        # On creation the instance is None; on update we fall back to the
+        # stored value for any field omitted from a partial PATCH.
+        instance = self.instance
+        role = data.get('role', getattr(instance, 'role', None))
+        price_type = data.get('price_type', getattr(instance, 'price_type', None))
+        if role == FeedColumnMapping.ROLE_PRICE and price_type is None:
+            raise serializers.ValidationError(
+                {'price_type': 'Тип цены обязателен при роли "price".'}
+            )
+        return data
+
+    def validate_column_name(self, value):
+        # Guard against duplicate (feed_mapping, column_name) within this mapping.
+        # feed_mapping_id is injected via perform_create / already on instance.
+        request = self.context.get('request')
+        view = self.context.get('view')
+        if view is None:
+            return value
+        mapping_pk = view.kwargs.get('mapping_pk')
+        if mapping_pk is None:
+            return value
+        qs = FeedColumnMapping.objects.filter(
+            feed_mapping_id=mapping_pk,
+            column_name=value,
+        )
+        if self.instance is not None:
+            qs = qs.exclude(pk=self.instance.pk)
+        if qs.exists():
+            raise serializers.ValidationError(
+                'Колонка с таким именем уже добавлена для этой конфигурации выгрузки.'
+            )
+        return value

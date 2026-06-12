@@ -4,8 +4,6 @@ from rest_framework.routers import DefaultRouter
 from .views import (
     FeedColumnMappingViewSet,
     FeedMappingViewSet,
-    FeedMarkupRuleViewSet,
-    FeedMarkupSetViewSet,
     SupplierFeedViewSet,
     SupplierLinkViewSet,
 )
@@ -16,10 +14,17 @@ router = DefaultRouter()
 router.register(r'mappings', FeedMappingViewSet, basename='feedmapping')
 router.register(r'feeds', SupplierFeedViewSet, basename='supplierfeed')
 router.register(r'links', SupplierLinkViewSet, basename='supplierlink')
-router.register(r'markup-sets', FeedMarkupSetViewSet, basename='feedmarkupset')
-router.register(r'markup-rules', FeedMarkupRuleViewSet, basename='feedmarkuprule')
-router.register(r'column-mappings', FeedColumnMappingViewSet, basename='feedcolumnmapping')
 
 urlpatterns = [
     path('', include(router.urls)),
+    path(
+        'mappings/<int:mapping_pk>/column-mappings/',
+        FeedColumnMappingViewSet.as_view({'get': 'list', 'post': 'create'}),
+        name='column-mapping-list',
+    ),
+    path(
+        'mappings/<int:mapping_pk>/column-mappings/<int:pk>/',
+        FeedColumnMappingViewSet.as_view({'get': 'retrieve', 'patch': 'partial_update', 'delete': 'destroy'}),
+        name='column-mapping-detail',
+    ),
 ]

@@ -1,4 +1,5 @@
-from django.db import models
+from django.db import models, transaction
+from django.shortcuts import get_object_or_404
 from rest_framework import mixins, status, viewsets
 from rest_framework.authentication import SessionAuthentication
 from rest_framework.decorators import action
@@ -9,8 +10,6 @@ from rest_framework.response import Response
 from supplier_feed.models import (
     FeedColumnMapping,
     FeedMapping,
-    FeedMarkupRule,
-    FeedMarkupSet,
     SupplierFeed,
     SupplierFeedEntry,
     SupplierLink,
@@ -18,14 +17,11 @@ from supplier_feed.models import (
     STATUS_DRAFT,
     STATUS_PROCESSING,
 )
-from supplier_feed.markup import apply_markups
 from supplier_feed.tasks import run_feed_matching_task
 from dataframe import sessions as session_store
 from .serializers import (
     FeedColumnMappingSerializer,
     FeedMappingSerializer,
-    FeedMarkupRuleSerializer,
-    FeedMarkupSetSerializer,
     SupplierFeedSerializer,
     SupplierFeedDetailSerializer,
     SupplierFeedEntrySerializer,
@@ -35,14 +31,19 @@ from .serializers import (
 
 
 def _try_close_feed(feed):
-    """Transition feed to 'done' if MatchQueue is empty, then apply markup rules."""
-    remaining = SupplierFeedEntry.objects.filter(
-        feed=feed, product__isnull=True, skipped=False
-    ).exists()
-    if not remaining:
-        apply_markups(feed)
-        feed.status = STATUS_DONE
-        feed.save(update_fields=['status'])
+    from pricing.tasks import apply_feed_pricing
+
+    with transaction.atomic():
+        locked = SupplierFeed.objects.select_for_update().get(pk=feed.pk)
+        if locked.status == STATUS_DONE:
+            return
+        remaining = SupplierFeedEntry.objects.filter(
+            feed=locked, product__isnull=True, skipped=False
+        ).exists()
+        if not remaining:
+            locked.status = STATUS_DONE
+            locked.save(update_fields=['status'])
+            transaction.on_commit(lambda: apply_feed_pricing.delay(locked.pk))
 
 
 class _QueuePagination(PageNumberPagination):
@@ -445,51 +446,6 @@ class SupplierFeedViewSet(viewsets.ModelViewSet):
         return Response(SupplierFeedEntrySerializer(entry).data, status=status.HTTP_200_OK)
 
 
-class FeedMarkupSetViewSet(viewsets.ModelViewSet):
-    """CRUD для наборов наценок. Фильтрация: ?mapping=<feed_mapping_id>."""
-
-    serializer_class = FeedMarkupSetSerializer
-    authentication_classes = [SessionAuthentication]
-    permission_classes = [IsAuthenticated]
-
-    def get_queryset(self):
-        qs = FeedMarkupSet.objects.prefetch_related('rules').order_by('feed_mapping', 'name')
-        mapping = self.request.query_params.get('mapping')
-        if mapping:
-            qs = qs.filter(feed_mapping_id=mapping)
-        return qs
-
-
-class FeedMarkupRuleViewSet(viewsets.ModelViewSet):
-    """CRUD для правил наценки. Фильтрация: ?markup_set=<id>."""
-
-    serializer_class = FeedMarkupRuleSerializer
-    authentication_classes = [SessionAuthentication]
-    permission_classes = [IsAuthenticated]
-
-    def get_queryset(self):
-        qs = FeedMarkupRule.objects.order_by('markup_set', 'order')
-        markup_set = self.request.query_params.get('markup_set')
-        if markup_set:
-            qs = qs.filter(markup_set_id=markup_set)
-        return qs
-
-
-class FeedColumnMappingViewSet(viewsets.ModelViewSet):
-    """CRUD для маппингов колонок. Фильтрация: ?feed_mapping=<id>."""
-
-    serializer_class = FeedColumnMappingSerializer
-    authentication_classes = [SessionAuthentication]
-    permission_classes = [IsAuthenticated]
-
-    def get_queryset(self):
-        qs = FeedColumnMapping.objects.select_related('feed_mapping', 'price_type').order_by('feed_mapping', 'column_name')
-        feed_mapping = self.request.query_params.get('feed_mapping')
-        if feed_mapping:
-            qs = qs.filter(feed_mapping_id=feed_mapping)
-        return qs
-
-
 class SupplierLinkViewSet(
     mixins.ListModelMixin,
     mixins.DestroyModelMixin,
@@ -526,3 +482,22 @@ class SupplierLinkViewSet(
         # Refresh to pick up the new product FK before serialising
         instance.refresh_from_db(fields=['product_id'])
         return Response(SupplierLinkSerializer(instance).data, status=status.HTTP_200_OK)
+
+
+class FeedColumnMappingViewSet(viewsets.ModelViewSet):
+    """CRUD for FeedColumnMapping records nested under a FeedMapping."""
+
+    serializer_class = FeedColumnMappingSerializer
+    authentication_classes = [SessionAuthentication]
+    permission_classes = [IsAuthenticated]
+    http_method_names = ['get', 'post', 'patch', 'delete', 'head', 'options']
+
+    def get_queryset(self):
+        mapping_pk = self.kwargs['mapping_pk']
+        # Raise 404 if parent mapping does not exist
+        get_object_or_404(FeedMapping, pk=mapping_pk)
+        return FeedColumnMapping.objects.filter(feed_mapping_id=mapping_pk)
+
+    def perform_create(self, serializer):
+        mapping_pk = self.kwargs['mapping_pk']
+        serializer.save(feed_mapping_id=mapping_pk)

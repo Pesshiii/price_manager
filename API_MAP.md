@@ -1077,6 +1077,50 @@ Deletes a supplier link permanently.
 
 ---
 
+### Column Mappings
+
+`FeedColumnMapping` records declare the **role** and optional **price type** for each variable column in a `FeedMapping`. Endpoints are nested under the parent mapping — `mapping_pk` is the `FeedMapping` PK.
+
+#### `GET /api/supplier-feed/mappings/<mapping_pk>/column-mappings/`
+
+Lists all column mappings for a given `FeedMapping`.
+
+**Response fields:** `id`, `feed_mapping` (PK, read-only), `column_name`, `role` (`price`|`stock`|`other`), `price_type` (PK or `null`).
+
+**Response `404`:** Parent `FeedMapping` not found.
+
+#### `POST /api/supplier-feed/mappings/<mapping_pk>/column-mappings/`
+
+Creates a column mapping under the given `FeedMapping`. `feed_mapping` is set automatically from the URL — do not include it in the request body.
+
+```json
+{
+  "column_name": "price",
+  "role": "price",
+  "price_type": 2
+}
+```
+
+**Validation:** `price_type` is required when `role == "price"` (enforced by DB `CheckConstraint`).
+
+**Response `400`:** `price_type` missing for role `price`, or duplicate `(feed_mapping, column_name)`.  
+**Response `404`:** Parent `FeedMapping` not found.
+
+#### `GET /api/supplier-feed/mappings/<mapping_pk>/column-mappings/<id>/`
+
+Retrieves a single column mapping.
+
+#### `PATCH /api/supplier-feed/mappings/<mapping_pk>/column-mappings/<id>/`
+
+Partially updates a column mapping.
+
+#### `DELETE /api/supplier-feed/mappings/<mapping_pk>/column-mappings/<id>/`
+
+Deletes a column mapping.
+
+---
+
+
 ## 5. Suppliers — `/api/suppliers/`
 
 Simple CRUD for supplier records.

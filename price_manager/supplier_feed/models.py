@@ -120,58 +120,6 @@ class SupplierFeedEntry(models.Model):
         return f'{self.feed_id} / {self.supplier_sku}'
 
 
-class FeedMarkupSet(models.Model):
-    """Набор правил наценки для одной пары (price_column → output_column) в рамках FeedMapping."""
-
-    feed_mapping = models.ForeignKey(
-        FeedMapping,
-        on_delete=models.CASCADE,
-        verbose_name='Конфигурация выгрузки',
-        related_name='markup_sets',
-    )
-    name = models.CharField('Название', max_length=255)
-    price_column = models.CharField('Колонка цены-источника', max_length=128)
-    output_column = models.CharField('Колонка расчётной цены', max_length=128)
-
-    class Meta:
-        verbose_name = 'Набор наценок'
-        verbose_name_plural = 'Наборы наценок'
-        ordering = ['feed_mapping', 'name']
-
-    def __str__(self):
-        return f'{self.feed_mapping} / {self.name}'
-
-
-class FeedMarkupRule(models.Model):
-    """Одно ценовое правило внутри FeedMarkupSet."""
-
-    markup_set = models.ForeignKey(
-        FeedMarkupSet,
-        on_delete=models.CASCADE,
-        verbose_name='Набор наценок',
-        related_name='rules',
-    )
-    order = models.PositiveIntegerField('Приоритет', default=0, db_index=True)
-    price_from = models.DecimalField(
-        'Цена от', max_digits=14, decimal_places=4, null=True, blank=True
-    )
-    price_to = models.DecimalField(
-        'Цена до', max_digits=14, decimal_places=4, null=True, blank=True
-    )
-    markup = models.DecimalField('Наценка %', max_digits=10, decimal_places=4, default=0)
-    increase = models.DecimalField('Надбавка', max_digits=14, decimal_places=4, default=0)
-
-    class Meta:
-        verbose_name = 'Правило наценки'
-        verbose_name_plural = 'Правила наценок'
-        ordering = ['order']
-
-    def __str__(self):
-        lo = float(self.price_from) if self.price_from is not None else '–∞'
-        hi = float(self.price_to) if self.price_to is not None else '+∞'
-        return f'{self.markup_set} [{lo}–{hi}] +{self.markup}% +{self.increase}'
-
-
 class FeedColumnMapping(models.Model):
     ROLE_PRICE = 'price'
     ROLE_STOCK = 'stock'
