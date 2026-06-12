@@ -1,6 +1,7 @@
 from rest_framework import serializers
 
 from supplier_feed.models import (
+    FeedColumnMapping,
     FeedMapping,
     FeedMarkupRule,
     FeedMarkupSet,
@@ -130,6 +131,22 @@ class SupplierFeedSerializer(serializers.ModelSerializer):
             'created_at',
         ]
         read_only_fields = ['status', 'session_ids', 'error', 'created_at']
+
+
+class FeedColumnMappingSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = FeedColumnMapping
+        fields = ['id', 'feed_mapping', 'column_name', 'role', 'price_type']
+
+    def validate(self, attrs):
+        # For PATCH requests only the submitted fields are in attrs; fall back to
+        # the instance values so that a partial update cannot silently clear
+        # price_type on an existing price-role record.
+        role = attrs.get('role', getattr(self.instance, 'role', None))
+        price_type = attrs.get('price_type', getattr(self.instance, 'price_type_id', None))
+        if role == FeedColumnMapping.ROLE_PRICE and not price_type:
+            raise serializers.ValidationError({'price_type': 'Обязательно для роли "Цена".'})
+        return attrs
 
 
 class SupplierFeedDetailSerializer(SupplierFeedSerializer):

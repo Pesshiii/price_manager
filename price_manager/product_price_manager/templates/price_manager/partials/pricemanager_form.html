@@ -1,185 +1,251 @@
+{% load widget_tweaks %}
 
-            <div >
-              {{ form.errors }}
-            </div>
-            <div class="row">
-              <div class="row">
-                {{form.name|add_label_class:"form-lable mb-1 mt-4"}}
-                {% render_field form.name class="form-control mb-1" readonly="readonly" placeholder="Название будет сформировано автоматически при сохранении"%}
-                {% if form.name.help_text %}
-                  <small class="text-muted mb-3 d-block">{{ form.name.help_text }}</small>
-                {% endif %}
-              </div>
-              <div class="row">
-                {{form.has_rrp|add_label_class:"form-lable mb-1 mt-4"}}
-                {% render_field form.has_rrp class="form-select mb-4"%}
-              </div>
-              <div class="row">
-                {{form.discounts|add_label_class:"form-lable mb-1 mt-4"}}
-                <div class="dropdown mb-4" data-discount-dropdown>
-                  <button
-                    class="btn btn-outline-secondary dropdown-toggle w-100 text-start d-flex justify-content-between align-items-center"
-                    type="button"
-                    id="discountsDropdown"
-                    data-bs-toggle="dropdown"
-                    data-bs-auto-close="outside"
-                    aria-expanded="false">
-                    <span data-discount-dropdown-label>Выберите группы скидок</span>
-                  </button>
-                  <div class="dropdown-menu w-100 p-3 shadow-sm" aria-labelledby="discountsDropdown">
-                    <div class="d-flex gap-2 mb-2">
-                      <button type="button" class="btn btn-sm btn-link p-0" data-discount-select-all>Выбрать все</button>
-                      <button type="button" class="btn btn-sm btn-link text-muted p-0" data-discount-clear-all>Снять все</button>
-                    </div>
-                    <input
-                      type="search"
-                      class="form-control form-control-sm mb-3"
-                      placeholder="Поиск группы скидок"
-                      data-discount-search>
-                    <div class="border rounded p-2" style="max-height: 220px; overflow-y: auto;" data-discount-options>
-                      {% for discount in form.fields.discounts.queryset %}
-                        <div class="form-check mb-2" data-discount-option data-discount-name="{{ discount.name|lower }}">
-                          <input
-                            class="form-check-input"
-                            type="checkbox"
-                            name="{{ form.discounts.html_name }}"
-                            value="{{ discount.pk }}"
-                            id="discount_{{ discount.pk }}"
-                            {% if discount.pk in selected_discount_ids %}checked{% endif %}>
-                          <label class="form-check-label" for="discount_{{ discount.pk }}">
-                            {{ discount.name }}
-                          </label>
-                        </div>
-                      {% empty %}
-                        <div class="text-muted small">Нет доступных групп скидок.</div>
-                      {% endfor %}
-                    </div>
-                  </div>
-                </div>
-              </div>
-              <div class="row">
-                {{form.categories|add_label_class:"form-lable mb-1 mt-4"}}
-                {% render_field form.categories class="form-select mb-4" multiple="multiple"%}
-              </div>
-              <div class="row gap-3">
-                <div class="col-3">
-                  {{form.date_from|add_label_class:"form-lable mb-1 mt-4"}}
-                  {% render_field form.date_from class="form-control mb-4" type="date"%}
-                </div>
-                <div class="col-3">
-                  {{form.date_to|add_label_class:"form-lable mb-1 mt-4"}}
-                  {% render_field form.date_to class="form-control mb-4" type="date"%}
-                </div>
-                <div class="col-5">
-                  <div class="row">
-                    <div>
-                      {{form.dest|add_label_class:"form-lable mb-1 mt-4"}}
-                      {% render_field form.dest class="form-select mb-4"%}
-                    </div>
-                  </div>
-                </div>
-              </div>
-              <div class="row p-3">
-                <div class="border rounded">
-                  <div class="form-check form-check-reverse form-check-inline form-switch mt-4">
-                    {{form.price_fixed|add_label_class:"form-label"}}
-                    {% render_field form.price_fixed class="form-check-input fs-4" role="switch" data-bs-toggle="collapse" data-bs-target=".setPrice" aria-controls="setPrice1 setPrice2"%}
-                  </div>
-                  <div class="row {% if not form.price_fixed.value %}collapse {% else %} show {% endif %} setPrice" id="setPrice1">
-                    <div class="row">
-                      <div>
-                        {{form.fixed_price|add_label_class:"form-lable mb-1 mt-4"}}
-                        {% render_field form.fixed_price class="form-control mt-2 mb-4"%}
-                      </div>
-                    </div>
-                  </div>
-                  <div class="row {% if form.price_fixed.value %}collapse {% else %} show {% endif %} setPrice" id="setPrice2">
-                    <div class="row">
-                      <div class="col-6">
-                        {{form.price_from|add_label_class:"form-lable mb-1 mt-4"}}
-                        {% render_field form.price_from class="form-control mb-4"%}
-                      </div>
-                      <div class="col-6">
-                        {{form.price_to|add_label_class:"form-lable mb-1 mt-4"}}
-                        {% render_field form.price_to class="form-control mb-4"%}
-                      </div>
-                    </div>
-                    <div class="row">
-                      <div>
-                        {{form.source|add_label_class:"form-lable mb-1"}}
-                        {% render_field form.source class="form-select mb-4"%}
-                      </div>
-                    </div>
-                    <div class="row mb-4">
-                      <div class="col-6">
-                        {{form.markup|add_label_class:"form-lable mb-1"}}
-                        {% render_field form.markup class="form-control mb-4"%}
-                      </div>
-                      <div class="col-6">
-                        {{form.increase|add_label_class:"form-lable mb-1"}}
-                        {% render_field form.increase class="form-control mb-4"%}
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              </div>
-            </div>
-            <script>
-              (function () {
-                const initDiscountDropdown = (block) => {
-                  if (!block || block.dataset.initialized === "true") return;
-                  block.dataset.initialized = "true";
+{# Название (readonly, auto-generated) #}
+<div class="mb-3">
+  <label class="form-label text-muted small fw-semibold text-uppercase letter-spacing-1">Название</label>
+  {% render_field form.name class="form-control form-control-sm bg-light text-muted" readonly="readonly" placeholder="Будет сформировано автоматически при сохранении" %}
+  {% if form.name.help_text %}
+    <div class="form-text">{{ form.name.help_text }}</div>
+  {% endif %}
+  {% if form.name.errors %}
+    <div class="invalid-feedback d-block">{{ form.name.errors|join:", " }}</div>
+  {% endif %}
+</div>
 
-                  const label = block.querySelector("[data-discount-dropdown-label]");
-                  const search = block.querySelector("[data-discount-search]");
-                  const checkboxes = Array.from(block.querySelectorAll('input[type="checkbox"][name="{{ form.discounts.html_name }}"]'));
-                  const options = Array.from(block.querySelectorAll("[data-discount-option]"));
-                  const selectAllBtn = block.querySelector("[data-discount-select-all]");
-                  const clearAllBtn = block.querySelector("[data-discount-clear-all]");
+{# Строка 1: РРЦ + Направление цены #}
+<div class="row g-3 mb-3">
+  <div class="col-md-6">
+    <label class="form-label text-muted small fw-semibold text-uppercase">{{ form.has_rrp.label }}</label>
+    {% render_field form.has_rrp class="form-select form-select-sm" %}
+    {% if form.has_rrp.errors %}
+      <div class="invalid-feedback d-block">{{ form.has_rrp.errors|join:", " }}</div>
+    {% endif %}
+  </div>
+  <div class="col-md-6">
+    <label class="form-label text-muted small fw-semibold text-uppercase">{{ form.dest.label }}</label>
+    {% render_field form.dest class="form-select form-select-sm" %}
+    {% if form.dest.errors %}
+      <div class="invalid-feedback d-block">{{ form.dest.errors|join:", " }}</div>
+    {% endif %}
+  </div>
+</div>
 
-                  const updateLabel = () => {
-                    const selected = checkboxes.filter((input) => input.checked);
-                    if (selected.length === 0) {
-                      label.textContent = "Выберите группы скидок";
-                    } else if (selected.length <= 2) {
-                      label.textContent = selected.map((input) => {
-                        const optionLabel = block.querySelector(`label[for="${input.id}"]`);
-                        return optionLabel ? optionLabel.textContent.trim() : "";
-                      }).join(", ");
-                    } else {
-                      label.textContent = `Выбрано групп: ${selected.length}`;
-                    }
-                  };
+{# Строка 2: Даты #}
+<div class="row g-3 mb-3">
+  <div class="col-md-6">
+    <label class="form-label text-muted small fw-semibold text-uppercase">{{ form.date_from.label }}</label>
+    {% render_field form.date_from class="form-control form-control-sm" type="date" %}
+    {% if form.date_from.errors %}
+      <div class="invalid-feedback d-block">{{ form.date_from.errors|join:", " }}</div>
+    {% endif %}
+  </div>
+  <div class="col-md-6">
+    <label class="form-label text-muted small fw-semibold text-uppercase">{{ form.date_to.label }}</label>
+    {% render_field form.date_to class="form-control form-control-sm" type="date" %}
+    {% if form.date_to.errors %}
+      <div class="invalid-feedback d-block">{{ form.date_to.errors|join:", " }}</div>
+    {% endif %}
+  </div>
+</div>
 
-                  const applyFilter = () => {
-                    const query = (search.value || "").trim().toLowerCase();
-                    options.forEach((item) => {
-                      const name = (item.dataset.discountName || "").toLowerCase();
-                      item.classList.toggle("d-none", query && !name.includes(query));
-                    });
-                  };
+{# Группы скидок — custom dropdown #}
+<div class="mb-3">
+  <label class="form-label text-muted small fw-semibold text-uppercase">{{ form.discounts.label }}</label>
+  <div class="dropdown" data-discount-dropdown>
+    <button
+      class="btn btn-outline-secondary btn-sm w-100 text-start d-flex justify-content-between align-items-center"
+      type="button"
+      data-bs-toggle="dropdown"
+      data-bs-auto-close="outside"
+      aria-expanded="false">
+      <span data-discount-dropdown-label class="text-truncate">Выберите группы скидок</span>
+      <i class="bi bi-chevron-down ms-2 flex-shrink-0"></i>
+    </button>
+    <div class="dropdown-menu w-100 p-3 shadow-sm border-0" style="min-width: 100%;">
+      <div class="d-flex justify-content-between align-items-center mb-2">
+        <span class="text-muted small">Фильтр:</span>
+        <div class="d-flex gap-2">
+          <button type="button" class="btn btn-sm btn-link p-0 text-primary" data-discount-select-all>Выбрать все</button>
+          <span class="text-muted">|</span>
+          <button type="button" class="btn btn-sm btn-link p-0 text-secondary" data-discount-clear-all>Снять все</button>
+        </div>
+      </div>
+      <input
+        type="search"
+        class="form-control form-control-sm mb-2"
+        placeholder="Поиск..."
+        data-discount-search>
+      <div class="border rounded" style="max-height: 200px; overflow-y: auto;" data-discount-options>
+        {% for discount in form.fields.discounts.queryset %}
+          <div class="form-check px-3 py-1 hover-bg" data-discount-option data-discount-name="{{ discount.name|lower }}">
+            <input
+              class="form-check-input"
+              type="checkbox"
+              name="{{ form.discounts.html_name }}"
+              value="{{ discount.pk }}"
+              id="discount_{{ discount.pk }}"
+              {% if discount.pk in selected_discount_ids %}checked{% endif %}>
+            <label class="form-check-label w-100 cursor-pointer" for="discount_{{ discount.pk }}">
+              {{ discount.name }}
+            </label>
+          </div>
+        {% empty %}
+          <div class="text-muted small p-2 text-center">Нет доступных групп скидок</div>
+        {% endfor %}
+      </div>
+    </div>
+  </div>
+</div>
 
-                  checkboxes.forEach((input) => input.addEventListener("change", updateLabel));
-                  if (selectAllBtn) {
-                    selectAllBtn.addEventListener("click", () => {
-                      checkboxes.forEach((input) => { input.checked = true; });
-                      updateLabel();
-                    });
-                  }
-                  if (clearAllBtn) {
-                    clearAllBtn.addEventListener("click", () => {
-                      checkboxes.forEach((input) => { input.checked = false; });
-                      updateLabel();
-                    });
-                  }
-                  if (search) {
-                    search.addEventListener("input", applyFilter);
-                  }
+{# Категории #}
+<div class="mb-4">
+  <label class="form-label text-muted small fw-semibold text-uppercase">{{ form.categories.label }}</label>
+  {% render_field form.categories class="form-select form-select-sm" multiple="multiple" size="4" %}
+  <div class="form-text">Удерживайте Ctrl (⌘ на Mac) для выбора нескольких категорий</div>
+  {% if form.categories.errors %}
+    <div class="invalid-feedback d-block">{{ form.categories.errors|join:", " }}</div>
+  {% endif %}
+</div>
 
-                  updateLabel();
-                  applyFilter();
-                };
+{# Блок расчёта цены #}
+<div class="card border-0 bg-light rounded-3">
+  <div class="card-body p-3">
+    {# Переключатель фиксированной цены #}
+    <div class="d-flex align-items-center justify-content-between mb-3">
+      <span class="fw-semibold small text-uppercase text-muted">Метод расчёта цены</span>
+      <div class="form-check form-switch m-0">
+        <label class="form-check-label me-2 small" for="{{ form.price_fixed.id_for_label }}">{{ form.price_fixed.label }}</label>
+        {% render_field form.price_fixed class="form-check-input fs-5" role="switch" id=form.price_fixed.id_for_label data-bs-toggle="collapse" data-bs-target=".setPrice" aria-controls="setPrice1 setPrice2" %}
+      </div>
+    </div>
 
-                document.querySelectorAll("[data-discount-dropdown]").forEach(initDiscountDropdown);
-              })();
-            </script>
+    {# Фиксированная цена #}
+    <div class="{% if not form.price_fixed.value %}collapse{% endif %} setPrice" id="setPrice1">
+      <div class="mb-2">
+        <label class="form-label text-muted small fw-semibold text-uppercase">{{ form.fixed_price.label }}</label>
+        <div class="input-group input-group-sm">
+          {% render_field form.fixed_price class="form-control" %}
+          <span class="input-group-text">тг</span>
+        </div>
+        {% if form.fixed_price.errors %}
+          <div class="invalid-feedback d-block">{{ form.fixed_price.errors|join:", " }}</div>
+        {% endif %}
+      </div>
+    </div>
+
+    {# Процентная наценка + диапазон #}
+    <div class="{% if form.price_fixed.value %}collapse{% endif %} setPrice" id="setPrice2">
+      <div class="row g-2 mb-2">
+        <div class="col-6">
+          <label class="form-label text-muted small fw-semibold text-uppercase">{{ form.price_from.label }}</label>
+          <div class="input-group input-group-sm">
+            {% render_field form.price_from class="form-control" %}
+            <span class="input-group-text">тг</span>
+          </div>
+          {% if form.price_from.errors %}
+            <div class="invalid-feedback d-block">{{ form.price_from.errors|join:", " }}</div>
+          {% endif %}
+        </div>
+        <div class="col-6">
+          <label class="form-label text-muted small fw-semibold text-uppercase">{{ form.price_to.label }}</label>
+          <div class="input-group input-group-sm">
+            {% render_field form.price_to class="form-control" %}
+            <span class="input-group-text">тг</span>
+          </div>
+          {% if form.price_to.errors %}
+            <div class="invalid-feedback d-block">{{ form.price_to.errors|join:", " }}</div>
+          {% endif %}
+        </div>
+      </div>
+      <div class="mb-2">
+        <label class="form-label text-muted small fw-semibold text-uppercase">{{ form.source.label }}</label>
+        {% render_field form.source class="form-select form-select-sm" %}
+        {% if form.source.errors %}
+          <div class="invalid-feedback d-block">{{ form.source.errors|join:", " }}</div>
+        {% endif %}
+      </div>
+      <div class="row g-2">
+        <div class="col-6">
+          <label class="form-label text-muted small fw-semibold text-uppercase">{{ form.markup.label }}</label>
+          <div class="input-group input-group-sm">
+            {% render_field form.markup class="form-control" %}
+            <span class="input-group-text">%</span>
+          </div>
+          {% if form.markup.errors %}
+            <div class="invalid-feedback d-block">{{ form.markup.errors|join:", " }}</div>
+          {% endif %}
+        </div>
+        <div class="col-6">
+          <label class="form-label text-muted small fw-semibold text-uppercase">{{ form.increase.label }}</label>
+          <div class="input-group input-group-sm">
+            {% render_field form.increase class="form-control" %}
+            <span class="input-group-text">тг</span>
+          </div>
+          {% if form.increase.errors %}
+            <div class="invalid-feedback d-block">{{ form.increase.errors|join:", " }}</div>
+          {% endif %}
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+(function () {
+  const initDiscountDropdown = (block) => {
+    if (!block || block.dataset.initialized === "true") return;
+    block.dataset.initialized = "true";
+
+    const label = block.querySelector("[data-discount-dropdown-label]");
+    const search = block.querySelector("[data-discount-search]");
+    const checkboxes = Array.from(block.querySelectorAll('input[type="checkbox"][name="{{ form.discounts.html_name }}"]'));
+    const options = Array.from(block.querySelectorAll("[data-discount-option]"));
+    const selectAllBtn = block.querySelector("[data-discount-select-all]");
+    const clearAllBtn = block.querySelector("[data-discount-clear-all]");
+
+    const updateLabel = () => {
+      const selected = checkboxes.filter((cb) => cb.checked);
+      if (selected.length === 0) {
+        label.textContent = "Выберите группы скидок";
+      } else if (selected.length <= 2) {
+        label.textContent = selected.map((cb) => {
+          const lbl = block.querySelector(`label[for="${cb.id}"]`);
+          return lbl ? lbl.textContent.trim() : "";
+        }).join(", ");
+      } else {
+        label.textContent = `Выбрано: ${selected.length} групп`;
+      }
+    };
+
+    const applyFilter = () => {
+      const q = (search.value || "").trim().toLowerCase();
+      options.forEach((item) => {
+        const name = (item.dataset.discountName || "").toLowerCase();
+        item.classList.toggle("d-none", !!q && !name.includes(q));
+      });
+    };
+
+    checkboxes.forEach((cb) => cb.addEventListener("change", updateLabel));
+
+    if (selectAllBtn) {
+      selectAllBtn.addEventListener("click", () => {
+        checkboxes.forEach((cb) => { cb.checked = true; });
+        updateLabel();
+      });
+    }
+    if (clearAllBtn) {
+      clearAllBtn.addEventListener("click", () => {
+        checkboxes.forEach((cb) => { cb.checked = false; });
+        updateLabel();
+      });
+    }
+    if (search) {
+      search.addEventListener("input", applyFilter);
+    }
+
+    updateLabel();
+  };
+
+  document.querySelectorAll("[data-discount-dropdown]").forEach(initDiscountDropdown);
+})();
+</script>

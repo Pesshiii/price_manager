@@ -1,27 +1,41 @@
 
-<div class="form-control p-5">
-      <h1>Обновление менеджера наценок</h1>
-      <form method="post"
-                  hx-post="{% url "pricemanager-update" pricemanager.pk%}"
-                  hx-target="#modal-container .modal-content"
-                  enctype="multipart/form-data">
-            {% csrf_token %}
-            {% include "price_manager/partials/pricemanager_form.html" with form=form %}
-            <div class="row">
-              <div class=" col-5">
-                <button 
-                class="btn btn-primary" 
-                type="submit">
-                      Сохранить
-                </button>
-                <button 
-                class="btn btn-danger " 
-                name="delete"
-                value="true"
-                type="submit">
-                  Удалить
-                </button>
-              </div>
-            </div>
-      </form>
+<div class="modal-header">
+  <h5 class="modal-title fw-semibold">
+    <i class="bi bi-pencil-square me-2 text-primary"></i>Редактирование наценки
+  </h5>
+  <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Закрыть"></button>
 </div>
+<form method="post"
+      hx-post="{% url "pricemanager-update" pricemanager.pk %}"
+      hx-target="#modal-container .modal-content"
+      hx-swap="innerHTML"
+      enctype="multipart/form-data">
+  {% csrf_token %}
+  <div class="modal-body">
+    {% if form.non_field_errors %}
+      <div class="alert alert-danger alert-dismissible fade show" role="alert">
+        {% for error in form.non_field_errors %}
+          <div><i class="bi bi-exclamation-triangle-fill me-1"></i>{{ error }}</div>
+        {% endfor %}
+        <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+      </div>
+    {% endif %}
+    {% include "price_manager/partials/pricemanager_form.html" with form=form %}
+  </div>
+  <div class="modal-footer gap-2">
+    <button
+      type="submit"
+      name="delete"
+      value="true"
+      class="btn btn-outline-danger me-auto"
+      onclick="return confirm('Удалить эту наценку?')">
+      <i class="bi bi-trash3 me-1"></i>Удалить
+    </button>
+    <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">
+      Отмена
+    </button>
+    <button type="submit" class="btn btn-primary px-4">
+      <i class="bi bi-floppy me-1"></i>Сохранить
+    </button>
+  </div>
+</form>

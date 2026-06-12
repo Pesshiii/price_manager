@@ -1110,6 +1110,47 @@ Deletes a supplier link permanently.
 
 ---
 
+### Column Mappings
+
+`FeedColumnMapping` records declare the **role** and optional **price type** for each variable column in a `FeedMapping`. This replaces the plain `variable_columns` JSONField with a proper relational model.
+
+#### `GET /api/supplier-feed/column-mappings/`
+
+Lists all column mappings. Supports `?feed_mapping=<id>` filter.
+
+**Response fields:** `id`, `feed_mapping` (PK), `column_name`, `role` (`price`|`stock`|`other`), `price_type` (PK or `null`).
+
+#### `POST /api/supplier-feed/column-mappings/`
+
+Creates a column mapping.
+
+```json
+{
+  "feed_mapping": 1,
+  "column_name": "price",
+  "role": "price",
+  "price_type": 2
+}
+```
+
+**Validation:** `price_type` is required when `role == "price"`.
+
+**Response `400`:** `price_type` missing for role `price`, or duplicate `(feed_mapping, column_name)`.
+
+#### `GET /api/supplier-feed/column-mappings/<id>/`
+
+Retrieves a single column mapping.
+
+#### `PUT/PATCH /api/supplier-feed/column-mappings/<id>/`
+
+Updates a column mapping.
+
+#### `DELETE /api/supplier-feed/column-mappings/<id>/`
+
+Deletes a column mapping.
+
+---
+
 ## 5. Suppliers — `/api/suppliers/`
 
 Simple CRUD for supplier records.

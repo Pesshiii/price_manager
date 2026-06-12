@@ -172,6 +172,53 @@ class FeedMarkupRule(models.Model):
         return f'{self.markup_set} [{lo}–{hi}] +{self.markup}% +{self.increase}'
 
 
+class FeedColumnMapping(models.Model):
+    ROLE_PRICE = 'price'
+    ROLE_STOCK = 'stock'
+    ROLE_OTHER = 'other'
+    ROLE_CHOICES = [
+        (ROLE_PRICE, 'Цена'),
+        (ROLE_STOCK, 'Остаток'),
+        (ROLE_OTHER, 'Другое'),
+    ]
+
+    feed_mapping = models.ForeignKey(
+        FeedMapping,
+        on_delete=models.CASCADE,
+        related_name='column_mappings',
+        verbose_name='Конфигурация выгрузки',
+    )
+    column_name = models.CharField('Колонка', max_length=128)
+    role = models.CharField('Роль', max_length=16, choices=ROLE_CHOICES)
+    price_type = models.ForeignKey(
+        'pricing.PriceType',
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='column_mappings',
+        verbose_name='Тип цены',
+    )
+
+    class Meta:
+        verbose_name = 'Маппинг колонки'
+        verbose_name_plural = 'Маппинги колонок'
+        constraints = [
+            models.UniqueConstraint(
+                fields=['feed_mapping', 'column_name'],
+                name='supplier_feed_column_mapping_unique',
+            ),
+            models.CheckConstraint(
+                condition=(
+                    ~models.Q(role='price') | models.Q(price_type__isnull=False)
+                ),
+                name='supplier_feed_column_mapping_price_requires_type',
+            ),
+        ]
+
+    def __str__(self):
+        return f'{self.feed_mapping} / {self.column_name} [{self.role}]'
+
+
 class SupplierLink(models.Model):
     """Постоянная связь артикула поставщика с товаром в каталоге."""
 
