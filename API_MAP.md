@@ -11,8 +11,9 @@ All routes are mounted under `/api/`. Authentication is **session-based** (Djang
 3. [Products — `/api/products/`](#3-products--apiproducts)
 4. [Supplier Feeds — `/api/supplier-feed/`](#4-supplier-feeds--apisupplier-feed)
 5. [Suppliers — `/api/suppliers/`](#5-suppliers--apisuppliers)
-6. [Async Job Lifecycle](#6-async-job-lifecycle)
-7. [Error Conventions](#7-error-conventions)
+6. [Pricing — `/api/pricing/`](#6-pricing--apipricing)
+7. [Async Job Lifecycle](#7-async-job-lifecycle)
+8. [Error Conventions](#8-error-conventions)
 
 ---
 
@@ -438,7 +439,7 @@ Queues an async Celery task to migrate all product JSONB values for this charact
 | `default_value` | — | Any JSON | Used when `fallback == "default"` |
 | `value_map` | — | `{raw_repr: replacement}` | Per-value override; takes precedence over fallback |
 
-**Response `202`:** A `CharMutationJob` object (see [Job lifecycle](#6-async-job-lifecycle)).
+**Response `202`:** A `CharMutationJob` object (see [Job lifecycle](#7-async-job-lifecycle)).
 
 **Worker stages for retype:**
 1. `Сканируем товары` — count products with this key
@@ -499,7 +500,7 @@ Queues an async Celery task to rename the JSONB key across all products.
 
 #### `GET /api/products/characteristic-types/jobs/<uuid:job_id>/`
 
-Polls a `CharMutationJob`. See [Job lifecycle](#6-async-job-lifecycle) for the response shape.
+Polls a `CharMutationJob`. See [Job lifecycle](#7-async-job-lifecycle) for the response shape.
 
 **Note:** Only the job's owner (or anonymous, if it was created without auth) can access it.
 
@@ -736,7 +737,7 @@ After successful commit:
 
 Polls an `ImportJob`. Only the job's owner (matched by session) can read it.
 
-**Response `200`:** See [Job lifecycle](#6-async-job-lifecycle).
+**Response `200`:** See [Job lifecycle](#7-async-job-lifecycle).
 
 ---
 
@@ -754,9 +755,9 @@ draft → (upload files) → process → processing → matched / partial → (r
 
 - **`draft`** — newly created session; files can be uploaded and deleted.
 - **`processing`** — Celery matching task is running.
-- **`matched`** — all entries auto-matched above the threshold.
-- **`partial`** — some entries need manual review (match queue).
-- **`done`** — all queue entries resolved (matched or skipped).
+- **`matched`** — all entries auto-matched above the threshold. The feed transitions automatically to `done` (no queue to drain, no user action required). `apply_feed_pricing` does NOT run on this state.
+- **`partial`** — some entries need manual review (match queue). `apply_feed_pricing` does NOT run on this state.
+- **`done`** — all queue entries resolved (matched or skipped). When the feed transitions to `done`, the `apply_feed_pricing` Celery task is triggered asynchronously (via `transaction.on_commit`) to extract prices/stock from `SupplierFeedEntry.data` into `ProductPrice` and `Stock` records, and to apply matching `PricingRule`s.
 - **`error`** — matching task failed.
 
 ---
@@ -995,85 +996,51 @@ Marks an unresolved queue entry as permanently ignored. Creates an **игнор-
 
 ---
 
-### Markup Sets
+### Feed Column Mappings
 
-A `FeedMarkupSet` defines one price calculation pair for a `FeedMapping`: which pipeline-output column is the **source price** (`price_column`) and which key to write the **calculated price** into (`output_column` in `SupplierFeedEntry.data`). One mapping can have multiple sets (e.g. purchase price → retail, purchase price → wholesale).
+`FeedColumnMapping` records describe how each pipeline-output column in a `FeedMapping` should be interpreted: whether it carries a price value (and which `PriceType`) or stock quantity, or is simply an informational column. These records are read by `apply_feed_pricing` when extracting `ProductPrice` and `Stock` records after a feed completes.
 
-Markup rules inside a set are applied **once** when `SupplierFeed` transitions to `done`. Only matched entries (`product` is set) are updated. If no rule covers an entry's price, or the price column is missing/non-numeric, `output_column` is simply not written.
+**Unique constraint:** `(feed_mapping, column_name)` — each column name may appear at most once per mapping.
 
-#### `GET /api/supplier-feed/markup-sets/`
+#### `GET /api/supplier-feed/column-mappings/`
 
-Lists all markup sets. Supports `?mapping=<feed_mapping_id>` filter.
+Lists all column mappings. Supports `?feed_mapping=<id>` filter.
 
-**Response fields:** `id`, `feed_mapping`, `name`, `price_column`, `output_column`, `rules` (inline list of rules, see below).
+**Response fields:** `id`, `feed_mapping`, `column_name`, `role`, `price_type` (PK or `null`).
 
-#### `POST /api/supplier-feed/markup-sets/`
+#### `POST /api/supplier-feed/column-mappings/`
 
-Creates a markup set.
+Creates a column mapping.
 
 ```json
 {
   "feed_mapping": 1,
-  "name": "Розничная цена",
-  "price_column": "price",
-  "output_column": "sale_price"
+  "column_name": "price",
+  "role": "price",
+  "price_type": 3
 }
 ```
 
-#### `GET /api/supplier-feed/markup-sets/<id>/`
+| Field | Required | Notes |
+|---|---|---|
+| `feed_mapping` | ✓ | FK to `FeedMapping` |
+| `column_name` | ✓ | Name of the pipeline-output column |
+| `role` | ✓ | `price`, `stock`, or `other` |
+| `price_type` | Conditional | Required when `role == "price"`; FK to `PriceType` — fetch available options from `GET /api/pricing/price-types/`. Must be `null` for `stock`/`other` roles |
 
-Retrieves a single set with its rules.
+**Response `400`:** `price_type` missing when `role == "price"`, or `price_type` provided when `role != "price"`, or duplicate `(feed_mapping, column_name)`.
 
-#### `PUT/PATCH /api/supplier-feed/markup-sets/<id>/`
+#### `GET /api/supplier-feed/column-mappings/<id>/`
 
-Updates a markup set.
+Retrieves a single column mapping.
 
-#### `DELETE /api/supplier-feed/markup-sets/<id>/`
+#### `PUT/PATCH /api/supplier-feed/column-mappings/<id>/`
 
-Deletes a markup set and all its rules.
+Updates a column mapping. Same `price_type` / `role` validation applies.
 
----
+#### `DELETE /api/supplier-feed/column-mappings/<id>/`
 
-### Markup Rules
-
-Each `FeedMarkupRule` belongs to a `FeedMarkupSet` and covers a price range. Formula: `output = price × (1 + markup / 100) + increase` (no rounding). When multiple rules match, the one with the smallest `order` wins.
-
-#### `GET /api/supplier-feed/markup-rules/`
-
-Lists all markup rules. Supports `?markup_set=<id>` filter.
-
-**Response fields:** `id`, `markup_set`, `order`, `price_from` (nullable), `price_to` (nullable), `markup`, `increase`.
-
-`price_from` and `price_to` are inclusive bounds. `null` means open-ended: `null–1000` = up to 1000, `1000–null` = 1000 and above.
-
-#### `POST /api/supplier-feed/markup-rules/`
-
-Creates a markup rule.
-
-```json
-{
-  "markup_set": 1,
-  "order": 10,
-  "price_from": "0.0000",
-  "price_to": "1000.0000",
-  "markup": "15.0000",
-  "increase": "50.0000"
-}
-```
-
-**Response `400`:** If `price_from > price_to`.
-
-#### `GET /api/supplier-feed/markup-rules/<id>/`
-
-Retrieves a single rule.
-
-#### `PUT/PATCH /api/supplier-feed/markup-rules/<id>/`
-
-Updates a rule. Same `price_from ≤ price_to` validation applies.
-
-#### `DELETE /api/supplier-feed/markup-rules/<id>/`
-
-Deletes a rule.
+Deletes a column mapping.
 
 ---
 
@@ -1110,47 +1077,6 @@ Deletes a supplier link permanently.
 
 ---
 
-### Column Mappings
-
-`FeedColumnMapping` records declare the **role** and optional **price type** for each variable column in a `FeedMapping`. This replaces the plain `variable_columns` JSONField with a proper relational model.
-
-#### `GET /api/supplier-feed/column-mappings/`
-
-Lists all column mappings. Supports `?feed_mapping=<id>` filter.
-
-**Response fields:** `id`, `feed_mapping` (PK), `column_name`, `role` (`price`|`stock`|`other`), `price_type` (PK or `null`).
-
-#### `POST /api/supplier-feed/column-mappings/`
-
-Creates a column mapping.
-
-```json
-{
-  "feed_mapping": 1,
-  "column_name": "price",
-  "role": "price",
-  "price_type": 2
-}
-```
-
-**Validation:** `price_type` is required when `role == "price"`.
-
-**Response `400`:** `price_type` missing for role `price`, or duplicate `(feed_mapping, column_name)`.
-
-#### `GET /api/supplier-feed/column-mappings/<id>/`
-
-Retrieves a single column mapping.
-
-#### `PUT/PATCH /api/supplier-feed/column-mappings/<id>/`
-
-Updates a column mapping.
-
-#### `DELETE /api/supplier-feed/column-mappings/<id>/`
-
-Deletes a column mapping.
-
----
-
 ## 5. Suppliers — `/api/suppliers/`
 
 Simple CRUD for supplier records.
@@ -1182,7 +1108,181 @@ Deletes a supplier. Blocked if referenced by feeds or feed mappings (CASCADE or 
 
 ---
 
-## 6. Async Job Lifecycle
+## 6. Pricing — `/api/pricing/`
+
+Manages price types, pricing rules, computed product prices, and stock levels. Prices and stock are written exclusively by the `apply_feed_pricing` Celery task — the API is read-only for `ProductPrice` and `Stock`.
+
+---
+
+### Price Types — `/api/pricing/price-types/`
+
+A `PriceType` is a named price slot (e.g. "purchase", "retail", "wholesale"). The `name` field is a slug used as a stable identifier; `label` is a human-readable display string.
+
+#### `GET /api/pricing/price-types/`
+
+Lists all price types. Supports `?search=` on `name` or `label`.
+
+**Auth required:** Yes  
+**Pagination:** 100 per page (`page_size` up to 1000).  
+**Response fields:** `id`, `name`, `label`.
+
+#### `POST /api/pricing/price-types/`
+
+Creates a price type.
+
+**Auth required:** Yes  
+```json
+{ "name": "retail", "label": "Розничная цена" }
+```
+
+**Response `201`:** Created price type.  
+**Response `400`:** `name` not unique or validation error.
+
+#### `GET /api/pricing/price-types/<id>/`
+
+Retrieves a single price type.
+
+**Auth required:** Yes
+
+#### `PUT/PATCH /api/pricing/price-types/<id>/`
+
+Updates a price type.
+
+**Auth required:** Yes
+
+#### `DELETE /api/pricing/price-types/<id>/`
+
+Deletes a price type.
+
+**Auth required:** Yes
+
+---
+
+### Pricing Rules — `/api/pricing/rules/`
+
+A `PricingRule` defines how to derive one price type from another for a given supplier. Rules are evaluated by `apply_feed_pricing` after a feed completes.
+
+**Model fields:**
+
+| Field | Type | Notes |
+|---|---|---|
+| `supplier` | FK | Supplier this rule applies to |
+| `source_price_type` | FK | Input `PriceType` |
+| `dest_price_type` | FK | Output `PriceType` |
+| `mode` | string | `fixed` or `formula` |
+| `params` | JSON | `formula`: `{markup, increase}` — `markup` in percentage points (e.g. `25.0` = 25%), `increase` as absolute currency amount added after markup; `fixed`: `{value}` — absolute price in source currency |
+| `priority` | int | Lower value = higher priority; used when multiple rules match |
+| `category` | FK (nullable) | Restrict to products in this category (MPTT subtree) |
+| `price_from` | decimal (nullable) | Apply only when source price >= this value |
+| `price_to` | decimal (nullable) | Apply only when source price <= this value |
+| `date_from` | datetime (nullable) | Rule active from this datetime |
+| `date_to` | datetime (nullable) | Rule active until this datetime |
+
+#### `GET /api/pricing/rules/`
+
+Lists all pricing rules. Supports `?supplier=<id>` filter.
+
+**Auth required:** Yes  
+**Response fields:** All model fields listed above.
+
+#### `POST /api/pricing/rules/`
+
+Creates a pricing rule.
+
+**Auth required:** Yes
+
+```json
+{
+  "supplier": 1,
+  "source_price_type": 1,
+  "dest_price_type": 2,
+  "mode": "formula",
+  "params": { "markup": 25.0, "increase": 0 },
+  "priority": 10,
+  "category": null,
+  "price_from": null,
+  "price_to": null,
+  "date_from": null,
+  "date_to": null
+}
+```
+
+**Response `201`:** Created rule.
+
+#### `GET /api/pricing/rules/<id>/`
+
+Retrieves a single rule.
+
+**Auth required:** Yes
+
+#### `PUT/PATCH /api/pricing/rules/<id>/`
+
+Updates a rule.
+
+**Auth required:** Yes
+
+#### `DELETE /api/pricing/rules/<id>/`
+
+Deletes a rule.
+
+**Auth required:** Yes
+
+---
+
+### Product Prices — `/api/pricing/prices/` (read-only)
+
+`ProductPrice` records are written by the `apply_feed_pricing` task. A record with `rule=null` represents the raw supplier price extracted directly from a feed column; a record with a non-null `rule` is a derived price calculated by a `PricingRule`.
+
+#### `GET /api/pricing/prices/`
+
+Lists product prices. Supports filters:
+
+**Auth required:** Yes
+
+| Param | Effect |
+|---|---|
+| `product` | Filter by product PK |
+| `supplier` | Filter by supplier PK |
+| `price_type` | Filter by `PriceType` PK |
+
+**Response fields:** `id`, `product`, `supplier`, `price_type`, `value`, `rule` (PK or `null`), `updated_at`.
+
+#### `GET /api/pricing/prices/<id>/`
+
+Retrieves a single price record.
+
+**Auth required:** Yes  
+**No create / update / delete** — managed exclusively by Celery.
+
+---
+
+### Stock — `/api/pricing/stock/` (read-only)
+
+`Stock` records track the current quantity available from each supplier. Written by `apply_feed_pricing`.
+
+#### `GET /api/pricing/stock/`
+
+Lists stock records. Supports filters:
+
+**Auth required:** Yes
+
+| Param | Effect |
+|---|---|
+| `product` | Filter by product PK |
+| `supplier` | Filter by supplier PK |
+
+**Response fields:** `id`, `product`, `supplier`, `quantity`, `updated_at`.
+
+#### `GET /api/pricing/stock/<id>/`
+
+Retrieves a single stock record.
+
+**Auth required:** Yes  
+**No create / update / delete** — managed exclusively by Celery.
+
+---
+
+## 7. Async Job Lifecycle
 
 `ImportJob` and `CharacteristicMutationJob` share the same envelope and polling pattern.
 
@@ -1225,7 +1325,7 @@ Use `rows_done / rows_total` as a fraction. Both are `0` until the worker reache
 
 ---
 
-## 7. Error Conventions
+## 8. Error Conventions
 
 | Status | Meaning |
 |---|---|
