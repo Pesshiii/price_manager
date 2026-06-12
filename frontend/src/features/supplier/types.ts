@@ -91,37 +91,17 @@ export interface BulkCreateProductsResult {
   errors: { entry_id: number; reason: string }[];
 }
 
-export interface FeedMarkupRule {
-  id: number;
-  markup_set: number;
-  order: number;
-  price_from: string | null;
-  price_to: string | null;
-  markup: string;
-  increase: string;
-}
-
-export interface FeedMarkupRuleWritePayload {
-  markup_set: number;
-  order: number;
-  price_from: string | null;
-  price_to: string | null;
-  markup: string;
-  increase: string;
-}
-
-export interface FeedMarkupSet {
+export interface FeedColumnMapping {
   id: number;
   feed_mapping: number;
-  name: string;
-  price_column: string;
-  output_column: string;
-  rules: FeedMarkupRule[];
+  column_name: string;
+  role: 'price' | 'stock' | 'other';
+  price_type: number | null;
 }
 
-export interface FeedMarkupSetWritePayload {
+export interface FeedColumnMappingWritePayload {
   feed_mapping: number;
-  name: string;
-  price_column: string;
-  output_column: string;
+  column_name: string;
+  role: 'price' | 'stock' | 'other';
+  price_type: number | null;
 }

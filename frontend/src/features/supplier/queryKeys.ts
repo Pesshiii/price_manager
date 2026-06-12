@@ -6,5 +6,5 @@ export const supplierKeys = {
   feeds: (supplierId: number) => ['suppliers', supplierId, 'feeds'] as const,
   feed: (feedId: number) => ['supplier-feeds', feedId] as const,
   queue: (feedId: number, page: number) => ['supplier-feeds', feedId, 'queue', page] as const,
-  markupSets: (mappingId: number) => ['feed-mappings', mappingId, 'markup-sets'] as const,
+  columnMappings: (mappingId: number) => ['feed-mappings', mappingId, 'column-mappings'] as const,
 };

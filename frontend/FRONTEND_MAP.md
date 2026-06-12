@@ -302,18 +302,16 @@ interface ImportMapping {
 | List pipelines | `GET /dataframe/pipelines/` |
 | Create pipeline (inline) | `POST /dataframe/pipelines/` |
 | Update mapping | `PATCH /supplier-feed/mappings/{id}/` |
-| List markup sets | `GET /supplier-feed/markup-sets/?mapping={id}` |
-| Create markup set | `POST /supplier-feed/markup-sets/` |
-| Update markup set | `PATCH /supplier-feed/markup-sets/{id}/` |
-| Delete markup set | `DELETE /supplier-feed/markup-sets/{id}/` |
-| Create markup rule | `POST /supplier-feed/markup-rules/` |
-| Update markup rule | `PATCH /supplier-feed/markup-rules/{id}/` |
-| Delete markup rule | `DELETE /supplier-feed/markup-rules/{id}/` |
+| List column mappings | `GET /supplier-feed/mappings/{id}/column-mappings/` |
+| Create column mapping | `POST /supplier-feed/mappings/{id}/column-mappings/` |
+| Update column mapping | `PATCH /supplier-feed/mappings/{id}/column-mappings/{cm_id}/` |
+| Delete column mapping | `DELETE /supplier-feed/mappings/{id}/column-mappings/{cm_id}/` |
+| List price types | `GET /pricing/price-types/` |
 
 - Single-page form (no stepper).
 - Pipeline change triggers a confirmation modal.
 - "Правила трансформации (N) →" link card navigates to the rules page.
-- **Наценки (MarkupSets):** section below the main form. Lists `FeedMarkupSet` cards (name, `price_column → output_column`, rule count). Add/edit opens `MarkupSetModal`; delete immediately via `DELETE`. Modal: set fields + rule table with ↑/↓ reorder; saved as a batch (set `PATCH` + per-rule `POST/PATCH/DELETE`). `price_column` / `output_column` are `Autocomplete` from `variable_columns`. Rule order = row position × 10. Section only appears in edit mode (markup sets require an existing mapping FK).
+- **Колонки (FeedColumnMappingSection):** inline-edit table below the main form. Each row has `column_name` (Autocomplete from available columns), `role` (`price`/`stock`/`other`), and `price_type` (Select from `/pricing/price-types/`, shown only when `role='price'`). Add row via "Добавить колонку" button; save/cancel per row. Query key: `supplierKeys.columnMappings(mappingId)`.
 
 ### Transform Rules — `/suppliers/:id/mappings/:mappingId/rules`
 **File:** `src/features/transform/pages/TransformRulesPage.tsx`
@@ -521,16 +519,12 @@ POST   /supplier-feed/feeds/{feedId}/process/
 GET    /supplier-feed/feeds/{feedId}/queue/                            # paginated, 20/page
 POST   /supplier-feed/feeds/{feedId}/queue/{entryId}/resolve/         # {product_id} or {skipped:true}
 
-GET    /supplier-feed/markup-sets/          # ?mapping={id}
-GET    /supplier-feed/markup-sets/{id}/
-POST   /supplier-feed/markup-sets/
-PATCH  /supplier-feed/markup-sets/{id}/
-DELETE /supplier-feed/markup-sets/{id}/
+GET    /supplier-feed/mappings/{id}/column-mappings/
+POST   /supplier-feed/mappings/{id}/column-mappings/
+PATCH  /supplier-feed/mappings/{id}/column-mappings/{cm_id}/
+DELETE /supplier-feed/mappings/{id}/column-mappings/{cm_id}/
 
-GET    /supplier-feed/markup-rules/         # ?markup_set={id}
-POST   /supplier-feed/markup-rules/
-PATCH  /supplier-feed/markup-rules/{id}/
-DELETE /supplier-feed/markup-rules/{id}/
+GET    /pricing/price-types/
 ```
 
 ---
@@ -568,7 +562,7 @@ DELETE /supplier-feed/markup-rules/{id}/
 | `supplierKeys.feeds(supplierId)` | feed create/delete |
 | `supplierKeys.feed(feedId)` | file upload/delete, process, polling |
 | `supplierKeys.queue(feedId, page)` | resolve/create/ignore per entry |
-| `supplierKeys.markupSets(mappingId)` | markup set create/update/delete, rule batch save |
+| `supplierKeys.columnMappings(mappingId)` | column mapping create/update/delete |
 | `transformKeys.snapshotFields()` | field create/update/delete |
 | `transformKeys.snapshotField(id)` | field update |
 | `transformKeys.rules(mappingId)` | rule create/update/delete |
