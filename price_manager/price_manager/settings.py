@@ -196,20 +196,20 @@ CSRF_TRUSTED_ORIGINS = [
     origin.strip()
     for origin in os.environ.get(
         "CSRF_TRUSTED_ORIGINS",
-        "https://localhost:8000,http://localhost:8000",
+        "https://localhost:8000,http://localhost:8000,http://localhost:5173,http://localhost:5174",
     ).split(",")
     if origin.strip()
 ]
 
-SECURE_SSL_REDIRECT = True
-SECURE_HSTS_SECONDS = 31536000  # 1 year
-SECURE_HSTS_INCLUDE_SUBDOMAINS = True
-SECURE_HSTS_PRELOAD = True
+SECURE_SSL_REDIRECT = not DEBUG
+SECURE_HSTS_SECONDS = 0 if DEBUG else 31536000  # 1 year in prod
+SECURE_HSTS_INCLUDE_SUBDOMAINS = not DEBUG
+SECURE_HSTS_PRELOAD = not DEBUG
 # If behind a proxy (Railway), trust forwarded protocol/host headers.
 # Railway/edge proxy must send: X-Forwarded-Proto: https
 USE_X_FORWARDED_HOST = True
-CSRF_COOKIE_SECURE = True
-SESSION_COOKIE_SECURE = True
+CSRF_COOKIE_SECURE = not DEBUG
+SESSION_COOKIE_SECURE = not DEBUG
 SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')      
 
 # Internationalization
@@ -306,6 +306,34 @@ LOGIN_EXEMPT_URLS = (
     'admin:password_reset_complete',
 )
 
+# /api/ paths that anonymous users may hit (CSRF bootstrap + login)
+LOGIN_EXEMPT_API_PREFIXES = (
+    '/api/auth/csrf/',
+    '/api/auth/login/',
+)
+
+REST_FRAMEWORK = {
+    'DEFAULT_AUTHENTICATION_CLASSES': [
+        'rest_framework.authentication.SessionAuthentication',
+    ],
+    'DEFAULT_PERMISSION_CLASSES': [
+        'rest_framework.permissions.IsAuthenticated',
+    ],
+    'DEFAULT_RENDERER_CLASSES': [
+        'rest_framework.renderers.JSONRenderer',
+    ],
+}
+
+CORS_ALLOWED_ORIGINS = [
+    origin.strip()
+    for origin in os.environ.get(
+        'CORS_ALLOWED_ORIGINS',
+        'http://localhost:5173,http://localhost:5174',
+    ).split(',')
+    if origin.strip()
+]
+CORS_ALLOW_CREDENTIALS = True
+
 LOGGING = {
     "version": 1,
     'disable_existing_loggers': False,
@@ -340,6 +368,15 @@ CELERY_SUPPLIER_FILES_CLEANUP_MINUTES = int(os.environ.get('CELERY_SUPPLIER_FILE
 
 SUPPLIER_FILES_KEEP_LAST = int(os.environ.get('SUPPLIER_FILES_KEEP_LAST', 0))
 
+# Product embedding service (Ollama-compatible REST). Points at the `embedder`
+# container in docker-compose; in dev defaults to localhost.
+OLLAMA_EMBED_URL = os.environ.get('OLLAMA_EMBED_URL', 'http://localhost:11435')
+OLLAMA_EMBED_MODEL = os.environ.get('OLLAMA_EMBED_MODEL', 'nomic-embed-text')
+OLLAMA_EMBED_TIMEOUT = float(os.environ.get('OLLAMA_EMBED_TIMEOUT', 120))
+EMBED_BACKFILL_MINUTES = int(os.environ.get('EMBED_BACKFILL_MINUTES', 5))
+EMBED_BACKFILL_BATCH_SIZE = int(os.environ.get('EMBED_BACKFILL_BATCH_SIZE', 64))
+EMBED_BACKFILL_MAX_BATCHES = int(os.environ.get('EMBED_BACKFILL_MAX_BATCHES', 20))
+
 CELERY_BEAT_SCHEDULE = {
     'update-prices': {
         'task': 'main_product_manager.update_prices',
@@ -356,6 +393,10 @@ CELERY_BEAT_SCHEDULE = {
     'cleanup-supplier-files': {
         'task': 'supplier_product_manager.cleanup_supplier_files_task',
         'schedule': CELERY_SUPPLIER_FILES_CLEANUP_MINUTES * 60,
+    },
+    'embed-missing-products': {
+        'task': 'product.embed_missing_products',
+        'schedule': EMBED_BACKFILL_MINUTES * 60,
     },
 }
 

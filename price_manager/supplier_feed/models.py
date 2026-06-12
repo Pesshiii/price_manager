@@ -143,6 +143,7 @@ class FeedColumnMapping(models.Model):
         on_delete=models.SET_NULL,
         null=True,
         blank=True,
+        related_name='column_mappings',
         verbose_name='Тип цены',
     )
 
@@ -153,11 +154,17 @@ class FeedColumnMapping(models.Model):
             models.UniqueConstraint(
                 fields=['feed_mapping', 'column_name'],
                 name='supplier_feed_column_mapping_unique',
-            )
+            ),
+            models.CheckConstraint(
+                condition=(
+                    ~models.Q(role='price') | models.Q(price_type__isnull=False)
+                ),
+                name='supplier_feed_column_mapping_price_requires_type',
+            ),
         ]
 
     def __str__(self):
-        return f'{self.feed_mapping} / {self.column_name}'
+        return f'{self.feed_mapping} / {self.column_name} [{self.role}]'
 
 
 class SupplierLink(models.Model):
