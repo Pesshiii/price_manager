@@ -42,8 +42,6 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
-      embedder:
-        condition: service_healthy
     environment:
       SECRET_KEY: ${SECRET_KEY:-django-insecure-change-me}
       DEBUG: ${DEBUG:-true}
@@ -56,9 +54,6 @@ services:
       REDIS_URL: ${REDIS_URL:-redis://redis:6379/1}
       CELERY_BROKER_URL: ${CELERY_BROKER_URL:-redis://redis:6379/0}
       CELERY_RESULT_BACKEND: ${CELERY_RESULT_BACKEND:-redis://redis:6379/0}
-      OLLAMA_EMBED_URL: ${OLLAMA_EMBED_URL:-http://embedder:11434}
-      OLLAMA_EMBED_MODEL: ${OLLAMA_EMBED_MODEL:-nomic-embed-text}
-      OLLAMA_EMBED_TIMEOUT: ${OLLAMA_EMBED_TIMEOUT:-120}
     ports:
       - "${WEB_PORT:-8000}:8000"
     volumes:
@@ -78,8 +73,6 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
-      embedder:
-        condition: service_healthy
     volumes:
       - ./price_manager:/app
     environment:
@@ -94,9 +87,6 @@ services:
       REDIS_URL: ${REDIS_URL:-redis://redis:6379/1}
       CELERY_BROKER_URL: ${CELERY_BROKER_URL:-redis://redis:6379/0}
       CELERY_RESULT_BACKEND: ${CELERY_RESULT_BACKEND:-redis://redis:6379/0}
-      OLLAMA_EMBED_URL: ${OLLAMA_EMBED_URL:-http://embedder:11434}
-      OLLAMA_EMBED_MODEL: ${OLLAMA_EMBED_MODEL:-nomic-embed-text}
-      OLLAMA_EMBED_TIMEOUT: ${OLLAMA_EMBED_TIMEOUT:-120}
     command: celery -A price_manager worker -l info
 
   frontend:
@@ -117,37 +107,7 @@ services:
       - frontend_node_modules:/app/node_modules
     command: pnpm dev --host 0.0.0.0
 
-  embedder:
-    image: ollama/ollama:latest
-    container_name: price_manager_embedder
-    restart: unless-stopped
-    ports:
-      - "${OLLAMA_EMBED_PORT:-11435}:11434"
-    volumes:
-      - embedder_data:/root/.ollama
-    environment:
-      OLLAMA_KEEP_ALIVE: ${OLLAMA_EMBED_KEEP_ALIVE:-1h}
-      OLLAMA_MODEL: ${OLLAMA_EMBED_MODEL:-nomic-embed-text}
-    entrypoint: ["/bin/sh", "-c"]
-    command:
-      - |
-        ollama serve &
-        SERVER_PID=$$!
-        until ollama list >/dev/null 2>&1; do sleep 1; done
-        if ! ollama list | grep -q "$${OLLAMA_MODEL%%:*}"; then
-          echo "Pulling $$OLLAMA_MODEL ..."
-          ollama pull "$$OLLAMA_MODEL"
-        fi
-        wait $$SERVER_PID
-    healthcheck:
-      test: ["CMD", "ollama", "list"]
-      interval: 30s
-      timeout: 10s
-      retries: 5
-      start_period: 300s
-
 volumes:
   postgres_data:
   redis_data:
   frontend_node_modules:
-  embedder_data:
