@@ -54,7 +54,10 @@ INSTALLED_APPS = [
     'crispy_forms',
     'mptt',
     'storages',
+    'rest_framework',
+    'corsheaders',
 
+    'api_auth',
     'core',
     'file_manager',
     'supplier_product_manager',
@@ -62,11 +65,17 @@ INSTALLED_APPS = [
     'main_product_manager',
     'supplier_manager',
     'blogapp',
+    'dataframe',
+    'product',
+    'supplier_feed',
+    'supplier',
+    'pricing',
 ]
 
 MIDDLEWARE = [
     'django.middleware.security.SecurityMiddleware',
     'whitenoise.middleware.WhiteNoiseMiddleware',
+    'corsheaders.middleware.CorsMiddleware',
     'django.contrib.sessions.middleware.SessionMiddleware',
     'django.middleware.common.CommonMiddleware',
     'django.middleware.csrf.CsrfViewMiddleware',
