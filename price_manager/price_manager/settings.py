@@ -370,8 +370,8 @@ SUPPLIER_FILES_KEEP_LAST = int(os.environ.get('SUPPLIER_FILES_KEEP_LAST', 0))
 # Product embedding service (Ollama-compatible REST). Points at the `embedder`
 # container in docker-compose; in dev defaults to localhost.
 OLLAMA_EMBED_URL = os.environ.get('OLLAMA_EMBED_URL', 'http://localhost:11435')
-OLLAMA_EMBED_MODEL = os.environ.get('OLLAMA_EMBED_MODEL', 'embeddinggemma')
-OLLAMA_EMBED_TIMEOUT = float(os.environ.get('OLLAMA_EMBED_TIMEOUT', 30))
+OLLAMA_EMBED_MODEL = os.environ.get('OLLAMA_EMBED_MODEL', 'nomic-embed-text')
+OLLAMA_EMBED_TIMEOUT = float(os.environ.get('OLLAMA_EMBED_TIMEOUT', 120))
 EMBED_BACKFILL_MINUTES = int(os.environ.get('EMBED_BACKFILL_MINUTES', 5))
 EMBED_BACKFILL_BATCH_SIZE = int(os.environ.get('EMBED_BACKFILL_BATCH_SIZE', 64))
 EMBED_BACKFILL_MAX_BATCHES = int(os.environ.get('EMBED_BACKFILL_MAX_BATCHES', 20))

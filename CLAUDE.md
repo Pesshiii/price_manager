@@ -131,19 +131,21 @@ AWS_S3_ENDPOINT_URL, AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, AWS_STORAGE_BUCKE
 IMPORT_COMMIT_BATCH_SIZE  # batch size for product/importer.commit_rows; default 500
 OLLAMA_PORT, OLLAMA_MODEL, OLLAMA_KEEP_ALIVE  # Gemma 3 generative service
 OLLAMA_EMBED_PORT, OLLAMA_EMBED_MODEL, OLLAMA_EMBED_URL, OLLAMA_EMBED_KEEP_ALIVE,
-OLLAMA_EMBED_TIMEOUT  # EmbeddingGemma service used by product search
+OLLAMA_EMBED_TIMEOUT  # nomic-embed-text service used by product search
 EMBED_BACKFILL_MINUTES, EMBED_BACKFILL_BATCH_SIZE, EMBED_BACKFILL_MAX_BATCHES
 ```
 
-## LLM services (Gemma 3 + EmbeddingGemma)
+## LLM services (Gemma 3 + nomic-embed-text)
 
 Two Ollama containers in `docker-compose.yml`:
 
 * `gemma` (port 11434, model `gemma3:4b`) — generative, currently unused from
   Django but available for future auto-classification work.
-* `embedder` (port 11435, model `embeddinggemma`) — produces 256-dim Matryoshka
-  vectors used by Product search. Reachable from `web`/`celery_worker` at
-  `http://embedder:11434` (env: `OLLAMA_EMBED_URL`).
+* `embedder` (port 11435, model `nomic-embed-text`) — produces 256-dim Matryoshka
+  vectors (native 768-dim, client-side truncated) used by Product search.
+  Reachable from `web`/`celery_worker` at `http://embedder:11434`
+  (env: `OLLAMA_EMBED_URL`). Uses asymmetric prefixes: `search_document:` for
+  indexing, `search_query:` for queries (`embeddings.py`).
 
 Both auto-pull their model on first start into separate named volumes
 (`ollama_data` / `embedder_data`).

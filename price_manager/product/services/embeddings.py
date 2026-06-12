@@ -1,12 +1,12 @@
 """Product embedding helpers.
 
 Wraps the Ollama-compatible ``/api/embed`` endpoint exposed by the
-``embedder`` docker service (EmbeddingGemma, 768-dim native, truncated to 256
+``embedder`` docker service (nomic-embed-text, 768-dim native, truncated to 256
 via Matryoshka). Two semantic call sites:
 
 * :func:`embed_texts` — used when indexing products (task_type=document).
-* :func:`embed_query` — used when searching (task_type=query). EmbeddingGemma
-  was trained with asymmetric query/doc prompts; keeping them separate gives
+* :func:`embed_query` — used when searching (task_type=query). nomic-embed-text
+  was trained with asymmetric query/doc prefixes; keeping them separate gives
   noticeably better retrieval quality than a single embed mode.
 
 The HTTP layer raises :class:`EmbeddingServiceError` on any non-2xx / network
@@ -82,11 +82,9 @@ def text_hash(text: str) -> str:
     return hashlib.sha256(text.encode('utf-8')).hexdigest()
 
 
-# EmbeddingGemma was trained with task-specific prompt prefixes (see Google's
-# model card). Ollama does NOT honour ``options.task_type`` — it has to be
-# baked into the input text on the client side.
-DOC_PREFIX = 'title: none | text: '
-QUERY_PREFIX = 'task: search result | query: '
+# nomic-embed-text uses task-specific prompt prefixes for asymmetric retrieval.
+DOC_PREFIX = 'search_document: '
+QUERY_PREFIX = 'search_query: '
 
 
 def _truncate(vector: list[float]) -> list[float]:
