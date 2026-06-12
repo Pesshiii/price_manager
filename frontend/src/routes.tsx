@@ -21,6 +21,7 @@ import { FeedMappingEditPage } from '@/features/supplier/pages/FeedMappingEditPa
 import { SupplierFeedPage } from '@/features/supplier/pages/SupplierFeedPage';
 import { FeedQueuePage } from '@/features/supplier/pages/FeedQueuePage';
 import { SupplierLinksPage } from '@/features/supplier/pages/SupplierLinksPage';
+import { PriceTypesPage } from '@/features/pricing/pages/PriceTypesPage';
 
 export const router = createBrowserRouter([
   { path: '/login', element: <LoginPage /> },
@@ -50,7 +51,7 @@ export const router = createBrowserRouter([
       { path: 'products/characteristics', element: <CharacteristicTypesPage /> },
       { path: 'products/:id', element: <ProductDetailPage /> },
       { path: 'products/:id/edit', element: <ProductEditorPage /> },
-      { path: 'prices', element: <PlaceholderPage title="Цены" /> },
+      { path: 'prices', element: <PriceTypesPage /> },
       { path: 'dataframe', element: <DataframeListPage /> },
       { path: 'dataframe/new', element: <DataframeEditorPage /> },
       { path: 'dataframe/:id', element: <DataframeEditorPage /> },
@@ -58,7 +59,3 @@ export const router = createBrowserRouter([
   },
   { path: '*', element: <Navigate to="/" replace /> },
 ]);
-
-function PlaceholderPage({ title }: { title: string }) {
-  return <h2>{title} — раздел в разработке</h2>;
-}

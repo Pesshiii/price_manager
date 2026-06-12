@@ -34,6 +34,9 @@ function baseHandlers() {
     http.get('/api/suppliers/1/', () => HttpResponse.json(SUPPLIER)),
     http.get('/api/supplier-feed/mappings/', () => HttpResponse.json([MAPPING])),
     http.get('/api/supplier-feed/feeds/', () => HttpResponse.json([FEED])),
+    // PricingRulesSection handlers
+    http.get('/api/pricing/price-types/', () => HttpResponse.json([])),
+    http.get('/api/pricing/rules/', () => HttpResponse.json([])),
   ];
 }
 
