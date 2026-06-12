@@ -69,6 +69,7 @@ INSTALLED_APPS = [
     'product',
     'supplier_feed',
     'supplier',
+    'pricing',
 ]
 
 MIDDLEWARE = [

@@ -7,6 +7,7 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 
 from supplier_feed.models import (
+    FeedColumnMapping,
     FeedMapping,
     FeedMarkupRule,
     FeedMarkupSet,
@@ -21,6 +22,7 @@ from supplier_feed.markup import apply_markups
 from supplier_feed.tasks import run_feed_matching_task
 from dataframe import sessions as session_store
 from .serializers import (
+    FeedColumnMappingSerializer,
     FeedMappingSerializer,
     FeedMarkupRuleSerializer,
     FeedMarkupSetSerializer,
@@ -470,6 +472,21 @@ class FeedMarkupRuleViewSet(viewsets.ModelViewSet):
         markup_set = self.request.query_params.get('markup_set')
         if markup_set:
             qs = qs.filter(markup_set_id=markup_set)
+        return qs
+
+
+class FeedColumnMappingViewSet(viewsets.ModelViewSet):
+    """CRUD для маппингов колонок. Фильтрация: ?feed_mapping=<id>."""
+
+    serializer_class = FeedColumnMappingSerializer
+    authentication_classes = [SessionAuthentication]
+    permission_classes = [IsAuthenticated]
+
+    def get_queryset(self):
+        qs = FeedColumnMapping.objects.select_related('feed_mapping', 'price_type').order_by('feed_mapping', 'column_name')
+        feed_mapping = self.request.query_params.get('feed_mapping')
+        if feed_mapping:
+            qs = qs.filter(feed_mapping_id=feed_mapping)
         return qs
 
 
