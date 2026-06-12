@@ -1112,40 +1112,42 @@ Deletes a supplier link permanently.
 
 ### Column Mappings
 
-`FeedColumnMapping` records declare the **role** and optional **price type** for each variable column in a `FeedMapping`. This replaces the plain `variable_columns` JSONField with a proper relational model.
+`FeedColumnMapping` records declare the **role** and optional **price type** for each variable column in a `FeedMapping`. Endpoints are nested under the parent mapping — `mapping_pk` is the `FeedMapping` PK.
 
-#### `GET /api/supplier-feed/column-mappings/`
+#### `GET /api/supplier-feed/mappings/<mapping_pk>/column-mappings/`
 
-Lists all column mappings. Supports `?feed_mapping=<id>` filter.
+Lists all column mappings for a given `FeedMapping`.
 
-**Response fields:** `id`, `feed_mapping` (PK), `column_name`, `role` (`price`|`stock`|`other`), `price_type` (PK or `null`).
+**Response fields:** `id`, `feed_mapping` (PK, read-only), `column_name`, `role` (`price`|`stock`|`other`), `price_type` (PK or `null`).
 
-#### `POST /api/supplier-feed/column-mappings/`
+**Response `404`:** Parent `FeedMapping` not found.
 
-Creates a column mapping.
+#### `POST /api/supplier-feed/mappings/<mapping_pk>/column-mappings/`
+
+Creates a column mapping under the given `FeedMapping`. `feed_mapping` is set automatically from the URL — do not include it in the request body.
 
 ```json
 {
-  "feed_mapping": 1,
   "column_name": "price",
   "role": "price",
   "price_type": 2
 }
 ```
 
-**Validation:** `price_type` is required when `role == "price"`.
+**Validation:** `price_type` is required when `role == "price"` (enforced by DB `CheckConstraint`).
 
-**Response `400`:** `price_type` missing for role `price`, or duplicate `(feed_mapping, column_name)`.
+**Response `400`:** `price_type` missing for role `price`, or duplicate `(feed_mapping, column_name)`.  
+**Response `404`:** Parent `FeedMapping` not found.
 
-#### `GET /api/supplier-feed/column-mappings/<id>/`
+#### `GET /api/supplier-feed/mappings/<mapping_pk>/column-mappings/<id>/`
 
 Retrieves a single column mapping.
 
-#### `PUT/PATCH /api/supplier-feed/column-mappings/<id>/`
+#### `PATCH /api/supplier-feed/mappings/<mapping_pk>/column-mappings/<id>/`
 
-Updates a column mapping.
+Partially updates a column mapping.
 
-#### `DELETE /api/supplier-feed/column-mappings/<id>/`
+#### `DELETE /api/supplier-feed/mappings/<mapping_pk>/column-mappings/<id>/`
 
 Deletes a column mapping.
 

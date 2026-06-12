@@ -1,4 +1,5 @@
 from django.db import models, transaction
+from django.shortcuts import get_object_or_404
 from rest_framework import mixins, status, viewsets
 from rest_framework.authentication import SessionAuthentication
 from rest_framework.decorators import action
@@ -7,6 +8,7 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 
 from supplier_feed.models import (
+    FeedColumnMapping,
     FeedMapping,
     SupplierFeed,
     SupplierFeedEntry,
@@ -18,6 +20,7 @@ from supplier_feed.models import (
 from supplier_feed.tasks import run_feed_matching_task
 from dataframe import sessions as session_store
 from .serializers import (
+    FeedColumnMappingSerializer,
     FeedMappingSerializer,
     SupplierFeedSerializer,
     SupplierFeedDetailSerializer,
@@ -479,3 +482,22 @@ class SupplierLinkViewSet(
         # Refresh to pick up the new product FK before serialising
         instance.refresh_from_db(fields=['product_id'])
         return Response(SupplierLinkSerializer(instance).data, status=status.HTTP_200_OK)
+
+
+class FeedColumnMappingViewSet(viewsets.ModelViewSet):
+    """CRUD for FeedColumnMapping records nested under a FeedMapping."""
+
+    serializer_class = FeedColumnMappingSerializer
+    authentication_classes = [SessionAuthentication]
+    permission_classes = [IsAuthenticated]
+    http_method_names = ['get', 'post', 'patch', 'delete', 'head', 'options']
+
+    def get_queryset(self):
+        mapping_pk = self.kwargs['mapping_pk']
+        # Raise 404 if parent mapping does not exist
+        get_object_or_404(FeedMapping, pk=mapping_pk)
+        return FeedColumnMapping.objects.filter(feed_mapping_id=mapping_pk)
+
+    def perform_create(self, serializer):
+        mapping_pk = self.kwargs['mapping_pk']
+        serializer.save(feed_mapping_id=mapping_pk)

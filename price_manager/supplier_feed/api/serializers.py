@@ -1,6 +1,7 @@
 from rest_framework import serializers
 
 from supplier_feed.models import (
+    FeedColumnMapping,
     FeedMapping,
     SupplierFeed,
     SupplierFeedEntry,
@@ -127,3 +128,46 @@ class SupplierFeedDetailSerializer(SupplierFeedSerializer):
 
     def get_skipped(self, obj) -> int:
         return obj.entries.filter(skipped=True).count()
+
+
+# ── FeedColumnMapping serializer ──────────────────────────────────────────────
+
+class FeedColumnMappingSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = FeedColumnMapping
+        fields = ['id', 'feed_mapping', 'column_name', 'role', 'price_type']
+        read_only_fields = ['feed_mapping']
+
+    def validate(self, data):
+        # On creation the instance is None; on update we fall back to the
+        # stored value for any field omitted from a partial PATCH.
+        instance = self.instance
+        role = data.get('role', getattr(instance, 'role', None))
+        price_type = data.get('price_type', getattr(instance, 'price_type', None))
+        if role == FeedColumnMapping.ROLE_PRICE and price_type is None:
+            raise serializers.ValidationError(
+                {'price_type': 'Тип цены обязателен при роли "price".'}
+            )
+        return data
+
+    def validate_column_name(self, value):
+        # Guard against duplicate (feed_mapping, column_name) within this mapping.
+        # feed_mapping_id is injected via perform_create / already on instance.
+        request = self.context.get('request')
+        view = self.context.get('view')
+        if view is None:
+            return value
+        mapping_pk = view.kwargs.get('mapping_pk')
+        if mapping_pk is None:
+            return value
+        qs = FeedColumnMapping.objects.filter(
+            feed_mapping_id=mapping_pk,
+            column_name=value,
+        )
+        if self.instance is not None:
+            qs = qs.exclude(pk=self.instance.pk)
+        if qs.exists():
+            raise serializers.ValidationError(
+                'Колонка с таким именем уже добавлена для этой конфигурации выгрузки.'
+            )
+        return value
