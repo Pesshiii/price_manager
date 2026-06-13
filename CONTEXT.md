@@ -52,11 +52,9 @@
 
 Жизненный цикл: `draft → processing → matched | partial | error`. Переход `partial → done` происходит автоматически, когда все записи MatchQueue разобраны (`SupplierFeedEntry.objects.filter(feed=…, product=None, skipped=False).count() == 0`).
 
-**FeedMapping** — постоянная конфигурация на одного поставщика (`Supplier`). Содержит обязательную ссылку на **Pipeline** (`Dataframe` FK) — pipeline применяется к каждому загруженному файлу сессии и возвращает чистый `pd.DataFrame`. Описывает: какая колонка **выхода pipeline** является `supplier_sku` (обязательный primary identity), какие — дополнительные identity-поля (для эмбеддинга при матчинге), какие — переменные поля (цена, остаток и т.д.); а также `auto_match_threshold`. Дополнительно — опциональные маппинги для создания товара из выгрузки: `product_name_column` и `product_sku_column` (см. «Создание товара из выгрузки»). Может содержать один или несколько **FeedColumnMapping** для декларации ролей колонок при ценообразовании. Создаётся один раз, переиспользуется для всех последующих `SupplierFeed` этого поставщика. Сырые файлы никогда не читаются напрямую — только через Pipeline.
+**FeedMapping** — постоянная конфигурация на одного поставщика (`Supplier`). Содержит обязательную ссылку на **Pipeline** (`Dataframe` FK) — pipeline применяется к каждому загруженному файлу сессии и возвращает чистый `pd.DataFrame`. Описывает: какая колонка **выхода pipeline** является `supplier_sku` (обязательный, ключ `SupplierLink`), какая — `name_column` (обязательный, название товара — используется и для матчинга, и для создания товара из выгрузки), опциональный `product_sku_column` (SKU для создания товара), какие — переменные поля (цена, остаток и т.д.). Пороги матчинга: `auto_match_threshold` (выше → авто-матч, по умолчанию 0.92) и `low_match_threshold` (ниже → MatchQueue без кандидатов, по умолчанию 0.5). Может содержать один или несколько **FeedColumnMapping** для декларации ролей колонок при ценообразовании. Создаётся один раз, переиспользуется для всех последующих `SupplierFeed` этого поставщика. Сырые файлы никогда не читаются напрямую — только через Pipeline.
 
 **FeedColumnMapping** — конфигурация колонок выгрузки. Одна запись на колонку: `column_name`, `role` (`price|stock|other`), `price_type` (FK на `PriceType`, только для `role=price`). Роль `other` — колонка сохраняется в `SupplierFeedEntry.data`, но не извлекается в `ProductPrice` или `Stock`.
-
-**Identity-поля** — поля строки выгрузки, маркированные пользователем в `FeedMapping` как идентификаторы товара у поставщика (например: артикул поставщика, название у поставщика). Используются для построения эмбеддинга строки выгрузки при первичном матчинге. Не путать с `supplier_sku` — тот является ключом `SupplierLink`, остальные identity-поля идут только в эмбеддинг.
 
 **Переменные поля** — поля строки выгрузки, содержащие изменяемые данные (цена, остаток, склад, акции и т.д.). Сохраняются в `SupplierFeedEntry.data`.
 
@@ -66,7 +64,7 @@
 
 **Игнор-линк** — `SupplierLink` с `product = NULL`. Означает постоянный игнор артикула поставщика: при следующей выгрузке матчинг видит игнор-линк и немедленно помечает строку как `skipped=True`, не кладя её в MatchQueue и не тратя ресурсы на эмбеддинг. Создаётся действием «Игнорировать» в MatchQueue. Может быть переназначен на реальный товар через PATCH `/api/supplier-feed/links/{id}/`.
 
-**MatchQueue** — очередь строк выгрузки, для которых автоматический матчинг не дал результата выше `FeedMapping.auto_match_threshold`. Не отдельная модель — это фильтр `SupplierFeedEntry.objects.filter(product=None, skipped=False)`. Кандидаты (Top-N продуктов с косинусными скорами) хранятся в `SupplierFeedEntry.match_candidates: JSONField` в формате `{product_id, score, name, sku, category, brand}` — денормализованы в момент матчинга. Лучший скор дополнительно денормализован в `SupplierFeedEntry.best_score: FloatField(null=True)` для эффективной сортировки. Очередь отображается в порядке `ORDER BY best_score DESC NULLS FIRST`: записи без кандидатов (аномалия — эмбеддер мог быть недоступен) идут первыми, затем записи с высоким скором (близко к порогу — ручной матч), затем записи с низким скором (вероятно новые товары). Пользователь разбирает очередь вручную через пять действий:
+**MatchQueue** — очередь строк выгрузки, для которых автоматический матчинг не дал результата выше `FeedMapping.auto_match_threshold`. Не отдельная модель — это фильтр `SupplierFeedEntry.objects.filter(product=None, skipped=False)`. Кандидаты (top-5 продуктов с текстовыми скорами) хранятся в `SupplierFeedEntry.match_candidates: JSONField` в формате `{product_id, score, name, sku, category, brand}` — денормализованы в момент матчинга. Лучший скор дополнительно денормализован в `SupplierFeedEntry.best_score: FloatField(null=True)` для эффективной сортировки. Очередь отображается в порядке `ORDER BY best_score DESC NULLS FIRST`: записи без кандидатов (скор ниже `low_match_threshold` — вероятно новые товары) идут последними, затем записи с высоким скором (близко к `auto_match_threshold` — ручной матч). Пользователь разбирает очередь вручную через пять действий:
 
 | Действие | Результат |
 |---|---|
@@ -83,10 +81,10 @@
 ### Алгоритм матчинга (для каждой строки выгрузки)
 1. Есть `SupplierLink(supplier, supplier_sku)` с `product = NULL` (игнор-линк)? → `entry.skipped = True`, строка не попадает в MatchQueue.
 2. Есть `SupplierLink(supplier, supplier_sku)` с `product` заполненным? → авто-матч, `SupplierFeedEntry.product` заполняется немедленно.
-3. Нет → строится эмбеддинг из identity-полей строки → косинусное сравнение с `Product.embedding`.
+3. Нет → **текстовый матчинг по названию**: pg_trgm GIN-индекс по `Product.name` возвращает top-10 кандидатов с `similarity > low_match_threshold`; Python re-rank через `rapidfuzz.token_sort_ratio` (нечувствителен к порядку слов), итог — top-5.
 4. Лучший скор ≥ `auto_match_threshold` → авто-матч + создать `SupplierLink`.
-5. Скор < порога → `product = NULL`, топ-N кандидатов сохраняются в `match_candidates`, лучший скор — в `best_score` → попадает в MatchQueue.
-6. Нет товаров с эмбеддингами в БД → `match_candidates = []`, `best_score = NULL` → попадает в MatchQueue (отображается первым как аномалия).
+5. `low_match_threshold` ≤ скор < `auto_match_threshold` → `product = NULL`, top-5 кандидатов сохраняются в `match_candidates`, лучший скор — в `best_score` → попадает в MatchQueue.
+6. Скор < `low_match_threshold` (или каталог пуст) → `match_candidates = []`, `best_score = NULL` → попадает в MatchQueue (вероятно новый товар, отображается последним).
 
 ### Приложение
 Весь функционал выгрузок живёт в новом Django-приложении **`supplier_feed`**. FKи: `product.Product`, `supplier_manager.Supplier`.
