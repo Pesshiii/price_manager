@@ -182,7 +182,7 @@ export function FeedQueuePage() {
 
   function openBulkModal() {
     setBulkResult(null);
-    setBulkNameColumn(mappingQuery.data?.product_name_column ?? null);
+    setBulkNameColumn(mappingQuery.data?.name_column ?? null);
     setBulkModalOpen(true);
   }
 
@@ -203,10 +203,9 @@ export function FeedQueuePage() {
 
   const mapping = mappingQuery.data;
   const columnOptions = mapping
-    ? [...mapping.identity_columns, ...mapping.variable_columns].map((c) => ({
-        value: c,
-        label: c,
-      }))
+    ? [mapping.name_column, ...mapping.variable_columns]
+        .filter((v, i, arr) => v && arr.indexOf(v) === i)
+        .map((c) => ({ value: c, label: c }))
     : [];
 
   return (
@@ -221,7 +220,7 @@ export function FeedQueuePage() {
         <Button
           variant="light"
           onClick={openBulkModal}
-          disabled={entries.length === 0 || mappingQuery.isLoading}
+          disabled={entries.length === 0 || mappingQuery.isLoading || mappingQuery.isError}
         >
           Создать всё оставшееся
         </Button>

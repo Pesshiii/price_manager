@@ -45,9 +45,10 @@ export function FeedMappingCreatePage() {
   // Step 1: mapping fields
   const [name, setName] = useState('');
   const [skuColumn, setSkuColumn] = useState('');
-  const [identityColumns, setIdentityColumns] = useState<string[]>([]);
+  const [nameColumn, setNameColumn] = useState('');
   const [variableColumns, setVariableColumns] = useState<string[]>([]);
   const [threshold, setThreshold] = useState<number>(0.92);
+  const [lowMatchThreshold, setLowMatchThreshold] = useState<number>(0.5);
 
   const pipelinesQuery = useQuery({
     queryKey: dataframeKeys.pipelines(),
@@ -90,9 +91,10 @@ export function FeedMappingCreatePage() {
         name: name.trim(),
         dataframe: selectedPipelineId!,
         supplier_sku_column: skuColumn.trim(),
-        identity_columns: identityColumns,
+        name_column: nameColumn.trim(),
         variable_columns: variableColumns,
         auto_match_threshold: threshold,
+        low_match_threshold: lowMatchThreshold,
       }),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: supplierKeys.mappings(supplierId) });
@@ -110,8 +112,9 @@ export function FeedMappingCreatePage() {
 
   const canSubmit =
     name.trim().length > 0 &&
+    selectedPipelineId !== null &&
     skuColumn.trim().length > 0 &&
-    identityColumns.length > 0;
+    nameColumn.trim().length > 0;
 
   return (
     <Stack>
@@ -195,13 +198,14 @@ export function FeedMappingCreatePage() {
               required
             />
 
-            <TagsInput
-              label="Identity-колонки"
-              description="Колонки, однозначно идентифицирующие позицию (напр. sku, name)"
-              placeholder="Добавьте колонку"
+            <Autocomplete
+              label="Колонка с названием товара"
+              description="Имя колонки в выводе пайплайна"
+              placeholder="name"
               data={availableColumns}
-              value={identityColumns}
-              onChange={setIdentityColumns}
+              value={nameColumn}
+              onChange={setNameColumn}
+              required
             />
 
             <TagsInput
@@ -220,6 +224,17 @@ export function FeedMappingCreatePage() {
               onChange={(v) => setThreshold(Number(v))}
               min={0}
               max={1}
+              step={0.01}
+              decimalScale={2}
+            />
+
+            <NumberInput
+              label="Нижний порог совпадения"
+              description="От 0 до 1. Позиции ниже порога игнорируются"
+              value={lowMatchThreshold}
+              onChange={(v) => { if (typeof v === 'number') setLowMatchThreshold(v); }}
+              min={0.1}
+              max={0.99}
               step={0.01}
               decimalScale={2}
             />

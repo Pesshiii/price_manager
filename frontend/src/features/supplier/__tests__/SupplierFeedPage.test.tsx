@@ -15,9 +15,10 @@ const MAPPING = {
   dataframe: 3,
   dataframe_detail: { id: 3, name: 'Пайп' },
   supplier_sku_column: 'sku',
-  identity_columns: [],
+  name_column: 'name',
   variable_columns: [],
   auto_match_threshold: 0.9,
+  low_match_threshold: 0.5,
 };
 
 function makeFeed(overrides = {}) {
