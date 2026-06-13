@@ -14,10 +14,10 @@ export interface FeedMapping {
   dataframe: number;
   dataframe_detail: { id: number; name: string };
   supplier_sku_column: string;
-  identity_columns: string[];
+  name_column: string;
   variable_columns: string[];
   auto_match_threshold: number;
-  product_name_column: string | null;
+  low_match_threshold: number;
   product_sku_column: string | null;
 }
 
@@ -26,9 +26,10 @@ export interface FeedMappingWritePayload {
   name: string;
   dataframe: number;
   supplier_sku_column: string;
-  identity_columns: string[];
+  name_column: string;
   variable_columns: string[];
   auto_match_threshold: number;
+  low_match_threshold: number;
 }
 
 export type SupplierFeedStatus = 'draft' | 'processing' | 'matched' | 'partial' | 'done' | 'error';

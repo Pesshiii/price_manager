@@ -39,9 +39,10 @@ export function FeedMappingEditPage() {
   const [pipelineId, setPipelineId] = useState<number | null>(null);
   const [pipelineName, setPipelineName] = useState('');
   const [skuColumn, setSkuColumn] = useState('');
-  const [identityColumns, setIdentityColumns] = useState<string[]>([]);
+  const [nameColumn, setNameColumn] = useState('');
   const [variableColumns, setVariableColumns] = useState<string[]>([]);
   const [threshold, setThreshold] = useState<number>(0.92);
+  const [lowMatchThreshold, setLowMatchThreshold] = useState<number>(0.5);
   const [availableColumns, setAvailableColumns] = useState<string[]>([]);
 
   // Pipeline picker modal + new pipeline drawer
@@ -67,9 +68,10 @@ export function FeedMappingEditPage() {
       setPipelineId(m.dataframe);
       setPipelineName(m.dataframe_detail.name);
       setSkuColumn(m.supplier_sku_column);
-      setIdentityColumns(m.identity_columns);
+      setNameColumn(m.name_column);
       setVariableColumns(m.variable_columns);
       setThreshold(m.auto_match_threshold);
+      setLowMatchThreshold(m.low_match_threshold);
     }
   }, [mappingQuery.data]);
 
@@ -80,9 +82,10 @@ export function FeedMappingEditPage() {
         name: name.trim(),
         dataframe: pipelineId!,
         supplier_sku_column: skuColumn.trim(),
-        identity_columns: identityColumns,
+        name_column: nameColumn.trim(),
         variable_columns: variableColumns,
         auto_match_threshold: threshold,
+        low_match_threshold: lowMatchThreshold,
       }),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: supplierKeys.mappings(supplierId) });
@@ -126,7 +129,7 @@ export function FeedMappingEditPage() {
     name.trim().length > 0 &&
     pipelineId !== null &&
     skuColumn.trim().length > 0 &&
-    identityColumns.length > 0;
+    nameColumn.trim().length > 0;
 
   if (mappingQuery.isLoading) return <Loader />;
 
@@ -182,13 +185,14 @@ export function FeedMappingEditPage() {
           required
         />
 
-        <TagsInput
-          label="Identity-колонки"
-          description="Колонки, однозначно идентифицирующие позицию (напр. sku, name)"
-          placeholder="Добавьте колонку"
+        <Autocomplete
+          label="Колонка с названием товара"
+          description="Имя колонки в выводе пайплайна"
+          placeholder="name"
           data={availableColumns}
-          value={identityColumns}
-          onChange={setIdentityColumns}
+          value={nameColumn}
+          onChange={setNameColumn}
+          required
         />
 
         <TagsInput
@@ -207,6 +211,17 @@ export function FeedMappingEditPage() {
           onChange={(v) => setThreshold(Number(v))}
           min={0}
           max={1}
+          step={0.01}
+          decimalScale={2}
+        />
+
+        <NumberInput
+          label="Нижний порог совпадения"
+          description="От 0 до 1. Позиции ниже порога игнорируются"
+          value={lowMatchThreshold}
+          onChange={(v) => { if (typeof v === 'number') setLowMatchThreshold(v); }}
+          min={0.1}
+          max={0.99}
           step={0.01}
           decimalScale={2}
         />
