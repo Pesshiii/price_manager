@@ -161,26 +161,6 @@ class AsyncImportFlowTests(TestCase):
         self.assertEqual(body['result']['created'], 1200)
         self.assertEqual(Product.objects.count(), 1200)
 
-    def test_commit_does_not_enqueue_per_row_embed_via_signal(self):
-        """During chunked commit, the post_save signal must NOT enqueue per-pk
-        embed tasks — only the post-commit chunked enqueue should fire.
-        """
-        rows = [DEFAULT_HEADER]
-        for i in range(1, 6):
-            rows.append([f'S{i}', f'N{i}', 'Cat', 'B', 'red', str(i)])
-        sid = self._upload(rows)
-
-        with patch.object(product_tasks.embed_products_task, 'delay') as delay_mock:
-            with override_settings(EMBED_BACKFILL_BATCH_SIZE=100):
-                resp = self._post(IMPORT_COMMIT_URL, sid)
-
-        self.assertEqual(resp.status_code, 202)
-        self.assertEqual(resp.json()['status'], 'success')
-        # Exactly one chunked call for 5 ids (well below batch size of 100).
-        self.assertEqual(delay_mock.call_count, 1, delay_mock.call_args_list)
-        ids_arg = delay_mock.call_args_list[0].args[0]
-        self.assertEqual(len(ids_arg), 5)
-
     def test_commit_publishes_row_progress(self):
         """rows_total set to result count and rows_done climbs to it after success."""
         rows = [DEFAULT_HEADER]

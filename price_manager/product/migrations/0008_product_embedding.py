@@ -1,5 +1,3 @@
-import pgvector.django.indexes
-import pgvector.django.vector
 from django.db import migrations, models
 
 
@@ -10,15 +8,20 @@ class Migration(migrations.Migration):
     ]
 
     operations = [
-        migrations.AddField(
-            model_name='product',
-            name='embedding',
-            field=pgvector.django.vector.VectorField(
-                blank=True,
-                dimensions=256,
-                null=True,
-                verbose_name='Эмбеддинг',
-            ),
+        migrations.RunSQL(
+            sql="ALTER TABLE product_product ADD COLUMN IF NOT EXISTS embedding vector(256);",
+            reverse_sql="ALTER TABLE product_product DROP COLUMN IF EXISTS embedding;",
+            state_operations=[
+                migrations.AddField(
+                    model_name='product',
+                    name='embedding',
+                    field=models.TextField(
+                        blank=True,
+                        null=True,
+                        verbose_name='Эмбеддинг',
+                    ),
+                ),
+            ],
         ),
         migrations.AddField(
             model_name='product',
@@ -30,14 +33,14 @@ class Migration(migrations.Migration):
                 verbose_name='Хэш эмбед-текста',
             ),
         ),
-        migrations.AddIndex(
-            model_name='product',
-            index=pgvector.django.indexes.HnswIndex(
-                ef_construction=64,
-                fields=['embedding'],
-                m=16,
-                name='product_emb_hnsw',
-                opclasses=['vector_cosine_ops'],
-            ),
+        migrations.RunSQL(
+            sql="CREATE INDEX IF NOT EXISTS product_emb_hnsw ON product_product USING hnsw (embedding vector_cosine_ops) WITH (m=16, ef_construction=64);",
+            reverse_sql="DROP INDEX IF EXISTS product_emb_hnsw;",
+            state_operations=[
+                migrations.AddIndex(
+                    model_name='product',
+                    index=models.Index(fields=['embedding'], name='product_emb_hnsw'),
+                ),
+            ],
         ),
     ]

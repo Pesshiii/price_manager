@@ -8,9 +8,6 @@ from django.core.exceptions import ValidationError
 from django.db import models
 from django.utils.text import slugify
 from mptt.models import MPTTModel, TreeForeignKey
-from pgvector.django import HnswIndex, VectorField
-
-PRODUCT_EMBEDDING_DIM = 256
 
 
 class Category(MPTTModel):
@@ -185,15 +182,6 @@ class Product(models.Model):
     status = models.CharField('Статус', max_length=16, choices=STATUS_CHOICES, default=STATUS_DRAFT, db_index=True)
     characteristics = models.JSONField('Характеристики', default=dict, blank=True)
     image_urls = models.JSONField('Изображения', default=list, blank=True)
-    embedding = VectorField(
-        'Эмбеддинг',
-        dimensions=PRODUCT_EMBEDDING_DIM,
-        null=True,
-        blank=True,
-    )
-    embedding_text_hash = models.CharField(
-        'Хэш эмбед-текста', max_length=64, blank=True, default=''
-    )
     created_at = models.DateTimeField('Создан', auto_now_add=True)
     updated_at = models.DateTimeField('Обновлён', auto_now=True)
 
@@ -203,13 +191,6 @@ class Product(models.Model):
         ordering = ['-updated_at']
         indexes = [
             GinIndex(fields=['characteristics'], name='product_chars_gin_idx'),
-            HnswIndex(
-                name='product_emb_hnsw',
-                fields=['embedding'],
-                m=16,
-                ef_construction=64,
-                opclasses=['vector_cosine_ops'],
-            ),
         ]
 
     def __str__(self) -> str:

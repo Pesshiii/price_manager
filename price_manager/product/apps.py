@@ -6,5 +6,3 @@ class ProductConfig(AppConfig):
     name = 'product'
     verbose_name = 'Товары'
 
-    def ready(self):
-        from . import signals  # noqa: F401
