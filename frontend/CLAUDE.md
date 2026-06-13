@@ -124,4 +124,4 @@ Default label vocabulary (`needs-triage`, `needs-info`, `ready-for-agent`, `read
 
 ### Domain docs
 
-Single-context repo — `CONTEXT.md` + `docs/adr/` at the repo root. See `docs/agents/domain.md`.
+Multi-context repo — `CONTEXT-MAP.md` at the repo root points to backend and frontend contexts; system-wide ADRs in `docs/adr/`. See `docs/agents/domain.md`.

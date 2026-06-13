@@ -18,15 +18,9 @@ from dataframe import sessions as session_store
 from dataframe.models import Dataframe
 from dataframe.services import apply as apply_pipeline
 
-from .importer import IMPORT_COMMIT_BATCH_SIZE, apply_mapping, commit_rows
-from .models import CharacteristicMutationJob, CharacteristicType, ImportJob, Product
-from .services.char_mutation import (
-    ONCONFLICT_KEEP_EXISTING,
-    ONCONFLICT_OVERWRITE,
-    ONCONFLICT_SKIP_ROW,
-    _make_probe,
-    coerce_with_strategy,
-)
+from .importer import apply_mapping, commit_rows
+from .models import CharacteristicMutationJob, ImportJob
+from .services.char_mutation import commit_rename, commit_retype
 
 logger = logging.getLogger(__name__)
 
@@ -36,10 +30,7 @@ STAGE_APPLYING_PIPELINE = 'Применяем pipeline'
 STAGE_VALIDATING_ROWS = 'Валидируем строки'
 STAGE_WRITING_DB = 'Записываем в БД'
 
-# Stages for CharacteristicMutationJob — coarse boundaries, no per-row counter.
 STAGE_SCANNING_PRODUCTS = 'Сканируем товары'
-STAGE_APPLYING_MUTATION = 'Применяем изменения'
-STAGE_UPDATING_TYPE = 'Обновляем тип'
 
 
 def _set_stage(job, text: str) -> None:
@@ -158,36 +149,9 @@ def run_import_commit(job_id: str) -> None:
 
 # --- CharacteristicType mutation tasks -------------------------------------
 
-def _iter_products_with_key(name: str):
-    """Yield Product rows that carry ``name`` in their JSONB ``characteristics``.
-
-    Uses ``only()`` + ``iterator(chunk_size=…)`` to keep worker memory bounded
-    on 50k+ catalogs — same pattern as ``importer.commit_rows``.
-    """
-    return (
-        Product.objects
-        .filter(characteristics__has_key=name)
-        .only('id', 'characteristics')
-        .iterator(chunk_size=max(IMPORT_COMMIT_BATCH_SIZE, 500))
-    )
-
-
-def _flush_batch(batch: list[Product]) -> None:
-    if not batch:
-        return
-    Product.objects.bulk_update(batch, ['characteristics'])
-    batch.clear()
-
 
 @shared_task
 def run_char_retype(job_id: str) -> None:
-    """Migrate every product's JSONB value for ``ct.name`` to a new ``value_type``.
-
-    Strategy precedence per product:
-      1. ``payload['value_map'][raw_repr]`` overrides the raw value;
-      2. otherwise ``payload['fallback']`` (drop/null/default) decides;
-      3. if the original value coerces cleanly, it's just rewritten typed.
-    """
     try:
         job = CharacteristicMutationJob.objects.select_related('char_type').get(
             pk=job_id, kind=CharacteristicMutationJob.KIND_RETYPE
@@ -198,62 +162,11 @@ def run_char_retype(job_id: str) -> None:
 
     _mark_running(job, initial_stage=STAGE_SCANNING_PRODUCTS)
     try:
-        ct = job.char_type
-        payload = job.payload or {}
-        new_value_type = payload['new_value_type']
-        probe = _make_probe(ct, new_value_type)
+        def _on_progress(rows_done: int) -> None:
+            CharacteristicMutationJob.objects.filter(pk=job.pk).update(rows_done=rows_done)
 
-        rows_total = Product.objects.filter(characteristics__has_key=ct.name).count()
-        CharacteristicMutationJob.objects.filter(pk=job.pk).update(
-            rows_total=rows_total, rows_done=0
-        )
-
-        _set_stage(job, STAGE_APPLYING_MUTATION)
-        counters = {'updated': 0, 'mapped': 0, 'defaulted': 0, 'nulled': 0, 'dropped': 0}
-        batch: list[Product] = []
-        batch_size = max(IMPORT_COMMIT_BATCH_SIZE, 100)
-        processed = 0
-
-        for product in _iter_products_with_key(ct.name):
-            chars = dict(product.characteristics or {})
-            raw = chars.get(ct.name)
-            action, new_value = coerce_with_strategy(probe, raw, payload)
-            if action == 'dropped':
-                chars.pop(ct.name, None)
-                counters['dropped'] += 1
-            elif action == 'nulled':
-                chars[ct.name] = None
-                counters['nulled'] += 1
-            elif action == 'defaulted':
-                if new_value is None:
-                    chars.pop(ct.name, None)
-                else:
-                    chars[ct.name] = new_value
-                counters['defaulted'] += 1
-            elif action == 'mapped':
-                chars[ct.name] = new_value
-                counters['mapped'] += 1
-            else:  # 'keep' — already coerced cleanly
-                if new_value is None:
-                    chars.pop(ct.name, None)
-                else:
-                    chars[ct.name] = new_value
-            counters['updated'] += 1
-            product.characteristics = chars
-            processed += 1
-            batch.append(product)
-            if len(batch) >= batch_size:
-                _flush_batch(batch)
-                CharacteristicMutationJob.objects.filter(pk=job.pk).update(rows_done=processed)
-
-        _flush_batch(batch)
-        CharacteristicMutationJob.objects.filter(pk=job.pk).update(rows_done=processed)
-
-        _set_stage(job, STAGE_UPDATING_TYPE)
-        ct.value_type = new_value_type
-        ct.save(update_fields=['value_type'])
-
-        _mark_success(job, counters)
+        result = commit_retype(job, progress_callback=_on_progress)
+        _mark_success(job, result)
     except Exception as exc:  # noqa: BLE001
         logger.exception('run_char_retype failed for job %s', job_id)
         _mark_error(job, exc)
@@ -261,13 +174,6 @@ def run_char_retype(job_id: str) -> None:
 
 @shared_task
 def run_char_rename(job_id: str) -> None:
-    """Rename a CharacteristicType slug, migrating the JSONB key in every product.
-
-    Collision strategy (``payload['on_conflict']``):
-      * ``overwrite`` — replace the value under ``new_name`` with the old one.
-      * ``keep_existing`` — drop the old key, keep whatever's already at ``new_name``.
-      * ``skip_row`` — leave the product untouched (both keys remain).
-    """
     try:
         job = CharacteristicMutationJob.objects.select_related('char_type').get(
             pk=job_id, kind=CharacteristicMutationJob.KIND_RENAME
@@ -278,58 +184,11 @@ def run_char_rename(job_id: str) -> None:
 
     _mark_running(job, initial_stage=STAGE_SCANNING_PRODUCTS)
     try:
-        ct = job.char_type
-        payload = job.payload or {}
-        old_name = ct.name
-        new_name = payload['new_name']
-        on_conflict = payload.get('on_conflict', ONCONFLICT_OVERWRITE)
-        if new_name == old_name:
-            raise ValueError('new_name must differ from current name')
+        def _on_progress(rows_done: int) -> None:
+            CharacteristicMutationJob.objects.filter(pk=job.pk).update(rows_done=rows_done)
 
-        rows_total = Product.objects.filter(characteristics__has_key=old_name).count()
-        CharacteristicMutationJob.objects.filter(pk=job.pk).update(
-            rows_total=rows_total, rows_done=0
-        )
-
-        _set_stage(job, STAGE_APPLYING_MUTATION)
-        counters = {'renamed': 0, 'collisions': 0, 'skipped': 0}
-        batch: list[Product] = []
-        batch_size = max(IMPORT_COMMIT_BATCH_SIZE, 100)
-        processed = 0
-
-        for product in _iter_products_with_key(old_name):
-            chars = dict(product.characteristics or {})
-            processed += 1  # count every iterated product, including skipped
-            if new_name in chars:
-                counters['collisions'] += 1
-                if on_conflict == ONCONFLICT_SKIP_ROW:
-                    counters['skipped'] += 1
-                    # Skipped rows don't enter the batch, so flush progress
-                    # explicitly every batch_size iterations to keep the bar moving.
-                    if processed % batch_size == 0:
-                        CharacteristicMutationJob.objects.filter(pk=job.pk).update(rows_done=processed)
-                    continue
-                if on_conflict == ONCONFLICT_KEEP_EXISTING:
-                    chars.pop(old_name, None)
-                else:  # overwrite
-                    chars[new_name] = chars.pop(old_name)
-            else:
-                chars[new_name] = chars.pop(old_name)
-            counters['renamed'] += 1
-            product.characteristics = chars
-            batch.append(product)
-            if len(batch) >= batch_size:
-                _flush_batch(batch)
-                CharacteristicMutationJob.objects.filter(pk=job.pk).update(rows_done=processed)
-
-        _flush_batch(batch)
-        CharacteristicMutationJob.objects.filter(pk=job.pk).update(rows_done=processed)
-
-        _set_stage(job, STAGE_UPDATING_TYPE)
-        ct.name = new_name
-        ct.save(update_fields=['name'])
-
-        _mark_success(job, counters)
+        result = commit_rename(job, progress_callback=_on_progress)
+        _mark_success(job, result)
     except Exception as exc:  # noqa: BLE001
         logger.exception('run_char_rename failed for job %s', job_id)
         _mark_error(job, exc)
