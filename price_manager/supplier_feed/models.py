@@ -35,10 +35,10 @@ class FeedMapping(models.Model):
     )
     name = models.CharField('Название', max_length=255)
     supplier_sku_column = models.CharField('Колонка артикула поставщика', max_length=128)
-    identity_columns = models.JSONField('Identity-колонки', default=list, blank=True)
+    name_column = models.CharField('Колонка названия товара', max_length=128)
     variable_columns = models.JSONField('Переменные колонки', default=list, blank=True)
     auto_match_threshold = models.FloatField('Порог авто-матчинга', default=0.92)
-    product_name_column = models.CharField('Колонка названия товара', max_length=128, blank=True)
+    low_match_threshold = models.FloatField('Нижний порог совпадения', default=0.5)
     product_sku_column = models.CharField('Колонка артикула товара', max_length=128, blank=True)
 
     class Meta:

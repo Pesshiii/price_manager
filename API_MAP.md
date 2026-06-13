@@ -763,15 +763,15 @@ draft → (upload files) → process → processing → matched / partial → (r
 
 ### Feed Mappings
 
-Configuration templates that describe how to parse a supplier's file format. Each mapping references a **Dataframe pipeline** (`dataframe` FK) which is applied to every uploaded file before matching — raw files are never read directly. Column names (`supplier_sku_column`, `identity_columns`, `variable_columns`) refer to the **output** of the pipeline, not the raw file.
+Configuration templates that describe how to parse a supplier's file format. Each mapping references a **Dataframe pipeline** (`dataframe` FK) which is applied to every uploaded file before matching — raw files are never read directly. Column names (`supplier_sku_column`, `name_column`, `variable_columns`) refer to the **output** of the pipeline, not the raw file.
 
 #### `GET /api/supplier-feed/mappings/`
 
 Lists all feed mapping configurations, ordered by supplier + name. Supports `?supplier=<id>` filter.
 
-**Response fields:** `id`, `supplier`, `name`, `dataframe` (PK), `dataframe_detail` `{id, name}`, `supplier_sku_column`, `identity_columns`, `variable_columns`, `auto_match_threshold`, `product_name_column`, `product_sku_column`.
+**Response fields:** `id`, `supplier`, `name`, `dataframe` (PK), `dataframe_detail` `{id, name}`, `supplier_sku_column`, `name_column` (required), `variable_columns`, `auto_match_threshold`, `low_match_threshold`, `product_sku_column`.
 
-`product_name_column` and `product_sku_column` are optional column hints used by the `create-product` UI: they tell the SPA which pipeline-output column to pre-fill the new-product name / SKU fields from.
+`name_column` is the pipeline-output column used as the product name for text matching and for the `create-product` UI. `product_sku_column` is an optional column hint for pre-filling the SKU field.
 
 #### `POST /api/supplier-feed/mappings/`
 
@@ -783,10 +783,10 @@ Creates a feed mapping. `dataframe` is required — create a pipeline first via 
   "name": "Прайс-лист основной",
   "dataframe": 3,
   "supplier_sku_column": "sku",
-  "identity_columns": ["sku", "name"],
+  "name_column": "name",
   "variable_columns": ["price", "stock"],
   "auto_match_threshold": 0.92,
-  "product_name_column": "name",
+  "low_match_threshold": 0.5,
   "product_sku_column": "sku"
 }
 ```

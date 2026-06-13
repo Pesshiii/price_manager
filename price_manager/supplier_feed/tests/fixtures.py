@@ -21,7 +21,8 @@ def make_dataframe(name='Test Pipeline'):
     return df
 
 
-def make_feed_mapping(supplier=None, name='Прайс', supplier_sku_column='article', **kwargs):
+def make_feed_mapping(supplier=None, name='Прайс', supplier_sku_column='article',
+                      name_column='name', low_match_threshold=0.5, **kwargs):
     if supplier is None:
         supplier = make_supplier()
     if 'dataframe' not in kwargs:
@@ -30,6 +31,8 @@ def make_feed_mapping(supplier=None, name='Прайс', supplier_sku_column='art
         supplier=supplier,
         name=name,
         supplier_sku_column=supplier_sku_column,
+        name_column=name_column,
+        low_match_threshold=low_match_threshold,
         **kwargs,
     )
 

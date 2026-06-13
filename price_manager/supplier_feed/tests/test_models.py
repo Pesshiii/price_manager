@@ -14,9 +14,9 @@ class FeedMappingDefaultsTests(TestCase):
         mapping = make_feed_mapping(supplier=self.supplier)
         self.assertAlmostEqual(mapping.auto_match_threshold, 0.92)
 
-    def test_identity_columns_default_empty_list(self):
+    def test_low_match_threshold_default(self):
         mapping = make_feed_mapping(supplier=self.supplier)
-        self.assertEqual(mapping.identity_columns, [])
+        self.assertAlmostEqual(mapping.low_match_threshold, 0.5)
 
     def test_variable_columns_default_empty_list(self):
         mapping = make_feed_mapping(supplier=self.supplier)
