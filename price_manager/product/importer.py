@@ -16,7 +16,6 @@ from django.db import transaction
 from django.utils.text import slugify
 
 from .models import Brand, Category, CharacteristicType, Product
-from .signals import suppress_embedding_signal
 
 # Batch size for chunked commit. Each batch is its own transaction so a
 # huge import does not blow up the Postgres rollback log nor pin the entire
@@ -241,13 +240,12 @@ def _commit_batch(
     batch: list[RowResult],
     char_types_by_name: dict[str, CharacteristicType],
     linked_pairs: set[tuple[int, int]],
-) -> tuple[int, int, int, list[dict], list[int]]:
+) -> tuple[int, int, int, list[dict]]:
     """Persist a single batch inside one transaction. Returns per-batch counters."""
     created = 0
     updated = 0
     skipped = 0
     errors: list[dict] = []
-    affected_ids: list[int] = []
 
     with transaction.atomic():
         for r in batch:
@@ -295,7 +293,6 @@ def _commit_batch(
                 defaults['brand'] = brand
 
             product_obj, was_created = Product.objects.update_or_create(sku=sku, defaults=defaults)
-            affected_ids.append(product_obj.pk)
             if was_created:
                 created += 1
             else:
@@ -315,7 +312,7 @@ def _commit_batch(
                     ct.categories.add(cat)
                     linked_pairs.add(pair)
 
-    return created, updated, skipped, errors, affected_ids
+    return created, updated, skipped, errors
 
 
 def commit_rows(
@@ -354,32 +351,26 @@ def commit_rows(
 
     linked_pairs: set[tuple[int, int]] = set()
     batch_size = max(1, IMPORT_COMMIT_BATCH_SIZE)
-    affected_ids: list[int] = []
 
-    # Suppress per-row embedding signal: a chunked embed task is enqueued for
-    # all affected ids by run_import_commit after this returns.
-    with suppress_embedding_signal():
-        processed = 0
-        for start in range(0, len(results), batch_size):
-            batch = results[start:start + batch_size]
-            c, u, s, errs, ids = _commit_batch(batch, char_types_by_name, linked_pairs)
-            created += c
-            updated += u
-            skipped += s
-            errors.extend(errs)
-            affected_ids.extend(ids)
-            processed += len(batch)
-            if progress_callback is not None:
-                try:
-                    progress_callback(processed)
-                except Exception:
-                    # Progress is best-effort — never fail the commit on a bad callback.
-                    pass
+    processed = 0
+    for start in range(0, len(results), batch_size):
+        batch = results[start:start + batch_size]
+        c, u, s, errs = _commit_batch(batch, char_types_by_name, linked_pairs)
+        created += c
+        updated += u
+        skipped += s
+        errors.extend(errs)
+        processed += len(batch)
+        if progress_callback is not None:
+            try:
+                progress_callback(processed)
+            except Exception:
+                # Progress is best-effort — never fail the commit on a bad callback.
+                pass
 
     return {
         'created': created,
         'updated': updated,
         'skipped': skipped,
         'errors': errors,
-        'affected_ids': affected_ids,
     }
