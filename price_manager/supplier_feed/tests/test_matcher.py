@@ -1,11 +1,13 @@
 """Tests for supplier_feed.matcher.run_matching — behavior via public interface.
 
-Each class covers one algorithmic branch. _find_candidates is always mocked so
-no live PostgreSQL pg_trgm extension or rapidfuzz scoring is required.
+Each class covers one algorithmic branch. _find_candidates is injected via the
+finder= parameter of run_matching so no patching of private internals is needed.
+InMemoryCandidateFinder (in fixtures.py) serves as the second adapter that proves
+the seam is real and exercisable without PostgreSQL.
 """
 from __future__ import annotations
 
-from unittest.mock import patch
+from unittest.mock import Mock
 
 from django.test import TestCase
 
@@ -16,9 +18,7 @@ from supplier_feed.models import (
     SupplierFeedEntry,
     SupplierLink,
 )
-from .fixtures import make_feed_mapping, make_supplier
-
-FIND_CANDIDATES_PATH = 'supplier_feed.matcher._find_candidates'
+from .fixtures import InMemoryCandidateFinder, make_feed_mapping, make_supplier
 
 
 def _make_product(name: str, sku: str) -> Product:
@@ -66,11 +66,11 @@ class SupplierLinkMatchTests(TestCase):
     def test_sku_match_creates_entry_with_product(self):
         """Known SKU → entry.product set, stats show matched=1, queued=0."""
         rows = [{'article': 'SKU-001', 'name': 'Дрель', 'price': '500'}]
+        mock_finder = Mock()
 
-        with patch(FIND_CANDIDATES_PATH) as mock_find:
-            stats = run_matching(self.feed, rows)
+        stats = run_matching(self.feed, rows, finder=mock_finder)
 
-        mock_find.assert_not_called()
+        mock_finder.assert_not_called()
 
         self.assertEqual(stats['matched'], 1)
         self.assertEqual(stats['queued'], 0)
@@ -82,8 +82,7 @@ class SupplierLinkMatchTests(TestCase):
         """Variable columns are saved to entry.data."""
         rows = [{'article': 'SKU-001', 'name': 'Дрель', 'price': '750'}]
 
-        with patch(FIND_CANDIDATES_PATH):
-            run_matching(self.feed, rows)
+        run_matching(self.feed, rows, finder=Mock())
 
         entry = SupplierFeedEntry.objects.get(feed=self.feed, supplier_sku='SKU-001')
         self.assertEqual(entry.data.get('price'), '750')
@@ -92,8 +91,7 @@ class SupplierLinkMatchTests(TestCase):
         """name_column value is stored in entry.data."""
         rows = [{'article': 'SKU-001', 'name': 'Дрель', 'price': '750'}]
 
-        with patch(FIND_CANDIDATES_PATH):
-            run_matching(self.feed, rows)
+        run_matching(self.feed, rows, finder=Mock())
 
         entry = SupplierFeedEntry.objects.get(feed=self.feed, supplier_sku='SKU-001')
         self.assertEqual(entry.data.get('name'), 'Дрель')
@@ -110,11 +108,11 @@ class SupplierLinkMatchTests(TestCase):
             {'article': 'SKU-001', 'name': 'Дрель', 'price': '500'},
             {'article': 'SKU-002', 'name': 'Перфоратор', 'price': '1200'},
         ]
+        mock_finder = Mock()
 
-        with patch(FIND_CANDIDATES_PATH) as mock_find:
-            stats = run_matching(self.feed, rows)
+        stats = run_matching(self.feed, rows, finder=mock_finder)
 
-        mock_find.assert_not_called()
+        mock_finder.assert_not_called()
         self.assertEqual(stats['matched'], 2)
         self.assertEqual(stats['queued'], 0)
         self.assertEqual(SupplierFeedEntry.objects.filter(feed=self.feed).count(), 2)
@@ -141,13 +139,12 @@ class TextAutoMatchTests(TestCase):
             status='processing',
         )
 
-    @patch(FIND_CANDIDATES_PATH)
-    def test_high_score_creates_supplier_link(self, mock_find):
+    def test_high_score_creates_supplier_link(self):
         """Score >= auto_match_threshold → entry.product set AND SupplierLink created."""
-        mock_find.return_value = [_candidate(self.product, 0.95)]
+        finder = Mock(return_value=[_candidate(self.product, 0.95)])
         rows = [{'article': 'NEW-SKU', 'name': 'Шуруповерт'}]
 
-        stats = run_matching(self.feed, rows)
+        stats = run_matching(self.feed, rows, finder=finder)
 
         self.assertEqual(stats['matched'], 1)
         self.assertEqual(stats['queued'], 0)
@@ -159,15 +156,26 @@ class TextAutoMatchTests(TestCase):
         link = SupplierLink.objects.get(supplier=self.supplier, supplier_sku='NEW-SKU')
         self.assertEqual(link.product_id, self.product.pk)
 
-    @patch(FIND_CANDIDATES_PATH)
-    def test_find_candidates_called_with_entry_name(self, mock_find):
-        """_find_candidates is called with the name column value and low_thresh."""
-        mock_find.return_value = [_candidate(self.product, 0.95)]
+    def test_finder_called_with_entry_name_and_low_thresh(self):
+        """finder is called with the name column value and low_thresh."""
+        finder = Mock(return_value=[_candidate(self.product, 0.95)])
         rows = [{'article': 'NEW-SKU', 'name': 'Шуруповерт'}]
 
-        run_matching(self.feed, rows)
+        run_matching(self.feed, rows, finder=finder)
 
-        mock_find.assert_called_once_with('Шуруповерт', 0.5)
+        finder.assert_called_once_with('Шуруповерт', 0.5)
+
+    def test_in_memory_finder_auto_matches(self):
+        """InMemoryCandidateFinder with a high-score candidate behaves like the pg_trgm path."""
+        candidate = _candidate(self.product, 0.95)
+        finder = InMemoryCandidateFinder([candidate])
+        rows = [{'article': 'NEW-SKU', 'name': 'Шуруповерт'}]
+
+        stats = run_matching(self.feed, rows, finder=finder)
+
+        self.assertEqual(stats['matched'], 1)
+        entry = SupplierFeedEntry.objects.get(feed=self.feed, supplier_sku='NEW-SKU')
+        self.assertEqual(entry.product_id, self.product.pk)
 
 
 # ── Cycle 3: Queue path ───────────────────────────────────────────────────────
@@ -191,13 +199,12 @@ class TextQueueTests(TestCase):
             status='processing',
         )
 
-    @patch(FIND_CANDIDATES_PATH)
-    def test_low_score_queues_entry_with_candidates(self, mock_find):
+    def test_low_score_queues_entry_with_candidates(self):
         """Score < auto_match_threshold → entry.product=None, match_candidates populated."""
-        mock_find.return_value = [_candidate(self.product, 0.75)]
+        finder = Mock(return_value=[_candidate(self.product, 0.75)])
         rows = [{'article': 'UNKNOWN-SKU', 'name': 'Утюг'}]
 
-        stats = run_matching(self.feed, rows)
+        stats = run_matching(self.feed, rows, finder=finder)
 
         self.assertEqual(stats['matched'], 0)
         self.assertEqual(stats['queued'], 1)
@@ -213,13 +220,12 @@ class TextQueueTests(TestCase):
         self.assertEqual(first['category'], 'TestCat')
         self.assertEqual(first['brand'], 'TestBrand')
 
-    @patch(FIND_CANDIDATES_PATH)
-    def test_no_supplier_link_created_for_queued_entry(self, mock_find):
+    def test_no_supplier_link_created_for_queued_entry(self):
         """Low-score match must NOT create a SupplierLink."""
-        mock_find.return_value = [_candidate(self.product, 0.75)]
+        finder = Mock(return_value=[_candidate(self.product, 0.75)])
         rows = [{'article': 'UNKNOWN-SKU', 'name': 'Утюг'}]
 
-        run_matching(self.feed, rows)
+        run_matching(self.feed, rows, finder=finder)
 
         self.assertFalse(
             SupplierLink.objects.filter(
@@ -227,28 +233,39 @@ class TextQueueTests(TestCase):
             ).exists()
         )
 
-    @patch(FIND_CANDIDATES_PATH)
-    def test_queued_entry_has_best_score(self, mock_find):
+    def test_queued_entry_has_best_score(self):
         """Queued entry with candidates must have best_score populated."""
-        mock_find.return_value = [_candidate(self.product, 0.75)]
+        finder = Mock(return_value=[_candidate(self.product, 0.75)])
         rows = [{'article': 'SCORE-SKU', 'name': 'Утюг'}]
 
-        run_matching(self.feed, rows)
+        run_matching(self.feed, rows, finder=finder)
 
         entry = SupplierFeedEntry.objects.get(feed=self.feed, supplier_sku='SCORE-SKU')
         self.assertAlmostEqual(entry.best_score, 0.75, places=3)
 
-    @patch(FIND_CANDIDATES_PATH)
-    def test_no_candidates_queues_with_null_best_score(self, mock_find):
-        """When _find_candidates returns [], entry is queued with empty candidates and best_score=None."""
-        mock_find.return_value = []
+    def test_no_candidates_queues_with_null_best_score(self):
+        """When finder returns [], entry is queued with empty candidates and best_score=None."""
+        finder = Mock(return_value=[])
         rows = [{'article': 'GHOST-SKU', 'name': 'Что-то'}]
 
-        stats = run_matching(self.feed, rows)
+        stats = run_matching(self.feed, rows, finder=finder)
 
         self.assertEqual(stats['queued'], 1)
         entry = SupplierFeedEntry.objects.get(feed=self.feed, supplier_sku='GHOST-SKU')
         self.assertIsNone(entry.product_id)
+        self.assertEqual(entry.match_candidates, [])
+        self.assertIsNone(entry.best_score)
+
+    def test_in_memory_finder_filters_by_threshold(self):
+        """InMemoryCandidateFinder excludes candidates below low_thresh."""
+        below_thresh = _candidate(self.product, 0.49)
+        finder = InMemoryCandidateFinder([below_thresh])
+        rows = [{'article': 'LOW-SKU', 'name': 'Утюг'}]
+
+        stats = run_matching(self.feed, rows, finder=finder)
+
+        self.assertEqual(stats['queued'], 1)
+        entry = SupplierFeedEntry.objects.get(feed=self.feed, supplier_sku='LOW-SKU')
         self.assertEqual(entry.match_candidates, [])
         self.assertIsNone(entry.best_score)
 
@@ -280,11 +297,11 @@ class IgnoreLinkTests(TestCase):
     def test_ignore_link_creates_skipped_entry(self):
         """Row matching an ignore-link → entry.skipped=True, not matched."""
         rows = [{'article': 'IGN-001', 'name': 'Что-то', 'price': '100'}]
+        mock_finder = Mock()
 
-        with patch(FIND_CANDIDATES_PATH) as mock_find:
-            stats = run_matching(self.feed, rows)
+        stats = run_matching(self.feed, rows, finder=mock_finder)
 
-        mock_find.assert_not_called()
+        mock_finder.assert_not_called()
         self.assertEqual(stats.get('skipped', 0), 1)
 
         entry = SupplierFeedEntry.objects.get(feed=self.feed, supplier_sku='IGN-001')
@@ -295,9 +312,8 @@ class IgnoreLinkTests(TestCase):
         """Ignored row must NOT increment the matched counter."""
         rows = [{'article': 'IGN-001', 'name': 'Что-то', 'price': '100'}]
 
-        with patch(FIND_CANDIDATES_PATH):
-            stats = run_matching(self.feed, rows)
-
+        with self.subTest():
+            stats = run_matching(self.feed, rows, finder=Mock())
         self.assertEqual(stats['matched'], 0)
 
     def test_normal_link_still_auto_matches(self):
@@ -309,11 +325,11 @@ class IgnoreLinkTests(TestCase):
             product=product,
         )
         rows = [{'article': 'REG-001', 'name': 'Дрель', 'price': '500'}]
+        mock_finder = Mock()
 
-        with patch(FIND_CANDIDATES_PATH) as mock_find:
-            stats = run_matching(self.feed, rows)
+        stats = run_matching(self.feed, rows, finder=mock_finder)
 
-        mock_find.assert_not_called()
+        mock_finder.assert_not_called()
         self.assertEqual(stats['matched'], 1)
         entry = SupplierFeedEntry.objects.get(feed=self.feed, supplier_sku='REG-001')
         self.assertEqual(entry.product_id, product.pk)
@@ -348,12 +364,10 @@ class MixedBatchTests(TestCase):
 
     def test_mixed_batch_returns_correct_stats_includes_skipped_key(self):
         """run_matching return dict must include 'skipped' key."""
-        with patch(FIND_CANDIDATES_PATH, return_value=[]):
-            stats = run_matching(self.feed, [])
+        stats = run_matching(self.feed, [], finder=Mock(return_value=[]))
         self.assertIn('skipped', stats)
 
-    @patch(FIND_CANDIDATES_PATH)
-    def test_mixed_batch_returns_correct_stats(self, mock_find):
+    def test_mixed_batch_returns_correct_stats(self):
         """1 linked + 1 auto-match + 1 queued → matched=2, queued=1."""
         rows = [
             {'article': 'SKU-A', 'name': 'Товар A'},
@@ -361,14 +375,12 @@ class MixedBatchTests(TestCase):
             {'article': 'SKU-C', 'name': 'Товар C'},
         ]
 
-        def side_effect(name, low_thresh):
+        def finder(name, low_thresh):
             if 'Товар B' in name:
                 return [_candidate(self.product_b, 0.95)]
             return [_candidate(self.product_c, 0.60)]
 
-        mock_find.side_effect = side_effect
-
-        stats = run_matching(self.feed, rows)
+        stats = run_matching(self.feed, rows, finder=finder)
 
         self.assertEqual(stats['matched'], 2)
         self.assertEqual(stats['queued'], 1)

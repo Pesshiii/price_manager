@@ -37,6 +37,20 @@ def make_feed_mapping(supplier=None, name='Прайс', supplier_sku_column='art
     )
 
 
+class InMemoryCandidateFinder:
+    """In-memory test double for the pg_trgm finder.
+
+    Filters a pre-loaded candidate list by score threshold so tests need no DB
+    query and no patch() call — just pass an instance as finder= to run_matching.
+    """
+
+    def __init__(self, candidates: list[dict]):
+        self._candidates = candidates
+
+    def __call__(self, name: str, low_thresh: float) -> list[dict]:
+        return [c for c in self._candidates if c['score'] >= low_thresh]
+
+
 def make_product(sku='PROD-001', name='Тест Товар', brand_name='Бренд', category_name='Категория'):
     """Create a minimal Product for use in supplier_feed tests."""
     from product.models import Brand, Category, Product

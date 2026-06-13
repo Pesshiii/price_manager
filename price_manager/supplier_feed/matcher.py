@@ -30,7 +30,9 @@ TOP_N_CANDIDATES = 5
 TRGM_PREFILTER_MULTIPLIER = 0.7  # looser than low_thresh to allow re-rank headroom
 
 
-def run_matching(feed, rows: list[dict[str, Any]]) -> dict[str, int]:
+def run_matching(feed, rows: list[dict[str, Any]], *, finder=None) -> dict[str, int]:
+    if finder is None:
+        finder = _find_candidates
     mapping = feed.feed_mapping
     sku_col: str = mapping.supplier_sku_column
     name_col: str = mapping.name_column
@@ -76,7 +78,7 @@ def run_matching(feed, rows: list[dict[str, Any]]) -> dict[str, int]:
             need_text.append((supplier_sku, entry_name, data))
 
     for supplier_sku, entry_name, data in need_text:
-        candidates = _find_candidates(entry_name, low_thresh)
+        candidates = finder(entry_name, low_thresh)
 
         if candidates and candidates[0]['score'] >= high_thresh:
             best = candidates[0]

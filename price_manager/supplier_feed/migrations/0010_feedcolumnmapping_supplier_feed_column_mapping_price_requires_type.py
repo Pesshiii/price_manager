@@ -7,7 +7,7 @@ class Migration(migrations.Migration):
 
     dependencies = [
         ('pricing', '0001_initial'),
-        ('supplier_feed', '0009_feedcolumnmapping'),
+        ('supplier_feed', '0009_remove_feedmarkupset_feed_mapping_feedcolumnmapping_and_more'),
     ]
 
     operations = [
