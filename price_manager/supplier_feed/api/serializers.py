@@ -81,10 +81,10 @@ class FeedMappingSerializer(serializers.ModelSerializer):
             'dataframe',
             'dataframe_detail',
             'supplier_sku_column',
-            'identity_columns',
+            'name_column',
             'variable_columns',
             'auto_match_threshold',
-            'product_name_column',
+            'low_match_threshold',
             'product_sku_column',
         ]
 

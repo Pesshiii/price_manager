@@ -43,7 +43,7 @@ class CreateFeedMappingTests(FeedMappingApiBase):
                 'name': 'Прайс Рога',
                 'dataframe': self.dataframe.pk,
                 'supplier_sku_column': 'article',
-                'identity_columns': ['article', 'name'],
+                'name_column': 'name',
                 'variable_columns': ['price', 'stock'],
                 'auto_match_threshold': 0.88,
             },
@@ -66,6 +66,7 @@ class CreateFeedMappingTests(FeedMappingApiBase):
                 'name': 'Остатки',
                 'dataframe': self.dataframe.pk,
                 'supplier_sku_column': 'sku',
+                'name_column': 'name',
             },
             content_type='application/json',
         )
@@ -150,10 +151,10 @@ class DeleteProtectionTests(FeedMappingApiBase):
         self.assertTrue(FeedMapping.objects.filter(pk=mapping.pk).exists())
 
 
-# ── Cycle 9: FeedMapping product columns ─────────────────────────────────────
+# ── Cycle 9: FeedMapping matching columns ────────────────────────────────────
 
-class FeedMappingProductColumnsTest(FeedMappingApiBase):
-    def test_create_with_product_columns(self):
+class FeedMappingMatchingColumnsTest(FeedMappingApiBase):
+    def test_create_with_name_and_sku_columns(self):
         resp = self.client.post(
             reverse(MAPPING_LIST_URL),
             {
@@ -161,28 +162,29 @@ class FeedMappingProductColumnsTest(FeedMappingApiBase):
                 'name': 'Прайс с товарами',
                 'dataframe': self.dataframe.pk,
                 'supplier_sku_column': 'article',
-                'product_name_column': 'product_name',
+                'name_column': 'product_name',
                 'product_sku_column': 'product_sku',
             },
             content_type='application/json',
         )
         self.assertEqual(resp.status_code, 201, resp.content[:300])
         data = resp.json()
-        self.assertEqual(data['product_name_column'], 'product_name')
+        self.assertEqual(data['name_column'], 'product_name')
         self.assertEqual(data['product_sku_column'], 'product_sku')
 
-    def test_product_columns_default_to_empty(self):
+    def test_low_match_threshold_default(self):
         resp = self.client.post(
             reverse(MAPPING_LIST_URL),
             {
                 'supplier': self.supplier.pk,
-                'name': 'Прайс без товаров',
+                'name': 'Прайс пороги',
                 'dataframe': self.dataframe.pk,
                 'supplier_sku_column': 'article',
+                'name_column': 'name',
             },
             content_type='application/json',
         )
         self.assertEqual(resp.status_code, 201, resp.content[:300])
         data = resp.json()
-        self.assertEqual(data['product_name_column'], '')
+        self.assertAlmostEqual(data['low_match_threshold'], 0.5)
         self.assertEqual(data['product_sku_column'], '')
