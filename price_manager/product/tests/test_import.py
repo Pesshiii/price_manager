@@ -616,3 +616,92 @@ class ErrorCasesTests(BaseImportTests):
         body = resp.json()
         self.assertEqual(body['created'], 0)
         self.assertEqual(body['skipped'], 1)  # sku + name missing
+
+
+# ---------------------------------------------------------------------------
+# 8. default_status
+# ---------------------------------------------------------------------------
+class DefaultStatusTests(BaseImportTests):
+    """Tests for the configurable default_status on import commit."""
+
+    def _simple_mapping(self):
+        return {'sku': {'column': 'sku'}, 'name': {'column': 'name'}}
+
+    def _two_rows(self):
+        return [['sku', 'name'], ['DS1', 'Товар 1'], ['DS2', 'Товар 2']]
+
+    # 1. No default_status at all → STATUS_DRAFT
+    def test_no_default_status_falls_back_to_draft(self):
+        sid = self.upload(csv_upload(self._two_rows()))
+        resp = self._dispatch_import(IMPORT_COMMIT_URL, sid, csv_instructions(), self._simple_mapping())
+        self.assertEqual(resp.status_code, 200, resp.content[:300])
+        self.assertEqual(resp.json()['created'], 2)
+        for p in Product.objects.filter(sku__in=['DS1', 'DS2']):
+            self.assertEqual(p.status, 'draft')
+
+    # 2. default_status via top-level request param
+    def test_request_param_sets_default_status(self):
+        sid = self.upload(csv_upload(self._two_rows()))
+        resp = self._dispatch_import(
+            IMPORT_COMMIT_URL, sid, csv_instructions(), self._simple_mapping(),
+            default_status='active',
+        )
+        self.assertEqual(resp.status_code, 200, resp.content[:300])
+        for p in Product.objects.filter(sku__in=['DS1', 'DS2']):
+            self.assertEqual(p.status, 'active')
+
+    # 3. default_status inside mapping JSON
+    def test_mapping_level_default_status(self):
+        mapping = {**self._simple_mapping(), 'default_status': 'archived'}
+        sid = self.upload(csv_upload(self._two_rows()))
+        resp = self._dispatch_import(IMPORT_COMMIT_URL, sid, csv_instructions(), mapping)
+        self.assertEqual(resp.status_code, 200, resp.content[:300])
+        for p in Product.objects.filter(sku__in=['DS1', 'DS2']):
+            self.assertEqual(p.status, 'archived')
+
+    # 4. Request param overrides mapping-level default
+    def test_request_param_overrides_mapping_default(self):
+        mapping = {**self._simple_mapping(), 'default_status': 'archived'}
+        sid = self.upload(csv_upload(self._two_rows()))
+        resp = self._dispatch_import(
+            IMPORT_COMMIT_URL, sid, csv_instructions(), mapping,
+            default_status='active',
+        )
+        self.assertEqual(resp.status_code, 200, resp.content[:300])
+        for p in Product.objects.filter(sku__in=['DS1', 'DS2']):
+            self.assertEqual(p.status, 'active')
+
+    # 5. Per-row column value wins over default_status
+    def test_row_column_overrides_default_status(self):
+        rows = [
+            ['sku', 'name', 'st'],
+            ['DS1', 'Товар 1', 'archived'],  # explicit value in column
+            ['DS2', 'Товар 2', ''],           # empty → fallback to default
+        ]
+        mapping = {
+            **self._simple_mapping(),
+            'status': {'column': 'st'},
+        }
+        sid = self.upload(csv_upload(rows))
+        resp = self._dispatch_import(
+            IMPORT_COMMIT_URL, sid, csv_instructions(), mapping,
+            default_status='active',
+        )
+        self.assertEqual(resp.status_code, 200, resp.content[:300])
+        self.assertEqual(Product.objects.get(sku='DS1').status, 'archived')
+        self.assertEqual(Product.objects.get(sku='DS2').status, 'active')
+
+    # 6. Invalid default_status value → 400 from serializer (no job created)
+    def test_invalid_default_status_returns_400(self):
+        sid = self.upload(csv_upload(self._two_rows()))
+        resp = self.client.post(
+            reverse(IMPORT_COMMIT_URL),
+            {
+                'session_id': sid,
+                'instructions': csv_instructions(),
+                'mapping': self._simple_mapping(),
+                'default_status': 'unknown_value',
+            },
+            content_type='application/json',
+        )
+        self.assertEqual(resp.status_code, 400)

@@ -343,6 +343,11 @@ def _create_import_job(request, kind: str):
             status=status.HTTP_404_NOT_FOUND,
         )
 
+    # Priority: explicit request param > mapping-level default > ''
+    effective_status = (
+        data.get('default_status')
+        or (data['mapping'] or {}).get('default_status', '')
+    )
     job = ImportJob.objects.create(
         user=request.user if request.user.is_authenticated else None,
         kind=kind,
@@ -350,6 +355,7 @@ def _create_import_job(request, kind: str):
         instructions=data['instructions'],
         mapping=data['mapping'],
         row_limit=data.get('row_limit') or 200,
+        default_status=effective_status,
     )
     runner = run_import_preview if kind == ImportJob.KIND_PREVIEW else run_import_commit
     runner.delay(str(job.id))

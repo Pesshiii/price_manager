@@ -275,6 +275,9 @@ class ImportJob(models.Model):
     instructions = models.JSONField(default=dict, blank=True)
     mapping = models.JSONField(default=dict, blank=True)
     row_limit = models.PositiveIntegerField(default=200)
+    default_status = models.CharField(
+        'Статус по умолчанию', max_length=16, blank=True, default='',
+    )
     result = models.JSONField(null=True, blank=True)
     error = models.TextField(blank=True)
     # Coarse-grained progress: rows_total is set once after apply_mapping;

@@ -131,7 +131,7 @@ def run_import_commit(job_id: str) -> None:
             # Narrow update — never clobbers concurrent stage writes.
             ImportJob.objects.filter(pk=job.pk).update(rows_done=rows_done)
 
-        summary = commit_rows(results, progress_callback=_on_progress)
+        summary = commit_rows(results, progress_callback=_on_progress, default_status=job.default_status or '')
         # Free the cached DataFrame and the upload file — both are large and
         # no longer needed once the commit lands. Failure here is non-fatal.
         try:

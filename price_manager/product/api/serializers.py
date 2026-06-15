@@ -114,6 +114,12 @@ class ImportRequestSerializer(serializers.Serializer):
     instructions = serializers.DictField()
     mapping = serializers.DictField()
     row_limit = serializers.IntegerField(required=False, min_value=1, max_value=10000, default=200)
+    default_status = serializers.ChoiceField(
+        choices=Product.STATUS_CHOICES,
+        required=False,
+        allow_blank=True,
+        default='',
+    )
 
 
 class ImportJobSerializer(serializers.ModelSerializer):

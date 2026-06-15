@@ -240,6 +240,7 @@ def _commit_batch(
     batch: list[RowResult],
     char_types_by_name: dict[str, CharacteristicType],
     linked_pairs: set[tuple[int, int]],
+    default_status: str = '',
 ) -> tuple[int, int, int, list[dict]]:
     """Persist a single batch inside one transaction. Returns per-batch counters."""
     created = 0
@@ -281,7 +282,7 @@ def _commit_batch(
                 k: v for k, v in payload.items()
                 if k in ('name', 'description', 'status', 'characteristics')
             }
-            defaults.setdefault('status', Product.STATUS_DRAFT)
+            defaults.setdefault('status', default_status or Product.STATUS_DRAFT)
 
             cat = None
             if cat_name:
@@ -318,6 +319,7 @@ def _commit_batch(
 def commit_rows(
     results: list[RowResult],
     progress_callback: Callable[[int], None] | None = None,
+    default_status: str = '',
 ) -> dict:
     """Persist valid rows. Category/Brand are get_or_create by name. SKU is upsert key.
 
@@ -355,7 +357,7 @@ def commit_rows(
     processed = 0
     for start in range(0, len(results), batch_size):
         batch = results[start:start + batch_size]
-        c, u, s, errs = _commit_batch(batch, char_types_by_name, linked_pairs)
+        c, u, s, errs = _commit_batch(batch, char_types_by_name, linked_pairs, default_status)
         created += c
         updated += u
         skipped += s
