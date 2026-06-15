@@ -77,11 +77,36 @@ class CharacteristicTypeSerializer(serializers.ModelSerializer):
 
 
 class ProductSerializer(serializers.ModelSerializer):
+    prices = serializers.SerializerMethodField()
+
+    def get_prices(self, obj):
+        slugs = self.context.get('price_types', [])
+        if not slugs:
+            return {}
+        result = {slug: None for slug in slugs}
+        annotations = getattr(obj, '_price_annotations', None)
+        if annotations is not None:
+            for price in annotations:
+                slug = price.price_type.name
+                if slug in result:
+                    val = float(price.value)
+                    if result[slug] is None or val < result[slug]:
+                        result[slug] = val
+        return result
+
+    def to_representation(self, instance):
+        data = super().to_representation(instance)
+        # Omit the `prices` key entirely when no price_types were requested,
+        # so write responses (POST/PATCH/PUT) don't leak an empty {} field.
+        if not self.context.get('price_types'):
+            data.pop('prices', None)
+        return data
+
     class Meta:
         model = Product
         fields = [
             'id', 'sku', 'name', 'category', 'brand', 'description', 'status',
-            'characteristics', 'image_urls', 'created_at', 'updated_at',
+            'characteristics', 'image_urls', 'created_at', 'updated_at', 'prices',
         ]
         read_only_fields = ['created_at', 'updated_at']
 

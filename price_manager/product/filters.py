@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import django_filters
-from django.db.models import Case, Q, When
+from decimal import Decimal, InvalidOperation
+
+from django.db.models import Case, Exists, OuterRef, Q, When
 from pgvector.django import CosineDistance
 
 from .models import Brand, Category, Product
@@ -133,6 +135,29 @@ class ProductFilter(django_filters.FilterSet):
                 for v in val:
                     or_q |= Q(characteristics__contains={char_name: _coerce_filter_value(v)})
                 parent_qs = parent_qs.filter(or_q)
+
+        # Apply ?price_type=<slug>&price_min=<n>&price_max=<n> filter.
+        price_type_slug = self.request.GET.get('price_type') if self.request else None
+        if price_type_slug:
+            from pricing.models import ProductPrice
+            price_qs = ProductPrice.objects.filter(
+                product=OuterRef('pk'),
+                price_type__name=price_type_slug,
+            )
+            price_min = self.request.GET.get('price_min')
+            price_max = self.request.GET.get('price_max')
+            if price_min:
+                try:
+                    price_qs = price_qs.filter(value__gte=Decimal(price_min))
+                except InvalidOperation:
+                    return parent_qs.none()
+            if price_max:
+                try:
+                    price_qs = price_qs.filter(value__lte=Decimal(price_max))
+                except InvalidOperation:
+                    return parent_qs.none()
+            parent_qs = parent_qs.filter(Exists(price_qs))
+
         return parent_qs
 
 
