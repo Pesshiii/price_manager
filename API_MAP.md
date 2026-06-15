@@ -528,6 +528,10 @@ Lists products with filtering and hybrid search.
 | `char__<type_name>` | Filter by JSONB characteristic value. Repeat param for OR. Type-coerced: int → float → bool → string. Example: `?char__цвет=красный&char__цвет=синий` |
 | `facets_max_keys` | Used only on `/facets/`. 1–500, default 50 |
 | `facets_max_buckets` | Used only on `/facets/`. 1–200, default 30 |
+| `price_types` | Repeatable slug of a `PriceType`. When provided, each product in the response gains a `prices` field: `{ [slug]: number \| null }` — minimum price across all suppliers for that type. Example: `?price_types=retail&price_types=wholesale` |
+| `price_type` | Filter: only products that have a `ProductPrice` with this `PriceType` slug. Combine with `price_min`/`price_max`. |
+| `price_min` | Filter: minimum price value (inclusive). Requires `price_type`. |
+| `price_max` | Filter: maximum price value (inclusive). Requires `price_type`. |
 
 **Response `200`:**
 ```json
@@ -547,11 +551,14 @@ Lists products with filtering and hybrid search.
       "characteristics": { "цвет": "красный", "вес": 1.5 },
       "image_urls": [],
       "created_at": "...",
-      "updated_at": "..."
+      "updated_at": "...",
+      "prices": { "retail": 1200.0, "wholesale": null }
     }
   ]
 }
 ```
+
+> **Note:** The `prices` field is only present when `?price_types=` is requested. Each key is a `PriceType.name` slug; the value is the minimum price across all suppliers for that type, or `null` if no price exists for this product.
 
 **Response `503`:** Embedder unreachable (vector/hybrid search only):
 ```json

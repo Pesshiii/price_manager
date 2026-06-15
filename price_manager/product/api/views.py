@@ -2,12 +2,15 @@ from __future__ import annotations
 
 from collections import Counter
 
+from django.db.models import Prefetch
 from django.shortcuts import get_object_or_404
 from django_filters.rest_framework import DjangoFilterBackend
 from rest_framework import status, viewsets
 from rest_framework.decorators import action
 from rest_framework.response import Response
 from rest_framework.views import APIView
+
+from pricing.models import ProductPrice
 
 from dataframe import sessions as session_store
 
@@ -259,6 +262,29 @@ class ProductViewSet(viewsets.ModelViewSet):
     pagination_class = ProductPagination
     filter_backends = [DjangoFilterBackend]
     filterset_class = ProductFilter
+
+    def get_queryset(self):
+        qs = super().get_queryset()
+        # Skip price Prefetch for actions (like facets) that don't use the
+        # serializer — the prefetch is wasted there and only costs DB work.
+        slugs = self.request.query_params.getlist('price_types')
+        if slugs and self.action not in ('facets',):
+            qs = qs.prefetch_related(
+                Prefetch(
+                    'prices',
+                    queryset=ProductPrice.objects.filter(
+                        price_type__name__in=slugs
+                    ).select_related('price_type'),
+                    to_attr='_price_annotations',
+                )
+            )
+        return qs
+
+    def get_serializer_context(self):
+        ctx = super().get_serializer_context()
+        ctx['price_types'] = self.request.query_params.getlist('price_types')
+        return ctx
+
 
     @action(detail=False, methods=['get'])
     def facets(self, request):
