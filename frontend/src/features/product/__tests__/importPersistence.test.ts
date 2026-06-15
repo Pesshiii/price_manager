@@ -53,7 +53,7 @@ describe('product import persistence', () => {
   });
 
   it('fills missing fields with defaults', () => {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify({ version: 2, sessionId: 'x' }));
+    localStorage.setItem(STORAGE_KEY, JSON.stringify({ version: 3, sessionId: 'x' }));
     const loaded = loadPersistedState();
     expect(loaded?.sessionId).toBe('x');
     expect(loaded?.mode).toBe('saved');

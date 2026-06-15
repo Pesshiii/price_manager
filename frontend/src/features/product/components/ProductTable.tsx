@@ -9,6 +9,7 @@ export interface ProductTableProps {
   brands: Brand[];
   onDelete: (product: Product) => void;
   deletingId?: number;
+  priceCols?: Array<{ slug: string; label: string }>;
 }
 
 function makeMap<T extends { id: number }>(items: T[]): Map<number, T> {
@@ -21,6 +22,7 @@ export function ProductTable({
   brands,
   onDelete,
   deletingId,
+  priceCols,
 }: ProductTableProps) {
   const categoryMap = makeMap(categories);
   const brandMap = makeMap(brands);
@@ -35,6 +37,7 @@ export function ProductTable({
           <Table.Th>Бренд</Table.Th>
           <Table.Th>Статус</Table.Th>
           <Table.Th>Обновлён</Table.Th>
+          {priceCols?.map((c) => <Table.Th key={c.slug}>{c.label}</Table.Th>)}
           <Table.Th />
         </Table.Tr>
       </Table.Thead>
@@ -51,6 +54,13 @@ export function ProductTable({
             <Table.Td>{p.brand !== null ? brandMap.get(p.brand)?.name ?? '—' : '—'}</Table.Td>
             <Table.Td>{p.status || '—'}</Table.Td>
             <Table.Td>{new Date(p.updated_at).toLocaleString()}</Table.Td>
+            {priceCols?.map((c) => (
+              <Table.Td key={c.slug}>
+                {p.prices?.[c.slug] != null
+                  ? p.prices![c.slug]!.toLocaleString('ru-RU', { minimumFractionDigits: 2 })
+                  : '—'}
+              </Table.Td>
+            ))}
             <Table.Td>
               <Group gap="xs" justify="flex-end">
                 <ActionIcon

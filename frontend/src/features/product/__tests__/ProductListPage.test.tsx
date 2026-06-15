@@ -36,6 +36,9 @@ describe('ProductListPage', () => {
       http.get('/api/products/characteristic-types/', () =>
         HttpResponse.json({ count: 0, next: null, previous: null, results: [] }),
       ),
+      http.get('/api/pricing/price-types/', () =>
+        HttpResponse.json({ count: 0, next: null, previous: null, results: [] }),
+      ),
     );
 
     renderWithProviders(
@@ -64,6 +67,9 @@ describe('ProductListPage', () => {
         HttpResponse.json({ count: 0, next: null, previous: null, results: [] }),
       ),
       http.get('/api/products/characteristic-types/', () =>
+        HttpResponse.json({ count: 0, next: null, previous: null, results: [] }),
+      ),
+      http.get('/api/pricing/price-types/', () =>
         HttpResponse.json({ count: 0, next: null, previous: null, results: [] }),
       ),
     );

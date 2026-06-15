@@ -28,6 +28,12 @@ function parseFilters(searchParams: URLSearchParams): ProductFilters {
   if (brand) filters.brand = Number(brand);
   const status = searchParams.get('status');
   if (status) filters.status = status;
+  const price_type = searchParams.get('price_type');
+  if (price_type) filters.price_type = price_type;
+  const price_min = searchParams.get('price_min');
+  if (price_min) filters.price_min = Number(price_min);
+  const price_max = searchParams.get('price_max');
+  if (price_max) filters.price_max = Number(price_max);
   return filters;
 }
 
@@ -46,6 +52,9 @@ function serializeFilters(filters: ProductFilters): URLSearchParams {
       params.append(`${CHAR_PREFIX}${name}`, value);
     }
   }
+  if (filters.price_type) params.set('price_type', filters.price_type);
+  if (filters.price_min !== undefined) params.set('price_min', String(filters.price_min));
+  if (filters.price_max !== undefined) params.set('price_max', String(filters.price_max));
   return params;
 }
 
@@ -74,7 +83,10 @@ export function useProductFiltersFromUrl(): UseProductFiltersResult {
         patch.category !== undefined ||
         patch.brand !== undefined ||
         patch.status !== undefined ||
-        patch.chars !== undefined;
+        patch.chars !== undefined ||
+        patch.price_type !== undefined ||
+        patch.price_min !== undefined ||
+        patch.price_max !== undefined;
       if (resetsPage && patch.page === undefined) next.page = 1;
       setFilters(next);
     },

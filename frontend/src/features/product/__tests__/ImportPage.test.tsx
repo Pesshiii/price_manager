@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it } from 'vitest';
 import { http, HttpResponse } from 'msw';
 import { Route, Routes } from 'react-router-dom';
 import { screen, waitFor } from '@testing-library/react';
@@ -47,6 +47,10 @@ function renderImport() {
 }
 
 describe('ImportPage', () => {
+  beforeEach(() => {
+    localStorage.clear();
+  });
+
   it('defaults to saved mode and shows pipeline select', async () => {
     commonHandlers();
     renderImport();

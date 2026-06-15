@@ -34,6 +34,14 @@ function buildListParams(filters: ProductFilters): URLSearchParams {
       params.append(`char__${name}`, value);
     }
   }
+  if (filters.price_types?.length) {
+    for (const slug of filters.price_types) {
+      params.append('price_types', slug);
+    }
+  }
+  if (filters.price_type) params.set('price_type', filters.price_type);
+  if (filters.price_min !== undefined) params.set('price_min', String(filters.price_min));
+  if (filters.price_max !== undefined) params.set('price_max', String(filters.price_max));
   return params;
 }
 

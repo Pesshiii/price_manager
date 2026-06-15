@@ -79,3 +79,36 @@ export function clearPersistedState(): void {
     // ignore
   }
 }
+
+export interface ColumnPickerState {
+  version: 1;
+  selectedPriceTypes: string[];
+}
+
+export const COLUMN_PICKER_KEY = 'product-columns-v1';
+
+export function defaultColumnPickerState(): ColumnPickerState {
+  return { version: 1, selectedPriceTypes: [] };
+}
+
+export function loadColumnPickerState(): ColumnPickerState | null {
+  try {
+    const raw = localStorage.getItem(COLUMN_PICKER_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as Partial<ColumnPickerState>;
+    if (parsed?.version !== 1) {
+      localStorage.removeItem(COLUMN_PICKER_KEY);
+      return null;
+    }
+    return { ...defaultColumnPickerState(), ...parsed } as ColumnPickerState;
+  } catch {
+    try { localStorage.removeItem(COLUMN_PICKER_KEY); } catch { /* ignore */ }
+    return null;
+  }
+}
+
+export function saveColumnPickerState(state: ColumnPickerState): void {
+  try {
+    localStorage.setItem(COLUMN_PICKER_KEY, JSON.stringify(state));
+  } catch { /* QuotaExceeded — ignore */ }
+}

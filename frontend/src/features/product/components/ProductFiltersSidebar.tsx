@@ -1,4 +1,5 @@
-import { Button, Divider, Select, Stack, TextInput } from '@mantine/core';
+import { Button, Divider, Group, NumberInput, Select, Stack, Text, TextInput } from '@mantine/core';
+import type { PriceType } from '@/features/pricing/types';
 import { useBrands } from '../hooks/useBrands';
 import { useCategories } from '../hooks/useCategories';
 import { useProductFacets } from '../hooks/useProductFacets';
@@ -10,6 +11,7 @@ export interface ProductFiltersSidebarProps {
   patchFilters: (patch: Partial<ProductFilters>) => void;
   toggleCharValue: (name: string, value: string) => void;
   resetFilters: () => void;
+  priceTypes: PriceType[];
 }
 
 export function ProductFiltersSidebar({
@@ -17,6 +19,7 @@ export function ProductFiltersSidebar({
   patchFilters,
   toggleCharValue,
   resetFilters,
+  priceTypes,
 }: ProductFiltersSidebarProps) {
   const { data: categories } = useCategories();
   const { data: brands } = useBrands();
@@ -74,6 +77,42 @@ export function ProductFiltersSidebar({
           onToggle={(value) => toggleCharValue(name, value)}
         />
       ))}
+      <Divider my="sm" />
+      <Text size="sm" fw={500} mb="xs">Фильтр по цене</Text>
+      <Select
+        placeholder="Тип цены"
+        data={priceTypes.map((pt) => ({ value: pt.name, label: pt.label }))}
+        value={filters.price_type ?? null}
+        onChange={(val) =>
+          patchFilters({ price_type: val ?? undefined, price_min: undefined, price_max: undefined })
+        }
+        clearable
+        size="sm"
+      />
+      {filters.price_type && (
+        <Group gap="xs" mt="xs">
+          <NumberInput
+            placeholder="От"
+            value={filters.price_min ?? ''}
+            onChange={(val) =>
+              patchFilters({ price_min: typeof val === 'number' ? val : undefined })
+            }
+            min={0}
+            size="sm"
+            style={{ flex: 1 }}
+          />
+          <NumberInput
+            placeholder="До"
+            value={filters.price_max ?? ''}
+            onChange={(val) =>
+              patchFilters({ price_max: typeof val === 'number' ? val : undefined })
+            }
+            min={0}
+            size="sm"
+            style={{ flex: 1 }}
+          />
+        </Group>
+      )}
       <Button variant="subtle" onClick={resetFilters}>
         Сбросить
       </Button>
