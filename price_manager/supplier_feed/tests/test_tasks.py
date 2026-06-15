@@ -19,7 +19,7 @@ import pandas as pd
 from django.core.cache import cache
 from django.test import TestCase, override_settings
 
-from supplier_feed.models import SupplierFeed, STATUS_MATCHED, STATUS_PARTIAL, STATUS_ERROR
+from supplier_feed.models import SupplierFeed, STATUS_DONE, STATUS_PARTIAL, STATUS_ERROR
 from supplier_feed.tasks import run_feed_matching_task
 from .fixtures import make_feed_mapping, make_supplier
 
@@ -53,19 +53,22 @@ class FeedMatchingTaskTests(TestCase):
             status=status,
         )
 
-    # ── Cycle 5: status → matched ─────────────────────────────────────────────
+    # ── Cycle 5: status → done (all auto-matched) ────────────────────────────
 
-    def test_task_sets_matched_when_queue_is_empty(self):
-        """All rows matched → feed.status becomes 'matched'."""
+    @patch('pricing.tasks.apply_feed_pricing.delay')
+    def test_task_sets_done_and_triggers_pricing_when_queue_is_empty(self, mock_delay):
+        """All rows matched → feed.status becomes 'done' and pricing is triggered."""
         feed = self._make_feed()
 
         with patch(_MATCHER_PATH, return_value={'matched': 3, 'queued': 0}):
             with patch(_READ_ROWS_PATH, return_value=[{'article': 'X'}]):
-                run_feed_matching_task(feed.pk)
+                with self.captureOnCommitCallbacks(execute=True):
+                    run_feed_matching_task(feed.pk)
 
         feed.refresh_from_db()
-        self.assertEqual(feed.status, STATUS_MATCHED)
+        self.assertEqual(feed.status, STATUS_DONE)
         self.assertEqual(feed.error, '')
+        mock_delay.assert_called_once_with(feed.pk)
 
     # ── Cycle 6: status → partial ─────────────────────────────────────────────
 

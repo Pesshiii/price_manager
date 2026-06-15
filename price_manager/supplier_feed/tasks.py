@@ -4,7 +4,7 @@ Public task:
     run_feed_matching_task(feed_id)  — orchestrates file reading + matching.
 
 Status lifecycle driven by this task:
-    processing  ──success, queued=0──►  matched
+    processing  ──success, queued=0──►  done  (pricing triggered automatically)
     processing  ──success, queued>0──►  partial
     processing  ──exception         ──►  error
 
@@ -16,6 +16,7 @@ import logging
 
 from celery import shared_task
 from django.core.cache import cache
+from django.db import transaction
 
 from dataframe import services as dataframe_services
 from dataframe import sessions as session_store
@@ -23,7 +24,7 @@ from dataframe import sessions as session_store
 from . import matcher
 from .models import (
     SupplierFeed,
-    STATUS_MATCHED,
+    STATUS_DONE,
     STATUS_PARTIAL,
     STATUS_ERROR,
 )
@@ -35,6 +36,11 @@ _LOCK_TTL = 3600  # seconds
 
 def _build_lock_key(feed_id: int) -> str:
     return f'supplier-feed-matching:{feed_id}'
+
+
+def _trigger_pricing(feed_pk: int) -> None:
+    from pricing.tasks import apply_feed_pricing
+    apply_feed_pricing.delay(feed_pk)
 
 
 def _read_rows_from_sessions(feed: SupplierFeed) -> list[dict]:
@@ -95,9 +101,16 @@ def run_feed_matching_task(feed_id: int) -> None:
 
             _cleanup_sessions(feed)
 
-            feed.status = STATUS_MATCHED if stats['queued'] == 0 else STATUS_PARTIAL
-            feed.error = ''
-            feed.save(update_fields=['status', 'error'])
+            if stats['queued'] == 0:
+                with transaction.atomic():
+                    feed.status = STATUS_DONE
+                    feed.error = ''
+                    feed.save(update_fields=['status', 'error'])
+                    transaction.on_commit(lambda: _trigger_pricing(feed.pk))
+            else:
+                feed.status = STATUS_PARTIAL
+                feed.error = ''
+                feed.save(update_fields=['status', 'error'])
 
         except Exception as exc:
             logger.exception(
