@@ -53,7 +53,7 @@ def _read_rows_from_sessions(feed: SupplierFeed) -> list[dict]:
             df = dataframe_services.apply(pipeline, fobj, session_id=session_id)
             # Replace NaN/NaT/NA with None so JSONB serialization never sees
             # the bare "NaN" token, which PostgreSQL rejects as invalid JSON.
-            clean = df.where(df.notna(), other=None)
+            clean = df.astype(object).where(df.notna(), other=None)
             all_rows.extend(clean.to_dict(orient='records'))
         finally:
             try:
