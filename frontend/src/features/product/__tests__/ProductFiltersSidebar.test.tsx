@@ -23,6 +23,7 @@ function Host() {
         patchFilters={patchFilters}
         toggleCharValue={toggleCharValue}
         resetFilters={resetFilters}
+        priceTypes={[]}
       />
     </>
   );

@@ -115,6 +115,7 @@ export interface Product {
   image_urls: string[];
   created_at: string;
   updated_at: string;
+  prices?: Record<string, number | null>;
 }
 
 export interface ProductWritePayload {
@@ -136,6 +137,10 @@ export interface ProductFilters {
   chars: Record<string, string[]>;
   page: number;
   pageSize: number;
+  price_type?: string;
+  price_min?: number;
+  price_max?: number;
+  price_types?: string[];
 }
 
 export const DEFAULT_PAGE_SIZE = 50;

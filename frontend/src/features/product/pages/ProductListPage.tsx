@@ -13,19 +13,27 @@ import { IconDatabaseImport, IconPlus, IconSettings } from '@tabler/icons-react'
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { Link, useNavigate } from 'react-router-dom';
 import { deleteProduct } from '../api';
+import { ColumnPicker } from '../components/ColumnPicker';
 import { ProductFiltersSidebar } from '../components/ProductFiltersSidebar';
 import { ProductTable } from '../components/ProductTable';
 import { useBrands } from '../hooks/useBrands';
 import { useCategories } from '../hooks/useCategories';
+import { useColumnPicker } from '../hooks/useColumnPicker';
 import { useProductFiltersFromUrl } from '../hooks/useProductFiltersFromUrl';
 import { useProductList } from '../hooks/useProductList';
+import { usePriceTypes } from '../hooks/usePriceTypes';
 import { productKeys } from '../queryKeys';
 
 export function ProductListPage() {
   const navigate = useNavigate();
   const qc = useQueryClient();
   const { filters, patchFilters, toggleCharValue, resetFilters } = useProductFiltersFromUrl();
-  const { data, isLoading } = useProductList(filters);
+  const { selectedPriceTypes, togglePriceType } = useColumnPicker();
+  const { data: priceTypes = [] } = usePriceTypes();
+  const priceCols = priceTypes
+    .filter((pt) => selectedPriceTypes.includes(pt.name))
+    .map((pt) => ({ slug: pt.name, label: pt.label }));
+  const { data, isLoading } = useProductList({ ...filters, price_types: selectedPriceTypes });
   const { data: categories } = useCategories();
   const { data: brands } = useBrands();
 
@@ -74,11 +82,19 @@ export function ProductListPage() {
               patchFilters={patchFilters}
               toggleCharValue={toggleCharValue}
               resetFilters={resetFilters}
+              priceTypes={priceTypes}
             />
           </Card>
         </Grid.Col>
         <Grid.Col span={{ base: 12, md: 9 }}>
           <Stack>
+            <Group justify="flex-end" mb="xs">
+              <ColumnPicker
+                priceTypes={priceTypes}
+                selectedPriceTypes={selectedPriceTypes}
+                onToggle={togglePriceType}
+              />
+            </Group>
             {isLoading && <Loader />}
             {!isLoading && (data?.results.length ?? 0) === 0 && (
               <Card withBorder padding="lg">
@@ -93,6 +109,7 @@ export function ProductListPage() {
                   products={data!.results}
                   categories={categories ?? []}
                   brands={brands ?? []}
+                  priceCols={priceCols}
                   deletingId={deleteMutation.variables}
                   onDelete={(p) => {
                     if (confirm(`Удалить «${p.name}»?`)) deleteMutation.mutate(p.id);
