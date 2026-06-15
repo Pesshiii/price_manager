@@ -58,7 +58,9 @@ import type {
   ImportJob,
   ImportMapping,
   ImportPreviewResult,
+  ProductStatusValue,
 } from '../types';
+import { PRODUCT_STATUS_OPTIONS } from '../types';
 
 export function ImportPage() {
   const qc = useQueryClient();
@@ -90,6 +92,8 @@ export function ImportPage() {
   const [commitResult, setCommitResult] = useState<ImportCommitResult | null>(
     initial.commitResult,
   );
+
+  const [runDefaultStatus, setRunDefaultStatus] = useState<ProductStatusValue | null>(null);
 
   const [saveModalOpened, { open: openSave, close: closeSave }] = useDisclosure(false);
   const [saveName, setSaveName] = useState('');
@@ -324,6 +328,7 @@ export function ImportPage() {
         instructions: currentInstructions,
         mapping,
         row_limit: 100,
+        ...(runDefaultStatus ? { default_status: runDefaultStatus } : {}),
       },
       {
         onSuccess: (job) => {
@@ -338,7 +343,12 @@ export function ImportPage() {
     if (!currentSessionId || !currentInstructions) return;
     setCommitResult(null);
     commitMutation.mutate(
-      { session_id: currentSessionId, instructions: currentInstructions, mapping },
+      {
+        session_id: currentSessionId,
+        instructions: currentInstructions,
+        mapping,
+        ...(runDefaultStatus ? { default_status: runDefaultStatus } : {}),
+      },
       {
         onSuccess: (job) => setCommitJobId(job.id),
       },
@@ -509,13 +519,25 @@ export function ImportPage() {
               <Button variant="default" onClick={() => setStep(0)}>
                 Назад
               </Button>
-              <Button
-                onClick={runImportPreview}
-                loading={previewInFlight}
-                disabled={!dynamicGroupsValid}
-              >
-                Проверить
-              </Button>
+              <Group align="flex-end">
+                <Select
+                  label="Статус (переопределить для этого запуска)"
+                  description="Перекрывает настройку маппинга только для текущего импорта"
+                  placeholder="Из маппинга / системный фолбек"
+                  data={PRODUCT_STATUS_OPTIONS}
+                  value={runDefaultStatus}
+                  onChange={(v) => setRunDefaultStatus(v as ProductStatusValue | null)}
+                  clearable
+                  w={280}
+                />
+                <Button
+                  onClick={runImportPreview}
+                  loading={previewInFlight}
+                  disabled={!dynamicGroupsValid}
+                >
+                  Проверить
+                </Button>
+              </Group>
             </Group>
           </Stack>
         </Stepper.Step>

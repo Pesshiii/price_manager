@@ -162,6 +162,14 @@ export type FacetsResponse = Record<string, FacetGroupData>;
 
 export type FieldMapping = { column: string } | { const: unknown };
 
+export const PRODUCT_STATUS_OPTIONS = [
+  { value: 'draft', label: 'Черновик' },
+  { value: 'active', label: 'Активный' },
+  { value: 'archived', label: 'В архиве' },
+] as const;
+
+export type ProductStatusValue = 'draft' | 'active' | 'archived';
+
 export type CategoryFieldMapping =
   | { column: string; path_separator?: string }
   | { const: unknown };
@@ -186,6 +194,7 @@ export interface ImportMapping {
   status?: FieldMapping;
   characteristics?: Record<string, FieldMapping>;
   dynamic_characteristics?: DynamicCharSpec[];
+  default_status?: ProductStatusValue;
 }
 
 /**
@@ -228,6 +237,7 @@ export interface ImportRequestBody {
   instructions: unknown;
   mapping: ImportMapping;
   row_limit?: number;
+  default_status?: ProductStatusValue;
 }
 
 export interface CategoryImportMapping {

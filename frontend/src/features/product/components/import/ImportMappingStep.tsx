@@ -26,8 +26,10 @@ import type {
   DynamicCharSpec,
   FieldMapping,
   ImportMapping,
+  ProductStatusValue,
   ValueType,
 } from '../../types';
+import { PRODUCT_STATUS_OPTIONS } from '../../types';
 
 const PRODUCT_FIELDS: Array<{ key: keyof ImportMapping; label: string; required?: boolean }> = [
   { key: 'sku', label: 'SKU', required: true },
@@ -280,6 +282,22 @@ export function ImportMappingStep({
           ))}
         </Table.Tbody>
       </Table>
+
+      <Select
+        label="Статус по умолчанию"
+        description="Применяется, если строка не содержит значения статуса в колонке"
+        placeholder="Черновик (системный фолбек)"
+        data={PRODUCT_STATUS_OPTIONS}
+        value={mapping.default_status ?? null}
+        onChange={(v) =>
+          onChange(
+            v
+              ? { ...mapping, default_status: v as ProductStatusValue }
+              : (() => { const { default_status: _, ...rest } = mapping; return rest; })()
+          )
+        }
+        clearable
+      />
 
       <Group justify="space-between" align="end">
         <Title order={4}>Характеристики</Title>
