@@ -8,7 +8,7 @@ from .serializers import PriceTypeSerializer, PricingRuleSerializer, ProductPric
 
 class PriceTypeViewSet(viewsets.ModelViewSet):
     serializer_class = PriceTypeSerializer
-    pagination_class = StandardPagination
+    pagination_class = None
 
     def get_queryset(self):
         qs = PriceType.objects.all()
@@ -20,7 +20,7 @@ class PriceTypeViewSet(viewsets.ModelViewSet):
 
 class PricingRuleViewSet(viewsets.ModelViewSet):
     serializer_class = PricingRuleSerializer
-    pagination_class = StandardPagination
+    pagination_class = None
 
     def get_queryset(self):
         qs = PricingRule.objects.select_related('supplier', 'source_price_type', 'dest_price_type', 'category')
