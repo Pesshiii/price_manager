@@ -12,8 +12,9 @@ All routes are mounted under `/api/`. Authentication is **session-based** (Djang
 4. [Supplier Feeds — `/api/supplier-feed/`](#4-supplier-feeds--apisupplier-feed)
 5. [Suppliers — `/api/suppliers/`](#5-suppliers--apisuppliers)
 6. [Pricing — `/api/pricing/`](#6-pricing--apipricing)
-7. [Async Job Lifecycle](#7-async-job-lifecycle)
-8. [Error Conventions](#8-error-conventions)
+7. [Articles — `/api/articles/`](#7-articles--apiarticles)
+8. [Async Job Lifecycle](#8-async-job-lifecycle)
+9. [Error Conventions](#9-error-conventions)
 
 ---
 
@@ -1334,7 +1335,86 @@ Retrieves a single stock record.
 
 ---
 
-## 7. Async Job Lifecycle
+## 7. Articles — `/api/articles/`
+
+Internal article/documentation system. Any authenticated user can read and create articles; only the author can edit or delete their own articles.
+
+### `GET /api/articles/`
+
+Lists all articles (without `content` field — use detail endpoint to read body).
+
+**Auth required:** Yes  
+**No pagination** — returns all articles as a flat array, ordered by `-created_at`.  
+**Response `200`:**
+```json
+[
+  {
+    "id": 1,
+    "title": "Как работает импорт",
+    "author": { "id": 3, "username": "admin" },
+    "created_at": "2026-06-16T10:00:00Z"
+  }
+]
+```
+
+---
+
+### `POST /api/articles/`
+
+Creates an article. `author` is set automatically from the authenticated session.
+
+**Auth required:** Yes  
+**Request body:**
+```json
+{ "title": "Заголовок", "content": "# Markdown content" }
+```
+**Response `201`:** Full article detail (including `content`).
+
+---
+
+### `GET /api/articles/<id>/`
+
+Returns a single article with full Markdown `content`.
+
+**Auth required:** Yes  
+**Response `200`:**
+```json
+{
+  "id": 1,
+  "title": "Как работает импорт",
+  "content": "# Markdown...",
+  "author": { "id": 3, "username": "admin" },
+  "created_at": "2026-06-16T10:00:00Z",
+  "updated_at": "2026-06-16T10:05:00Z"
+}
+```
+
+---
+
+### `PATCH /api/articles/<id>/`
+
+Partially updates an article. Only the author may call this.
+
+**Auth required:** Yes (must be article author)  
+**Request body:** any subset of `{ "title", "content" }`  
+**Response `200`:** Updated article detail.  
+**Response `403`:** Not the author.
+
+---
+
+### `DELETE /api/articles/<id>/`
+
+Deletes an article. Only the author may call this.
+
+**Auth required:** Yes (must be article author)  
+**Response `204`:** No content.  
+**Response `403`:** Not the author.
+
+> **Note:** `PUT` is not supported — use `PATCH` for all updates.
+
+---
+
+## 8. Async Job Lifecycle
 
 `ImportJob` and `CharacteristicMutationJob` share the same envelope and polling pattern.
 
@@ -1377,7 +1457,7 @@ Use `rows_done / rows_total` as a fraction. Both are `0` until the worker reache
 
 ---
 
-## 8. Error Conventions
+## 9. Error Conventions
 
 | Status | Meaning |
 |---|---|

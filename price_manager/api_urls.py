@@ -7,4 +7,5 @@ urlpatterns = [
     path('supplier-feed/', include('supplier_feed.api.urls', namespace='supplier_feed_api')),
     path('suppliers/', include('supplier.api.urls', namespace='supplier_api')),
     path('pricing/', include('pricing.api.urls', namespace='pricing_api')),
+    path('articles/', include('articles.api.urls', namespace='articles_api')),
 ]

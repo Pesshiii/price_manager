@@ -70,6 +70,7 @@ INSTALLED_APPS = [
     'supplier_feed',
     'supplier',
     'pricing',
+    'articles',
 ]
 
 MIDDLEWARE = [
