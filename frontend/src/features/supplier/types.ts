@@ -19,6 +19,7 @@ export interface FeedMapping {
   auto_match_threshold: number;
   low_match_threshold: number;
   product_sku_column: string | null;
+  is_full_inventory: boolean;
 }
 
 export interface FeedMappingWritePayload {
@@ -30,6 +31,7 @@ export interface FeedMappingWritePayload {
   variable_columns: string[];
   auto_match_threshold: number;
   low_match_threshold: number;
+  is_full_inventory: boolean;
 }
 
 export type SupplierFeedStatus = 'draft' | 'processing' | 'matched' | 'partial' | 'done' | 'error';

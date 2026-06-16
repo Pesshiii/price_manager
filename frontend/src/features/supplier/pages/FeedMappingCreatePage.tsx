@@ -9,6 +9,7 @@ import {
   Select,
   Stack,
   Stepper,
+  Switch,
   TagsInput,
   Text,
   TextInput,
@@ -49,6 +50,7 @@ export function FeedMappingCreatePage() {
   const [variableColumns, setVariableColumns] = useState<string[]>([]);
   const [threshold, setThreshold] = useState<number>(0.92);
   const [lowMatchThreshold, setLowMatchThreshold] = useState<number>(0.5);
+  const [isFullInventory, setIsFullInventory] = useState<boolean>(false);
 
   const pipelinesQuery = useQuery({
     queryKey: dataframeKeys.pipelines(),
@@ -95,6 +97,7 @@ export function FeedMappingCreatePage() {
         variable_columns: variableColumns,
         auto_match_threshold: threshold,
         low_match_threshold: lowMatchThreshold,
+        is_full_inventory: isFullInventory,
       }),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: supplierKeys.mappings(supplierId) });
@@ -237,6 +240,13 @@ export function FeedMappingCreatePage() {
               max={0.99}
               step={0.01}
               decimalScale={2}
+            />
+
+            <Switch
+              label="Полная выгрузка остатков"
+              description="Выгрузка — полный снимок ассортимента. Остатки товаров, отсутствующих в фиде, будут обнулены (только при наличии колонки с ролью «Остаток»)."
+              checked={isFullInventory}
+              onChange={(e) => setIsFullInventory(e.currentTarget.checked)}
             />
 
             <Group justify="space-between" mt="md">

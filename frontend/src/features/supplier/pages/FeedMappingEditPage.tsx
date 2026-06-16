@@ -9,6 +9,7 @@ import {
   NumberInput,
   Select,
   Stack,
+  Switch,
   TagsInput,
   Text,
   TextInput,
@@ -43,6 +44,7 @@ export function FeedMappingEditPage() {
   const [variableColumns, setVariableColumns] = useState<string[]>([]);
   const [threshold, setThreshold] = useState<number>(0.92);
   const [lowMatchThreshold, setLowMatchThreshold] = useState<number>(0.5);
+  const [isFullInventory, setIsFullInventory] = useState<boolean>(false);
   const [availableColumns, setAvailableColumns] = useState<string[]>([]);
 
   // Pipeline picker modal + new pipeline drawer
@@ -72,6 +74,7 @@ export function FeedMappingEditPage() {
       setVariableColumns(m.variable_columns);
       setThreshold(m.auto_match_threshold);
       setLowMatchThreshold(m.low_match_threshold);
+      setIsFullInventory(m.is_full_inventory ?? false);
     }
   }, [mappingQuery.data]);
 
@@ -86,6 +89,7 @@ export function FeedMappingEditPage() {
         variable_columns: variableColumns,
         auto_match_threshold: threshold,
         low_match_threshold: lowMatchThreshold,
+        is_full_inventory: isFullInventory,
       }),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: supplierKeys.mappings(supplierId) });
@@ -224,6 +228,13 @@ export function FeedMappingEditPage() {
           max={0.99}
           step={0.01}
           decimalScale={2}
+        />
+
+        <Switch
+          label="Полная выгрузка остатков"
+          description="Выгрузка — полный снимок ассортимента. Остатки товаров, отсутствующих в фиде, будут обнулены (только при наличии колонки с ролью «Остаток»)."
+          checked={isFullInventory}
+          onChange={(e) => setIsFullInventory(e.currentTarget.checked)}
         />
 
         <Group justify="space-between" mt="md">

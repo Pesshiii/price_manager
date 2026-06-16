@@ -291,7 +291,7 @@ interface ImportMapping {
 
 - 2-step stepper: Pipeline selection → Mapping config.
 - `NewPipelineDrawer` for inline pipeline creation without leaving the page.
-- Mapping fields: name, SKU column, identity columns, variable columns, auto-match threshold (0–1).
+- Mapping fields: name, SKU column, identity columns, variable columns, auto-match threshold (0–1), «Полная выгрузка остатков» (`is_full_inventory` switch — gates zeroing absent products' stock, see ADR-0014).
 
 ### Feed Mapping Edit — `/suppliers/:id/mappings/:mappingId/edit`
 **File:** `src/features/supplier/pages/FeedMappingEditPage.tsx`
