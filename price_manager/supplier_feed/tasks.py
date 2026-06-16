@@ -16,15 +16,14 @@ import logging
 
 from celery import shared_task
 from django.core.cache import cache
-from django.db import transaction
 
 from dataframe import services as dataframe_services
 from dataframe import sessions as session_store
 
 from . import matcher
+from .completion import complete_feed
 from .models import (
     SupplierFeed,
-    STATUS_DONE,
     STATUS_PARTIAL,
     STATUS_ERROR,
 )
@@ -36,11 +35,6 @@ _LOCK_TTL = 3600  # seconds
 
 def _build_lock_key(feed_id: int) -> str:
     return f'supplier-feed-matching:{feed_id}'
-
-
-def _trigger_pricing(feed_pk: int) -> None:
-    from pricing.tasks import apply_feed_pricing
-    apply_feed_pricing.delay(feed_pk)
 
 
 def _read_rows_from_sessions(feed: SupplierFeed) -> list[dict]:
@@ -101,12 +95,12 @@ def run_feed_matching_task(feed_id: int) -> None:
 
             _cleanup_sessions(feed)
 
+            # complete_feed owns the partial→done transition (lock, guard,
+            # empty-queue check, pricing trigger). The matcher already counted
+            # how many rows it left queued, so trust that for the partial
+            # fallback; complete_feed re-checks the DB as the authoritative gate.
             if stats['queued'] == 0:
-                with transaction.atomic():
-                    feed.status = STATUS_DONE
-                    feed.error = ''
-                    feed.save(update_fields=['status', 'error'])
-                    transaction.on_commit(lambda: _trigger_pricing(feed.pk))
+                complete_feed(feed)
             else:
                 feed.status = STATUS_PARTIAL
                 feed.error = ''

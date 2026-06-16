@@ -1,4 +1,4 @@
-from django.db import models, transaction
+from django.db import models
 from django.shortcuts import get_object_or_404
 from rest_framework import mixins, status, viewsets
 from rest_framework.authentication import SessionAuthentication
@@ -13,10 +13,10 @@ from supplier_feed.models import (
     SupplierFeed,
     SupplierFeedEntry,
     SupplierLink,
-    STATUS_DONE,
     STATUS_DRAFT,
     STATUS_PROCESSING,
 )
+from supplier_feed.completion import complete_feed
 from supplier_feed.tasks import run_feed_matching_task
 from dataframe import sessions as session_store
 from .serializers import (
@@ -28,22 +28,6 @@ from .serializers import (
     SupplierLinkSerializer,
     SupplierLinkPatchSerializer,
 )
-
-
-def _try_close_feed(feed):
-    from pricing.tasks import apply_feed_pricing
-
-    with transaction.atomic():
-        locked = SupplierFeed.objects.select_for_update().get(pk=feed.pk)
-        if locked.status == STATUS_DONE:
-            return
-        remaining = SupplierFeedEntry.objects.filter(
-            feed=locked, product__isnull=True, skipped=False
-        ).exists()
-        if not remaining:
-            locked.status = STATUS_DONE
-            locked.save(update_fields=['status'])
-            transaction.on_commit(lambda: apply_feed_pricing.delay(locked.pk))
 
 
 class _QueuePagination(PageNumberPagination):
@@ -253,7 +237,7 @@ class SupplierFeedViewSet(viewsets.ModelViewSet):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-        _try_close_feed(feed)
+        complete_feed(feed)
 
         return Response(SupplierFeedEntrySerializer(entry).data, status=status.HTTP_200_OK)
 
@@ -315,7 +299,7 @@ class SupplierFeedViewSet(viewsets.ModelViewSet):
             entry.product = product
             entry.save(update_fields=['product'])
 
-        _try_close_feed(feed)
+        complete_feed(feed)
 
         return Response(SupplierFeedEntrySerializer(entry).data, status=status.HTTP_201_CREATED)
 
@@ -394,7 +378,7 @@ class SupplierFeedViewSet(viewsets.ModelViewSet):
                 failed_count += 1
                 errors.append({'entry_id': entry.pk, 'reason': str(exc)})
 
-        _try_close_feed(feed)
+        complete_feed(feed)
 
         return Response(
             {'created': created_count, 'failed': failed_count, 'errors': errors},
@@ -441,7 +425,7 @@ class SupplierFeedViewSet(viewsets.ModelViewSet):
             entry.skipped = True
             entry.save(update_fields=['skipped'])
 
-        _try_close_feed(feed)
+        complete_feed(feed)
 
         return Response(SupplierFeedEntrySerializer(entry).data, status=status.HTTP_200_OK)
 

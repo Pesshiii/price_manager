@@ -7,8 +7,8 @@ from pricing.models import PriceType
 from supplier_feed.models import FeedColumnMapping
 from .fixtures import make_feed_mapping, make_supplier
 
-CM_LIST = 'supplier_feed_api:feedcolumnmapping-list'
-CM_DETAIL = 'supplier_feed_api:feedcolumnmapping-detail'
+CM_LIST = 'supplier_feed_api:column-mapping-list'
+CM_DETAIL = 'supplier_feed_api:column-mapping-detail'
 
 
 def make_price_type(name='розница', label='Розничная цена'):
@@ -33,7 +33,7 @@ class CreateColumnMappingTests(ColumnMappingApiBase):
     def test_create_role_price_with_price_type_returns_201(self):
         pt = make_price_type()
         resp = self.client.post(
-            reverse(CM_LIST),
+            reverse(CM_LIST, args=[self.mapping.pk]),
             {
                 'feed_mapping': self.mapping.pk,
                 'column_name': 'price',
@@ -50,7 +50,7 @@ class CreateColumnMappingTests(ColumnMappingApiBase):
 
     def test_create_role_stock_returns_201(self):
         resp = self.client.post(
-            reverse(CM_LIST),
+            reverse(CM_LIST, args=[self.mapping.pk]),
             {
                 'feed_mapping': self.mapping.pk,
                 'column_name': 'stock',
@@ -65,7 +65,7 @@ class CreateColumnMappingTests(ColumnMappingApiBase):
 
     def test_create_role_other_returns_201(self):
         resp = self.client.post(
-            reverse(CM_LIST),
+            reverse(CM_LIST, args=[self.mapping.pk]),
             {
                 'feed_mapping': self.mapping.pk,
                 'column_name': 'description',
@@ -85,14 +85,14 @@ class CreateColumnMappingTests(ColumnMappingApiBase):
             feed_mapping=other_mapping, column_name='cost', role='stock'
         )
 
-        resp = self.client.get(reverse(CM_LIST) + f'?feed_mapping={self.mapping.pk}')
+        resp = self.client.get(reverse(CM_LIST, args=[self.mapping.pk]))
         self.assertEqual(resp.status_code, 200)
         self.assertEqual(len(resp.json()), 1)
         self.assertEqual(resp.json()[0]['column_name'], 'price')
 
     def test_price_type_required_when_role_price_returns_400(self):
         resp = self.client.post(
-            reverse(CM_LIST),
+            reverse(CM_LIST, args=[self.mapping.pk]),
             {
                 'feed_mapping': self.mapping.pk,
                 'column_name': 'price',
@@ -109,7 +109,7 @@ class CreateColumnMappingTests(ColumnMappingApiBase):
             feed_mapping=self.mapping, column_name='qty', role='stock'
         )
         resp = self.client.post(
-            reverse(CM_LIST),
+            reverse(CM_LIST, args=[self.mapping.pk]),
             {
                 'feed_mapping': self.mapping.pk,
                 'column_name': 'qty',
@@ -121,7 +121,7 @@ class CreateColumnMappingTests(ColumnMappingApiBase):
 
     def test_anonymous_gets_401(self):
         self.client.logout()
-        resp = self.client.get(reverse(CM_LIST))
+        resp = self.client.get(reverse(CM_LIST, args=[self.mapping.pk]))
         self.assertEqual(resp.status_code, 401)
 
 
@@ -137,13 +137,13 @@ class UpdateDeleteColumnMappingTests(ColumnMappingApiBase):
         )
 
     def test_retrieve_returns_200(self):
-        resp = self.client.get(reverse(CM_DETAIL, args=[self.cm.pk]))
+        resp = self.client.get(reverse(CM_DETAIL, args=[self.mapping.pk, self.cm.pk]))
         self.assertEqual(resp.status_code, 200)
         self.assertEqual(resp.json()['column_name'], 'price')
 
     def test_patch_role_returns_200(self):
         resp = self.client.patch(
-            reverse(CM_DETAIL, args=[self.cm.pk]),
+            reverse(CM_DETAIL, args=[self.mapping.pk, self.cm.pk]),
             {'role': 'other', 'price_type': None},
             content_type='application/json',
         )
@@ -153,7 +153,7 @@ class UpdateDeleteColumnMappingTests(ColumnMappingApiBase):
     def test_patch_price_type_null_on_price_role_returns_400(self):
         """PATCH that clears price_type on a price-role record must be rejected."""
         resp = self.client.patch(
-            reverse(CM_DETAIL, args=[self.cm.pk]),
+            reverse(CM_DETAIL, args=[self.mapping.pk, self.cm.pk]),
             {'price_type': None},
             content_type='application/json',
         )
@@ -161,6 +161,6 @@ class UpdateDeleteColumnMappingTests(ColumnMappingApiBase):
         self.assertIn('price_type', resp.json())
 
     def test_delete_returns_204(self):
-        resp = self.client.delete(reverse(CM_DETAIL, args=[self.cm.pk]))
+        resp = self.client.delete(reverse(CM_DETAIL, args=[self.mapping.pk, self.cm.pk]))
         self.assertEqual(resp.status_code, 204)
         self.assertFalse(FeedColumnMapping.objects.filter(pk=self.cm.pk).exists())
