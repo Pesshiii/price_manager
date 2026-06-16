@@ -77,8 +77,13 @@ def run_matching(feed, rows: list[dict[str, Any]], *, finder=None) -> dict[str, 
             entry_name = str(row.get(name_col) or supplier_sku).strip()
             need_text.append((supplier_sku, entry_name, data))
 
+    name_to_candidates: dict[str, list[dict]] = {}
     for supplier_sku, entry_name, data in need_text:
-        candidates = finder(entry_name, low_thresh)
+        if entry_name not in name_to_candidates:
+            name_to_candidates[entry_name] = finder(entry_name, low_thresh)
+
+    for supplier_sku, entry_name, data in need_text:
+        candidates = name_to_candidates[entry_name]
 
         if candidates and candidates[0]['score'] >= high_thresh:
             best = candidates[0]
@@ -125,6 +130,7 @@ def _find_candidates(name: str, low_thresh: float) -> list[dict]:
     trgm_min = low_thresh * TRGM_PREFILTER_MULTIPLIER
     qs = (
         Product.objects
+        .filter(name__trigram_similar=name)      # activates GIN index via % operator
         .annotate(trgm=TrigramSimilarity('name', name))
         .filter(trgm__gt=trgm_min)
         .select_related('category', 'brand')
