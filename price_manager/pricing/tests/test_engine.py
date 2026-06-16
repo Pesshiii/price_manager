@@ -130,6 +130,94 @@ class ApplyRawPricesTest(TestCase):
         self.assertEqual(ProductPrice.objects.count(), 0)
 
 
+class ApplyRawPricesFullInventoryTest(TestCase):
+    def setUp(self):
+        self.supplier = make_supplier()
+        self.present = make_product(sku='P1')
+        self.absent = make_product(sku='P2')
+        self.purchase_pt = make_price_type(name='закупочная', label='Закупочная')
+
+    def test_absent_prices_untouched_when_not_full_inventory(self):
+        """Partial feed: absent product prices are left as-is."""
+        feed, mapping = _make_feed(self.supplier, is_full_inventory=False)
+        _price_column(mapping, 'price', self.purchase_pt)
+        ProductPrice.objects.create(
+            product=self.absent, supplier=self.supplier,
+            price_type=self.purchase_pt, value=500, rule=None,
+        )
+        _make_entry(feed, self.present, {'price': '100'})
+
+        apply_raw_prices(feed)
+
+        self.assertTrue(
+            ProductPrice.objects.filter(product=self.absent, supplier=self.supplier).exists()
+        )
+
+    def test_absent_prices_deleted_when_full_inventory(self):
+        """Full-inventory feed: all ProductPrice (raw + derived) for absent product are deleted."""
+        from pricing.models import PricingRule
+        retail_pt = make_price_type(name='розничная', label='Розничная')
+        rule = PricingRule.objects.create(
+            supplier=self.supplier,
+            source_price_type=self.purchase_pt,
+            dest_price_type=retail_pt,
+            mode='formula', params={'markup': 20, 'increase': 0}, priority=0,
+        )
+        feed, mapping = _make_feed(self.supplier, is_full_inventory=True)
+        _price_column(mapping, 'price', self.purchase_pt)
+        # absent has both raw and derived prices
+        ProductPrice.objects.create(
+            product=self.absent, supplier=self.supplier,
+            price_type=self.purchase_pt, value=500, rule=None,
+        )
+        ProductPrice.objects.create(
+            product=self.absent, supplier=self.supplier,
+            price_type=retail_pt, value=600, rule=rule,
+        )
+        _make_entry(feed, self.present, {'price': '100'})
+
+        apply_raw_prices(feed)
+
+        self.assertFalse(
+            ProductPrice.objects.filter(product=self.absent, supplier=self.supplier).exists()
+        )
+        # present product's price must survive
+        self.assertTrue(
+            ProductPrice.objects.filter(product=self.present, supplier=self.supplier).exists()
+        )
+
+    def test_no_price_columns_skips_deletion_even_when_full_inventory(self):
+        """Full-inventory feed with no price columns carries no price data: no deletion."""
+        feed, mapping = _make_feed(self.supplier, is_full_inventory=True)
+        # deliberately no price column configured
+        ProductPrice.objects.create(
+            product=self.absent, supplier=self.supplier,
+            price_type=self.purchase_pt, value=500, rule=None,
+        )
+        _make_entry(feed, self.present, {})
+
+        apply_raw_prices(feed)
+
+        self.assertTrue(
+            ProductPrice.objects.filter(product=self.absent, supplier=self.supplier).exists()
+        )
+
+    def test_present_product_prices_survive_full_inventory(self):
+        """Full-inventory feed: prices for present products are updated, not deleted."""
+        feed, mapping = _make_feed(self.supplier, is_full_inventory=True)
+        _price_column(mapping, 'price', self.purchase_pt)
+        ProductPrice.objects.create(
+            product=self.present, supplier=self.supplier,
+            price_type=self.purchase_pt, value=100, rule=None,
+        )
+        _make_entry(feed, self.present, {'price': '200'})
+
+        apply_raw_prices(feed)
+
+        pp = ProductPrice.objects.get(product=self.present, supplier=self.supplier)
+        self.assertAlmostEqual(float(pp.value), 200.0)
+
+
 class ApplyRulesTest(TestCase):
     def setUp(self):
         self.supplier = make_supplier()
@@ -213,3 +301,6 @@ class ApplyFeedPricingIntegrationTest(TestCase):
         # Phase 2 — stock: present upserted, absent zeroed (full-inventory)
         self.assertEqual(Stock.objects.get(product=present, supplier=supplier).quantity, 5)
         self.assertEqual(Stock.objects.get(product=absent, supplier=supplier).quantity, 0)
+
+        # Phase 1 side-effect — prices for absent product deleted (full-inventory)
+        self.assertFalse(ProductPrice.objects.filter(product=absent, supplier=supplier).exists())

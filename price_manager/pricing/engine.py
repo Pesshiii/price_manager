@@ -59,6 +59,22 @@ def apply_raw_prices(feed) -> int:
                 price_type=price_type,
                 defaults={'value': value, 'rule': None},
             )
+
+    if feed.feed_mapping.is_full_inventory:
+        # price_columns is non-empty here (early return above guards it).
+        # A full-inventory feed asserts the supplier's complete catalogue:
+        # products absent from the feed no longer exist for this supplier,
+        # so all their prices (raw and derived) must be removed.
+        present_product_ids = {e.product_id for e in entries}
+        deleted, _ = ProductPrice.objects.filter(supplier=supplier).exclude(
+            product_id__in=present_product_ids
+        ).delete()
+        if deleted:
+            logger.info(
+                'apply_raw_prices feed=%s deleted %d stale price(s) for absent products',
+                feed.id, deleted,
+            )
+
     return skipped
 
 
