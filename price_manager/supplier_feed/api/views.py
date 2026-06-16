@@ -342,10 +342,12 @@ class SupplierFeedViewSet(viewsets.ModelViewSet):
             .filter(feed=feed, product__isnull=True, skipped=False)
         )
 
-        created_count = 0
         failed_count = 0
         errors = []
 
+        # Phase 1: validate per-entry and collect (entry, name, sku) candidates
+        candidates = []
+        skus_to_check = set()
         for entry in entries:
             name = str(entry.data.get(name_column) or '').strip()
             if not name:
@@ -358,30 +360,61 @@ class SupplierFeedViewSet(viewsets.ModelViewSet):
             else:
                 sku = entry.supplier_sku
 
-            if Product.objects.filter(sku=sku).exists():
+            candidates.append((entry, name, sku))
+            skus_to_check.add(sku)
+
+        # Phase 2: one query to find all conflicting SKUs
+        existing_skus = set(
+            Product.objects.filter(sku__in=skus_to_check).values_list('sku', flat=True)
+        )
+
+        # Phase 3: separate duplicates from entries to create; deduplicate within batch
+        to_create = []
+        seen_skus = set(existing_skus)
+        for entry, name, sku in candidates:
+            if sku in seen_skus:
                 failed_count += 1
                 errors.append({'entry_id': entry.pk, 'reason': f'Товар с артикулом «{sku}» уже существует.'})
-                continue
+            else:
+                to_create.append((entry, name, sku))
+                seen_skus.add(sku)
 
+        # Phase 4: bulk-insert Products, SupplierLinks, and FeedEntry.product in one transaction
+        if to_create:
             try:
                 with transaction.atomic():
-                    product = Product.objects.create(sku=sku, name=name)
-                    SupplierLink.objects.update_or_create(
-                        supplier=feed.supplier,
-                        supplier_sku=entry.supplier_sku,
-                        defaults={'product': product},
+                    new_products = Product.objects.bulk_create([
+                        Product(sku=sku, name=name) for _, name, sku in to_create
+                    ])
+                    sku_to_product = {p.sku: p for p in new_products}
+
+                    SupplierLink.objects.bulk_create(
+                        [
+                            SupplierLink(
+                                supplier=feed.supplier,
+                                supplier_sku=entry.supplier_sku,
+                                product=sku_to_product[sku],
+                            )
+                            for entry, _, sku in to_create
+                        ],
+                        update_conflicts=True,
+                        update_fields=['product'],
+                        unique_fields=['supplier', 'supplier_sku'],
                     )
-                    entry.product = product
-                    entry.save(update_fields=['product'])
-                created_count += 1
+
+                    for entry, _, sku in to_create:
+                        entry.product = sku_to_product[sku]
+                    SupplierFeedEntry.objects.bulk_update(
+                        [entry for entry, _, _ in to_create],
+                        ['product'],
+                    )
             except Exception as exc:
-                failed_count += 1
-                errors.append({'entry_id': entry.pk, 'reason': str(exc)})
+                return Response({'detail': str(exc)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
         complete_feed(feed)
 
         return Response(
-            {'created': created_count, 'failed': failed_count, 'errors': errors},
+            {'created': len(to_create), 'failed': failed_count, 'errors': errors},
             status=status.HTTP_200_OK,
         )
 
