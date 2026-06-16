@@ -78,7 +78,6 @@ urlpatterns = [
 
 
     path('blog/', include('blogapp.urls')),
-    path('api/', include('api_urls')),
 
     path("toasts/", views.toast_messages, name="toast-messages"),
     path('notifications/<int:pk>/delete/', views.PersistentNotificationDeleteView.as_view(), name='persistent-notification-delete'),
