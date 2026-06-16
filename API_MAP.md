@@ -777,9 +777,9 @@ Configuration templates that describe how to parse a supplier's file format. Eac
 
 Lists all feed mapping configurations, ordered by supplier + name. Supports `?supplier=<id>` filter.
 
-**Response fields:** `id`, `supplier`, `name`, `dataframe` (PK), `dataframe_detail` `{id, name}`, `supplier_sku_column`, `name_column` (required), `variable_columns`, `auto_match_threshold`, `low_match_threshold`, `product_sku_column`.
+**Response fields:** `id`, `supplier`, `name`, `dataframe` (PK), `dataframe_detail` `{id, name}`, `supplier_sku_column`, `name_column` (required), `variable_columns`, `auto_match_threshold`, `low_match_threshold`, `product_sku_column`, `is_full_inventory`.
 
-`name_column` is the pipeline-output column used as the product name for text matching and for the `create-product` UI. `product_sku_column` is an optional column hint for pre-filling the SKU field.
+`name_column` is the pipeline-output column used as the product name for text matching and for the `create-product` UI. `product_sku_column` is an optional column hint for pre-filling the SKU field. `is_full_inventory` (bool, default `false`) marks this supplier's feeds as a complete inventory snapshot: when `true`, stock for the supplier's products **absent** from a finished feed is zeroed; when `false`, absent stock is left untouched (see ADR-0014).
 
 #### `POST /api/supplier-feed/mappings/`
 
@@ -795,7 +795,8 @@ Creates a feed mapping. `dataframe` is required — create a pipeline first via 
   "variable_columns": ["price", "stock"],
   "auto_match_threshold": 0.92,
   "low_match_threshold": 0.5,
-  "product_sku_column": "sku"
+  "product_sku_column": "sku",
+  "is_full_inventory": false
 }
 ```
 

@@ -86,6 +86,7 @@ class FeedMappingSerializer(serializers.ModelSerializer):
             'auto_match_threshold',
             'low_match_threshold',
             'product_sku_column',
+            'is_full_inventory',
         ]
 
 

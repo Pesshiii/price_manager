@@ -40,6 +40,14 @@ class FeedMapping(models.Model):
     auto_match_threshold = models.FloatField('Порог авто-матчинга', default=0.92)
     low_match_threshold = models.FloatField('Нижний порог совпадения', default=0.5)
     product_sku_column = models.CharField('Колонка артикула товара', max_length=128, blank=True)
+    is_full_inventory = models.BooleanField(
+        'Полная выгрузка остатков',
+        default=False,
+        help_text=(
+            'Выгрузки этого поставщика — полный снимок ассортимента. '
+            'Остатки товаров, отсутствующих в фиде, обнуляются. См. ADR-0014.'
+        ),
+    )
 
     class Meta:
         verbose_name = 'Конфигурация выгрузки'
