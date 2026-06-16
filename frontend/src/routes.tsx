@@ -22,6 +22,9 @@ import { SupplierFeedPage } from '@/features/supplier/pages/SupplierFeedPage';
 import { FeedQueuePage } from '@/features/supplier/pages/FeedQueuePage';
 import { SupplierLinksPage } from '@/features/supplier/pages/SupplierLinksPage';
 import { PriceTypesPage } from '@/features/pricing/pages/PriceTypesPage';
+import { ArticleListPage } from '@/features/articles/pages/ArticleListPage';
+import { ArticleDetailPage } from '@/features/articles/pages/ArticleDetailPage';
+import { ArticleEditorPage } from '@/features/articles/pages/ArticleEditorPage';
 
 export const router = createBrowserRouter([
   { path: '/login', element: <LoginPage /> },
@@ -52,6 +55,10 @@ export const router = createBrowserRouter([
       { path: 'products/:id', element: <ProductDetailPage /> },
       { path: 'products/:id/edit', element: <ProductEditorPage /> },
       { path: 'prices', element: <PriceTypesPage /> },
+      { path: 'articles', element: <ArticleListPage /> },
+      { path: 'articles/new', element: <ArticleEditorPage /> },
+      { path: 'articles/:id', element: <ArticleDetailPage /> },
+      { path: 'articles/:id/edit', element: <ArticleEditorPage /> },
       { path: 'dataframe', element: <DataframeListPage /> },
       { path: 'dataframe/new', element: <DataframeEditorPage /> },
       { path: 'dataframe/:id', element: <DataframeEditorPage /> },

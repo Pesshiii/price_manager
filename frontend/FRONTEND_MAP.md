@@ -617,3 +617,53 @@ DELETE /pricing/rules/{id}/
 | `transformKeys.snapshots(productId)` | read-only (transform task writes via backend) |
 | `pricingKeys.priceTypes()` | price type create/update/delete |
 | `pricingKeys.rules(supplierId)` | pricing rule create/update/delete |
+| `articleKeys.lists()` | article create/delete |
+| `articleKeys.detail(id)` | article update/delete |
+
+---
+
+## Статьи (Articles)
+
+### Article List — `/articles`
+**File:** `src/features/articles/pages/ArticleListPage.tsx`
+
+| Action | Endpoint |
+|--------|----------|
+| Load articles | `GET /articles/` |
+
+- Table: Заголовок (linked to detail), Автор, Дата создания.
+- "Новая статья" button links to `/articles/new`.
+
+### Article Detail — `/articles/:id`
+**File:** `src/features/articles/pages/ArticleDetailPage.tsx`
+
+| Action | Endpoint |
+|--------|----------|
+| Load article | `GET /articles/:id/` |
+| Delete article | `DELETE /articles/:id/` |
+
+- Renders `content` via `MarkdownRenderer` (react-markdown + rehype-highlight + remark-gfm).
+- Edit/Delete buttons visible only when `user.id === article.author.id`.
+- Delete confirms then invalidates `articleKeys.all` and navigates to `/articles`.
+
+### Article Editor (create) — `/articles/new`
+**File:** `src/features/articles/pages/ArticleEditorPage.tsx`
+
+| Action | Endpoint |
+|--------|----------|
+| Create article | `POST /articles/` |
+
+- Split-pane: TextInput (title) + Textarea (markdown) left, live preview right.
+- On success navigates to `/articles/:id`.
+
+### Article Editor (edit) — `/articles/:id/edit`
+**File:** `src/features/articles/pages/ArticleEditorPage.tsx`
+
+| Action | Endpoint |
+|--------|----------|
+| Load article | `GET /articles/:id/` |
+| Update article | `PATCH /articles/:id/` |
+
+- Same component as create, mode detected by presence of `:id` param.
+- Prefills form from existing article data.
+- On success navigates to `/articles/:id`.

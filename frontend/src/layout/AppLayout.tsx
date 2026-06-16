@@ -11,6 +11,7 @@ import {
   IconTag,
   IconListDetails,
   IconBook,
+  IconNews,
 } from '@tabler/icons-react';
 import type { Icon as TablerIcon } from '@tabler/icons-react';
 import { useAuth } from '@/auth/AuthContext';
@@ -44,6 +45,7 @@ const NAV_ITEMS: NavItem[] = [
   },
   { to: '/prices', label: 'Цены', icon: IconCurrencyDollar },
   { to: '/dataframe', label: 'Dataframe', icon: IconTable },
+  { to: '/articles', label: 'Статьи', icon: IconNews },
 ];
 
 /**

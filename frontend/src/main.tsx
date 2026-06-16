@@ -10,6 +10,7 @@ import { router } from '@/routes';
 import '@mantine/core/styles.css';
 import '@mantine/notifications/styles.css';
 import '@mantine/dropzone/styles.css';
+import 'highlight.js/styles/github.css';
 
 const queryClient = new QueryClient({
   defaultOptions: {
