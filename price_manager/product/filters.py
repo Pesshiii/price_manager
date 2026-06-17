@@ -43,13 +43,15 @@ class ProductFilter(django_filters.FilterSet):
         lexemes = _query_lexemes(value)
 
         if not lexemes:
-            # Short/numeric query — no lexemes produced; fall back to trigram on raw value.
-            return qs.filter(Q(name__trigram_similar=value) | Q(sku__icontains=value))
+            # Short/numeric query — no lexemes produced; fall back to word-similar on raw value.
+            return qs.filter(Q(name__trigram_word_similar=value) | Q(sku__icontains=value))
 
-        # Pre-filter via GIN index: any stemmed token trigram-similar to name, OR sku matches.
+        # Pre-filter via GIN index: any stemmed token word-similar to name, OR sku matches.
+        # word_similar (<%) checks against any word in name, not the whole string —
+        # critical for multi-word product names like "Лопата штыковая нержавеющая".
         q = Q(sku__icontains=value)
         for lexeme in lexemes:
-            q |= Q(name__trigram_similar=lexeme)
+            q |= Q(name__trigram_word_similar=lexeme)
 
         # Re-rank by word similarity of the original (unstemmed) query so best matches rise first.
         return (
