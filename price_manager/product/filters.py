@@ -3,9 +3,22 @@ from __future__ import annotations
 import django_filters
 from decimal import Decimal, InvalidOperation
 
+from django.contrib.postgres.search import TrigramWordSimilarity
+from django.db import connection
 from django.db.models import Exists, OuterRef, Q
 
 from .models import Brand, Category, Product
+
+
+def _query_lexemes(value: str) -> list[str]:
+    """Return Russian Snowball lexemes for value via PostgreSQL to_tsvector('russian', ...)."""
+    with connection.cursor() as cursor:
+        cursor.execute(
+            "SELECT array_agg(lexeme) FROM unnest(to_tsvector('russian', %s))",
+            [value],
+        )
+        row = cursor.fetchone()
+    return row[0] if row and row[0] else []
 
 
 class ProductFilter(django_filters.FilterSet):
@@ -26,7 +39,24 @@ class ProductFilter(django_filters.FilterSet):
     def filter_q(self, qs, name, value):
         if not value:
             return qs
-        return qs.filter(Q(name__trigram_similar=value) | Q(sku__icontains=value))
+
+        lexemes = _query_lexemes(value)
+
+        if not lexemes:
+            # Short/numeric query — no lexemes produced; fall back to trigram on raw value.
+            return qs.filter(Q(name__trigram_similar=value) | Q(sku__icontains=value))
+
+        # Pre-filter via GIN index: any stemmed token trigram-similar to name, OR sku matches.
+        q = Q(sku__icontains=value)
+        for lexeme in lexemes:
+            q |= Q(name__trigram_similar=lexeme)
+
+        # Re-rank by word similarity of the original (unstemmed) query so best matches rise first.
+        return (
+            qs.filter(q)
+              .annotate(_sim=TrigramWordSimilarity(value, 'name'))
+              .order_by('-_sim', '-updated_at')
+        )
 
     def filter_category(self, qs, name, value):
         if value is None:
