@@ -1,5 +1,7 @@
 import { Button, Divider, Group, NumberInput, Select, Stack, Text, TextInput } from '@mantine/core';
+import { useEffect, useRef, useState } from 'react';
 import type { PriceType } from '@/features/pricing/types';
+import { useDebouncedValue } from '@/features/dataframe/hooks/useDebouncedValue';
 import { useBrands } from '../hooks/useBrands';
 import { useCategories } from '../hooks/useCategories';
 import { useProductFacets } from '../hooks/useProductFacets';
@@ -23,6 +25,24 @@ export function ProductFiltersSidebar({
 }: ProductFiltersSidebarProps) {
   const { data: categories } = useCategories();
   const { data: brands } = useBrands();
+
+  const [localQ, setLocalQ] = useState(filters.q ?? '');
+  const debouncedQ = useDebouncedValue(localQ, 300);
+
+  // Sync external changes (e.g. resetFilters) into the local input.
+  useEffect(() => {
+    setLocalQ(filters.q ?? '');
+  }, [filters.q]);
+
+  // Push debounced value to URL only when it differs from the current filter.
+  const filtersQRef = useRef(filters.q);
+  filtersQRef.current = filters.q;
+  useEffect(() => {
+    const next = debouncedQ || undefined;
+    if (next !== filtersQRef.current) {
+      patchFilters({ q: next });
+    }
+  }, [debouncedQ, patchFilters]);
   // The facets endpoint is self-describing (label/unit/value_type embedded per
   // group), so we no longer need to fetch the full CharacteristicType list to
   // render this sidebar — which mattered once the catalog grew past a few
@@ -34,8 +54,8 @@ export function ProductFiltersSidebar({
       <TextInput
         label="Поиск"
         placeholder="Название или SKU"
-        value={filters.q ?? ''}
-        onChange={(e) => patchFilters({ q: e.currentTarget.value || undefined })}
+        value={localQ}
+        onChange={(e) => setLocalQ(e.currentTarget.value)}
       />
       <Select
         label="Категория"
