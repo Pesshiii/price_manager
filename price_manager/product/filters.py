@@ -26,7 +26,7 @@ class ProductFilter(django_filters.FilterSet):
     def filter_q(self, qs, name, value):
         if not value:
             return qs
-        return qs.filter(Q(name__icontains=value) | Q(sku__icontains=value))
+        return qs.filter(Q(name__trigram_similar=value) | Q(sku__icontains=value))
 
     def filter_category(self, qs, name, value):
         if value is None:

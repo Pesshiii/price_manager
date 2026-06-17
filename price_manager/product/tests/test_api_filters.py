@@ -58,9 +58,13 @@ class ProductFilterTests(TestCase):
         body = self._list('?status=draft')
         self.assertEqual({row['sku'] for row in body['results']}, {'P3'})
 
-    def test_q_search(self):
-        body = self._list('?q=дрель')
+    def test_q_search_by_name(self):
+        body = self._list('?q=Дрель')
         self.assertEqual({row['sku'] for row in body['results']}, {'P2'})
+
+    def test_q_search_by_sku(self):
+        body = self._list('?q=P1')
+        self.assertEqual({row['sku'] for row in body['results']}, {'P1'})
 
     def test_characteristic_filter_string(self):
         body = self._list('?char__color=red')
