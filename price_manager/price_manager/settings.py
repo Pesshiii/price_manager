@@ -390,6 +390,10 @@ CELERY_BEAT_SCHEDULE = {
         'task': 'main_product_manager.update_logs',
         'schedule': CELERY_LOG_UPDATE_MINUTES * 60,
     },
+    'update-logs': {
+            'task': 'main_product_manager.delete_outdated_logs',
+            'schedule': 60,
+        },
     'cleanup-supplier-files': {
         'task': 'supplier_product_manager.cleanup_supplier_files_task',
         'schedule': CELERY_SUPPLIER_FILES_CLEANUP_MINUTES * 60,

@@ -7,7 +7,7 @@ from supplier_manager.models import Category
 from product_price_manager.models import update_prices
 
 from .functions import recalculate_search_vectors, update_logs, update_stocks
-from .models import MainProduct
+from .models import MainProduct, MainProductLog
 
 
 def _build_step_result(payload: dict | None) -> dict:
@@ -80,6 +80,20 @@ def update_logs_task() -> dict:
         runner=update_logs,
     )
 
+@shared_task(name="main_product_manager.delete_outdated_logs")
+def delete_outdated_logs_task(stats: dict | None = None) -> dict:
+    def delete_logs():
+        if MainProductLog.objects.count() > 100000:
+            return MainProductLog.objects.all()[:100000].delete()[0]
+        return 0
+
+    payload  = execute_locked_task(
+        task_name="main_product_manager.delete_outdated_logs",
+        lock_ttl=60 * 20,
+        runner=delete_logs,
+    )
+    return _append_step(stats, "delete_outdated_logs", payload)
+
 
 @shared_task(name="main_product_manager.notify_sync_main_products")
 def notify_sync_main_products_task(stats: dict, user_id: int) -> dict:
@@ -132,6 +146,7 @@ def sync_main_products_task(user_id: int):
         recalculate_vectors_missing_task.s(),
         update_prices_task.s(),
         update_stocks_task.s(),
+        delete_outdated_logs_task.s(),
         notify_sync_main_products_task.s(user_id=user_id),
     )
     return workflow.apply_async()
