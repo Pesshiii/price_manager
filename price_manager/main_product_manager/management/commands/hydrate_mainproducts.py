@@ -15,8 +15,8 @@ class Command(BaseCommand):
         count = 0
         def _wait_job(id:str)->str:
                     status = site.get(Job(id=id))['status']
-                    while not status == 'success':
-                        sleep(5)
+                    while not status == 'Success':
+                        sleep(1)
                         status = site.get(Job(id=id))['status']
                         if status == 'Failed':
                             raise(RuntimeError('Migrations failed. ', ' Id: ', id, ' Message:', site.get(Job(id=id))['message']))
