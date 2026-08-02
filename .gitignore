@@ -28,7 +28,6 @@ media/
 # Environment files
 .env
 .venv
-*.yml
 env/
 venv/
 ENV/
@@ -78,3 +77,7 @@ venv/
 
 # Claude
 .claude/
+
+#Dockerfiles
+
+*.yml
