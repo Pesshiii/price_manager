@@ -21,8 +21,8 @@ class Command(BaseCommand):
                 self.stdout.write(msg=f'Задача {s_id}. Кол-во поставщиков {len(s_payload)}')
                 s_payload = []
         if not count%50==0:
-                s_id = site.get(UpsertAsync(payload=s_payload))['jobId']
-                self.stdout.write(msg=f'Задача {s_id}. Кол-во поставщиков {len(s_payload)}')
+            s_id = site.get(UpsertAsync(payload=s_payload))['jobId']
+            self.stdout.write(msg=f'Задача {s_id}. Кол-во поставщиков {len(s_payload)}')
         count = 0
         mp_payload = []
         def _get_supplier_id(name: str)->str:
@@ -31,10 +31,12 @@ class Command(BaseCommand):
             mp_payload.append({'entity':'Product', 'payload':{'name':product.name, 'mpn': product.article, 'number': product.article, 'defaultSupplierId':_get_supplier_id(product.supplier.name)}})
             count += 1
             if count%50==0:
-                mp_id = site.get(UpsertAsync(payload=mp_payload))['jobId']
-                self.stdout.write(msg=f'Задача {mp_id}. Кол-во поставщиков {len(mp_payload)}')
+                # mp_id = site.get(UpsertAsync(payload=mp_payload))['jobId']
+                # self.stdout.write(msg=f'Задача {mp_id}. Кол-во товаров {len(mp_payload)}')
+                self.stdout.write(msg=f'Кол-во товаров {len(mp_payload)}')
                 mp_payload = []
         if count%50==0:
-            mp_id = site.get(UpsertAsync(payload=mp_payload))['jobId']
-            self.stdout.write(msg=f'Задача {mp_id}. Кол-во поставщиков {len(mp_payload)}')
+            # mp_id = site.get(UpsertAsync(payload=mp_payload))['jobId']
+            # self.stdout.write(msg=f'Задача {mp_id}. Кол-во товаров {len(mp_payload)}')
+            self.stdout.write(msg=f'Кол-во товаров {len(mp_payload)}')
         self.stdout.write(self.style.SUCCESS('Выполнение завершено'))
