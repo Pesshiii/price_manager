@@ -27,6 +27,7 @@ class Command(BaseCommand):
             if count%2000==0:
                 s_id = site.get(UpsertAsync(payload=s_payload))['jobId']
                 self.stdout.write(msg=f'Задача {s_id} завершена со статусом: {_wait_job(s_id)}')
+                s_payload = []
         if not count%2000==0:
                 s_id = site.get(UpsertAsync(payload=s_payload))['jobId']
                 self.stdout.write(msg=f'Задача {s_id} завершена со статусом: {_wait_job(s_id)}')
@@ -40,6 +41,7 @@ class Command(BaseCommand):
             if count%2000==0:
                 mp_id = site.get(UpsertAsync(payload=mp_payload))['jobId']
                 self.stdout.write(msg=f'Задача {mp_id} завершена со статусом: {_wait_job(mp_id)}')
+                mp_payload = []
         if count%2000==0:
                 mp_id = site.get(UpsertAsync(payload=mp_payload))['jobId']
                 self.stdout.write(msg=f'Задача {mp_id} завершена со статусом: {_wait_job(mp_id)}')
