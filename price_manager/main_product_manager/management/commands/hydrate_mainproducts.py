@@ -9,7 +9,7 @@ class Command(BaseCommand):
 
     def handle(self, *args, **options)->None:
         suppliers = Supplier.objects.all()
-        products = MainProduct.objects.all()
+        products = MainProduct.objects.all().select_related('supplier')
         self.stdout.write(self.style.SUCCESS(f'Начало выполнения задачи. Число поставщиков: {suppliers.count()}, товаров: {products.count()}'))
         s_payload = []
         count = 0
