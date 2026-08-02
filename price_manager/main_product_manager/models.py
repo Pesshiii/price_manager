@@ -6,6 +6,8 @@ from django.db.models.functions import Concat
 from django.core.validators import MinValueValidator, MaxValueValidator
 from django.utils import timezone
 from supplier_manager.models import Supplier, Category, Manufacturer
+
+from decimal import Decimal
    
 MP_TABLE_FIELDS = ['article', 'supplier', 'name', 'manufacturer','prime_cost', 'stock']
 MP_PRICES = ['prime_cost', 'wholesale_price', 'basic_price', 'm_price', 'wholesale_price_extra', 'discount_price']
@@ -104,15 +106,16 @@ class MainProduct(models.Model):
   length = models.DecimalField(verbose_name='Длина',
                                max_digits=10,
                                decimal_places=2,
-                               default=0)
+                               default=Decimal(0))
   width = models.DecimalField(verbose_name='Ширина',
                                max_digits=10,
                                decimal_places=2,
-                               default=0)
+                               default=Decimal(0))
   depth = models.DecimalField(verbose_name='Глубина',
                                max_digits=10,
                                decimal_places=2,
-                               default=0)
+                               default=Decimal(0))
+  
   price_updated_at = models.DateTimeField(verbose_name='Последнее обновление цены',
                                     null=True)
   stock_updated_at = models.DateTimeField(verbose_name='Последнее обновление остатка',

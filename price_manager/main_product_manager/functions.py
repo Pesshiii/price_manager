@@ -53,6 +53,7 @@ def get_dupes(id, selected_compare_fields:list[str], base_queryset, once=False):
             id = next_id
             continue
         if buffer_queryset.filter(id__lt=id).exists():
+            included = False
             for product in buffer_queryset.filter(id__lt=id):
                 included = False
                 if id in get_dupes(product.id, selected_compare_fields, base_queryset, once=True)[1].values_list('id', flat=True):

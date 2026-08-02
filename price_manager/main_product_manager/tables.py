@@ -1,4 +1,4 @@
-from django.utils.html import format_html, mark_safe
+from django.utils.html import format_html
 from django.utils import timezone
 from django.template.loader import render_to_string
 from django.db.models import F, Case, When, Q, Value

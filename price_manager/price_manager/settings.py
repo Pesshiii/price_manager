@@ -22,6 +22,7 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 # Quick-start development settings - unsuitable for production
 # See https://docs.djangoproject.com/en/5.2/howto/deployment/checklist/
 
+
 # SECURITY WARNING: keep the secret key used in production secret!
 SECRET_KEY = os.environ.get('SECRET_KEY','django-insecure-q_sht-smtwbq$s_j8*f!u#z-)fmfne5^uk8x9edm_z6j=z^5qo')
 
@@ -397,10 +398,6 @@ CELERY_BEAT_SCHEDULE = {
     'cleanup-supplier-files': {
         'task': 'supplier_product_manager.cleanup_supplier_files_task',
         'schedule': CELERY_SUPPLIER_FILES_CLEANUP_MINUTES * 60,
-    },
-    'embed-missing-products': {
-        'task': 'product.embed_missing_products',
-        'schedule': EMBED_BACKFILL_MINUTES * 60,
     },
 }
 
