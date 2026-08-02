@@ -16,27 +16,37 @@ class Command(BaseCommand):
         for supplier in suppliers:
             s_payload.append({'entity':'Account', 'payload':{'name':supplier.name, 'role': 'supplier'}})
             count += 1
-            if count%50==0:
+            if count%1000==0:
                 s_id = site.get(UpsertAsync(payload=s_payload))['jobId']
                 self.stdout.write(msg=f'Задача {s_id}. Кол-во поставщиков {len(s_payload)}')
                 s_payload = []
-        if not count%50==0:
+        if not count%1000==0:
             s_id = site.get(UpsertAsync(payload=s_payload))['jobId']
             self.stdout.write(msg=f'Задача {s_id}. Кол-во поставщиков {len(s_payload)}')
         count = 0
         mp_payload = []
         def _get_supplier_id(name: str)->str:
             return site.get(EntityList(name='Account', where=[Where(attribute='name', type='like', value=name)]))['list'][0]['id']
-        for product in products:
-            mp_payload.append({'entity':'Product', 'payload':{'name':product.name, 'mpn': product.article, 'number': product.article, 'defaultSupplierId':_get_supplier_id(product.supplier.name)}})
-            count += 1
-            if count%50==0:
-                # mp_id = site.get(UpsertAsync(payload=mp_payload))['jobId']
-                # self.stdout.write(msg=f'Задача {mp_id}. Кол-во товаров {len(mp_payload)}')
-                self.stdout.write(msg=f'Кол-во товаров {len(mp_payload)}')
-                mp_payload = []
-        if count%50==0:
-            # mp_id = site.get(UpsertAsync(payload=mp_payload))['jobId']
-            # self.stdout.write(msg=f'Задача {mp_id}. Кол-во товаров {len(mp_payload)}')
-            self.stdout.write(msg=f'Кол-во товаров {len(mp_payload)}')
+        for supplier in suppliers:
+            s_id = _get_supplier_id(supplier.name)
+            for product in products.filter(supplier=supplier):
+                mp_payload.append(
+                    {
+                        'entity':'Product', 
+                        'payload':{
+                            'name':product.name, 
+                            'mpn': product.article, 
+                            'number': product.article, 
+                            'defaultSupplierId':s_id
+                            }
+                        }
+                    )
+                count += 1
+                if count%1000==0:
+                    mp_id = site.get(UpsertAsync(payload=mp_payload))['jobId']
+                    self.stdout.write(msg=f'Задача {mp_id}. Кол-во товаров {len(mp_payload)}')
+                    mp_payload = []
+        if count%1000==0:
+            mp_id = site.get(UpsertAsync(payload=mp_payload))['jobId']
+            self.stdout.write(msg=f'Задача {mp_id}. Кол-во товаров {len(mp_payload)}')
         self.stdout.write(self.style.SUCCESS('Выполнение завершено'))
