@@ -13,24 +13,16 @@ class Command(BaseCommand):
         self.stdout.write(self.style.SUCCESS(f'Начало выполнения задачи. Число поставщиков: {suppliers.count()}, товаров: {products.count()}'))
         s_payload = []
         count = 0
-        def _wait_job(id:str)->str:
-                    status = site.get(Job(id=id))['status']
-                    while not status == 'Success':
-                        sleep(1)
-                        status = site.get(Job(id=id))['status']
-                        if status == 'Failed':
-                            raise(RuntimeError('Migrations failed. ', ' Id: ', id, ' Message:', site.get(Job(id=id))['message']))
-                    return status
         for supplier in suppliers:
             s_payload.append({'entity':'Account', 'payload':{'name':supplier.name, 'role': 'supplier'}})
             count += 1
             if count%2000==0:
                 s_id = site.get(UpsertAsync(payload=s_payload))['jobId']
-                self.stdout.write(msg=f'Задача {s_id} завершена со статусом: {_wait_job(s_id)}')
+                self.stdout.write(msg=f'Задача {s_id}. Кол-во поставщиков {len(s_payload)}')
                 s_payload = []
         if not count%2000==0:
                 s_id = site.get(UpsertAsync(payload=s_payload))['jobId']
-                self.stdout.write(msg=f'Задача {s_id} завершена со статусом: {_wait_job(s_id)}')
+                self.stdout.write(msg=f'Задача {s_id}. Кол-во поставщиков {len(s_payload)}')
         count = 0
         mp_payload = []
         def _get_supplier_id(name: str)->str:
@@ -40,9 +32,9 @@ class Command(BaseCommand):
             count += 1
             if count%2000==0:
                 mp_id = site.get(UpsertAsync(payload=mp_payload))['jobId']
-                self.stdout.write(msg=f'Задача {mp_id} завершена со статусом: {_wait_job(mp_id)}')
+                self.stdout.write(msg=f'Задача {mp_id}. Кол-во поставщиков {len(mp_payload)}')
                 mp_payload = []
         if count%2000==0:
-                mp_id = site.get(UpsertAsync(payload=mp_payload))['jobId']
-                self.stdout.write(msg=f'Задача {mp_id} завершена со статусом: {_wait_job(mp_id)}')
+            mp_id = site.get(UpsertAsync(payload=mp_payload))['jobId']
+            self.stdout.write(msg=f'Задача {mp_id}. Кол-во поставщиков {len(mp_payload)}')
         self.stdout.write(self.style.SUCCESS('Выполнение завершено'))
