@@ -9,6 +9,8 @@ class Command(BaseCommand):
 
     def handle(self, *args, **options)->None:
         suppliers = Supplier.objects.all()
+        products = MainProduct.objects.all()
+        self.stdout.write(self.style.SUCCESS(f'Начало выполнения задачи. Число поставщиков: {suppliers.count()}, товаров: {products.count()}'))
         s_payload = []
         count = 0
         def _wait_job(id:str)->str:
@@ -32,7 +34,6 @@ class Command(BaseCommand):
         mp_payload = []
         def _get_supplier_id(name: str)->str:
             return site.get(EntityList(name='Account', where=[Where(attribute='name', type='like', value=name)]))['list'][0]['id']
-        products = MainProduct.objects.all()
         for product in products:
             mp_payload.append({'entity':'Product', 'payload':{'name':product.name, 'mpn': product.article, 'number': product.article, 'defaultSupplierId':_get_supplier_id(product.supplier.name)}})
             count += 1
