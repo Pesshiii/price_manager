@@ -27,18 +27,18 @@ PRICE_TYPES = {
 
 
 class MainProduct(models.Model):
-  class Meta:
-    verbose_name = 'Главный продукт'
-    ordering = ['id']
-    constraints = [
-      models.UniqueConstraint(
-        fields=['supplier', 'article', 'name'],
-        name='mp_unique_supplier_article_name'
-      )
-    ]
-    indexes = [
-      GinIndex(fields=['search_vector']),
-    ]
+    class Meta:
+        verbose_name = 'Главный продукт'
+        ordering = ['id']
+        constraints = [
+          models.UniqueConstraint(
+            fields=['supplier', 'article', 'name'],
+            name='mp_unique_supplier_article_name'
+          )
+        ]
+        indexes = [
+          GinIndex(fields=['search_vector']),
+        ]
     pim_id = models.CharField(verbose_name='Id для системы Pim',
                               null=True,
                               blank=True,
