@@ -33,7 +33,10 @@ class Supplier(models.Model):
     Meta:
         verbose_name: Человекочитаемое имя модели ("Поставщик").
     """
-
+    pim_id = models.CharField(verbose_name='Id для системы Pim',
+                                  null=True,
+                                  blank=True,
+                                  unique=True)
     name = models.CharField(verbose_name='Поставщик',
                             unique=True)
     currency = models.ForeignKey(Currency,
