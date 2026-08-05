@@ -56,10 +56,10 @@ class Command(BaseCommand):
             item = {
                 'entity':'Product', 
                 'payload':{
-                    'priceManagerId':f"{product.id}",
                     'name':product.name, 
+                    'priceManagerId':f"{product.id}",
                     'mpn': product.article, 
-                    'number': product.sku,
+                    'number': product.article,
                     'defaultSupplierId':product.supplier.pim_id,
                 }
             }
@@ -79,7 +79,10 @@ class Command(BaseCommand):
             site.get(UpsertAsync(payload=mp_payload))
             self.stdout.write(msg=f'Создано {count} продуктов. Кол-во товаров {len(mp_payload)}')
         self.stdout.write(self.style.SUCCESS('Создание связей'))
+        count = 0
         for product in products:
+            count += 1
             product.pim_id = _get_product_id(product)
+            self.stdout.write(f'Создание связи {count}')
         MainProduct.objects.bulk_update(products, fields=['pim_id'])
         self.stdout.write(self.style.SUCCESS('Выполнение завершено'))
