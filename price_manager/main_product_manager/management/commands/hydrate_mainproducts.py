@@ -42,13 +42,11 @@ class Command(BaseCommand):
             count += 1
             if count%1000==0:
                 site.get(UpsertAsync(payload=s_payload))
-                site.get(entityMassUpdate(payload=s_payload))
-                self.stdout.write(msg=f'Обновлено {count} поставщиков.. Кол-во поставщиков {len(s_payload)}')
+                self.stdout.write(msg=f'Создано {count} поставщиков.. Кол-во поставщиков {len(s_payload)}')
                 s_payload = []
         if not count%1000==0:
             site.get(UpsertAsync(payload=s_payload))
-            site.get(entityMassUpdate(payload=s_payload))
-            self.stdout.write(msg=f'Обновлено {count} поставщиков. Кол-во поставщиков {len(s_payload)}')
+            self.stdout.write(msg=f'Создано {count} поставщиков. Кол-во поставщиков {len(s_payload)}')
         for supplier in suppliers:
             supplier.pim_id = _get_supplier_id(supplier)
         Supplier.objects.bulk_update(suppliers, fields=['pim_id'])
@@ -75,11 +73,11 @@ class Command(BaseCommand):
             count += 1
             if count%1000==0:
                 site.get(UpsertAsync(payload=mp_payload))
-                site.get(entityMassUpdate(payload=mp_payload))
-                self.stdout.write(msg=f'Обновлено {count} продуктов. Кол-во товаров {len(mp_payload)}')
+                self.stdout.write(msg=f'Создано {count} продуктов. Кол-во товаров {len(mp_payload)}')
                 mp_payload = []
         if count%1000==0:
-            self.stdout.write(msg=f'Обновлено {count} продуктов. Кол-во товаров {len(mp_payload)}')
+            site.get(UpsertAsync(payload=mp_payload))
+            self.stdout.write(msg=f'Создано {count} продуктов. Кол-во товаров {len(mp_payload)}')
         self.stdout.write(self.style.SUCCESS('Создание связей'))
         for product in products:
             product.pim_id = _get_product_id(product)
