@@ -26,15 +26,15 @@ class Command(BaseCommand):
         suppliers = Supplier.objects.all().filter(pim_id__isnull=True)
         products = MainProduct.objects.all().filter(pim_id__isnull=True).select_related('supplier', 'manufacturer')
         self.stdout.write(self.style.SUCCESS(f'Начало выполнения задачи. Число поставщиков: {suppliers.count()}, товаров: {products.count()}'))
-        s_payload = []
+        s_payload : List[Dict[str, str|Dict[str, str]]] = []
         count = 0
         for supplier in suppliers:
             s_payload.append({
                 'entity':'Account', 
                 'payload':{
-                    'name':supplier.name, 
+                    'name': f'{supplier.name}', 
                     'role': 'supplier',
-                    'priceManagerId': supplier.id
+                    'priceManagerId': f'{supplier.id}'
                 }})
             count += 1
             if count%1000==0:
