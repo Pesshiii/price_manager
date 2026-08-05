@@ -9,7 +9,7 @@ class Command(BaseCommand):
     help = "Вызовите эту команду чтобы насытить создать связь между Pim и PriceManager"
 
     def handle(self, *args, **options)->None:
-        def _get_supplier_id(supplier: Supplier)->str|None:
+        def _get_supplier_id(supplier)->str|None:
             items =  site.get(
                     EntityList(name='Account', 
                     select=['id'], 
@@ -49,31 +49,29 @@ class Command(BaseCommand):
         Supplier.objects.bulk_update(suppliers, fields=['pim_id'])
         count = 0
         mp_payload = []
-        for supplier in suppliers.filter(pim_id__isnull=True):
-            s_id = _get_supplier_id(supplier.name)
-            for product in products.filter(supplier=supplier):
-                item = {
-                    'entity':'Product', 
-                    'payload':{
-                        'priceManagerId':product.id,
-                        'name':product.name, 
-                        'mpn': product.article, 
-                        'number': product.sku,
-                        'defaultSupplierId':product.supplier.pim_id,
-                    }
+        for product in products:
+            item = {
+                'entity':'Product', 
+                'payload':{
+                    'priceManagerId':product.id,
+                    'name':product.name, 
+                    'mpn': product.article, 
+                    'number': product.sku,
+                    'defaultSupplierId':product.supplier.pim_id,
                 }
-                if not product.manufacturer is None:
-                    item['payload']['brand'] = {
-                        'name': product.manufacturer.name
-                    }
-                mp_payload.append(
-                        item
-                    )
-                count += 1
-                if count%1000==0:
-                    mp_id = site.get(UpsertAsync(payload=mp_payload))['jobId']
-                    self.stdout.write(msg=f'Задача {mp_id}. Кол-во товаров {len(mp_payload)}')
-                    mp_payload = []
+            }
+            if not product.manufacturer is None:
+                item['payload']['brand'] = {
+                    'name': product.manufacturer.name
+                }
+            mp_payload.append(
+                    item
+                )
+            count += 1
+            if count%1000==0:
+                mp_id = site.get(UpsertAsync(payload=mp_payload))['jobId']
+                self.stdout.write(msg=f'Задача {mp_id}. Кол-во товаров {len(mp_payload)}')
+                mp_payload = []
         if count%1000==0:
             mp_id = site.get(UpsertAsync(payload=mp_payload))['jobId']
             self.stdout.write(msg=f'Задача {mp_id}. Кол-во товаров {len(mp_payload)}')
