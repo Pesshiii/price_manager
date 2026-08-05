@@ -93,5 +93,8 @@ class Command(BaseCommand):
             count += 1
             product.pim_id = _get_product_id(product)
             self.stdout.write(f'Создание связи {count}. Связь {product.id} <-> {product.pim_id}')
-        MainProduct.objects.bulk_update(products, fields=['pim_id'])
+            if count%100==0:
+                MainProduct.objects.bulk_update(products, fields=['pim_id'])
+        if not count%100==0:
+            MainProduct.objects.bulk_update(products, fields=['pim_id'])
         self.stdout.write(self.style.SUCCESS('Выполнение завершено'))
