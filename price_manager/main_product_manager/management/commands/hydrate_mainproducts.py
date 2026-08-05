@@ -9,25 +9,12 @@ class Command(BaseCommand):
     help = "Вызовите эту команду чтобы насытить создать связь между Pim и PriceManager"
 
     def handle(self, *args, **options)->None:
-        suppliers = Supplier.objects.all()
-        products = MainProduct.objects.all().filter(pim_id__isnull=True).select_related('supplier', 'manufacturer')
-        self.stdout.write(self.style.SUCCESS(f'Начало выполнения задачи. Число поставщиков: {suppliers.count()}, товаров: {products.count()}'))
-        s_payload = []
-        count = 0
-        for supplier in suppliers:
-            s_payload.append({'entity':'Account', 'payload':{'name':supplier.name, 'role': 'supplier'}})
-            count += 1
-            if count%1000==0:
-                s_id = site.get(UpsertAsync(payload=s_payload))['jobId']
-                self.stdout.write(msg=f'Задача {s_id}. Кол-во поставщиков {len(s_payload)}')
-                s_payload = []
-        if not count%1000==0:
-            s_id = site.get(UpsertAsync(payload=s_payload))['jobId']
-            self.stdout.write(msg=f'Задача {s_id}. Кол-во поставщиков {len(s_payload)}')
-        count = 0
-        mp_payload = []
-        def _get_supplier_id(name: str)->str|None:
-            items =  site.get(EntityList(name='Account', where=[Where(attribute='name', type='like', value=name)]))['list'][0]['id']
+        def _get_supplier_id(supplier: Supplier)->str|None:
+            items =  site.get(
+                    EntityList(name='Account', 
+                    select=['id'], 
+                    where=[Where(attribute='priceManagerId', type='like', value=f'{supplier.id}')])
+                )['list']
             return items[0]['id'] if len(items)>0 else None
         def _get_product_id(product: MainProduct)->str|None:
             items = site.get(
@@ -36,7 +23,33 @@ class Command(BaseCommand):
                     where=[Where(attribute='priceManagerId', type='like', value=f'{product.id}')])
                 )['list']
             return items[0]['id'] if len(items)>0 else None
+        suppliers = Supplier.objects.all().filter(pim_id__isnull=True)
+        products = MainProduct.objects.all().filter(pim_id__isnull=True).select_related('supplier', 'manufacturer')
+        self.stdout.write(self.style.SUCCESS(f'Начало выполнения задачи. Число поставщиков: {suppliers.count()}, товаров: {products.count()}'))
+        s_payload = []
+        count = 0
         for supplier in suppliers:
+            s_payload.append({
+                'entity':'Account', 
+                'payload':{
+                    'name':supplier.name, 
+                    'role': 'supplier',
+                    'priceManagerId': supplier.id
+                }})
+            count += 1
+            if count%1000==0:
+                s_id = site.get(UpsertAsync(payload=s_payload))['jobId']
+                self.stdout.write(msg=f'Задача {s_id}. Кол-во поставщиков {len(s_payload)}')
+                s_payload = []
+        if not count%1000==0:
+            s_id = site.get(UpsertAsync(payload=s_payload))['jobId']
+            self.stdout.write(msg=f'Задача {s_id}. Кол-во поставщиков {len(s_payload)}')
+        for supplier in suppliers:
+            supplier.pim_id = _get_supplier_id(supplier)
+        Supplier.objects.bulk_update(suppliers, fields=['pim_id'])
+        count = 0
+        mp_payload = []
+        for supplier in suppliers.filter(pim_id__isnull=True):
             s_id = _get_supplier_id(supplier.name)
             for product in products.filter(supplier=supplier):
                 item = {
@@ -46,7 +59,7 @@ class Command(BaseCommand):
                         'name':product.name, 
                         'mpn': product.article, 
                         'number': product.sku,
-                        'defaultSupplierId':s_id,
+                        'defaultSupplierId':product.supplier.pim_id,
                     }
                 }
                 if not product.manufacturer is None:
