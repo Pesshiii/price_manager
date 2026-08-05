@@ -29,22 +29,26 @@ class Command(BaseCommand):
         s_payload : List[Dict[str, str|Dict[str, str|Dict[str, str]]]] = []
         count = 0
         for supplier in suppliers:
-            s_payload.append({
-                'entity':'Account', 
-                'payload':{
-                    'name': f'{supplier.name}', 
-                    'role': 'supplier',
-                    'priceManagerId': f'{supplier.id}'
-                }})
+            s_payload.append(
+                {
+                    'entity':'Account', 
+                    'payload':{
+                        'name': f'{supplier.name}', 
+                        'role': 'supplier',
+                        'priceManagerId': f'{supplier.id}'
+                    }
+                }
+                )
             count += 1
             if count%1000==0:
-                s_id = site.get(UpsertAsync(payload=s_payload))['jobId']
-                s_id = site.get(entityMassUpdate(payload=s_payload))['jobId']
-                self.stdout.write(msg=f'Задача {s_id}. Кол-во поставщиков {len(s_payload)}')
+                site.get(UpsertAsync(payload=s_payload))
+                site.get(entityMassUpdate(payload=s_payload))
+                self.stdout.write(msg=f'Обновлено {count} поставщиков.. Кол-во поставщиков {len(s_payload)}')
                 s_payload = []
         if not count%1000==0:
-            s_id = site.get(UpsertAsync(payload=s_payload))['jobId']
-            self.stdout.write(msg=f'Задача {s_id}. Кол-во поставщиков {len(s_payload)}')
+            site.get(UpsertAsync(payload=s_payload))
+            site.get(entityMassUpdate(payload=s_payload))
+            self.stdout.write(msg=f'Обновлено {count} поставщиков. Кол-во поставщиков {len(s_payload)}')
         for supplier in suppliers:
             supplier.pim_id = _get_supplier_id(supplier)
         Supplier.objects.bulk_update(suppliers, fields=['pim_id'])
@@ -70,13 +74,12 @@ class Command(BaseCommand):
                 )
             count += 1
             if count%1000==0:
-                mp_id = site.get(UpsertAsync(payload=mp_payload))['jobId']
-                mp_id = site.get(entityMassUpdate(payload=mp_payload))['jobId']
-                self.stdout.write(msg=f'Задача {mp_id}. Кол-во товаров {len(mp_payload)}')
+                site.get(UpsertAsync(payload=mp_payload))
+                site.get(entityMassUpdate(payload=mp_payload))
+                self.stdout.write(msg=f'Обновлено {count} продуктов. Кол-во товаров {len(mp_payload)}')
                 mp_payload = []
         if count%1000==0:
-            mp_id = site.get(UpsertAsync(payload=mp_payload))['jobId']
-            self.stdout.write(msg=f'Задача {mp_id}. Кол-во товаров {len(mp_payload)}')
+            self.stdout.write(msg=f'Обновлено {count} продуктов. Кол-во товаров {len(mp_payload)}')
         self.stdout.write(self.style.SUCCESS('Создание связей'))
         for product in products:
             product.pim_id = _get_product_id(product)
