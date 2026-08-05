@@ -89,12 +89,15 @@ class Command(BaseCommand):
             self.stdout.write(msg=f'Создано {count} продуктов. Кол-во товаров {len(mp_payload)}')
         self.stdout.write(self.style.SUCCESS('Создание связей'))
         count = 0
+        batch = []
         for product in products:
             count += 1
             product.pim_id = _get_product_id(product)
+            batch.append(product)
             self.stdout.write(f'Создание связи {count}. Связь {product.id} <-> {product.pim_id}')
             if count%100==0:
-                MainProduct.objects.bulk_update(products, fields=['pim_id'])
+                MainProduct.objects.bulk_update(batch, fields=['pim_id'])
+                batch = []
         if not count%100==0:
-            MainProduct.objects.bulk_update(products, fields=['pim_id'])
+            MainProduct.objects.bulk_update(batch, fields=['pim_id'])
         self.stdout.write(self.style.SUCCESS('Выполнение завершено'))
