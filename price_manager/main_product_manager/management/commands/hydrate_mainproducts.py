@@ -1,7 +1,7 @@
 from django.core.management.base import BaseCommand
 from main_product_manager.models import MainProduct
 from supplier_manager.models import Supplier
-from main_product_manager.pim_api import site, UpsertAsync, Job, EntityList, Where
+from main_product_manager.pim_api import site, UpsertAsync, Job, EntityList, Where, entityMassUpdate
 from typing import Dict, List
 from time import sleep
 
@@ -26,7 +26,7 @@ class Command(BaseCommand):
         suppliers = Supplier.objects.all().filter(pim_id__isnull=True)
         products = MainProduct.objects.all().filter(pim_id__isnull=True).select_related('supplier', 'manufacturer')
         self.stdout.write(self.style.SUCCESS(f'Начало выполнения задачи. Число поставщиков: {suppliers.count()}, товаров: {products.count()}'))
-        s_payload : List[Dict[str, str|Dict[str, str]]] = []
+        s_payload : List[Dict[str, str|Dict[str, str|Dict[str, str]]]] = []
         count = 0
         for supplier in suppliers:
             s_payload.append({
@@ -39,6 +39,7 @@ class Command(BaseCommand):
             count += 1
             if count%1000==0:
                 s_id = site.get(UpsertAsync(payload=s_payload))['jobId']
+                s_id = site.get(entityMassUpdate(payload=s_payload))['jobId']
                 self.stdout.write(msg=f'Задача {s_id}. Кол-во поставщиков {len(s_payload)}')
                 s_payload = []
         if not count%1000==0:
@@ -70,6 +71,7 @@ class Command(BaseCommand):
             count += 1
             if count%1000==0:
                 mp_id = site.get(UpsertAsync(payload=mp_payload))['jobId']
+                mp_id = site.get(entityMassUpdate(payload=mp_payload))['jobId']
                 self.stdout.write(msg=f'Задача {mp_id}. Кол-во товаров {len(mp_payload)}')
                 mp_payload = []
         if count%1000==0:

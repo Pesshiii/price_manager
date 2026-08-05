@@ -58,6 +58,12 @@ class UpsertAsync(BaseModel):
     def get(self, prefix:str, headers:Dict[str, str])->httpx.Response:
         return httpx.post(url=prefix + 'upsertAsync', headers=headers, json=self.payload)
 
+class entityMassUpdate(BaseModel):
+    payload: List[Dict[str, str|Dict[str,str|Dict[str,str]]]]
+    def get(self, prefix:str, headers:Dict[str, str])->httpx.Response:
+        return httpx.post(url=prefix + 'entityMassUpdate', headers=headers, json=self.payload)
+
+
 class Job(BaseModel):
     id: str
     def get(self, prefix:str, headers:Dict[str, str])->httpx.Response:
