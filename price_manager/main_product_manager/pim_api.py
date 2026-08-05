@@ -2,7 +2,7 @@ import httpx
 import json
 from urllib.parse import urlencode
 from dataclasses import  dataclass
-from typing import List, Dict, Protocol, Optional
+from typing import List, Dict, Protocol, Optional, Any
 from pydantic import BaseModel
 from enum import Enum
 
@@ -54,15 +54,9 @@ class EntityList(BaseModel):
         return httpx.get(url = prefix + self.name, params=params, headers=headers)
 
 class UpsertAsync(BaseModel):
-    payload: List[Dict[str, str|Dict[str,str|Dict[str,str]]]]
+    payload: Any
     def get(self, prefix:str, headers:Dict[str, str])->httpx.Response:
         return httpx.post(url=prefix + 'upsertAsync', headers=headers, json=self.payload)
-
-class entityMassUpdate(BaseModel):
-    payload: List[Dict[str, str|Dict[str,str|Dict[str,str]]]]
-    def get(self, prefix:str, headers:Dict[str, str])->httpx.Response:
-        return httpx.post(url=prefix + 'entityMassUpdate', headers=headers, json=self.payload)
-
 
 class Job(BaseModel):
     id: str

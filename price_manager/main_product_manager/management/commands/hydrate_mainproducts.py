@@ -1,7 +1,7 @@
 from django.core.management.base import BaseCommand
 from main_product_manager.models import MainProduct
 from supplier_manager.models import Supplier
-from main_product_manager.pim_api import site, UpsertAsync, Job, EntityList, Where, entityMassUpdate
+from main_product_manager.pim_api import site, UpsertAsync, Job, EntityList, Where
 from typing import Dict, List
 from time import sleep
 
