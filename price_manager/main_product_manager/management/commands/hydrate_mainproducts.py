@@ -8,7 +8,16 @@ from time import sleep
 class Command(BaseCommand):
     help = "Вызовите эту команду чтобы насытить создать связь между Pim и PriceManager"
 
+    def add_arguments(self, parser):
+        parser.add_argument(
+            '--no-create',
+            action='store_true',
+            help='Создавать новые записи в PIM',
+        )
+
+
     def handle(self, *args, **options)->None:
+        bypass_create = options['no_create']
         def _get_supplier_id(supplier)->str|None:
             items =  site.get(
                     EntityList(name='Account', 
@@ -41,11 +50,13 @@ class Command(BaseCommand):
                 )
             count += 1
             if count%1000==0:
-                site.get(UpsertAsync(payload=s_payload))
-                self.stdout.write(msg=f'Создано {count} поставщиков.. Кол-во поставщиков {len(s_payload)}')
+                if not bypass_create:
+                    site.get(UpsertAsync(payload=s_payload))
+                self.stdout.write(msg=f'Создано {count} поставщиков. Кол-во поставщиков {len(s_payload)}')
                 s_payload = []
         if not count%1000==0:
-            site.get(UpsertAsync(payload=s_payload))
+            if not bypass_create:
+                site.get(UpsertAsync(payload=s_payload))
             self.stdout.write(msg=f'Создано {count} поставщиков. Кол-во поставщиков {len(s_payload)}')
         for supplier in suppliers:
             supplier.pim_id = _get_supplier_id(supplier)
@@ -63,26 +74,24 @@ class Command(BaseCommand):
                     'defaultSupplierId':product.supplier.pim_id,
                 }
             }
-            if not product.manufacturer is None:
-                item['payload']['brand'] = {
-                    'name': product.manufacturer.name
-                }
             mp_payload.append(
                     item
                 )
             count += 1
             if count%1000==0:
-                site.get(UpsertAsync(payload=mp_payload))
+                if not bypass_create:
+                    site.get(UpsertAsync(payload=mp_payload))
                 self.stdout.write(msg=f'Создано {count} продуктов. Кол-во товаров {len(mp_payload)}')
                 mp_payload = []
         if count%1000==0:
-            site.get(UpsertAsync(payload=mp_payload))
+            if not bypass_create:
+                site.get(UpsertAsync(payload=mp_payload))
             self.stdout.write(msg=f'Создано {count} продуктов. Кол-во товаров {len(mp_payload)}')
         self.stdout.write(self.style.SUCCESS('Создание связей'))
         count = 0
         for product in products:
             count += 1
             product.pim_id = _get_product_id(product)
-            self.stdout.write(f'Создание связи {count}')
+            self.stdout.write(f'Создание связи {count}. Связь {product.id} <-> {product.pim_id}')
         MainProduct.objects.bulk_update(products, fields=['pim_id'])
         self.stdout.write(self.style.SUCCESS('Выполнение завершено'))
