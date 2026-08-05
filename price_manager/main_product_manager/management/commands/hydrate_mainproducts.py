@@ -56,7 +56,7 @@ class Command(BaseCommand):
             item = {
                 'entity':'Product', 
                 'payload':{
-                    'priceManagerId':product.id,
+                    'priceManagerId':f"{product.id}",
                     'name':product.name, 
                     'mpn': product.article, 
                     'number': product.sku,
