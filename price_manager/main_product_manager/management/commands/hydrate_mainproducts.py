@@ -83,7 +83,7 @@ class Command(BaseCommand):
                     site.get(UpsertAsync(payload=mp_payload))
                 self.stdout.write(msg=f'Создано {count} продуктов. Кол-во товаров {len(mp_payload)}')
                 mp_payload = []
-        if count%1000==0:
+        if not count%1000==0:
             if not bypass_create:
                 site.get(UpsertAsync(payload=mp_payload))
             self.stdout.write(msg=f'Создано {count} продуктов. Кол-во товаров {len(mp_payload)}')
