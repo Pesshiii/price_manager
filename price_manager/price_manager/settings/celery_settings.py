@@ -44,6 +44,3 @@ CELERY_BEAT_SCHEDULE = {
         'schedule': CELERY_SUPPLIER_FILES_CLEANUP_MINUTES * 60,
     },
 }
-
-# Load task modules from all registered Django apps.
-app.autodiscover_tasks()
