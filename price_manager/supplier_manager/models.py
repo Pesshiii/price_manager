@@ -20,6 +20,12 @@ class Currency(models.Model):
     def __str__(self):
         return self.name
 
+
+def _get_default_currnecy():
+    obj, created = Currency.objects.get_or_create(name="KZT", value=1)
+    return obj.pk
+
+
 class Supplier(models.Model):
     """
     Модель Supplier представляет поставщика товаров.
@@ -53,7 +59,7 @@ class Supplier(models.Model):
     currency = models.ForeignKey(Currency,
                                 verbose_name='Валюта поставщика',
                                     on_delete=models.PROTECT,
-                                    default=1,
+                                    default=_get_default_currnecy,
                                     blank=False)
     price_updated_at = models.DateTimeField(verbose_name='Последнее обновление цены', 
                                             null=True,
