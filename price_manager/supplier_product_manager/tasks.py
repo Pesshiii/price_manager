@@ -13,6 +13,7 @@ from .filters import SupplierProductFilter
 from .models import (
     CopySupplierProductsToMainRun,
     Setting,
+    Supplier,
     SupplierFile,
     SupplierProduct,
 )
@@ -230,10 +231,14 @@ def copy_supplier_products_to_main_task(
                 continue
 
             sp_by_key = {(sp.article, sp.name): sp for sp in batch}
+            supplier = Supplier.objects.get(id=supplier_id)
+            prefix = supplier.sku_value if supplier.sku_type == 'prefix' else ''
+            suffix = supplier.sku_value if supplier.sku_type == 'suffix' else ''
             mps_to_create = [
                 MainProduct(
                     supplier_id=supplier_id,
                     article=article,
+                    sku=prefix + article + suffix,
                     name=name,
                     description=sp_by_key[(article, name)].description,
                     manufacturer=sp_by_key[(article, name)].manufacturer,

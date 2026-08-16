@@ -52,6 +52,14 @@ class SupplierForm(forms.ModelForm):
       ),
       HTML('<hr class="my-4 border-secondary col-8">'),
       Div(
+        Div(
+        Field('sku_type', css_class='form-select'), css_class="col-4"),
+        Div(
+        'sku_value',css_class="col-4"),
+        css_class='row'
+      ),
+      HTML('<hr class="my-4 border-secondary col-8">'),
+      Div(
         Div('delivery_days_available', css_class='col-4'),
         Div('delivery_days_navailable', css_class='col-4'),
         css_class='row',

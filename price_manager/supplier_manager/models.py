@@ -39,6 +39,17 @@ class Supplier(models.Model):
                                   unique=True)
     name = models.CharField(verbose_name='Поставщик',
                             unique=True)
+    sku_type = models.CharField(verbose_name='Префикс/Суффикс',
+                                choices=[
+                                    (None, 'Отсутсвует'),
+                                    ('prefix', 'Префикс'),
+                                    ('suffix', 'Суффикс')
+                                    ],
+                                null=True,
+                                blank=True)
+    sku_value = models.CharField(verbose_name='Значение Префикса/Суффикса',
+                                null=True,
+                                blank=True)
     currency = models.ForeignKey(Currency,
                                 verbose_name='Валюта поставщика',
                                     on_delete=models.PROTECT,
