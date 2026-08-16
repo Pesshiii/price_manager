@@ -1,4 +1,4 @@
-
+import os
 # /api/ paths that anonymous users may hit (CSRF bootstrap + login)
 LOGIN_EXEMPT_API_PREFIXES = (
     '/api/auth/csrf/',
