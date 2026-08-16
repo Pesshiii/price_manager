@@ -6,7 +6,7 @@ import django_tables2 as tables
 from .models import *
 from .forms import *
 
-from core.functions import get_field_details
+from price_manager.core.utils import get_field_details
 
 import pandas as pd
 

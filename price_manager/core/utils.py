@@ -3,6 +3,7 @@ from io import StringIO
 from .models import *
 from django.db import transaction
 from supplier_manager.models import Manufacturer, Category, ManufacturerDict
+from .models import ShoppingTab, CartItem
 # Работа с моделями
 
 def get_field_details(Model) -> dict:
@@ -86,3 +87,31 @@ def get_or_create_category_by_path(path: str, delimiter: str = ">") -> Category 
         last, _ = Category.objects.get_or_create(parent=parent, name=name)
         parent = last
         return last
+
+def update_cart_items(shopping_tab_id: int) -> int:
+    shopping_tab = ShoppingTab.objects.get(id=shopping_tab_id)
+    if not shopping_tab.file:
+        raise ValueError("Файл не найден")
+    # Чтение файла и создание CartItem
+    # Возвращает количество созданных CartItem
+    created_count = 0
+    if shopping_tab.file.name.endswith('.csv'):
+        df = pd.read_csv(shopping_tab.file.path, encoding='utf-8')
+    elif shopping_tab.file.name.endswith('.xlsx'):
+        df = pd.read_excel(shopping_tab.file.path)
+    else:
+        raise ValueError("Неподдерживаемый формат файла")
+    
+    for _, row in df.iterrows():
+        article = row.get('Артикул')
+        name = row.get('Название')
+        quantity = int(row.get('Остаток', 0))
+        if (article or name) and quantity > 0:
+            CartItem.objects.create(
+                shopping_tab=shopping_tab,
+                article=article,
+                name=name,
+                quantity=quantity
+            )
+            created_count += 1
+    return created_count

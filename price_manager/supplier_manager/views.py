@@ -34,7 +34,7 @@ from django_htmx.http import HttpResponseClientRedirect, HttpResponseClientRefre
 # Импорты моделей, функций, форм, таблиц
 from .models import *
 from file_manager.models import FileModel
-from core.functions import *
+from price_manager.core.utils import *
 from main_product_manager.models import MainProduct, MP_PRICES
 from .forms import *
 from .tables import *

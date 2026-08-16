@@ -1,28 +1,44 @@
 from django import forms
-from core.models import ShopingTab, AlternateProduct
+from core.models import ShoppingTab, AlternateProduct, ShoppingTab
+from crispy_forms.helper import FormHelper
+from crispy_forms.layout import Submit, Layout, Field
 
 
-class ShopingTabCreateForm(forms.ModelForm):
+class ShoppingTabCreateForm(forms.ModelForm):
+  def __init__(self, *args, **kwargs):
+    super().__init__(*args, **kwargs)
+    self.helper = FormHelper()
+    self.helper.form_method = 'post'
+    self.helper.layout = Layout(
+      Field('name', css_class='form-control'),
+      Field('file', css_class='form-control'),
+      Submit('submit', 'Создать', css_class='btn btn-primary')
+    )
+    
   class Meta:
-    model = ShopingTab
-    fields = ['name']
+    model = ShoppingTab
+    fields = ['name', 'file']
     labels = {
       'name': 'Название корзины',
+      'file': 'Файл',
     }
     widgets = {
       'name': forms.TextInput(attrs={'class': 'form-control', 'placeholder': 'Например, Заказ №1'}),
+      'file': forms.FileInput(attrs={'class': 'form-control'}),
     }
 
-class ShopingTabUpdateForm(forms.ModelForm):
+class ShoppingTabUpdateForm(forms.ModelForm):
   class Meta:
-    model = ShopingTab
-    fields = ['name', 'open']
+    model = ShoppingTab
+    fields = ['name', 'file', 'open']
     labels = {
       'name': 'Название',
+      'file': 'Файл',
       'open': 'Открыта',
     }
     widgets = {
       'name': forms.TextInput(attrs={'class': 'form-control'}),
+      'file': forms.FileInput(attrs={'class': 'form-control'}),
       'open': forms.CheckboxInput(attrs={'class': 'form-check-input'}),
     }
 

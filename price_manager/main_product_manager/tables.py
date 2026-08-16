@@ -5,7 +5,7 @@ from django.db.models import F, Case, When, Q, Value
 import django_tables2 as tables
 
 from .models import *
-from core.functions import *
+from price_manager.core.utils import *
 from .forms import *
 
 import pandas as pd
