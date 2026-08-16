@@ -13,7 +13,7 @@ class Command(BaseCommand):
         resourse = MainProductResource()
         self.stdout.write(self.style.SUCCESS(f'Запуск выгрузки {queryset.count()} товаров'))
         dataset = resourse.export(queryset)
-        self.stdout.write(self.style.SUCCESS(f'Датасет готов вгружаем'))
+        self.stdout.write(self.style.SUCCESS(f'Датасет готов выгружаем'))
         format_instance = XLSX()
         file_ext = "xlsx"
         exported_data = format_instance.export_data(dataset)
