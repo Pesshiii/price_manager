@@ -12,6 +12,8 @@ class SupplierForm(forms.ModelForm):
       'delivery_days_available',
       'delivery_days_navailable',
       'currency',
+      'sku_type',
+      'sku_value',
       'price_update_rate',
       'stock_update_rate',
       'msg_available',
@@ -53,10 +55,9 @@ class SupplierForm(forms.ModelForm):
       HTML('<hr class="my-4 border-secondary col-8">'),
       Div(
         Div(
-        Field('sku_type', css_class='form-select'), css_class="col-4"),
-        Div(
-        'sku_value',css_class="col-4"),
-        css_class='row'
+            Field('sku_type', css_class='form-select'), css_class="col-4"),
+            Div('sku_value', css_class="col-4"),
+            css_class='row'
       ),
       HTML('<hr class="my-4 border-secondary col-8">'),
       Div(
