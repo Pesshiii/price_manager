@@ -2,6 +2,7 @@
 from django.utils import timezone
 from django.db.models import ExpressionWrapper, Q, BooleanField, Value
 from django.core.cache import cache
+from django.conf import settings
 
 from .models import (SupplierFile, Setting, Link, 
                      SupplierProduct, Manufacturer, Discount, Category,
@@ -13,7 +14,6 @@ from main_product_manager.functions import recalculate_search_vectors
 from .forms import (DictFormset, LinkFormset,
                     InitialForm,
                     LINKS,)
-from price_manager.settings import DEBUG
 import pandas as pd
 import numpy as np
 from decimal import Decimal
@@ -185,7 +185,7 @@ def get_df(pk, recache=False)->pd.DataFrame|None:
     raise SupplierFileStorageMissingError(
       f"Файл настройки отсутствует в media-хранилище: setting_id={pk}, file={validated_file.name}"
     )
-  if not DEBUG:
+  if not settings.DEBUG:
     cached_df=cache.get(f'setting<{pk}>::dataframe<{sf.pk}>::<{Setting.sheet_name}>')
     if not recache and not cached_df is None:
         return cached_df
@@ -198,7 +198,7 @@ def get_df(pk, recache=False)->pd.DataFrame|None:
     df[column] = df[column].str.replace(r'\s+', ' ', regex=True)
   if df.shape[0] == 0:
     return None
-  if not DEBUG:
+  if not settings.DEBUG:
     cache.set(f'setting<{pk}>::dataframe<{sf.pk}>::<{Setting.sheet_name}>', df, timeout=60*30)
   return df
 
@@ -342,7 +342,7 @@ def get_sps(setting_or_pk: Setting | int, recache: bool = False) -> list[dict] |
     )
     signature = _get_setting_signature(setting)
     cache_key = _get_sps_cache_key(setting, signature)
-    if not DEBUG and not recache:
+    if not settings.DEBUG and not recache:
         cached_payload = cache.get(cache_key)
         if cached_payload is not None:
             return cached_payload
@@ -413,7 +413,7 @@ def get_sps(setting_or_pk: Setting | int, recache: bool = False) -> list[dict] |
         if required_field not in df.columns:
             return None
     payload = df.to_dict(orient="records")
-    if not DEBUG:
+    if not settings.DEBUG:
         cache.set(cache_key, payload, timeout=SPS_CACHE_TTL_SECONDS)
     return payload
 
