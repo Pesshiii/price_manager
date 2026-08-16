@@ -12,8 +12,7 @@ PROJECT_INSTALLED_APPS = [
     'dataframe',
     'product',
     'supplier_feed',
-    'supplier',
-    'pricing',
+    'supplier'
 ]
 
 PROJECT_MIDDLEWARE = [
