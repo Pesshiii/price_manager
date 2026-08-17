@@ -1,6 +1,6 @@
 from celery import shared_task
 from django.utils import timezone
-from price_manager.core.utils import update_cart_items
+from core.utils import update_cart_items
 
 @shared_task(name="core.update_cart_items")
 def update_cart_items_task(shopping_tab_id: int) -> dict:
