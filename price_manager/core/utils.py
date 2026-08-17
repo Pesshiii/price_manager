@@ -103,15 +103,15 @@ def update_cart_items(shopping_tab_id: int) -> int:
         raise ValueError("Неподдерживаемый формат файла")
     
     for _, row in df.iterrows():
-        article = row.get('Артикул')
-        name = row.get('Название')
-        quantity = int(row.get('Остаток', 0))
-        if (article or name) and quantity > 0:
-            CartItem.objects.create(
+        quantity = int(row.get('quantity', 0))
+        search_query = {key: value for key, value in row.items() if pd.notnull(value) and key != 'quantity'}
+        if quantity > 0:
+            cart_item = CartItem.objects.create(
                 shopping_tab=shopping_tab,
-                article=article,
-                name=name,
-                quantity=quantity
+                quantity=quantity,
+                search_query=search_query
             )
+            cart_item.products.set(cart_item.find_main_products())
+            shopping_tab.items.add(cart_item)
             created_count += 1
     return created_count

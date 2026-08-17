@@ -24,14 +24,19 @@ class CartItem(models.Model):
         verbose_name='Пользователь',
         on_delete=models.CASCADE,
         related_name='cart_items')
-    product = models.ForeignKey(
-        AlternateProduct,
+    search_query = models.JSONField(verbose_name='Поисковый запрос', null=True, blank=True)
+    products = models.ManyToManyField(
+        MainProduct,
         verbose_name='Товар',
-        on_delete=models.CASCADE,
         related_name='cart_items')
     quantity = models.PositiveIntegerField(verbose_name='Количество', default=1)
+    def find_main_products(self):
+        """
+        Находит все главные продукты подхдящие под поисковый запрос."""
+        return MainProduct.objects.filter(**{f"{k}__icontains": v for k, v in self.search_query.items()})
+
     class Meta:
-        constraints = [models.UniqueConstraint(fields=['user', 'product'], name='user_product_constraint')]
+        constraints = [models.UniqueConstraint(fields=['user', 'products'], name='user_products_constraint')]
 
 class ShoppingTab(models.Model):
     user = models.ForeignKey(

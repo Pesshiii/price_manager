@@ -139,15 +139,14 @@ class ShoppingTabDetailView(LoginRequiredMixin, UpdateView):
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
         context['products'] = (
-        self.object.products.select_related('main_product')
-        .order_by('name')
+            self.object.items.prefetch_related('products').order_by('name')
         )
         return context
 
 
 class ShoppingTabProductCreateView(LoginRequiredMixin, View):
     template_name = 'shopping_tab/product_form.html'
-    form_class = AlternateProductForm
+    form_class = CartItemForm
 
     def dispatch(self, request, *args, **kwargs):
         self.tab = get_object_or_404(ShoppingTab, pk=kwargs['tab_pk'], user=request.user)
@@ -183,8 +182,8 @@ class ShoppingTabProductCreateView(LoginRequiredMixin, View):
 
 
 class ShoppingTabProductUpdateView(LoginRequiredMixin, UpdateView):
-    model = AlternateProduct
-    form_class = AlternateProductForm
+    model = CartItem
+    form_class = CartItemForm
     template_name = 'shopping_tab/product_form.html'
     context_object_name = 'alternate_product'
     pk_url_kwarg = 'product_pk'
@@ -213,94 +212,12 @@ class ShoppingTabProductUpdateView(LoginRequiredMixin, UpdateView):
 class ShoppingTabProductDeleteView(LoginRequiredMixin, View):
     def post(self, request, tab_pk, pk):
         tab = get_object_or_404(ShoppingTab, pk=tab_pk, user=request.user)
-        product = get_object_or_404(AlternateProduct, pk=pk, shopping_tabs=tab)
-        tab.products.remove(product)
+        product = get_object_or_404(CartItem, pk=pk, shopping_tabs=tab)
+        tab.items.remove(product)
         if not product.shopping_tabs.exists():
             product.delete()
         messages.success(request, 'Товар удален из корзины.')
         return redirect('shopping-tab-detail', pk=tab.pk)
-
-
-class ShoppingTabSelectionView(LoginRequiredMixin, TemplateView):
-    template_name = 'shopping_tab/add_to_tab_modal.html'
-
-    def get_context_data(self, **kwargs):
-        context = super().get_context_data(**kwargs)
-        product = get_object_or_404(MainProduct, pk=self.kwargs['product_id'])
-        tabs = (
-        ShoppingTab.objects
-        .filter(user=self.request.user)
-        .annotate(product_count=Count('products', distinct=True))
-        .prefetch_related(
-            Prefetch(
-            'products',
-            queryset=AlternateProduct.objects.select_related('main_product').order_by('name')
-            )
-        )
-        .order_by('name')
-        )
-        existing_tab_ids = set(
-        AlternateProduct.objects
-        .filter(main_product=product, shopping_tabs__user=self.request.user)
-        .values_list('shopping_tabs__id', flat=True)
-        )
-        context.update({
-        'product': product,
-        'tabs': tabs,
-        'existing_tab_ids': existing_tab_ids,
-        })
-        return context
-
-
-class ShoppingTabAddProductView(LoginRequiredMixin, View):
-    template_name = 'shopping_tab/add_to_tab_modal_result.html'
-
-    def post(self, request, tab_pk, product_id):
-        tab = get_object_or_404(ShoppingTab, pk=tab_pk, user=request.user)
-        product = get_object_or_404(MainProduct, pk=product_id)
-        alternate_product_id = request.POST.get('alternate_product_id')
-        if alternate_product_id:
-            alternate_product = get_object_or_404(    
-                AlternateProduct,
-                pk=alternate_product_id,
-                shopping_tabs=tab,
-            )
-            already_linked = alternate_product.main_product_id == product.pk
-            if not already_linked:
-                (tab.products
-                .filter(main_product=product)
-                .exclude(pk=alternate_product.pk)
-                .update(main_product=None))
-                alternate_product.main_product = product
-                alternate_product.save(update_fields=['main_product'])
-                status = 'success'
-                message_text = (
-                    f'Товар связан с «{alternate_product.name}» в корзине «{tab.name}».')
-            else:
-                status = 'info'
-                message_text = 'Выбранный товар уже связан с этой позицией корзины.'
-        else:
-            if tab.products.filter(main_product=product).exists():
-                status = 'info'
-                message_text = 'Товар уже связан с выбранной корзиной.'
-            else:
-                alternate_product, created = AlternateProduct.objects.get_or_create(
-                    name=product.name,
-                    main_product=product,
-                )
-                tab.products.add(alternate_product)
-                status = 'success'
-                if created:
-                    message_text = f'Товар добавлен в корзину «{tab.name}».'
-                else:
-                    message_text = f'Товар привязан к корзине «{tab.name}».'
-        context = {
-        'tab': tab,
-        'product': product,
-        'status': status,
-        'message': message_text,
-        }
-        return render(request, self.template_name, context)
 
 
 class InstructionsView(LoginRequiredMixin, TemplateView):

@@ -1,5 +1,5 @@
 from django import forms
-from core.models import ShoppingTab, AlternateProduct, ShoppingTab
+from core.models import CartItem, ShoppingTab, AlternateProduct, ShoppingTab
 from crispy_forms.helper import FormHelper
 from crispy_forms.layout import Submit, Layout, Field
 
@@ -35,13 +35,15 @@ class ShoppingTabUpdateForm(forms.ModelForm):
         }
 
 
-class AlternateProductForm(forms.ModelForm):
+class CartItemForm(forms.ModelForm):
     class Meta:
-        model = AlternateProduct
-        fields = ['name']
+        model = CartItem
+        fields = ['query', 'found', 'quantity']
         labels = {
-        'name': 'Название',
+            'query': 'Запрос',
+            'quantity': 'Количество',
         }
         widgets = {
-        'name': forms.TextInput(attrs={'class': 'form-control'})
+            'query': forms.TextInput(attrs={'class': 'form-control'}),
+            'quantity': forms.NumberInput(attrs={'class': 'form-control'}),
         }
