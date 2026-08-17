@@ -3,6 +3,7 @@ from celery import chain, shared_task
 from core.models import PersistentNotification
 from core.task_runner import execute_locked_task
 from django.contrib.auth import get_user_model
+from price_manager.pim_connector.api import Where, EntityList, site
 from supplier_manager.models import Category
 from product_price_manager.models import update_prices
 
@@ -150,3 +151,14 @@ def sync_main_products_task(user_id: int):
         notify_sync_main_products_task.s(user_id=user_id),
     )
     return workflow.apply_async()
+
+@shared_task(name="main_product_manager.create_pim_link")
+def create_pim_link_task(id: str) -> None:
+    product = MainProduct.objects.filter(id=id).first()
+    if product is not None and product.pim_id is None:
+        product.pim_id = site.get(
+            EntityList(name='Product', 
+            select=['id'], 
+            where=[Where(attribute='priceManagerId', type='like', value=f'{product.id}')])
+        )['list'][0]['id']
+        product.save(update_fields=['pim_id'])

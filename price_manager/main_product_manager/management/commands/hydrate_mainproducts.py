@@ -4,6 +4,7 @@ from supplier_manager.models import Supplier
 from main_product_manager.pim_api import site, UpsertAsync, Job, EntityList, Where
 from typing import Dict, List
 from time import sleep
+from tasks import create_pim_link_task
 
 class Command(BaseCommand):
     help = "Вызовите эту команду чтобы насытить создать связь между Pim и PriceManager"
@@ -91,13 +92,6 @@ class Command(BaseCommand):
         count = 0
         batch = []
         for product in products:
-            count += 1
-            product.pim_id = _get_product_id(product)
-            batch.append(product)
-            self.stdout.write(f'Создание связи {count}. Связь {product.id} <-> {product.pim_id}')
-            if count%100==0:
-                MainProduct.objects.bulk_update(batch, fields=['pim_id'])
-                batch = []
-        if not count%100==0:
-            MainProduct.objects.bulk_update(batch, fields=['pim_id'])
+            if product.pim_id is None:
+                create_pim_link_task.delay(product.id)
         self.stdout.write(self.style.SUCCESS('Выполнение завершено'))
