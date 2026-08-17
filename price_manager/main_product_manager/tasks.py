@@ -166,11 +166,11 @@ def create_pim_links_task(ids: list, user_id: int|None = None) -> None:
                         select=['id'], 
                         where=[Where(attribute='priceManagerId', type='like', value=f'{product.id}')])
                     )['list'][0]['id']
-            products.append(product)
+                products.append(product)
         except Exception as e:
             errors += 1
             if errors < 5:
-                exceptions.append(f'{e}')
+                exceptions.append(f'ID<{product.id}><<{e}>>')
     MainProduct.objects.bulk_update(products, fields=['pim_id'])
     if get_user_model().objects.filter(pk=user_id).exists():
         PersistentNotification.objects.create(
