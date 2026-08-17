@@ -29,7 +29,7 @@ from django_htmx.http import reswap, trigger_client_event
 # Импорты моделей, функций, форм, таблиц
 from core.models import *
 from file_manager.models import FileModel
-from price_manager.core.tasks import update_cart_items_task
+from core.tasks import update_cart_items_task
 from .utils import *
 from .forms import *
 from .tables import *
