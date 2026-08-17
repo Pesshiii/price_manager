@@ -156,6 +156,7 @@ def sync_main_products_task(user_id: int):
 def create_pim_links_task(ids: list, user_id: int|None = None) -> None:
     errors = 0
     products = []
+    exceptions = []
     for id in ids:
         try:
             product = MainProduct.objects.get(id=id)
@@ -168,10 +169,12 @@ def create_pim_links_task(ids: list, user_id: int|None = None) -> None:
             products.append(product)
         except Exception as e:
             errors += 1
+            if errors < 5:
+                exceptions.append(f'{e}')
     MainProduct.objects.bulk_update(products, fields=['pim_id'])
     if get_user_model().objects.filter(pk=user_id).exists():
         PersistentNotification.objects.create(
             user_id=user_id,
             level="success",
-            message=f"Товары добавлены. Ошибок {errors}",
+            message=f"Товары добавлены. Ошибок {errors}: {';'.join(exceptions)}",
         )
