@@ -5,9 +5,10 @@ from dataclasses import  dataclass
 from typing import List, Dict, Protocol, Optional, Any
 from pydantic import BaseModel
 from enum import Enum
+from django.conf import settings
 
-token = "dGlyYWRvOjkyNjFlZDE2YzYxMTFhNTgyMjdiZjdhMjE1ZTljODFj"
-host = "pim.tirado.kz"
+token = settings.PIM_TOKEN
+host = settings.PIM_HOST
 
 
 class Method(Protocol):
