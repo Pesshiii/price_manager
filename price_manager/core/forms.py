@@ -1,5 +1,5 @@
 from django import forms
-from core.models import CartItem, ShoppingTab, AlternateProduct, ShoppingTab
+from core.models import CartItem, ShoppingTab, ShoppingTab
 from crispy_forms.helper import FormHelper
 from crispy_forms.layout import Submit, Layout, Field
 
