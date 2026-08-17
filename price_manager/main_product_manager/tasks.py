@@ -155,21 +155,23 @@ def sync_main_products_task(user_id: int):
 @shared_task(name="main_product_manager.create_pim_links")
 def create_pim_links_task(ids: list, user_id: int|None = None) -> None:
     errors = 0
+    products = []
     for id in ids:
         try:
             product = MainProduct.objects.get(id=id)
             if product is not None and product.pim_id is None:
                 product.pim_id = site.get(
-                    EntityList(name='Product', 
-                    select=['id'], 
-                where=[Where(attribute='priceManagerId', type='like', value=f'{product.id}')])
-            )['list'][0]['id']
-            product.save(update_fields=['pim_id'])
+                        EntityList(name='Product', 
+                        select=['id'], 
+                        where=[Where(attribute='priceManagerId', type='like', value=f'{product.id}')])
+                    )['list'][0]['id']
+            products.append(product)
         except Exception as e:
             errors += 1
+    MainProduct.objects.bulk_update(products, fields=['pim_id'])
     if get_user_model().objects.filter(pk=user_id).exists():
-            PersistentNotification.objects.create(
-                user_id=user_id,
-                level="success",
-                message=f"Товары добавлены. Ошибок {errors}",
-            )
+        PersistentNotification.objects.create(
+            user_id=user_id,
+            level="success",
+            message=f"Товары добавлены. Ошибок {errors}",
+        )
