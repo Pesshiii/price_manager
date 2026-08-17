@@ -170,9 +170,9 @@ def create_pim_links_task(ids: list, user_id: int|None = None) -> None:
                 level='danger',
                 message=f"Ошибка при создании связи для продукта {id}: {str(e)}",
             )
-        if get_user_model().objects.filter(pk=user_id).exists():
-                PersistentNotification.objects.create(
-                    user_id=user_id,
-                    level="success",
-                    message="Товары добавлены",
-                )
+    if get_user_model().objects.filter(pk=user_id).exists():
+            PersistentNotification.objects.create(
+                user_id=user_id,
+                level="success",
+                message="Товары добавлены",
+            )
