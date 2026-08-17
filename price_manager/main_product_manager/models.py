@@ -1,3 +1,4 @@
+from django.contrib.admin import site
 from django.db import models
 from django.contrib.postgres.search import SearchVectorField, SearchVector 
 from django.contrib.postgres.indexes import GinIndex
@@ -5,6 +6,7 @@ from django.db.models import Value, OuterRef, Subquery, Q, F, Sum
 from django.db.models.functions import Concat
 from django.core.validators import MinValueValidator, MaxValueValidator
 from django.utils import timezone
+from price_manager.main_product_manager.pim_api import site, EntityList, Where, ProductPM
 from supplier_manager.models import Supplier, Category, Manufacturer
 
 from decimal import Decimal
@@ -132,28 +134,39 @@ class MainProduct(models.Model):
       blank=True)
     def __str__(self)->str:
         return f'{self.sku}' if self.sku is not None else 'Не указан'
-    def _build_search_text(self) -> str:
+    def _build_searchvector(self) -> SearchVector:
         """Собираем строку для поиска без join-ов."""
-        parts = [
-            self.sku or "",
-            self.article or "",
-            self.name or "",
-            self.description or "",
-            ' '.join(self.category.get_ancestors(include_self=True).values_list('name', flat=True) if self.category else ""),
-            getattr(self.supplier, "name", ""),
-            getattr(self.manufacturer, "name", ""),
-        ]
-        return " ".join(parts)
+        if self.pim_id is None:
+            self.pim_id = site.get(
+                EntityList(name='Product', 
+                select=['id'], 
+                where=[Where(attribute='priceManagerId', type='like', value=f'{self.id}')])
+            )['list'][0]['id']
+            self.save(update_fields=['pim_id'])
+        pim_product = site.get(ProductPM(id=f'{self.pim_id}'))
+        vector = (
+            SearchVector(Value(''.join(pim_product['categoriesNames'].values())), weight='A', config='russian') +
+            SearchVector(Value(''.join(pim_product['tags'])), weight='A', config='russian') +
+            SearchVector(Value(pim_product['name']), weight='A', config='russian') +
+            SearchVector(Value(pim_product['nameSatu']), weight='A', config='russian') +
+            SearchVector(Value(pim_product['description']), weight='C', config='russian') +
+            SearchVector(Value(pim_product['longDescription']), weight='C', config='russian') +
+            SearchVector('sku', weight='B', config='russian')+
+            SearchVector('article', weight='B', config='russian') +
+            SearchVector('description', weight='D', config='russian')+
+            SearchVector('category__name', weight='C', config='russian') +
+            SearchVector("supplier__name", weight='C', config='russian') +
+            SearchVector("manufacturer__name", weight='C', config='russian')
+        )
+        return vector
     def rebuild_search_vector(self):
         """Обновляет search_vector без join-полей (через константу)."""
-        text = self._build_search_text()
         MainProduct.objects.filter(pk=self.pk).update(
-            search_vector=SearchVector(Value(text), config='russian')
+            search_vector=self._build_searchvector()
         )
     
     def save(self, *args, **kwargs):
         super().save(*args, **kwargs)
-        self.rebuild_search_vector()
   
 
 class MainProductLog(models.Model):

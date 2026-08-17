@@ -64,6 +64,11 @@ class Job(BaseModel):
     def get(self, prefix:str, headers:Dict[str, str])->httpx.Response:
             return httpx.get(url= prefix + 'Job/' + self.id, headers=headers)
 
+class ProductPM(BaseModel):
+    id: str
+    def get(self, prefix:str, headers:Dict[str, str])->httpx.Response:
+        return httpx.get(url=prefix + 'ProductPM/' + self.id, headers=headers)
+
 class SiteAPI(BaseModel):
     token:  str
     host: str
