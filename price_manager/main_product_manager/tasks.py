@@ -153,12 +153,20 @@ def sync_main_products_task(user_id: int):
     return workflow.apply_async()
 
 @shared_task(name="main_product_manager.create_pim_link")
-def create_pim_link_task(id: str) -> None:
-    product = MainProduct.objects.filter(id=id).first()
-    if product is not None and product.pim_id is None:
-        product.pim_id = site.get(
-            EntityList(name='Product', 
-            select=['id'], 
-            where=[Where(attribute='priceManagerId', type='like', value=f'{product.id}')])
-        )['list'][0]['id']
-        product.save(update_fields=['pim_id'])
+def create_pim_links_task(ids: list) -> None:
+    for id in ids:
+        try:
+            product = MainProduct.objects.get(id=id)
+            if product is not None and product.pim_id is None:
+                product.pim_id = site.get(
+                    EntityList(name='Product', 
+                    select=['id'], 
+                where=[Where(attribute='priceManagerId', type='like', value=f'{product.id}')])
+            )['list'][0]['id']
+            product.save(update_fields=['pim_id'])
+        except Exception as e:
+            PersistentNotification.objects.create(
+                user_id=1,  # Assuming user_id=1 is the admin or system user
+                level='danger',
+                message=f"Ошибка при создании связи для продукта {id}: {str(e)}",
+            )
