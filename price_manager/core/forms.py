@@ -33,17 +33,3 @@ class ShoppingTabUpdateForm(forms.ModelForm):
         'file': forms.FileInput(attrs={'class': 'form-control'}),
         'open': forms.CheckboxInput(attrs={'class': 'form-check-input'}),
         }
-
-
-class CartItemForm(forms.ModelForm):
-    class Meta:
-        model = CartItem
-        fields = ['quantity']
-        # labels = {
-        #     'query': 'Запрос',
-        #     'quantity': 'Количество',
-        # }
-        # widgets = {
-        #     'query': forms.TextInput(attrs={'class': 'form-control'}),
-        #     'quantity': forms.NumberInput(attrs={'class': 'form-control'}),
-        # }
