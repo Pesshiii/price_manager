@@ -99,7 +99,7 @@ class Command(BaseCommand):
                 create_pim_links_task.delay(batch, user_id=1)
                 self.stdout.write(msg=f'Создано {count} задач на создание связей')
                 batch = []
-        if not count%1000==0:
+        if not count%10000==0:
             create_pim_links_task.delay(batch, user_id=1)
             self.stdout.write(msg=f'Создано {count} задач на создание связей')
         self.stdout.write(self.style.SUCCESS('Выполнение завершено'))
