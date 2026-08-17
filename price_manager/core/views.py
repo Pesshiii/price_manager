@@ -85,9 +85,9 @@ class ShoppingTabListView(LoginRequiredMixin, TemplateView):
         context['form'] = form if form is not None else self.form_class()
         context['tabs'] = (
         ShoppingTab.objects
-        .filter(user=self.request.user)
-        .annotate(product_count=Count('items', distinct=True))
-        .order_by('name')
+            .filter(user=self.request.user)
+            .annotate(item_count=Count('items', distinct=True))
+            .order_by('name')
         )
         context['products'] = {tab.name: [product for product in tab.items.all()] for tab in context['tabs']}
         return context
