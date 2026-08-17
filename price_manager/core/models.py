@@ -35,9 +35,6 @@ class CartItem(models.Model):
         Находит все главные продукты подхдящие под поисковый запрос."""
         return MainProduct.objects.filter(**{f"{k}__icontains": v for k, v in self.search_query.items()})
 
-    class Meta:
-        constraints = [models.UniqueConstraint(fields=['user', 'products'], name='user_products_constraint')]
-
 class ShoppingTab(models.Model):
     user = models.ForeignKey(
         'auth.User',
