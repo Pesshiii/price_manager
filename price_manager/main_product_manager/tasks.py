@@ -153,7 +153,7 @@ def sync_main_products_task(user_id: int):
     return workflow.apply_async()
 
 @shared_task(name="main_product_manager.create_pim_links")
-def create_pim_links_task(ids: list) -> None:
+def create_pim_links_task(ids: list, user_id: int = None) -> None:
     for id in ids:
         try:
             product = MainProduct.objects.get(id=id)
@@ -170,3 +170,9 @@ def create_pim_links_task(ids: list) -> None:
                 level='danger',
                 message=f"Ошибка при создании связи для продукта {id}: {str(e)}",
             )
+        if get_user_model().objects.filter(pk=user_id).exists():
+                PersistentNotification.objects.create(
+                    user_id=user_id,
+                    level=level,
+                    message="\n".join(lines),
+                )
