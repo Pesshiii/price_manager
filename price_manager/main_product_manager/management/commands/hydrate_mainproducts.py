@@ -4,7 +4,7 @@ from supplier_manager.models import Supplier
 from main_product_manager.pim_api import site, UpsertAsync, Job, EntityList, Where
 from typing import Dict, List
 from time import sleep
-from main_product_manager.tasks import create_pim_link_task
+from main_product_manager.tasks import create_pim_links_task
 
 class Command(BaseCommand):
     help = "Вызовите эту команду чтобы насытить создать связь между Pim и PriceManager"
