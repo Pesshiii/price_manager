@@ -6,7 +6,7 @@ from django.db.models import Value, OuterRef, Subquery, Q, F, Sum
 from django.db.models.functions import Concat
 from django.core.validators import MinValueValidator, MaxValueValidator
 from django.utils import timezone
-from price_manager.main_product_manager.pim_api import site, EntityList, Where, ProductPM
+from main_product_manager.pim_api import site, EntityList, Where, ProductPM
 from supplier_manager.models import Supplier, Category, Manufacturer
 
 from decimal import Decimal
