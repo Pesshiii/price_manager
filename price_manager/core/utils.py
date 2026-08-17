@@ -4,6 +4,8 @@ from .models import *
 from django.db import transaction
 from supplier_manager.models import Manufacturer, Category, ManufacturerDict
 from .models import ShoppingTab, CartItem
+from main_product_manager.models import MainProduct
+from main_product_manager.filters import MainProductFilter
 # Работа с моделями
 
 def get_field_details(Model) -> dict:
@@ -83,10 +85,7 @@ def get_or_create_category_by_path(path: str, delimiter: str = ">") -> Category 
     for level, name in enumerate(parts[:10]):
         node, _ = Category.objects.get_or_create(parent=parent, name=name)
         parent = node
-        return node
-        last, _ = Category.objects.get_or_create(parent=parent, name=name)
-        parent = last
-        return last
+    return node
 
 def update_cart_items(shopping_tab_id: int) -> int:
     shopping_tab = ShoppingTab.objects.get(id=shopping_tab_id)
@@ -109,9 +108,16 @@ def update_cart_items(shopping_tab_id: int) -> int:
             cart_item = CartItem.objects.create(
                 shopping_tab=shopping_tab,
                 quantity=quantity,
-                search_query=search_query
+                search_query= ' '.join(f"{k} {v}" for k, v in search_query.items())
             )
-            cart_item.products.set(cart_item.find_main_products())
+            cart_item.products.set(find_main_products(cart_item.search_query))
             shopping_tab.items.add(cart_item)
             created_count += 1
     return created_count
+
+def find_main_products(search_query: str|None) -> list[MainProduct]:
+    """
+    Находит все главные продукты, подходящие под поисковый запрос.
+    """
+    filter = MainProductFilter(data={'search': search_query}, queryset=MainProduct.objects.all())
+    return list(filter.qs)

@@ -9,17 +9,13 @@ class CartItem(models.Model):
         verbose_name='Пользователь',
         on_delete=models.CASCADE,
         related_name='cart_items')
-    search_query = models.JSONField(verbose_name='Поисковый запрос', null=True, blank=True)
+    search_query = models.CharField(verbose_name='Поисковый запрос', null=True, blank=True)
     products = models.ManyToManyField(
         MainProduct,
         verbose_name='Товар',
         related_name='cart_items')
     quantity = models.PositiveIntegerField(verbose_name='Количество', default=1)
-    def find_main_products(self):
-        """
-        Находит все главные продукты подхдящие под поисковый запрос."""
-        return MainProduct.objects.filter(**{f"{k}__icontains": v for k, v in self.search_query.items()})
-
+    
 class ShoppingTab(models.Model):
     user = models.ForeignKey(
         'auth.User',
