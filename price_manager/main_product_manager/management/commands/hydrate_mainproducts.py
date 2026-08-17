@@ -27,7 +27,7 @@ class Command(BaseCommand):
             return items[0]['id'] if len(items)>0 else None
         def _get_product_id(product: MainProduct)->str|None:
             items = site.get(
-                    EntityList(name='Product', 
+                    EntityList(name='ProductPM', 
                     select=['id'], 
                     where=[Where(attribute='priceManagerId', type='like', value=f'{product.id}')])
                 )['list']
@@ -65,9 +65,8 @@ class Command(BaseCommand):
         mp_payload = []
         for product in products:
             item = {
-                'entity':'Product', 
+                'entity':'ProductPM', 
                 'payload':{
-                    'name':product.name, 
                     'priceManagerId':f"{product.id}",
                     'mpn': product.article, 
                     'number': product.article,
