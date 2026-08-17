@@ -38,7 +38,7 @@ class ShoppingTabUpdateForm(forms.ModelForm):
 class CartItemForm(forms.ModelForm):
     class Meta:
         model = CartItem
-        fields = ['query', 'found', 'quantity']
+        fields = ['query', 'quantity']
         labels = {
             'query': 'Запрос',
             'quantity': 'Количество',
