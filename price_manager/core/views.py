@@ -216,7 +216,7 @@ class ShoppingTabProductDeleteView(LoginRequiredMixin, View):
         product = get_object_or_404(AlternateProduct, pk=pk, shopping_tabs=tab)
         tab.products.remove(product)
         if not product.shopping_tabs.exists():
-        product.delete()
+            product.delete()
         messages.success(request, 'Товар удален из корзины.')
         return redirect('shopping-tab-detail', pk=tab.pk)
 
