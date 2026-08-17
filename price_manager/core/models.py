@@ -47,9 +47,6 @@ class ShoppingTab(models.Model):
                           upload_to='shopping_tabs/',
                           null=True,
                           blank=True)
-    products = models.ManyToManyField(AlternateProduct,
-                                    verbose_name='Товары',
-                                    related_name='shopping_tabs')
     items = models.ManyToManyField(CartItem,
                                     verbose_name='Элементы корзины',
                                     related_name='shopping_tabs')
