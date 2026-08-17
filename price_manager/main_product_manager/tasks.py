@@ -153,28 +153,18 @@ def sync_main_products_task(user_id: int):
     return workflow.apply_async()
 
 @shared_task(name="main_product_manager.create_pim_links")
-def create_pim_links_task(ids: list, user_id: int|None = None) -> None:
+def create_pim_links_task() -> None:
     errors = 0
-    products = []
+    products = MainProduct.objects.filter(pim_id__isnull=True)[:1000]
+    result = []
     exceptions = []
-    for id in ids:
-        try:
-            product = MainProduct.objects.get(id=id)
-            if product is not None and product.pim_id is None:
-                product.pim_id = site.get(
-                        EntityList(name='ProductPM',
-                        select=['id'], 
-                        where=[Where(attribute='priceManagerId', type='like', value=f'{id}')])
-                    )['list'][0]['id']
-                products.append(product)
-        except Exception as e:
-            errors += 1
-            if errors < 5:
-                exceptions.append(f'ID<{product.id}><<{e}>>')
-    MainProduct.objects.bulk_update(products, fields=['pim_id'])
-    if get_user_model().objects.filter(pk=user_id).exists():
-        PersistentNotification.objects.create(
-            user_id=user_id,
-            level="success",
-            message=f"Товары добавлены. Ошибок {errors}: {';'.join(exceptions)}",
-        )
+    for product in products:
+        product = MainProduct.objects.get(id=id)
+        if product is not None and product.pim_id is None:
+            product.pim_id = site.get(
+                    EntityList(name='ProductPM',
+                    select=['id'], 
+                    where=[Where(attribute='priceManagerId', type='like', value=f'{id}')])
+                )['list'][0]['id']
+            result.append(product)
+    return MainProduct.objects.bulk_update(products, fields=['pim_id'])
