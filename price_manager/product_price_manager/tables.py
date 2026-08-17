@@ -5,7 +5,7 @@ from django.urls import reverse
 import django_tables2 as tables
 
 from .models import *
-from price_manager.core.utils import *
+from core.utils import *
 from .forms import *
 
 
