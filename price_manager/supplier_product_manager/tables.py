@@ -1,4 +1,4 @@
-from django.utils.html import format_html, mark_safe
+from django.utils.html import format_html
 from django.utils import timezone
 from django.template.loader import render_to_string
 import django_tables2 as tables
@@ -6,7 +6,7 @@ import django_tables2 as tables
 from .models import *
 from .forms import *
 
-from price_manager.core.utils import get_field_details
+from core.utils import get_field_details
 
 import pandas as pd
 
