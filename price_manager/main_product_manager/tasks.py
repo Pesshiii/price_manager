@@ -3,7 +3,7 @@ from celery import chain, shared_task
 from core.models import PersistentNotification
 from core.task_runner import execute_locked_task
 from django.contrib.auth import get_user_model
-from price_manager.pim_connector.api import Where, EntityList, site
+from main_product_manager.pim_api import Where, EntityList, site
 from supplier_manager.models import Category
 from product_price_manager.models import update_prices
 
