@@ -152,7 +152,7 @@ def sync_main_products_task(user_id: int):
     )
     return workflow.apply_async()
 
-@shared_task(name="main_product_manager.create_pim_link")
+@shared_task(name="main_product_manager.create_pim_links")
 def create_pim_links_task(ids: list) -> None:
     for id in ids:
         try:
