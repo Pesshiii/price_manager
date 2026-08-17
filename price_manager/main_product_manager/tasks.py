@@ -162,7 +162,7 @@ def create_pim_links_task(ids: list, user_id: int|None = None) -> None:
             product = MainProduct.objects.get(id=id)
             if product is not None and product.pim_id is None:
                 product.pim_id = site.get(
-                        EntityList(name='Product', 
+                        EntityList(name='ProductPM', 
                         select=['id'], 
                         where=[Where(attribute='priceManagerId', type='like', value=f'{product.id}')])
                     )['list'][0]['id']
