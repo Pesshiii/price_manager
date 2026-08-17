@@ -154,6 +154,7 @@ def sync_main_products_task(user_id: int):
 
 @shared_task(name="main_product_manager.create_pim_links")
 def create_pim_links_task(ids: list, user_id: int|None = None) -> None:
+    errors = 0
     for id in ids:
         try:
             product = MainProduct.objects.get(id=id)
@@ -165,14 +166,10 @@ def create_pim_links_task(ids: list, user_id: int|None = None) -> None:
             )['list'][0]['id']
             product.save(update_fields=['pim_id'])
         except Exception as e:
-            PersistentNotification.objects.create(
-                user_id=1,  # Assuming user_id=1 is the admin or system user
-                level='danger',
-                message=f"Ошибка при создании связи для продукта {id}: {str(e)}",
-            )
+            errors += 1
     if get_user_model().objects.filter(pk=user_id).exists():
             PersistentNotification.objects.create(
                 user_id=user_id,
                 level="success",
-                message="Товары добавлены",
+                message=f"Товары добавлены. Ошибок {errors}",
             )
