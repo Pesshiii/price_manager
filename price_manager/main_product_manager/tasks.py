@@ -84,7 +84,7 @@ def update_logs_task() -> dict:
 def delete_outdated_logs_task(stats: dict | None = None) -> dict:
     def delete_logs():
         if MainProductLog.objects.count() > 100000:
-            return MainProductLog.objects.all()[:100000].delete()[0]
+            return MainProductLog.objects.filter(id__in=MainProductLog.objects.all()[:100000].values_list('id', flat=True)).delete()[0]
         return 0
 
     payload  = execute_locked_task(
