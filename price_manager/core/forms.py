@@ -38,12 +38,12 @@ class ShoppingTabUpdateForm(forms.ModelForm):
 class CartItemForm(forms.ModelForm):
     class Meta:
         model = CartItem
-        fields = ['query', 'quantity']
-        labels = {
-            'query': 'Запрос',
-            'quantity': 'Количество',
-        }
-        widgets = {
-            'query': forms.TextInput(attrs={'class': 'form-control'}),
-            'quantity': forms.NumberInput(attrs={'class': 'form-control'}),
-        }
+        fields = ['quantity']
+        # labels = {
+        #     'query': 'Запрос',
+        #     'quantity': 'Количество',
+        # }
+        # widgets = {
+        #     'query': forms.TextInput(attrs={'class': 'form-control'}),
+        #     'quantity': forms.NumberInput(attrs={'class': 'form-control'}),
+        # }
