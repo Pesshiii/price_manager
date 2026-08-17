@@ -5,51 +5,43 @@ from crispy_forms.layout import Submit, Layout, Field
 
 
 class ShoppingTabCreateForm(forms.ModelForm):
-  def __init__(self, *args, **kwargs):
-    super().__init__(*args, **kwargs)
-    self.helper = FormHelper()
-    self.helper.form_method = 'post'
-    self.helper.layout = Layout(
-      Field('name', css_class='form-control'),
-      Field('file', css_class='form-control'),
-      Submit('submit', 'Создать', css_class='btn btn-primary')
-    )
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.helper = FormHelper()
+        self.helper.form_method = 'post'
+        self.helper.layout = Layout(
+        Field('name', css_class='form-control'),
+        Field('file', css_class='form-control'),
+        Submit('submit', 'Создать', css_class='btn btn-primary')
+        )
     
-  class Meta:
-    model = ShoppingTab
-    fields = ['name', 'file']
-    labels = {
-      'name': 'Название корзины',
-      'file': 'Файл',
-    }
-    widgets = {
-      'name': forms.TextInput(attrs={'class': 'form-control', 'placeholder': 'Например, Заказ №1'}),
-      'file': forms.FileInput(attrs={'class': 'form-control'}),
-    }
+    class Meta:
+        model = ShoppingTab
+        fields = ['name', 'file']
 
 class ShoppingTabUpdateForm(forms.ModelForm):
-  class Meta:
-    model = ShoppingTab
-    fields = ['name', 'file', 'open']
-    labels = {
-      'name': 'Название',
-      'file': 'Файл',
-      'open': 'Открыта',
-    }
-    widgets = {
-      'name': forms.TextInput(attrs={'class': 'form-control'}),
-      'file': forms.FileInput(attrs={'class': 'form-control'}),
-      'open': forms.CheckboxInput(attrs={'class': 'form-check-input'}),
-    }
+    class Meta:
+        model = ShoppingTab
+        fields = ['name', 'file', 'open']
+        labels = {
+        'name': 'Название',
+        'file': 'Файл',
+        'open': 'Открыта',
+        }
+        widgets = {
+        'name': forms.TextInput(attrs={'class': 'form-control'}),
+        'file': forms.FileInput(attrs={'class': 'form-control'}),
+        'open': forms.CheckboxInput(attrs={'class': 'form-check-input'}),
+        }
 
 
 class AlternateProductForm(forms.ModelForm):
-  class Meta:
-    model = AlternateProduct
-    fields = ['name']
-    labels = {
-      'name': 'Название',
-    }
-    widgets = {
-      'name': forms.TextInput(attrs={'class': 'form-control'})
-    }
+    class Meta:
+        model = AlternateProduct
+        fields = ['name']
+        labels = {
+        'name': 'Название',
+        }
+        widgets = {
+        'name': forms.TextInput(attrs={'class': 'form-control'})
+        }
