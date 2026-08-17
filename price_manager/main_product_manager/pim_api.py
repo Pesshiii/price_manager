@@ -81,4 +81,4 @@ class SiteAPI(BaseModel):
         response.raise_for_status()
         return response.json()
     
-site = SiteAPI(token=token, host=host)
+site = SiteAPI(token=f'{token}', host=f'{host}')
