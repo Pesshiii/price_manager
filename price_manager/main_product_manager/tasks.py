@@ -159,7 +159,7 @@ def create_pim_links_task(ids: list, user_id: int|None = None) -> None:
     exceptions = []
     for id in ids:
         try:
-            product = MainProduct.objects.filter(id=id).first()
+            product = MainProduct.objects.get(id=id)
             if product is not None and product.pim_id is None:
                 product.pim_id = site.get(
                         EntityList(name='ProductPM',

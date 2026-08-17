@@ -95,7 +95,7 @@ class Command(BaseCommand):
             if product.pim_id is None:
                 batch.append(product.id)
                 count += 1
-            if count%1000==0:
+            if count%10000==0:
                 create_pim_links_task.delay(batch, user_id=1)
                 self.stdout.write(msg=f'Создано {count} задач на создание связей')
                 batch = []
