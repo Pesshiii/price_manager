@@ -7,7 +7,7 @@ from django.db.models import Q
 
 
 from .models import *
-from price_manager.core.utils import *
+from core.utils import *
 from .forms import *
 
 import pandas as pd

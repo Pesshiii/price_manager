@@ -25,7 +25,7 @@ from crispy_forms.utils import render_crispy_form
 
 # Импорты моделей, функций, форм, таблиц
 from product_price_manager.models import PriceManager, PriceTag
-from price_manager.core.utils import extract_initial_from_post
+from core.utils import extract_initial_from_post
 from supplier_manager.forms import SupplierForm
 from .models import CopySupplierProductsToMainRun, DictItem, SupplierFile
 from .forms import *
