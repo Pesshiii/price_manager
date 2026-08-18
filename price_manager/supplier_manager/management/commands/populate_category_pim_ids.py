@@ -148,9 +148,15 @@ class Command(BaseCommand):
     def _link_products(self):
         self.stdout.write('\nПривязка продуктов к категориям...')
 
-        categories = list(Category.objects.exclude(pim_id__isnull=True))
+        try:
+            main_tree = Category.objects.get(name='Основной', parent=None)
+        except Category.DoesNotExist:
+            self.stdout.write(self.style.ERROR('Главная ветка не найдена — пропуск привязки продуктов.'))
+            return
+
+        categories = list(main_tree.get_descendants().exclude(pim_id__isnull=True))
         if not categories:
-            self.stdout.write(self.style.WARNING('Нет категорий с pim_id — пропуск привязки продуктов.'))
+            self.stdout.write(self.style.WARNING('Нет категорий с pim_id в главной ветке — пропуск привязки продуктов.'))
             return
 
         linked = 0
