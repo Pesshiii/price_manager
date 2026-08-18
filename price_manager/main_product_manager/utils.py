@@ -130,7 +130,7 @@ def update_stocks():
   return mps.update(stock=F('new_stock'))
 
 def create_pim_links(delay: float = 0.5) -> int:
-    products = MainProduct.objects.filter(pim_id__isnull=True)[:1000]
+    products = list(MainProduct.objects.filter(pim_id__isnull=True)[:1000])
     result = []
     for product in products:
         try:
@@ -147,6 +147,8 @@ def create_pim_links(delay: float = 0.5) -> int:
         except Exception:
             pass
         time.sleep(delay)
+    # bulk_update is the only DB write; kept outside the API loop so
+    # execute_locked_task's transaction.atomic() doesn't span HTTP calls.
     if result:
         MainProduct.objects.bulk_update(result, fields=['pim_id'])
     return len(result)
