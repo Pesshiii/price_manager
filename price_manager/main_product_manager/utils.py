@@ -141,7 +141,7 @@ def get_file_url(file_id: str | None, size: str = 'medium') -> str | None:
         except Exception as exc:
             _record_pim_error("get_file_url", exc, int((time.monotonic() - t0) * 1000))
             return None
-    return settings.PIM_HOST + data.get(f'{size}ThumbnailUrl') or data.get('url') or data.get('downloadUrl')
+    return "https://" + settings.PIM_HOST + data.get(f'{size}ThumbnailUrl') or data.get('url') or data.get('downloadUrl')
 
 
 
