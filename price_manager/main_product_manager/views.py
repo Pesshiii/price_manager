@@ -44,7 +44,7 @@ from .forms import *
 from .tables import *
 from .filters import *
 from .utils import *
-from .utils import get_pim_data_for_product, prefetch_pim_data, get_file_url
+from .utils import get_pim_data_for_product, prefetch_pim_data, get_file_url, maybe_notify_pim_error
 from .tasks import sync_main_products_task
 from supplier_product_manager.views import UploadSupplierFile
 
@@ -158,6 +158,7 @@ class MainProductTableView(SingleTableView):
         table.pim_map = prefetch_pim_data(page_records)
         for data in table.pim_map.values():
           get_file_url(data.get('mainImageId') or data.get('imageId'))
+        maybe_notify_pim_error(self.request.user)
       return context
 
 

@@ -12,7 +12,7 @@ host = settings.PIM_HOST
 
 
 class Method(Protocol):
-    def get(self, prefix: str, headers:Dict[str, str], *args, **kwargs)->httpx.Response:
+    def get(self, prefix: str, headers: Dict[str, str], timeout: float, *args, **kwargs) -> httpx.Response:
       ...
 
 
@@ -45,47 +45,49 @@ class EntityList(BaseModel):
     select: Optional[List[str]] = None
     where: Optional[List[Where]] = None
     ordering: Optional[Ordering] = None
-    def get(self, prefix: str, headers: Dict[str, str])->httpx.Response:
+    def get(self, prefix: str, headers: Dict[str, str], timeout: float = 5.0) -> httpx.Response:
         params = dict()
         if self.select:
             params.update({'select':','.join(self.select)})
         if self.where:
             for i, where in enumerate(self.where):
                 params.update(where.get(i))
-        return httpx.get(url = prefix + self.name, params=params, headers=headers)
+        return httpx.get(url=prefix + self.name, params=params, headers=headers, timeout=timeout)
 
 class UpsertAsync(BaseModel):
     payload: Any
-    def get(self, prefix:str, headers:Dict[str, str])->httpx.Response:
-        return httpx.post(url=prefix + 'upsertAsync', headers=headers, json=self.payload)
+    def get(self, prefix: str, headers: Dict[str, str], timeout: float = 5.0) -> httpx.Response:
+        return httpx.post(url=prefix + 'upsertAsync', headers=headers, json=self.payload, timeout=timeout)
 
 class Job(BaseModel):
     id: str
-    def get(self, prefix:str, headers:Dict[str, str])->httpx.Response:
-            return httpx.get(url= prefix + 'Job/' + self.id, headers=headers)
+    def get(self, prefix: str, headers: Dict[str, str], timeout: float = 5.0) -> httpx.Response:
+        return httpx.get(url=prefix + 'Job/' + self.id, headers=headers, timeout=timeout)
 
 class ProductPM(BaseModel):
     id: str
-    def get(self, prefix:str, headers:Dict[str, str])->httpx.Response:
-        return httpx.get(url=prefix + 'ProductPM/' + self.id, headers=headers)
+    def get(self, prefix: str, headers: Dict[str, str], timeout: float = 5.0) -> httpx.Response:
+        return httpx.get(url=prefix + 'ProductPM/' + self.id, headers=headers, timeout=timeout)
 
 class FileRecord(BaseModel):
     id: str
-    def get(self, prefix: str, headers: Dict[str, str]) -> httpx.Response:
-        return httpx.get(url=prefix + 'File/' + self.id, headers=headers)
+    def get(self, prefix: str, headers: Dict[str, str], timeout: float = 5.0) -> httpx.Response:
+        return httpx.get(url=prefix + 'File/' + self.id, headers=headers, timeout=timeout)
 
 class SiteAPI(BaseModel):
-    token:  str
+    token: str
     host: str
+    timeout: float = 5.0
+
     def get(self, method: Method):
         headers = {
             'Accept': 'application/json',
             'Authorization-Token': self.token
-        } 
-        response = method.get(prefix=f'https://{self.host}/api/', headers=headers)
+        }
+        response = method.get(prefix=f'https://{self.host}/api/', headers=headers, timeout=self.timeout)
         response.raise_for_status()
         return response.json()
-    
+
 site = SiteAPI(token=f'{token}', host=f'{host}')
 
 

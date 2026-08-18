@@ -17,6 +17,43 @@ from supplier_product_manager.models import SupplierProduct
 CACHE_TTL = 60 * 60 * 24 * 30  # 30 дней
 PIM_CACHE_TTL = 60 * 60 * 24  # 24 часа
 
+_PIM_LAST_ERROR_KEY = "pim_last_error"
+_PIM_NOTIF_THROTTLE_PREFIX = "pim_notif_sent:"
+_PIM_NOTIF_THROTTLE_TTL = 60 * 30  # 30 minutes between repeat notifications
+
+
+def _record_pim_error(op: str, exc: Exception, elapsed_ms: int) -> None:
+    from django.utils import timezone
+    cache.set(_PIM_LAST_ERROR_KEY, {
+        "op": op,
+        "error": f"{type(exc).__name__}: {exc}",
+        "elapsed_ms": elapsed_ms,
+        "at": timezone.now().strftime("%d.%m.%Y %H:%M:%S"),
+    }, timeout=60 * 60)
+
+
+def maybe_notify_pim_error(user) -> None:
+    """Create one throttled PersistentNotification per error window when PIM is failing."""
+    if not user or not user.is_authenticated:
+        return
+    error_info = cache.get(_PIM_LAST_ERROR_KEY)
+    if not error_info:
+        return
+    throttle_key = f"{_PIM_NOTIF_THROTTLE_PREFIX}{user.pk}"
+    if cache.get(throttle_key):
+        return
+    from core.models import PersistentNotification
+    PersistentNotification.objects.create(
+        user=user,
+        level="danger",
+        message=(
+            f"PIM недоступен [{error_info['op']}]: "
+            f"{error_info['error']} — "
+            f"{error_info['elapsed_ms']}ms в {error_info['at']}"
+        ),
+    )
+    cache.set(throttle_key, True, _PIM_NOTIF_THROTTLE_TTL)
+
 
 def get_pim_data(pim_id: str | None) -> dict | None:
     if not pim_id:
@@ -25,11 +62,13 @@ def get_pim_data(pim_id: str | None) -> dict | None:
     cached = cache.get(cache_key)
     if cached is not None:
         return cached
+    t0 = time.monotonic()
     try:
         data = site.get(ProductPM(id=pim_id))
         cache.set(cache_key, data, PIM_CACHE_TTL)
         return data
-    except Exception:
+    except Exception as exc:
+        _record_pim_error("get_pim_data", exc, int((time.monotonic() - t0) * 1000))
         return None
 
 
@@ -41,6 +80,7 @@ def _resolve_pim_id(product) -> str | None:
     no_match_key = f"pim_no_match:{product.pk}"
     if cache.get(no_match_key):
         return None
+    t0 = time.monotonic()
     try:
         result = site.get(
             EntityList(
@@ -54,8 +94,9 @@ def _resolve_pim_id(product) -> str | None:
             MainProduct.objects.filter(pk=product.pk).update(pim_id=pim_id)
             product.pim_id = pim_id
             return pim_id
-    except Exception:
-        pass
+        # No match is normal — don't treat as error, just set no-match cache below
+    except Exception as exc:
+        _record_pim_error("_resolve_pim_id", exc, int((time.monotonic() - t0) * 1000))
     cache.set(no_match_key, True, _PIM_NO_MATCH_TTL)
     return None
 
@@ -84,10 +125,12 @@ def get_file_url(file_id: str | None, size: str = 'medium') -> str | None:
     cache_key = f"pim_file:{file_id}"
     data = cache.get(cache_key)
     if data is None:
+        t0 = time.monotonic()
         try:
             data = site.get(FileRecord(id=file_id))
             cache.set(cache_key, data, PIM_CACHE_TTL)
-        except Exception:
+        except Exception as exc:
+            _record_pim_error("get_file_url", exc, int((time.monotonic() - t0) * 1000))
             return None
     return data.get(f'{size}ThumbnailUrl') or data.get('url') or data.get('downloadUrl')
 
