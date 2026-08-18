@@ -168,7 +168,7 @@ class Command(BaseCommand):
                     EntityList(
                         name='ProductPM',
                         select=['id'],
-                        where=[Where(attribute='categoriesIds', type='arrayAnyOf', value=f'[{cat.pim_id}]')],
+                        where=[Where(attribute='categoriesIds', type='arrayAnyOf', value=f'''['{cat.pim_id}']''')],
                     )
                 )
                 pim_ids = [item['id'] for item in result.get('list', [])]
