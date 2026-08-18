@@ -1,5 +1,6 @@
 from django.core.management.base import BaseCommand
 
+from main_product_manager.models import MainProduct
 from main_product_manager.pim_api import EntityList, Where, site
 from supplier_manager.models import Category
 
@@ -24,14 +25,24 @@ class Command(BaseCommand):
             dest='from_pim',
             help='Удалить все категории и пересоздать их из PIM',
         )
+        parser.add_argument(
+            '--products-only',
+            action='store_true',
+            dest='products_only',
+            help='Пропустить синхронизацию категорий и сразу привязать продукты',
+        )
 
     def handle(self, *args, **options):
         entity = options['entity']
 
-        if options['from_pim']:
+        if options['products_only']:
+            self._link_products()
+        elif options['from_pim']:
             self._sync_from_pim(entity)
+            self._link_products()
         else:
             self._populate_pim_ids(entity, overwrite=options['overwrite'])
+            self._link_products()
 
     # ------------------------------------------------------------------
     # --from-pim: wipe and recreate from PIM
@@ -128,4 +139,41 @@ class Command(BaseCommand):
 
         self.stdout.write(self.style.SUCCESS(
             f'\nГотово: обновлено={updated}, не найдено={not_found}, пропущено={skipped}, ошибок={errors}'
+        ))
+
+    # ------------------------------------------------------------------
+    # product linking: assign category FK on MainProduct via PIM
+    # ------------------------------------------------------------------
+
+    def _link_products(self):
+        self.stdout.write('\nПривязка продуктов к категориям...')
+
+        categories = list(Category.objects.exclude(pim_id__isnull=True))
+        if not categories:
+            self.stdout.write(self.style.WARNING('Нет категорий с pim_id — пропуск привязки продуктов.'))
+            return
+
+        linked = 0
+        errors = 0
+
+        for cat in categories:
+            try:
+                result = site.get(
+                    EntityList(
+                        name='ProductPM',
+                        select=['id'],
+                        where=[Where(attribute='categoryId', type='equals', value=cat.pim_id)],
+                    )
+                )
+                pim_ids = [item['id'] for item in result.get('list', [])]
+                if pim_ids:
+                    count = MainProduct.objects.filter(pim_id__in=pim_ids).update(category=cat)
+                    linked += count
+                    self.stdout.write(f'  {cat}  →  {count} продуктов')
+            except Exception as exc:
+                errors += 1
+                self.stdout.write(self.style.ERROR(f'  {cat}  →  ошибка: {exc}'))
+
+        self.stdout.write(self.style.SUCCESS(
+            f'\nПривязка завершена: продуктов обновлено={linked}, ошибок={errors}'
         ))
