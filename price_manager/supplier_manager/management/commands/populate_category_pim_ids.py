@@ -47,10 +47,9 @@ class Command(BaseCommand):
         def fetch_and_create(parent_db, parent_pim_id):
             nonlocal created, errors
             if parent_pim_id is None:
-                where = [Where(attribute='isRoot', type='isTrue')]
+                where = [Where(attribute='parent', type='isNull')]
             else:
                 where = [Where(attribute='parentId', type='equals', value=parent_pim_id)]
-
             try:
                 result = site.get(EntityList(name=entity, select=['id', 'name'], where=where))
             except Exception as exc:
