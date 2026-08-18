@@ -7,6 +7,7 @@ from django.db.models import Value, OuterRef, Subquery, Q, F, Sum, IntegerField
 from django.utils import timezone
 from django.contrib.postgres.search import SearchVectorField, SearchVector
 from django.db.models.functions import Coalesce
+from django.conf import settings
 
 from .models import MainProduct, MainProductLog, MP_PRICES
 from .pim_api import site, EntityList, Where, ProductPM, FileRecord
@@ -138,7 +139,7 @@ def get_file_url(file_id: str | None, size: str = 'medium') -> str | None:
         except Exception as exc:
             _record_pim_error("get_file_url", exc, int((time.monotonic() - t0) * 1000))
             return None
-    return data.get(f'{size}ThumbnailUrl') or data.get('url') or data.get('downloadUrl')
+    return settings.PIM_HOST + data.get(f'{size}ThumbnailUrl') or data.get('url') or data.get('downloadUrl')
 
 
 

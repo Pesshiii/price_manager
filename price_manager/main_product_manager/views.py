@@ -152,7 +152,7 @@ class MainProductTableView(SingleTableView):
       table = context.get('table')
       if table is not None:
         try:
-          page_records = list(table.page.object_list)
+          page_records = [row.record for row in table.page.object_list]
         except Exception:
           page_records = []
         table.pim_map = prefetch_pim_data(page_records)
