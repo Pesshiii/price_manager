@@ -1,12 +1,15 @@
+import time
+
 from django.db import transaction
 from django.db.models import Min, Max, F
 from django.core.cache import cache
 from django.db.models import Value, OuterRef, Subquery, Q, F, Sum, IntegerField
 from django.utils import timezone
-from django.contrib.postgres.search import SearchVectorField, SearchVector 
+from django.contrib.postgres.search import SearchVectorField, SearchVector
 from django.db.models.functions import Coalesce
 
 from .models import MainProduct, MainProductLog, MP_PRICES
+from .pim_api import site, EntityList, Where
 from .tables import AVAILABLE_COLUMN_MAP, DEFAULT_VISIBLE_COLUMNS
 
 from supplier_product_manager.models import SupplierProduct
@@ -125,6 +128,29 @@ def update_stocks():
   mpls = map(lambda mp: MainProductLog(main_product=mp, stock=mp.new_stock),  mps)
   MainProductLog.objects.bulk_create(mpls)
   return mps.update(stock=F('new_stock'))
+
+def create_pim_links(delay: float = 0.5) -> int:
+    products = MainProduct.objects.filter(pim_id__isnull=True)[:1000]
+    result = []
+    for product in products:
+        try:
+            pim_list = site.get(
+                EntityList(
+                    name='ProductPM',
+                    select=['id'],
+                    where=[Where(attribute='priceManagerId', type='like', value=str(product.id))],
+                )
+            )
+            if pim_list.get('list'):
+                product.pim_id = pim_list['list'][0]['id']
+                result.append(product)
+        except Exception:
+            pass
+        time.sleep(delay)
+    if result:
+        MainProduct.objects.bulk_update(result, fields=['pim_id'])
+    return len(result)
+
 
 def update_logs():
   updated_logs = 0
