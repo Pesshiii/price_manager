@@ -19,16 +19,19 @@ class Method(Protocol):
 class Where(BaseModel):
     attribute: str
     type: str
-    value: Optional[str] = None
+    value: Optional[Any] = None
     isAttribute: Optional[bool] = None
-    def get(self, num)->Dict[str, str|bool]:
-        def prefix(attr: str)->str:
+    def get(self, num) -> Dict[str, Any]:
+        def prefix(attr: str) -> str:
             return f'where[{num}][{attr}]'
-        result: Dict[str, str|bool] = {prefix('attribute'):self.attribute, prefix('type'):self.type}
-        if not self.value is None:
-            result.update({prefix('value'):self.value})
-        if not self.isAttribute is None:
-            result.update({prefix('isAttribute'):self.isAttribute})
+        result: Dict[str, Any] = {prefix('attribute'): self.attribute, prefix('type'): self.type}
+        if self.value is not None:
+            if isinstance(self.value, list):
+                result[prefix('value[]')] = self.value
+            else:
+                result[prefix('value')] = self.value
+        if self.isAttribute is not None:
+            result[prefix('isAttribute')] = self.isAttribute
         return result
 
 class Asc(Enum):
