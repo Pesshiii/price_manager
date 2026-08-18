@@ -7,7 +7,7 @@ from main_product_manager.pim_api import Where, EntityList, site
 from supplier_manager.models import Category
 from product_price_manager.models import update_prices
 
-from .functions import recalculate_search_vectors, update_logs, update_stocks
+from .utils import recalculate_search_vectors, update_logs, update_stocks
 from .models import MainProduct, MainProductLog
 
 
@@ -153,18 +153,23 @@ def sync_main_products_task(user_id: int):
     return workflow.apply_async()
 
 @shared_task(name="main_product_manager.create_pim_links")
-def create_pim_links_task() -> None:
-    errors = 0
+def create_pim_links_task() -> int:
     products = MainProduct.objects.filter(pim_id__isnull=True)[:1000]
     result = []
-    exceptions = []
     for product in products:
-        product = MainProduct.objects.get(id=id)
-        if product is not None and product.pim_id is None:
-            product.pim_id = site.get(
-                    EntityList(name='ProductPM',
-                    select=['id'], 
-                    where=[Where(attribute='priceManagerId', type='like', value=f'{id}')])
-                )['list'][0]['id']
-            result.append(product)
-    return MainProduct.objects.bulk_update(products, fields=['pim_id'])
+        try:
+            pim_list = site.get(
+                EntityList(
+                    name='ProductPM',
+                    select=['id'],
+                    where=[Where(attribute='priceManagerId', type='like', value=str(product.id))],
+                )
+            )
+            if pim_list.get('list'):
+                product.pim_id = pim_list['list'][0]['id']
+                result.append(product)
+        except Exception:
+            pass
+    if result:
+        MainProduct.objects.bulk_update(result, fields=['pim_id'])
+    return len(result)

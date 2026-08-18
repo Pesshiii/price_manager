@@ -48,7 +48,7 @@ from django.utils import timezone
 from supplier_manager.models import Currency, Supplier
 from supplier_product_manager.models import SupplierProduct
 from .models import MainProduct, MainProductLog
-from .functions import merge_selected_main_products, update_stocks
+from .utils import merge_selected_main_products, update_stocks
 
 
 class MergeSelectedMainProductsTests(TestCase):

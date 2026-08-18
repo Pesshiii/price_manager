@@ -5,7 +5,7 @@ from django.utils import timezone
 from django.conf import settings
 
 from core.models import PersistentNotification
-from main_product_manager.functions import recalculate_search_vectors
+from main_product_manager.utils import recalculate_search_vectors
 from main_product_manager.models import MainProduct
 
 from .functions import load_setting, SupplierFileStorageMissingError

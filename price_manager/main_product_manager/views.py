@@ -43,7 +43,7 @@ from core.utils import *
 from .forms import *
 from .tables import *
 from .filters import *
-from .functions import *
+from .utils import *
 from .tasks import sync_main_products_task
 from supplier_product_manager.views import UploadSupplierFile
 
