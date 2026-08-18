@@ -1,7 +1,7 @@
 from django.core.management.base import BaseCommand
 
 from main_product_manager.models import MainProduct
-from main_product_manager.pim_api import EntityList, Where, site
+from main_product_manager.pim_api import Entity, EntityList, Where, site
 from supplier_manager.models import Category
 
 
@@ -154,32 +154,49 @@ class Command(BaseCommand):
             self.stdout.write(self.style.ERROR('Главная ветка не найдена — пропуск привязки продуктов.'))
             return
 
-        categories = list(main_tree.get_descendants().exclude(pim_id__isnull=True))
-        if not categories:
+        cat_by_pim_id = {
+            cat.pim_id: cat
+            for cat in main_tree.get_descendants().exclude(pim_id__isnull=True)
+        }
+        if not cat_by_pim_id:
             self.stdout.write(self.style.WARNING('Нет категорий с pim_id в главной ветке — пропуск привязки продуктов.'))
             return
 
         linked = 0
+        skipped = 0
         errors = 0
 
-        for cat in categories:
+        for product in MainProduct.objects.all():
             try:
-                result = site.get(
-                    EntityList(
-                        name='ProductPM',
+                if not product.pim_id:
+                    result = site.get(EntityList(
+                        name='Product',
                         select=['id'],
-                        where=[Where(attribute='categories', type='linkedWith', value=[cat.pim_id])],
-                    )
-                )
-                pim_ids = [item['id'] for item in result.get('list', [])]
-                if pim_ids:
-                    count = MainProduct.objects.filter(pim_id__in=pim_ids).update(category=cat)
-                    linked += count
-                    self.stdout.write(f'  {cat}  →  {count} продуктов')
+                        where=[Where(attribute='priceManagerId', type='equals', value=str(product.id))],
+                    ))
+                    items = result.get('list', [])
+                    if not items:
+                        skipped += 1
+                        self.stdout.write(self.style.WARNING(f'  {product}  →  не найден в PIM'))
+                        continue
+                    product.pim_id = items[0]['id']
+                    product.save(update_fields=['pim_id'])
+
+                pim_data = site.get(Entity(name='ProductPM', id=product.pim_id))
+                category_pim_ids = pim_data.get('categoriesIds', [])
+
+                cat = next((cat_by_pim_id[pid] for pid in category_pim_ids if pid in cat_by_pim_id), None)
+                if cat:
+                    product.category = cat
+                    product.save(update_fields=['category'])
+                    linked += 1
+                    self.stdout.write(f'  {product}  →  {cat}')
+                else:
+                    skipped += 1
             except Exception as exc:
                 errors += 1
-                self.stdout.write(self.style.ERROR(f'  {cat}  →  ошибка: {exc}'))
+                self.stdout.write(self.style.ERROR(f'  {product}  →  ошибка: {exc}'))
 
         self.stdout.write(self.style.SUCCESS(
-            f'\nПривязка завершена: продуктов обновлено={linked}, ошибок={errors}'
+            f'\nПривязка завершена: обновлено={linked}, пропущено={skipped}, ошибок={errors}'
         ))

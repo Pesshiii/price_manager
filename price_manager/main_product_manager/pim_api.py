@@ -21,15 +21,12 @@ class Where(BaseModel):
     type: str
     value: Optional[Any] = None
     isAttribute: Optional[bool] = None
-    def get(self, num) -> Dict[str, Any]:
+    def get(self, num) -> Dict[str, str]:
         def prefix(attr: str) -> str:
             return f'where[{num}][{attr}]'
         result: Dict[str, Any] = {prefix('attribute'): self.attribute, prefix('type'): self.type}
         if self.value is not None:
-            if isinstance(self.value, list):
-                result[prefix('value[]')] = self.value
-            else:
-                result[prefix('value')] = self.value
+            result[prefix('value')] = self.value
         if self.isAttribute is not None:
             result[prefix('isAttribute')] = self.isAttribute
         return result
@@ -56,6 +53,12 @@ class EntityList(BaseModel):
             for i, where in enumerate(self.where):
                 params.update(where.get(i))
         return httpx.get(url=prefix + self.name, params=params, headers=headers, timeout=timeout)
+
+class Entity(BaseModel):
+    name: str
+    id: str
+    def get(self, prefix: str, headers: Dict[str, str], timeout: float = 5.0) -> httpx.Response:
+        return httpx.get(url=f'{prefix}{self.name}/{self.id}/', headers=headers, timeout=timeout)
 
 class UpsertAsync(BaseModel):
     payload: Any
