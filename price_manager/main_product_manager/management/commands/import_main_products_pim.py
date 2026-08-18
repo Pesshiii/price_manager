@@ -1,13 +1,12 @@
 import os
-from urllib.parse import urlparse
-import httpx
 from django.core.management.base import BaseCommand, CommandError
 from import_export.formats.base_formats import CSV, XLSX
+from main_product_manager.pim_api import site, Download
 from main_product_manager.resources import MainProductPimImportResource
 
 
-def _detect_format(name: str):
-    ext = os.path.splitext(name)[1].lower().split('?')[0]
+def _detect_format(file_name: str):
+    ext = os.path.splitext(file_name)[1].lower()
     if ext == '.xlsx':
         return XLSX()
     if ext == '.csv':
@@ -17,13 +16,12 @@ def _detect_format(name: str):
 
 class Command(BaseCommand):
     help = (
-        "Импортирует pim_id и категорию в MainProduct из файла PIM-выгрузки. "
-        "Принимает локальный путь или URL. "
+        "Импортирует pim_id и категорию в MainProduct из PIM-выгрузки. "
         "Ожидаемые колонки: PriceManagerId, ID, Categories."
     )
 
     def add_arguments(self, parser):
-        parser.add_argument('source', help='Путь к файлу или URL (CSV или XLSX)')
+        parser.add_argument('file_name', help='Имя файла в PIM (например: export.xlsx)')
         parser.add_argument(
             '--dry-run',
             action='store_true',
@@ -32,45 +30,19 @@ class Command(BaseCommand):
         )
 
     def handle(self, *args, **options):
-        source = options['source']
-        parsed = urlparse(source)
-        is_url = parsed.scheme in ('http', 'https')
+        file_name = options['file_name']
 
-        if is_url:
-            self.stdout.write(f'Загрузка файла: {source}')
-            try:
-                response = httpx.get(source, follow_redirects=True, timeout=60.0)
-                response.raise_for_status()
-            except httpx.HTTPError as exc:
-                raise CommandError(f'Ошибка загрузки файла: {exc}')
-            data = response.content
-            # попытаться определить формат из URL или Content-Disposition
-            content_disposition = response.headers.get('content-disposition', '')
-            filename = source
-            if 'filename=' in content_disposition:
-                filename = content_disposition.split('filename=')[-1].strip().strip('"')
-            fmt = _detect_format(filename)
-            if fmt is None:
-                # по Content-Type
-                content_type = response.headers.get('content-type', '')
-                if 'spreadsheet' in content_type or 'xlsx' in content_type:
-                    fmt = XLSX()
-                elif 'csv' in content_type or 'text/' in content_type:
-                    fmt = CSV()
-                else:
-                    raise CommandError(
-                        'Не удалось определить формат файла. Добавьте расширение .xlsx или .csv в URL.'
-                    )
-        else:
-            if not os.path.exists(source):
-                raise CommandError(f'Файл не найден: {source}')
-            fmt = _detect_format(source)
-            if fmt is None:
-                raise CommandError(
-                    f'Неподдерживаемый формат: {source}. Используйте .xlsx или .csv'
-                )
-            with open(source, 'rb') as fh:
-                data = fh.read()
+        fmt = _detect_format(file_name)
+        if fmt is None:
+            raise CommandError(
+                f'Неподдерживаемый формат: {file_name}. Используйте .xlsx или .csv'
+            )
+
+        self.stdout.write(f'Загрузка файла из PIM: {file_name}')
+        try:
+            data = site.download(Download(file_name=file_name))
+        except Exception as exc:
+            raise CommandError(f'Ошибка загрузки файла: {exc}')
 
         dataset = fmt.create_dataset(data)
         self.stdout.write(f'Строк в файле: {len(dataset)}')

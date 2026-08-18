@@ -80,6 +80,12 @@ class FileRecord(BaseModel):
     def get(self, prefix: str, headers: Dict[str, str], timeout: float = 5.0) -> httpx.Response:
         return httpx.get(url=prefix + 'File/' + self.id, headers=headers, timeout=timeout)
 
+class Download(BaseModel):
+    file_name: str
+    def get(self, prefix: str, headers: Dict[str, str], timeout: float = 60.0) -> httpx.Response:
+        base = prefix.split('/api/')[0]
+        return httpx.get(url=f'{base}/downloads/{self.file_name}', headers=headers, timeout=timeout, follow_redirects=True)
+
 class SiteAPI(BaseModel):
     token: str
     host: str
@@ -93,6 +99,12 @@ class SiteAPI(BaseModel):
         response = method.get(prefix=f'https://{self.host}/api/', headers=headers, timeout=self.timeout)
         response.raise_for_status()
         return response.json()
+
+    def download(self, method: Method) -> bytes:
+        headers = {'Authorization-Token': self.token}
+        response = method.get(prefix=f'https://{self.host}/api/', headers=headers)
+        response.raise_for_status()
+        return response.content
 
 site = SiteAPI(token=f'{token}', host=f'{host}')
 
