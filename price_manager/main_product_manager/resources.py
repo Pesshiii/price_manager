@@ -1,5 +1,6 @@
+import json
 from import_export import resources, fields
-from import_export.widgets import ForeignKeyWidget, ManyToManyWidget
+from import_export.widgets import ForeignKeyWidget, ManyToManyWidget, Widget
 from difflib import get_close_matches
 from .models import *
 from supplier_manager.models import ManufacturerDict, Discount
@@ -196,3 +197,70 @@ class MainProductResource(resources.ModelResource):
     def get_export_fields(self, selected_fields=None):
         """Ограничить набор экспортируемых полей"""
         return [self.fields[f] for f in self.Meta.export_fields]
+
+
+class PimCategoryWidget(Widget):
+    """Parses PIM category IDs from 'Categories' column and returns the first
+    category that belongs to the 'Main tree' (Основной, parent=None)."""
+
+    def _get_main_tree_map(self):
+        try:
+            main_tree = Category.objects.get(name='Основной', parent=None)
+        except Category.DoesNotExist:
+            return {}
+        return {
+            cat.pim_id: cat
+            for cat in main_tree.get_descendants().exclude(pim_id__isnull=True)
+        }
+
+    def clean(self, value, row=None, *args, **kwargs):
+        if not value:
+            return None
+        if isinstance(value, str):
+            stripped = value.strip()
+            if stripped.startswith('['):
+                try:
+                    pim_ids = json.loads(stripped)
+                except json.JSONDecodeError:
+                    pim_ids = [v.strip() for v in stripped.strip('[]').split(',') if v.strip()]
+            else:
+                pim_ids = [v.strip() for v in stripped.split(',') if v.strip()]
+        elif isinstance(value, (list, tuple)):
+            pim_ids = list(value)
+        else:
+            pim_ids = [str(value)]
+
+        cat_map = self._get_main_tree_map()
+        for pim_id in pim_ids:
+            cat = cat_map.get(str(pim_id).strip())
+            if cat:
+                return cat
+        return None
+
+    def render(self, value, obj=None, **kwargs):
+        return value.pim_id if value and value.pim_id else ''
+
+
+class MainProductPimImportResource(resources.ModelResource):
+    """Import MainProduct data exported from PIM.
+
+    Expected columns:
+      PriceManagerId  – MainProduct.id (used to locate the record)
+      ID              – PIM product ID  → MainProduct.pim_id
+      Categories      – JSON/CSV list of PIM category IDs; the first one found
+                        in the 'Main tree' (Основной) is assigned as category
+    """
+    id = fields.Field(column_name='PriceManagerId', attribute='id')
+    pim_id = fields.Field(column_name='ID', attribute='pim_id')
+    category = fields.Field(
+        column_name='Categories',
+        attribute='category',
+        widget=PimCategoryWidget(),
+    )
+
+    class Meta:
+        model = MainProduct
+        import_id_fields = ('id',)
+        fields = ('id', 'pim_id', 'category')
+        skip_unchanged = True
+        report_skipped = True
