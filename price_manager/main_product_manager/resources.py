@@ -264,3 +264,9 @@ class MainProductPimImportResource(resources.ModelResource):
         fields = ('id', 'pim_id', 'category')
         skip_unchanged = True
         report_skipped = True
+
+    def skip_row(self, instance, original, row, import_validation_errors=None):
+        # только обновление — пропускаем строки без совпадения в БД
+        if instance.pk is None:
+            return True
+        return super().skip_row(instance, original, row, import_validation_errors)
