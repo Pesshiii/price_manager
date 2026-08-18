@@ -170,7 +170,7 @@ class Command(BaseCommand):
             try:
                 if not product.pim_id:
                     result = site.get(EntityList(
-                        name='Product',
+                        name='ProductPM',
                         select=['id'],
                         where=[Where(attribute='priceManagerId', type='equals', value=str(product.id))],
                     ))
