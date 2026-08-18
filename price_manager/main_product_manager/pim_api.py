@@ -19,7 +19,7 @@ class Method(Protocol):
 class Where(BaseModel):
     attribute: str
     type: str
-    value: Optional[Any] = None
+    value: Optional[str] = None
     isAttribute: Optional[bool] = None
     def get(self, num) -> Dict[str, str]:
         def prefix(attr: str) -> str:
@@ -58,7 +58,7 @@ class Entity(BaseModel):
     name: str
     id: str
     def get(self, prefix: str, headers: Dict[str, str], timeout: float = 5.0) -> httpx.Response:
-        return httpx.get(url=f'{prefix}{self.name}/{self.id}/', headers=headers, timeout=timeout)
+        return httpx.get(url=f'{prefix}{self.name}/{self.id}', headers=headers, timeout=timeout)
 
 class UpsertAsync(BaseModel):
     payload: Any
