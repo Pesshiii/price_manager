@@ -154,6 +154,10 @@ class Category(MPTTModel):
                                 blank=True)
     name = models.CharField(verbose_name='Название',
                             null=False)
+    pim_id = models.CharField(verbose_name='Id для системы Pim',
+                              null=True,
+                              blank=True,
+                              unique=True)
     def __str__(self):
         if self.parent:
             return f'{self.parent}>{self.name}'
