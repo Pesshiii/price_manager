@@ -59,10 +59,70 @@
         </button>
       </div>
     </div>
-    <div id="mainproduct-logs" 
+    {% if pim_data %}
+    <div class="card shadow-sm border-0 p-4 mt-3">
+      <h5 class="mb-3 text-muted">PIM</h5>
+      <div class="row g-3">
+        {% if pim_image_url %}
+        <div class="col-12 col-md-auto">
+          <img src="{{ pim_image_url }}"
+               style="max-height:140px;max-width:180px;object-fit:contain"
+               loading="lazy"
+               alt="{{ pim_data.name }}" />
+        </div>
+        {% endif %}
+        <div class="col">
+          <dl class="row mb-0">
+            {% if pim_data.name %}
+            <dt class="col-sm-4 text-muted fw-normal small">Название</dt>
+            <dd class="col-sm-8">{{ pim_data.name }}</dd>
+            {% endif %}
+            {% if pim_data.nameSatu %}
+            <dt class="col-sm-4 text-muted fw-normal small">Название Satu</dt>
+            <dd class="col-sm-8">{{ pim_data.nameSatu }}</dd>
+            {% endif %}
+            {% if pim_data.brandName %}
+            <dt class="col-sm-4 text-muted fw-normal small">Бренд</dt>
+            <dd class="col-sm-8">{{ pim_data.brandName }}</dd>
+            {% endif %}
+            {% if pim_data.ean %}
+            <dt class="col-sm-4 text-muted fw-normal small">EAN</dt>
+            <dd class="col-sm-8">{{ pim_data.ean }}</dd>
+            {% endif %}
+            {% if pim_data.status %}
+            <dt class="col-sm-4 text-muted fw-normal small">Статус</dt>
+            <dd class="col-sm-8">{{ pim_data.status }}</dd>
+            {% endif %}
+            {% if pim_data.categoriesNames %}
+            <dt class="col-sm-4 text-muted fw-normal small">Категории</dt>
+            <dd class="col-sm-8">{{ pim_data.categoriesNames.values|join:", " }}</dd>
+            {% endif %}
+            {% if pim_data.tag %}
+            <dt class="col-sm-4 text-muted fw-normal small">Теги</dt>
+            <dd class="col-sm-8">{{ pim_data.tag|join:", " }}</dd>
+            {% endif %}
+          </dl>
+        </div>
+      </div>
+      {% if pim_data.description %}
+      <div class="mt-3">
+        <div class="text-muted small mb-1">Описание</div>
+        <div>{{ pim_data.description }}</div>
+      </div>
+      {% endif %}
+      {% if pim_data.longDescription %}
+      <div class="mt-2">
+        <div class="text-muted small mb-1">Подробное описание</div>
+        <div>{{ pim_data.longDescription }}</div>
+      </div>
+      {% endif %}
+    </div>
+    {% endif %}
+
+    <div id="mainproduct-logs"
         class="row mt-3"
-        hx-get="{% url 'mainproductlog-list' pk=mainproduct.pk %}" 
-        hx-trigger="load" 
+        hx-get="{% url 'mainproductlog-list' pk=mainproduct.pk %}"
+        hx-trigger="load"
         hx-swap="innerHTML">
       <p>Логи...</p>
     </div>

@@ -44,6 +44,7 @@ from .forms import *
 from .tables import *
 from .filters import *
 from .utils import *
+from .utils import get_pim_data_for_product, prefetch_pim_data, get_file_url
 from .tasks import sync_main_products_task
 from supplier_product_manager.views import UploadSupplierFile
 
@@ -148,6 +149,15 @@ class MainProductTableView(SingleTableView):
       context = super().get_context_data(**kwargs)
       if self.category_pk:
         context["category"] = Category.objects.get(pk=self.category_pk)
+      table = context.get('table')
+      if table is not None:
+        try:
+          page_records = list(table.page.object_list)
+        except Exception:
+          page_records = []
+        table.pim_map = prefetch_pim_data(page_records)
+        for data in table.pim_map.values():
+          get_file_url(data.get('mainImageId') or data.get('imageId'))
       return context
 
 
@@ -169,8 +179,13 @@ class MainProductInfo(DetailView):
     if self.request.htmx:
       return [self.template_name + '#partial']
     return super().get_template_names()
-  
-  
+  def get_context_data(self, **kwargs):
+    context = super().get_context_data(**kwargs)
+    pim_data = get_pim_data_for_product(self.object)
+    context['pim_data'] = pim_data
+    if pim_data:
+      context['pim_image_url'] = get_file_url(pim_data.get('mainImageId') or pim_data.get('imageId'))
+    return context
 
 
 class MainProductDetail(DetailView):
@@ -180,7 +195,14 @@ class MainProductDetail(DetailView):
     if not self.request.htmx:
       return redirect(reverse('mainproduct-info', kwargs=self.kwargs))
     return super().get(request, *args, **kwargs)
-  
+  def get_context_data(self, **kwargs):
+    context = super().get_context_data(**kwargs)
+    pim_data = get_pim_data_for_product(self.object)
+    context['pim_data'] = pim_data
+    if pim_data:
+      context['pim_image_url'] = get_file_url(pim_data.get('mainImageId') or pim_data.get('imageId'))
+    return context
+
 
 class MainProductUpdate(UpdateView):
   model = MainProduct

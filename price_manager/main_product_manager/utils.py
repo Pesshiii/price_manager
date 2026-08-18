@@ -9,12 +9,89 @@ from django.contrib.postgres.search import SearchVectorField, SearchVector
 from django.db.models.functions import Coalesce
 
 from .models import MainProduct, MainProductLog, MP_PRICES
-from .pim_api import site, EntityList, Where
-from .tables import AVAILABLE_COLUMN_MAP, DEFAULT_VISIBLE_COLUMNS
+from .pim_api import site, EntityList, Where, ProductPM, FileRecord
+from .columns import AVAILABLE_COLUMN_MAP, DEFAULT_VISIBLE_COLUMNS
 
 from supplier_product_manager.models import SupplierProduct
 
 CACHE_TTL = 60 * 60 * 24 * 30  # 30 дней
+PIM_CACHE_TTL = 60 * 60 * 24  # 24 часа
+
+
+def get_pim_data(pim_id: str | None) -> dict | None:
+    if not pim_id:
+        return None
+    cache_key = f"pim:{pim_id}"
+    cached = cache.get(cache_key)
+    if cached is not None:
+        return cached
+    try:
+        data = site.get(ProductPM(id=pim_id))
+        cache.set(cache_key, data, PIM_CACHE_TTL)
+        return data
+    except Exception:
+        return None
+
+
+_PIM_NO_MATCH_TTL = 60 * 60 * 4  # 4 hours — avoid hammering PIM for unlinked products
+
+
+def _resolve_pim_id(product) -> str | None:
+    """Look up pim_id in PIM by priceManagerId and persist it if found."""
+    no_match_key = f"pim_no_match:{product.pk}"
+    if cache.get(no_match_key):
+        return None
+    try:
+        result = site.get(
+            EntityList(
+                name='ProductPM',
+                select=['id'],
+                where=[Where(attribute='priceManagerId', type='like', value=str(product.pk))],
+            )
+        )
+        if result.get('list'):
+            pim_id = result['list'][0]['id']
+            MainProduct.objects.filter(pk=product.pk).update(pim_id=pim_id)
+            product.pim_id = pim_id
+            return pim_id
+    except Exception:
+        pass
+    cache.set(no_match_key, True, _PIM_NO_MATCH_TTL)
+    return None
+
+
+def get_pim_data_for_product(product) -> dict | None:
+    """Return PIM data for a MainProduct, resolving pim_id if not set."""
+    if not product.pim_id:
+        _resolve_pim_id(product)
+    return get_pim_data(product.pim_id)
+
+
+def prefetch_pim_data(products) -> dict:
+    """Fetch PIM data for a list of MainProduct objects and return {product.pk: data}."""
+    result = {}
+    for product in products:
+        data = get_pim_data_for_product(product)
+        if data:
+            result[product.pk] = data
+    return result
+
+
+def get_file_url(file_id: str | None, size: str = 'medium') -> str | None:
+    """Return a thumbnail URL for a PIM File record. size: 'small', 'medium', 'large'."""
+    if not file_id:
+        return None
+    cache_key = f"pim_file:{file_id}"
+    data = cache.get(cache_key)
+    if data is None:
+        try:
+            data = site.get(FileRecord(id=file_id))
+            cache.set(cache_key, data, PIM_CACHE_TTL)
+        except Exception:
+            return None
+    return data.get(f'{size}ThumbnailUrl') or data.get('url') or data.get('downloadUrl')
+
+
 
 def _cache_key(user_id: int) -> str:
     return f"mainprice:selected_columns:user:{user_id}"

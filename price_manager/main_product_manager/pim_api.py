@@ -69,6 +69,11 @@ class ProductPM(BaseModel):
     def get(self, prefix:str, headers:Dict[str, str])->httpx.Response:
         return httpx.get(url=prefix + 'ProductPM/' + self.id, headers=headers)
 
+class FileRecord(BaseModel):
+    id: str
+    def get(self, prefix: str, headers: Dict[str, str]) -> httpx.Response:
+        return httpx.get(url=prefix + 'File/' + self.id, headers=headers)
+
 class SiteAPI(BaseModel):
     token:  str
     host: str
@@ -82,3 +87,5 @@ class SiteAPI(BaseModel):
         return response.json()
     
 site = SiteAPI(token=f'{token}', host=f'{host}')
+
+
