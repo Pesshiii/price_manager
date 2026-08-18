@@ -1,7 +1,7 @@
 from celery import shared_task
 
 from core.task_runner import execute_locked_task
-from main_product_manager.functions import update_logs, update_stocks
+from main_product_manager.utils import update_logs, update_stocks
 
 from .models import update_prices
 
