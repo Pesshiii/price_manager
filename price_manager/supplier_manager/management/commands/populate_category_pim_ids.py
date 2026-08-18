@@ -162,6 +162,8 @@ class Command(BaseCommand):
             self.stdout.write(self.style.WARNING('Нет категорий с pim_id в главной ветке — пропуск привязки продуктов.'))
             return
 
+        self.stdout.write('\n~Начало~')
+
         linked = 0
         skipped = 0
         errors = 0
