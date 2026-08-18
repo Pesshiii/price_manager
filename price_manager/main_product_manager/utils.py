@@ -112,11 +112,13 @@ def get_pim_data_for_product(product) -> dict | None:
 def prefetch_pim_data(products) -> dict:
     """Fetch PIM data for a list of MainProduct objects and return {product.pk: data}.
 
-    Only fetches data for products that already have pim_id — resolution is done
-    by the create_pim_links Celery task to avoid blocking page loads.
+    Resolves pim_id on the fly for products that don't have one yet (guarded by
+    a 4-hour no-match cache so PIM isn't hammered for unlinked products).
     """
     result = {}
     for product in products:
+        if not product.pim_id:
+            _resolve_pim_id(product)
         if not product.pim_id:
             continue
         data = get_pim_data(product.pim_id)
