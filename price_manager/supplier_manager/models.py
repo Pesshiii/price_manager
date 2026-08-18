@@ -147,7 +147,7 @@ class ManufacturerDict(models.Model):
 
 class Category(MPTTModel):
     parent = TreeForeignKey('self',
-                                on_delete=models.PROTECT,
+                                on_delete=models.CASCADE,
                                 verbose_name='Подкатегория для',
                                 related_name='children',
                                 null=True,
