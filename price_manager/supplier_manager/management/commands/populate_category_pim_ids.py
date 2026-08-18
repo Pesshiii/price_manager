@@ -195,6 +195,7 @@ class Command(BaseCommand):
                     self.stdout.write(f'  {product}  →  {cat}')
                 else:
                     skipped += 1
+                    self.stdout.write(f'  {product}  x')
             except Exception as exc:
                 errors += 1
                 self.stdout.write(self.style.ERROR(f'  {product}  →  ошибка: {exc}'))
