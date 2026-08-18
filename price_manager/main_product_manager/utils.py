@@ -109,10 +109,16 @@ def get_pim_data_for_product(product) -> dict | None:
 
 
 def prefetch_pim_data(products) -> dict:
-    """Fetch PIM data for a list of MainProduct objects and return {product.pk: data}."""
+    """Fetch PIM data for a list of MainProduct objects and return {product.pk: data}.
+
+    Only fetches data for products that already have pim_id — resolution is done
+    by the create_pim_links Celery task to avoid blocking page loads.
+    """
     result = {}
     for product in products:
-        data = get_pim_data_for_product(product)
+        if not product.pim_id:
+            continue
+        data = get_pim_data(product.pim_id)
         if data:
             result[product.pk] = data
     return result
@@ -225,7 +231,7 @@ def recalculate_search_vectors(mps):
     if not mps: return None
     mps.select_related('supplier', 'category', 'manufacturer')
     def build_searchvector(mp):
-      mp.search_vector=SearchVector(Value(mp._build_search_text()), config='russian')
+      mp.search_vector = mp._build_searchvector()
       return mp
     mps = map(build_searchvector, mps)
     return MainProduct.objects.bulk_update(mps, fields=['search_vector'])

@@ -44,7 +44,7 @@ CELERY_BEAT_SCHEDULE = {
         'schedule': CELERY_SUPPLIER_FILES_CLEANUP_MINUTES * 60,
     },
     'create-pim-links':{
-        'task': 'main_product_manager.main_product_manager.create_pim_links',
+        'task': 'main_product_manager.create_pim_links',
         'schedule': 1800,
     }
 }
