@@ -18,6 +18,7 @@ CELERY_PRICE_UPDATE_MINUTES = int(os.environ.get('CELERY_PRICE_UPDATE_MINUTES', 
 CELERY_STOCK_UPDATE_MINUTES = int(os.environ.get('CELERY_STOCK_UPDATE_MINUTES', 15))
 CELERY_LOG_UPDATE_MINUTES = int(os.environ.get('CELERY_LOG_UPDATE_MINUTES', 60))
 CELERY_SUPPLIER_FILES_CLEANUP_MINUTES = int(os.environ.get('CELERY_SUPPLIER_FILES_CLEANUP_MINUTES', 30))
+CELERY_CATEGORY_SYNC_MINUTES = int(os.environ.get('CELERY_CATEGORY_SYNC_MINUTES', 360))
 
 SUPPLIER_FILES_KEEP_LAST = int(os.environ.get('SUPPLIER_FILES_KEEP_LAST', 0))
 
@@ -46,5 +47,9 @@ CELERY_BEAT_SCHEDULE = {
     'create-pim-links':{
         'task': 'main_product_manager.create_pim_links',
         'schedule': 1800,
-    }
+    },
+    'sync-categories': {
+        'task': 'supplier_manager.sync_categories',
+        'schedule': CELERY_CATEGORY_SYNC_MINUTES * 60,
+    },
 }

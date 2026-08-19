@@ -1,5 +1,6 @@
 from django.core.management.base import BaseCommand
 from main_product_manager import tasks
+from supplier_manager import tasks as sm_tasks
 
 TASKS = {
     'rebuild_categories': tasks.rebuild_categories_task,
@@ -9,6 +10,7 @@ TASKS = {
     'update_logs': tasks.update_logs_task,
     'delete_outdated_logs': tasks.delete_outdated_logs_task,
     'create_pim_links': tasks.create_pim_links_task,
+    'sync_categories': sm_tasks.sync_categories_task,
 }
 
 

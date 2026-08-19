@@ -1,4 +1,7 @@
 from django.db import models
+from django.contrib.postgres.search import SearchVectorField, SearchVector
+from django.contrib.postgres.indexes import GinIndex
+from django.db.models import Value
 from mptt.models import MPTTModel, TreeForeignKey
 
 TIME_FREQ = {
@@ -158,13 +161,27 @@ class Category(MPTTModel):
                               null=True,
                               blank=True,
                               unique=True)
+    search_vector = SearchVectorField(null=True, editable=False, verbose_name='Вектор поиска')
+
     def __str__(self):
         if self.parent:
             return f'{self.parent}>{self.name}'
         else:
             return self.name
+
+    def _build_searchvector(self) -> SearchVector:
+        ancestors = self.get_ancestors(include_self=True)
+        full_path = ' '.join(a.name for a in ancestors)
+        return SearchVector(Value(full_path), weight='A', config='russian')
+
+    def rebuild_search_vector(self):
+        Category.objects.filter(pk=self.pk).update(
+            search_vector=self._build_searchvector()
+        )
+
     class Meta:
         constraints = [models.UniqueConstraint(fields=['parent', 'name'], name='parent_child_constraint')]
+        indexes = [GinIndex(fields=['search_vector'], name='category_search_vector_gin')]
     class MPTTMeta:
         order_insertion_by = ['name']
     
