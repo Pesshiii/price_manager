@@ -38,6 +38,7 @@ from crispy_forms.utils import render_crispy_form
 from .models import *
 from supplier_product_manager.models import SupplierProduct
 from supplier_manager.models import Category
+from supplier_manager.filters import CategoryFilter
 from file_manager.models import FileModel
 from core.utils import *
 from .forms import *
@@ -74,18 +75,10 @@ class MainPage(FilterView):
   def get_context_data(self, **kwargs) -> dict[str, Any]:
     context = super().get_context_data(**kwargs)
     queryset = context['object_list']
-    categories = Paginator(
-        Category.objects.filter(
-        pk__in=queryset.prefetch_related('category').values_list('category__pk')
-      ).select_related(
-        'parent__parent__parent__parent'
-      ).prefetch_related(
-        'mainproducts'
-      ).annotate(
-        mps_count=Count(F('mainproducts'))
-      ).filter(~Q(mps_count=0)),
-      5
-    ).page(self.request.GET.get('page', 1))
+    search_value = self.request.GET.get('search', '')
+    search_query = self.filterset._build_partial_query(search_value) if search_value else None
+    cat_filter = CategoryFilter(product_qs=queryset, search_query=search_query)
+    categories = Paginator(cat_filter.qs, 5).page(self.request.GET.get('page', 1))
     context['categories'] =  categories
     context['has_nulled'] = queryset.filter(category__isnull=True).exists()
     context['nulled_mp_count'] = queryset.filter(category__isnull=True).count()
