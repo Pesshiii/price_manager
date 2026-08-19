@@ -77,6 +77,8 @@ class MainPage(FilterView):
     categories = Paginator(
         Category.objects.filter(
         pk__in=queryset.prefetch_related('category').values_list('category__pk')
+      ).select_related(
+        'parent__parent__parent__parent'
       ).prefetch_related(
         'mainproducts'
       ).annotate(
