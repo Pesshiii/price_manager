@@ -241,22 +241,19 @@ def recalculate_search_vectors(mps):
 
 
 def update_stocks():
-  query = MainProduct.objects.filter(
-    pk=OuterRef('pk')
-    ).prefetch_related('supplierproducts').annotate(
-      new_stock=Coalesce(Sum(F('supplierproducts__stock')), Value(0), output_field=IntegerField())
-    ).values('new_stock')
-  mps = MainProduct.objects.prefetch_related('supplierproducts').annotate(
-    new_stock=Subquery(query, output_field=IntegerField())
-  )
-  mps = mps.annotate(
-    current_stock_safe=Coalesce('stock', Value(0), output_field=IntegerField())
-  ).filter(~Q(current_stock_safe=F('new_stock')))
-  mps.bulk_update(mps, fields=['stock_updated_at'])
-  print(mps.values_list('stock', 'new_stock'))
-  mpls = map(lambda mp: MainProductLog(main_product=mp, stock=mp.new_stock),  mps)
-  MainProductLog.objects.bulk_create(mpls)
-  return mps.update(stock=F('new_stock'))
+    stock_subq = (
+        SupplierProduct.objects
+        .filter(main_product_id=OuterRef('pk'))
+        .order_by('-updated_at')
+        .values('stock')[:1]
+    )
+    mps = MainProduct.objects.annotate(
+        new_stock=Coalesce(Subquery(stock_subq, output_field=IntegerField()), Value(0), output_field=IntegerField()),
+        current_stock_safe=Coalesce('stock', Value(0), output_field=IntegerField()),
+    ).filter(~Q(current_stock_safe=F('new_stock')))
+    mpls = [MainProductLog(main_product=mp, stock=mp.new_stock) for mp in mps]
+    MainProductLog.objects.bulk_create(mpls)
+    return mps.update(stock=F('new_stock'), stock_updated_at=timezone.now())
 
 def create_pim_links(delay: float = 0.5) -> int:
     products = list(MainProduct.objects.filter(pim_id__isnull=True)[:1000])
