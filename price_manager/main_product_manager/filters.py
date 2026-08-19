@@ -159,9 +159,10 @@ class MainProductFilter(FilterSet):
     if query is None:
       return queryset
     rank = SearchRank("search_vector", query)
+    matching_categories = Category.objects.filter(search_vector=query)
     combined_filter = (
-      Q(category__isnull=False) |
-      Q(category__isnull=True, search_vector=query)
+      Q(category__in=matching_categories) |
+      Q(search_vector=query)
     )
     return queryset.annotate(rank=rank).filter(combined_filter).order_by("-rank")
 
