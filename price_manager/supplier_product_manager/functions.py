@@ -226,18 +226,17 @@ def get_linkformset(post, pk):
   if df is None: return None
   setting = Setting.objects.get(pk=pk)
   return LinkFormset(
-      post if post else None, 
+      post if post else None,
       initial=[
           {
-            'key': 
-            Link.objects.filter(setting=setting, value=column).first().key 
-            if Link.objects.filter(setting=setting, value=column).exists()
+            'key':
+            Link.objects.filter(setting=setting, value=idx).first().key
+            if Link.objects.filter(setting=setting, value=idx).exists()
             else None
           }
-
-          for column in df.columns
+          for idx in range(len(df.columns))
         ],
-      prefix='link', 
+      prefix='link',
       form_kwargs=
         {
           'columns':df.columns
@@ -355,12 +354,13 @@ def get_sps(setting_or_pk: Setting | int, recache: bool = False) -> list[dict] |
     if df is None or not links.filter(Q(value__isnull=False) | Q(initial__isnull=False)).exists():
         return None
     for link in links:
-        if link.value == '' or link.value is None:
+        if link.value is None or link.value >= len(df.columns):
             if link.initial == '' or link.initial is None:
                 continue
             df[link.key] = link.initial
         else:
-            df = df.rename(columns={link.value: link.key})
+            col_name = df.columns[link.value]
+            df = df.rename(columns={col_name: link.key})
             if not link.initial == '' and not link.initial is None:
                 df[link.key] = df[link.key].fillna(link.initial)
     if not 'article' in df.columns:

@@ -60,12 +60,13 @@ class BasicLoadTests(TestCase):
             sheet_name="Sheet1",
             create_new=True,
         )
-        Link.objects.create(setting=setting, key="article", value="Артикул")
-        Link.objects.create(setting=setting, key="name", value="Название")
-        Link.objects.create(setting=setting, key="supplier_price", value="Цена")
-        Link.objects.create(setting=setting, key="rrp", value="РРЦ")
-        Link.objects.create(setting=setting, key="stock", value="Остаток")
-        Link.objects.create(setting=setting, key="manufacturer", value="Производитель")
+        # Columns: Артикул(0), Название(1), Цена(2), РРЦ(3), Скидочная Цена(4), Остаток(5), Производитель(6)
+        Link.objects.create(setting=setting, key="article", value=0)
+        Link.objects.create(setting=setting, key="name", value=1)
+        Link.objects.create(setting=setting, key="supplier_price", value=2)
+        Link.objects.create(setting=setting, key="rrp", value=3)
+        Link.objects.create(setting=setting, key="stock", value=5)
+        Link.objects.create(setting=setting, key="manufacturer", value=6)
 
 
         
@@ -115,12 +116,13 @@ class BasicLoadTests(TestCase):
             sheet_name="Sheet1",
             create_new=True,
         )
-        Link.objects.create(setting=setting, key="article", value="Артикул")
-        Link.objects.create(setting=setting, key="name", value="Название")
-        Link.objects.create(setting=setting, key="supplier_price", value="Цена")
-        Link.objects.create(setting=setting, key="rrp", value="РРЦ")
-        Link.objects.create(setting=setting, key="stock", value="Остаток")
-        Link.objects.create(setting=setting, key="manufacturer", value="Производитель")
+        # Columns: Артикул(0), Название(1), Цена(2), РРЦ(3), Остаток(4), Производитель(5)
+        Link.objects.create(setting=setting, key="article", value=0)
+        Link.objects.create(setting=setting, key="name", value=1)
+        Link.objects.create(setting=setting, key="supplier_price", value=2)
+        Link.objects.create(setting=setting, key="rrp", value=3)
+        Link.objects.create(setting=setting, key="stock", value=4)
+        Link.objects.create(setting=setting, key="manufacturer", value=5)
 
         uppload_df_initial = pd.DataFrame(
                 [
@@ -140,9 +142,14 @@ class BasicLoadTests(TestCase):
         load_setting(setting.pk)
         setting.create_new = False
         setting.save()
-        namelink = Link.objects.get(setting=setting, key="name")
-        namelink.value = None
-        namelink.save()
+        # Second file has different columns: Артикул(0), Цена(1), РРЦ(2), Остаток(3), Производитель(4)
+        # Reset links to match the new file structure (no name column)
+        setting.links.all().delete()
+        Link.objects.create(setting=setting, key="article", value=0)
+        Link.objects.create(setting=setting, key="supplier_price", value=1)
+        Link.objects.create(setting=setting, key="rrp", value=2)
+        Link.objects.create(setting=setting, key="stock", value=3)
+        Link.objects.create(setting=setting, key="manufacturer", value=4)
 
 
         uppload_df = pd.DataFrame(
@@ -189,12 +196,13 @@ class BasicLoadTests(TestCase):
             sheet_name="Sheet1",
             create_new=True,
         )
-        Link.objects.create(setting=setting, key="article", value="Артикул")
-        Link.objects.create(setting=setting, key="name", value="Название")
-        Link.objects.create(setting=setting, key="supplier_price", value="Цена", initial="100")
-        Link.objects.create(setting=setting, key="rrp", value="РРЦ", initial="100")
-        Link.objects.create(setting=setting, key="stock", value="Остаток", initial="100")
-        Link.objects.create(setting=setting, key="manufacturer", value="Производитель", initial="Производитель 100")
+        # Columns: Артикул(0), Название(1), Цена(2), РРЦ(3), Остаток(4), Производитель(5)
+        Link.objects.create(setting=setting, key="article", value=0)
+        Link.objects.create(setting=setting, key="name", value=1)
+        Link.objects.create(setting=setting, key="supplier_price", value=2, initial="100")
+        Link.objects.create(setting=setting, key="rrp", value=3, initial="100")
+        Link.objects.create(setting=setting, key="stock", value=4, initial="100")
+        Link.objects.create(setting=setting, key="manufacturer", value=5, initial="Производитель 100")
 
 
         uppload_df = pd.DataFrame(
@@ -238,8 +246,9 @@ class BasicLoadTests(TestCase):
             sheet_name="Sheet1",
             create_new=True,
         )
-        Link.objects.create(setting=setting, key="article", value="Артикул")
-        Link.objects.create(setting=setting, key="name", value="Название")
+        # Columns: Артикул(0), Название(1), Цена(2), РРЦ(3), Остаток(4), Производитель(5)
+        Link.objects.create(setting=setting, key="article", value=0)
+        Link.objects.create(setting=setting, key="name", value=1)
         Link.objects.create(setting=setting, key="supplier_price", value=None, initial="100")
         Link.objects.create(setting=setting, key="rrp", value=None, initial="100")
         Link.objects.create(setting=setting, key="stock", value=None, initial="100")
@@ -287,12 +296,13 @@ class BasicLoadTests(TestCase):
             sheet_name="Sheet1",
             create_new=True,
         )
-        Link.objects.create(setting=setting, key="article", value="Артикул")
-        Link.objects.create(setting=setting, key="name", value="Название")
-        Link.objects.create(setting=setting, key="supplier_price", value="Цена", initial="100")
-        Link.objects.create(setting=setting, key="rrp", value="РРЦ", initial="100")
-        Link.objects.create(setting=setting, key="stock", value="Остаток", initial="100")
-        Link.objects.create(setting=setting, key="manufacturer", value="Производитель", initial="Производитель 100")
+        # Columns: Артикул(0), Название(1), Цена(2), РРЦ(3), Остаток(4), Производитель(5)
+        Link.objects.create(setting=setting, key="article", value=0)
+        Link.objects.create(setting=setting, key="name", value=1)
+        Link.objects.create(setting=setting, key="supplier_price", value=2, initial="100")
+        Link.objects.create(setting=setting, key="rrp", value=3, initial="100")
+        Link.objects.create(setting=setting, key="stock", value=4, initial="100")
+        Link.objects.create(setting=setting, key="manufacturer", value=5, initial="Производитель 100")
 
 
         uppload_df = pd.DataFrame(
@@ -333,12 +343,13 @@ class BasicLoadTests(TestCase):
             sheet_name="Sheet1",
             create_new=True,
         )
-        Link.objects.create(setting=setting, key="article", value="Артикул")
-        Link.objects.create(setting=setting, key="name", value="Название")
-        Link.objects.create(setting=setting, key="supplier_price", value="Цена")
-        Link.objects.create(setting=setting, key="rrp", value="РРЦ")
-        Link.objects.create(setting=setting, key="stock", value="Остаток")
-        Link.objects.create(setting=setting, key="manufacturer", value="Производитель")
+        # Columns: Артикул(0), Название(1), Цена(2), РРЦ(3), Остаток(4), Производитель(5)
+        Link.objects.create(setting=setting, key="article", value=0)
+        Link.objects.create(setting=setting, key="name", value=1)
+        Link.objects.create(setting=setting, key="supplier_price", value=2)
+        Link.objects.create(setting=setting, key="rrp", value=3)
+        Link.objects.create(setting=setting, key="stock", value=4)
+        Link.objects.create(setting=setting, key="manufacturer", value=5)
 
         uppload_df_initial = pd.DataFrame(
                 [
@@ -394,12 +405,13 @@ class BasicLoadTests(TestCase):
             sheet_name="Sheet1",
             create_new=True,
         )
-        Link.objects.create(setting=setting, key="article", value="Артикул")
-        Link.objects.create(setting=setting, key="name", value="Название")
-        Link.objects.create(setting=setting, key="supplier_price", value="Цена")
-        Link.objects.create(setting=setting, key="rrp", value="РРЦ")
-        Link.objects.create(setting=setting, key="stock", value="Остаток")
-        Link.objects.create(setting=setting, key="manufacturer", value="Производитель")
+        # Columns: Артикул(0), Название(1), Цена(2), РРЦ(3), Остаток(4), Производитель(5)
+        Link.objects.create(setting=setting, key="article", value=0)
+        Link.objects.create(setting=setting, key="name", value=1)
+        Link.objects.create(setting=setting, key="supplier_price", value=2)
+        Link.objects.create(setting=setting, key="rrp", value=3)
+        Link.objects.create(setting=setting, key="stock", value=4)
+        Link.objects.create(setting=setting, key="manufacturer", value=5)
 
         uppload_df_initial = pd.DataFrame(
                 [
@@ -458,9 +470,10 @@ class GetSpsCacheTests(BasicLoadTests):
             sheet_name="Sheet1",
             create_new=True,
         )
-        Link.objects.create(setting=setting, key="article", value="Артикул")
-        Link.objects.create(setting=setting, key="name", value="Название")
-        Link.objects.create(setting=setting, key="supplier_price", value="Цена")
+        # Columns: Артикул(0), Название(1), Цена(2)
+        Link.objects.create(setting=setting, key="article", value=0)
+        Link.objects.create(setting=setting, key="name", value=1)
+        Link.objects.create(setting=setting, key="supplier_price", value=2)
 
         self._create_supplier_file(
             setting,

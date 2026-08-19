@@ -331,7 +331,7 @@ class SettingUpdate(UpdateView):
       key = link_formset.cleaned_data[i]['key']
       if not key or key=='' : continue
       link = Link.objects.get_or_create(setting=setting, key=key)[0]
-      link.value = df.columns[i]
+      link.value = i
       link.save()
     for link, value in LINKS.items():
       if link == '': continue

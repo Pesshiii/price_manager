@@ -123,9 +123,6 @@ class Setting(models.Model):
   def __str__(self):
     return self.name
   def is_bound(self) -> bool:
-    for link in self.links.filter(value=''):
-      link.value = None
-      link.save()
     if not self.links.filter(key='article', value__isnull=False).exists():
       return False
     if self.create_new and not self.links.filter(key='name', value__isnull=False):
@@ -140,7 +137,7 @@ class Link(models.Model):
                               related_name='links')
   initial = models.CharField(null=True)
   key = models.CharField(choices=LINKS)
-  value = models.CharField(null=True)
+  value = models.IntegerField(null=True, blank=True)
   def __str__(self):
     return f'{self.key}<--->{self.value}({self.initial})'
   
