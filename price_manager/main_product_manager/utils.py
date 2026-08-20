@@ -1,5 +1,6 @@
 import time
 
+import httpx
 from django.db import transaction
 from django.db.models import Min, Max, F
 from django.core.cache import cache
@@ -56,6 +57,25 @@ def maybe_notify_pim_error(user) -> None:
     cache.set(throttle_key, True, _PIM_NOTIF_THROTTLE_TTL)
 
 
+def _fetch_pim_product(pim_id: str) -> tuple[dict | None, bool]:
+    """Fetch a PIM product by id straight from the API (no cache).
+
+    Returns (data, not_found) — not_found is True only on an explicit 404,
+    so callers can tell "PIM deleted/renumbered this id" apart from a
+    transient network/API error.
+    """
+    t0 = time.monotonic()
+    try:
+        data = site.get(ContributorProduct(id=pim_id))
+        return data, False
+    except httpx.HTTPStatusError as exc:
+        _record_pim_error("get_pim_data", exc, int((time.monotonic() - t0) * 1000))
+        return None, exc.response.status_code == 404
+    except Exception as exc:
+        _record_pim_error("get_pim_data", exc, int((time.monotonic() - t0) * 1000))
+        return None, False
+
+
 def get_pim_data(pim_id: str | None, refresh: bool = False) -> dict | None:
     if not pim_id:
         return None
@@ -64,14 +84,14 @@ def get_pim_data(pim_id: str | None, refresh: bool = False) -> dict | None:
         cached = cache.get(cache_key)
         if cached is not None:
             return cached
-    t0 = time.monotonic()
-    try:
-        data = site.get(ContributorProduct(id=pim_id))
+    data, not_found = _fetch_pim_product(pim_id)
+    if data is not None:
         cache.set(cache_key, data, PIM_CACHE_TTL)
         return data
-    except Exception as exc:
-        _record_pim_error("get_pim_data", exc, int((time.monotonic() - t0) * 1000))
-        return cache.get(cache_key)
+    if not_found:
+        cache.delete(cache_key)
+        return None
+    return cache.get(cache_key)
 
 
 _PIM_NO_MATCH_TTL = 60 * 60 * 4  # 4 hours — avoid hammering PIM for unlinked products
@@ -123,10 +143,37 @@ def _resolve_pim_id(product) -> str | None:
 
 
 def get_pim_data_for_product(product, refresh: bool = False) -> dict | None:
-    """Return PIM data for a MainProduct, resolving pim_id if not set."""
+    """Return PIM data for a MainProduct, resolving pim_id if not set.
+
+    If the stored pim_id comes back 404 (deleted/renumbered in PIM), the
+    stale link is cleared and re-resolved by priceManagerId/name before
+    retrying once.
+    """
     if not product.pim_id:
         _resolve_pim_id(product)
-    return get_pim_data(product.pim_id, refresh=refresh)
+    if not product.pim_id:
+        return None
+    if not refresh:
+        cached = cache.get(f"pim:{product.pim_id}")
+        if cached is not None:
+            return cached
+    data, not_found = _fetch_pim_product(product.pim_id)
+    if data is not None:
+        cache.set(f"pim:{product.pim_id}", data, PIM_CACHE_TTL)
+        return data
+    if not not_found:
+        return cache.get(f"pim:{product.pim_id}")
+
+    MainProduct.objects.filter(pk=product.pk).update(pim_id=None)
+    cache.delete(f"pim:{product.pim_id}")
+    product.pim_id = None
+    cache.delete(f"pim_no_match:{product.pk}")
+    if not _resolve_pim_id(product):
+        return None
+    data, _ = _fetch_pim_product(product.pim_id)
+    if data is not None:
+        cache.set(f"pim:{product.pim_id}", data, PIM_CACHE_TTL)
+    return data
 
 
 def prefetch_pim_data(products) -> dict:
