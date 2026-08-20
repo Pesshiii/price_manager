@@ -177,7 +177,7 @@ class MainProductInfo(DetailView):
     return super().get_template_names()
   def get_context_data(self, **kwargs):
     context = super().get_context_data(**kwargs)
-    pim_data = get_pim_data_for_product(self.object)
+    pim_data = get_pim_data_for_product(self.object, refresh=True)
     context['pim_data'] = pim_data
     if pim_data:
       context['pim_image_url'] = get_file_url(pim_data.get('mainImageId') or pim_data.get('imageId'))
@@ -193,7 +193,7 @@ class MainProductDetail(DetailView):
     return super().get(request, *args, **kwargs)
   def get_context_data(self, **kwargs):
     context = super().get_context_data(**kwargs)
-    pim_data = get_pim_data_for_product(self.object)
+    pim_data = get_pim_data_for_product(self.object, refresh=True)
     context['pim_data'] = pim_data
     if pim_data:
       context['pim_image_url'] = get_file_url(pim_data.get('mainImageId') or pim_data.get('imageId'))

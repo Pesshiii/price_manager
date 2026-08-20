@@ -56,13 +56,14 @@ def maybe_notify_pim_error(user) -> None:
     cache.set(throttle_key, True, _PIM_NOTIF_THROTTLE_TTL)
 
 
-def get_pim_data(pim_id: str | None) -> dict | None:
+def get_pim_data(pim_id: str | None, refresh: bool = False) -> dict | None:
     if not pim_id:
         return None
     cache_key = f"pim:{pim_id}"
-    cached = cache.get(cache_key)
-    if cached is not None:
-        return cached
+    if not refresh:
+        cached = cache.get(cache_key)
+        if cached is not None:
+            return cached
     t0 = time.monotonic()
     try:
         data = site.get(ContributorProduct(id=pim_id))
@@ -70,7 +71,7 @@ def get_pim_data(pim_id: str | None) -> dict | None:
         return data
     except Exception as exc:
         _record_pim_error("get_pim_data", exc, int((time.monotonic() - t0) * 1000))
-        return None
+        return cache.get(cache_key)
 
 
 _PIM_NO_MATCH_TTL = 60 * 60 * 4  # 4 hours — avoid hammering PIM for unlinked products
@@ -121,11 +122,11 @@ def _resolve_pim_id(product) -> str | None:
     return pim_id
 
 
-def get_pim_data_for_product(product) -> dict | None:
+def get_pim_data_for_product(product, refresh: bool = False) -> dict | None:
     """Return PIM data for a MainProduct, resolving pim_id if not set."""
     if not product.pim_id:
         _resolve_pim_id(product)
-    return get_pim_data(product.pim_id)
+    return get_pim_data(product.pim_id, refresh=refresh)
 
 
 def prefetch_pim_data(products) -> dict:
