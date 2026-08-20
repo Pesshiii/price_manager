@@ -172,7 +172,7 @@ class Command(BaseCommand):
             try:
                 if not product.pim_id:
                     result = site.get(EntityList(
-                        name='ProductPM',
+                        name='ContributorProduct',
                         select=['id'],
                         where=[Where(attribute='priceManagerId', type='equals', value=str(product.id))],
                     ))
@@ -184,7 +184,7 @@ class Command(BaseCommand):
                     product.pim_id = items[0]['id']
                     product.save(update_fields=['pim_id'])
 
-                pim_data = site.get(Entity(name='ProductPM', id=product.pim_id))
+                pim_data = site.get(Entity(name='ContributorProduct', id=product.pim_id))
                 category_pim_ids = pim_data.get('categoriesIds', [])
 
                 cat = next((cat_by_pim_id[pid] for pid in category_pim_ids if pid in cat_by_pim_id), None)

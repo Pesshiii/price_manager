@@ -10,7 +10,7 @@ from django.db.models.functions import Coalesce
 from django.conf import settings
 
 from .models import MainProduct, MainProductLog, MP_PRICES
-from .pim_api import site, EntityList, Where, ProductPM, FileRecord
+from .pim_api import site, EntityList, Where, ContributorProduct, FileRecord
 from .columns import AVAILABLE_COLUMN_MAP, DEFAULT_VISIBLE_COLUMNS
 
 from supplier_product_manager.models import SupplierProduct
@@ -65,7 +65,7 @@ def get_pim_data(pim_id: str | None) -> dict | None:
         return cached
     t0 = time.monotonic()
     try:
-        data = site.get(ProductPM(id=pim_id))
+        data = site.get(ContributorProduct(id=pim_id))
         cache.set(cache_key, data, PIM_CACHE_TTL)
         return data
     except Exception as exc:
@@ -76,8 +76,13 @@ def get_pim_data(pim_id: str | None) -> dict | None:
 _PIM_NO_MATCH_TTL = 60 * 60 * 4  # 4 hours — avoid hammering PIM for unlinked products
 
 
-def _resolve_pim_id(product) -> str | None:
-    """Look up pim_id in PIM by priceManagerId and persist it if found."""
+def _search_pim_id(product) -> str | None:
+    """Search PIM for a product's id, by priceManagerId then by name.
+
+    Throttled by a no-match cache (_PIM_NO_MATCH_TTL) so unmatched products
+    are only retried periodically instead of on every lookup/task run.
+    Does not persist the result — callers decide how/when to save it.
+    """
     no_match_key = f"pim_no_match:{product.pk}"
     if cache.get(no_match_key):
         return None
@@ -85,21 +90,35 @@ def _resolve_pim_id(product) -> str | None:
     try:
         result = site.get(
             EntityList(
-                name='ProductPM',
+                name='ContributorProduct',
                 select=['id'],
                 where=[Where(attribute='priceManagerId', type='like', value=str(product.pk))],
             )
         )
+        if not result.get('list') and product.name:
+            result = site.get(
+                EntityList(
+                    name='ContributorProduct',
+                    select=['id'],
+                    where=[Where(attribute='name', type='like', value=product.name)],
+                )
+            )
         if result.get('list'):
-            pim_id = result['list'][0]['id']
-            MainProduct.objects.filter(pk=product.pk).update(pim_id=pim_id)
-            product.pim_id = pim_id
-            return pim_id
+            return result['list'][0]['id']
         # No match is normal — don't treat as error, just set no-match cache below
     except Exception as exc:
-        _record_pim_error("_resolve_pim_id", exc, int((time.monotonic() - t0) * 1000))
+        _record_pim_error("_search_pim_id", exc, int((time.monotonic() - t0) * 1000))
     cache.set(no_match_key, True, _PIM_NO_MATCH_TTL)
     return None
+
+
+def _resolve_pim_id(product) -> str | None:
+    """Look up pim_id in PIM and persist it on the product if found."""
+    pim_id = _search_pim_id(product)
+    if pim_id:
+        MainProduct.objects.filter(pk=product.pk).update(pim_id=pim_id)
+        product.pim_id = pim_id
+    return pim_id
 
 
 def get_pim_data_for_product(product) -> dict | None:
@@ -259,19 +278,10 @@ def create_pim_links(delay: float = 0.5) -> int:
     products = list(MainProduct.objects.filter(pim_id__isnull=True)[:1000])
     result = []
     for product in products:
-        try:
-            pim_list = site.get(
-                EntityList(
-                    name='ProductPM',
-                    select=['id'],
-                    where=[Where(attribute='priceManagerId', type='like', value=str(product.id))],
-                )
-            )
-            if pim_list.get('list'):
-                product.pim_id = pim_list['list'][0]['id']
-                result.append(product)
-        except Exception:
-            pass
+        pim_id = _search_pim_id(product)
+        if pim_id:
+            product.pim_id = pim_id
+            result.append(product)
         time.sleep(delay)
     # bulk_update is the only DB write; kept outside the API loop so
     # execute_locked_task's transaction.atomic() doesn't span HTTP calls.

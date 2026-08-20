@@ -6,7 +6,6 @@ from django.db.models import Value, OuterRef, Subquery, Q, F, Sum
 from django.db.models.functions import Concat
 from django.core.validators import MinValueValidator, MaxValueValidator
 from django.utils import timezone
-from main_product_manager.pim_api import site, EntityList, Where, ProductPM
 from supplier_manager.models import Supplier, Category, Manufacturer
 
 from decimal import Decimal
@@ -136,21 +135,17 @@ class MainProduct(models.Model):
         return f'{self.sku}' if self.sku is not None else 'Не указан'
     def _build_searchvector(self) -> SearchVector:
         """Собираем строку для поиска без join-ов."""
+        from main_product_manager.utils import _resolve_pim_id, get_pim_data
         if self.pim_id is None:
-            self.pim_id = site.get(
-                EntityList(name='Product', 
-                select=['id'], 
-                where=[Where(attribute='priceManagerId', type='like', value=f'{self.id}')])
-            )['list'][0]['id']
-            self.save(update_fields=['pim_id'])
-        pim_product = site.get(ProductPM(id=f'{self.pim_id}'))
+            _resolve_pim_id(self)
+        pim_product = get_pim_data(self.pim_id) or {}
         vector = (
-            SearchVector(Value(''.join(pim_product['categoriesNames'].values())), weight='A', config='russian') +
-            SearchVector(Value(''.join(pim_product['tags'])), weight='A', config='russian') +
-            SearchVector(Value(pim_product['name']), weight='A', config='russian') +
-            SearchVector(Value(pim_product['nameSatu']), weight='A', config='russian') +
-            SearchVector(Value(pim_product['description']), weight='C', config='russian') +
-            SearchVector(Value(pim_product['longDescription']), weight='C', config='russian') +
+            SearchVector(Value(''.join(pim_product.get('categoriesNames', {}).values())), weight='A', config='russian') +
+            SearchVector(Value(''.join(pim_product.get('tags', []))), weight='A', config='russian') +
+            SearchVector(Value(pim_product.get('name', '')), weight='A', config='russian') +
+            SearchVector(Value(pim_product.get('nameSatu', '')), weight='A', config='russian') +
+            SearchVector(Value(pim_product.get('description', '')), weight='C', config='russian') +
+            SearchVector(Value(pim_product.get('longDescription', '')), weight='C', config='russian') +
             SearchVector('sku', weight='B', config='russian')+
             SearchVector('article', weight='B', config='russian') +
             SearchVector('description', weight='D', config='russian')+

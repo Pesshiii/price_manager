@@ -70,10 +70,10 @@ class Job(BaseModel):
     def get(self, prefix: str, headers: Dict[str, str], timeout: float = 5.0) -> httpx.Response:
         return httpx.get(url=prefix + 'Job/' + self.id, headers=headers, timeout=timeout)
 
-class ProductPM(BaseModel):
+class ContributorProduct(BaseModel):
     id: str
     def get(self, prefix: str, headers: Dict[str, str], timeout: float = 5.0) -> httpx.Response:
-        return httpx.get(url=prefix + 'ProductPM/' + self.id, headers=headers, timeout=timeout)
+        return httpx.get(url=prefix + 'ContributorProduct/' + self.id, headers=headers, timeout=timeout)
 
 class FileRecord(BaseModel):
     id: str
