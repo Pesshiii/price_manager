@@ -35,7 +35,7 @@ class MainProductTable(tables.Table):
   )
   pim_photo = tables.Column(verbose_name='PIM • Фото', orderable=False, empty_values=())
   pim_name = tables.Column(verbose_name='PIM • Название', orderable=False, empty_values=())
-  pim_name_satu = tables.Column(verbose_name='PIM • Название Satu', orderable=False, empty_values=())
+  pim_number = tables.Column(verbose_name='PIM • Номер', orderable=False, empty_values=())
   pim_categories = tables.Column(verbose_name='PIM • Категории', orderable=False, empty_values=())
   pim_tags = tables.Column(verbose_name='PIM • Теги', orderable=False, empty_values=())
   pim_brand = tables.Column(verbose_name='PIM • Бренд', orderable=False, empty_values=())
@@ -159,9 +159,9 @@ class MainProductTable(tables.Table):
     data = self._pim(record)
     return data.get('name') or '—' if data else '—'
 
-  def render_pim_name_satu(self, record):
+  def render_pim_number(self, record):
     data = self._pim(record)
-    return data.get('nameSatu') or '—' if data else '—'
+    return data.get('number') or '—' if data else '—'
 
   def render_pim_categories(self, record):
     data = self._pim(record)

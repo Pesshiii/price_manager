@@ -59,9 +59,26 @@
         </button>
       </div>
     </div>
-    {% if pim_data %}
     <div class="card shadow-sm border-0 p-4 mt-3">
-      <h5 class="mb-3 text-muted">PIM</h5>
+      <h5 class="mb-3 text-muted d-flex align-items-center gap-2">
+        PIM
+        {% if pim_data %}
+          <span class="badge text-bg-success">Привязан</span>
+        {% elif mainproduct.pim_id %}
+          <span class="badge text-bg-warning">Ошибка получения данных</span>
+        {% else %}
+          <span class="badge text-bg-secondary">Не найден в PIM</span>
+        {% endif %}
+      </h5>
+      {% if not pim_data %}
+      <div class="alert {% if mainproduct.pim_id %}alert-warning{% else %}alert-secondary{% endif %} mb-0">
+        {% if mainproduct.pim_id %}
+          Не удалось получить данные из PIM (id: {{ mainproduct.pim_id }}). Возможно, временная ошибка соединения — попробуйте обновить страницу.
+        {% else %}
+          Товар не найден в PIM. Проверьте соответствие priceManagerId/названия или привяжите вручную.
+        {% endif %}
+      </div>
+      {% else %}
       <div class="row g-3">
         {% if pim_image_url %}
         <div class="col-12 col-md-auto">
@@ -77,9 +94,13 @@
             <dt class="col-sm-4 text-muted fw-normal small">Название</dt>
             <dd class="col-sm-8">{{ pim_data.name }}</dd>
             {% endif %}
-            {% if pim_data.nameSatu %}
-            <dt class="col-sm-4 text-muted fw-normal small">Название Satu</dt>
-            <dd class="col-sm-8">{{ pim_data.nameSatu }}</dd>
+            {% if pim_data.number %}
+            <dt class="col-sm-4 text-muted fw-normal small">Номер PIM</dt>
+            <dd class="col-sm-8">{{ pim_data.number }}</dd>
+            {% endif %}
+            {% if pim_data.mpn %}
+            <dt class="col-sm-4 text-muted fw-normal small">MPN</dt>
+            <dd class="col-sm-8">{{ pim_data.mpn }}</dd>
             {% endif %}
             {% if pim_data.brandName %}
             <dt class="col-sm-4 text-muted fw-normal small">Бренд</dt>
@@ -91,7 +112,34 @@
             {% endif %}
             {% if pim_data.status %}
             <dt class="col-sm-4 text-muted fw-normal small">Статус</dt>
-            <dd class="col-sm-8">{{ pim_data.status }}</dd>
+            <dd class="col-sm-8">
+              {{ pim_data.status }}
+              {% if not pim_data.isActive %}<span class="badge text-bg-secondary ms-1">Неактивен</span>{% endif %}
+            </dd>
+            {% endif %}
+            {% if pim_data.quantity is not None %}
+            <dt class="col-sm-4 text-muted fw-normal small">Остаток в PIM</dt>
+            <dd class="col-sm-8">{{ pim_data.quantity }}</dd>
+            {% endif %}
+            {% if pim_data.price %}
+            <dt class="col-sm-4 text-muted fw-normal small">Цена PIM</dt>
+            <dd class="col-sm-8">{{ pim_data.price }}</dd>
+            {% endif %}
+            {% if pim_data.rrp %}
+            <dt class="col-sm-4 text-muted fw-normal small">РРЦ PIM</dt>
+            <dd class="col-sm-8">{{ pim_data.rrp }}</dd>
+            {% endif %}
+            {% if pim_data.productGroupName %}
+            <dt class="col-sm-4 text-muted fw-normal small">Группа товаров</dt>
+            <dd class="col-sm-8">{{ pim_data.productGroupName }}</dd>
+            {% endif %}
+            {% if pim_data.countryOfOriginName %}
+            <dt class="col-sm-4 text-muted fw-normal small">Страна происхождения</dt>
+            <dd class="col-sm-8">{{ pim_data.countryOfOriginName }}</dd>
+            {% endif %}
+            {% if pim_data.defaultSupplierName %}
+            <dt class="col-sm-4 text-muted fw-normal small">Поставщик по умолчанию</dt>
+            <dd class="col-sm-8">{{ pim_data.defaultSupplierName }}</dd>
             {% endif %}
             {% if pim_data.categoriesNames %}
             <dt class="col-sm-4 text-muted fw-normal small">Категории</dt>
@@ -100,6 +148,10 @@
             {% if pim_data.tag %}
             <dt class="col-sm-4 text-muted fw-normal small">Теги</dt>
             <dd class="col-sm-8">{{ pim_data.tag|join:", " }}</dd>
+            {% endif %}
+            {% if pim_data.note %}
+            <dt class="col-sm-4 text-muted fw-normal small">Заметка</dt>
+            <dd class="col-sm-8">{{ pim_data.note }}</dd>
             {% endif %}
           </dl>
         </div>
@@ -116,8 +168,8 @@
         <div>{{ pim_data.longDescription }}</div>
       </div>
       {% endif %}
+      {% endif %}
     </div>
-    {% endif %}
 
     <div id="mainproduct-logs"
         class="row mt-3"

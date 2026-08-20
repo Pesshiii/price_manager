@@ -141,9 +141,8 @@ class MainProduct(models.Model):
         pim_product = get_pim_data(self.pim_id) or {}
         vector = (
             SearchVector(Value(''.join(pim_product.get('categoriesNames', {}).values())), weight='A', config='russian') +
-            SearchVector(Value(''.join(pim_product.get('tags', []))), weight='A', config='russian') +
+            SearchVector(Value(''.join(pim_product.get('tag', []))), weight='A', config='russian') +
             SearchVector(Value(pim_product.get('name', '')), weight='A', config='russian') +
-            SearchVector(Value(pim_product.get('nameSatu', '')), weight='A', config='russian') +
             SearchVector(Value(pim_product.get('description', '')), weight='C', config='russian') +
             SearchVector(Value(pim_product.get('longDescription', '')), weight='C', config='russian') +
             SearchVector('sku', weight='B', config='russian')+

@@ -71,7 +71,7 @@ AVAILABLE_COLUMN_GROUPS = [
     [
       ('pim_photo', 'PIM • Фото'),
       ('pim_name', 'PIM • Название'),
-      ('pim_name_satu', 'PIM • Название Satu'),
+      ('pim_number', 'PIM • Номер'),
       ('pim_categories', 'PIM • Категории'),
       ('pim_tags', 'PIM • Теги'),
       ('pim_brand', 'PIM • Бренд'),
