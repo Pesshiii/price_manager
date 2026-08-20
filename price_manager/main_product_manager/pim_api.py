@@ -97,12 +97,16 @@ class SiteAPI(BaseModel):
             'Authorization-Token': self.token
         }
         response = method.get(prefix=f'https://{self.host}/api/', headers=headers, timeout=self.timeout)
+        if settings.DEBUG:
+            print(f'[PIM] {response.request.method} {response.request.url}')
         response.raise_for_status()
         return response.json()
 
     def download(self, method: Method) -> bytes:
         headers = {'Authorization-Token': self.token}
         response = method.get(prefix=f'https://{self.host}/api/', headers=headers)
+        if settings.DEBUG:
+            print(f'[PIM] {response.request.method} {response.request.url}')
         response.raise_for_status()
         return response.content
 
