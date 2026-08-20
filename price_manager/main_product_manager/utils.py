@@ -98,7 +98,7 @@ _PIM_NO_MATCH_TTL = 60 * 60 * 4  # 4 hours — avoid hammering PIM for unlinked 
 
 
 def _search_pim_id(product) -> str | None:
-    """Search PIM for a product's id, by priceManagerId then by name.
+    """Search PIM for a product's id, by priceManagerId then by article number.
 
     Throttled by a no-match cache (_PIM_NO_MATCH_TTL) so unmatched products
     are only retried periodically instead of on every lookup/task run.
@@ -120,19 +120,20 @@ def _search_pim_id(product) -> str | None:
             return result['list'][0]['id']
     except Exception as exc:
             _record_pim_error("_search_pim_id", exc, int((time.monotonic() - t0) * 1000))
-    try:
-        result = site.get(
-            EntityList(
-                name='ContributorProduct',
-                select=['id'],
-                where=[Where(attribute='name', type='like', value=product.name)],
+    if product.sku:
+        try:
+            result = site.get(
+                EntityList(
+                    name='ContributorProduct',
+                    select=['id'],
+                    where=[Where(attribute='number', type='like', value=product.sku)],
+                )
             )
-        )
-        if result.get('list'):
-            return result['list'][0]['id']
-        # No match is normal — don't treat as error, just set no-match cache below
-    except Exception as exc:
-        _record_pim_error("_search_pim_id", exc, int((time.monotonic() - t0) * 1000))
+            if result.get('list'):
+                return result['list'][0]['id']
+            # No match is normal — don't treat as error, just set no-match cache below
+        except Exception as exc:
+            _record_pim_error("_search_pim_id", exc, int((time.monotonic() - t0) * 1000))
     cache.set(no_match_key, True, _PIM_NO_MATCH_TTL)
     return None
 
