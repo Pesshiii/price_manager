@@ -12,7 +12,7 @@ host = settings.PIM_HOST
 
 
 class Method(Protocol):
-    def get(self, prefix: str, headers: Dict[str, str], timeout: float, *args, **kwargs) -> httpx.Response:
+    def get(self, prefix: str, headers: Dict[str, str], timeout: float = 0.5, *args, **kwargs) -> httpx.Response:
       ...
 
 
@@ -73,7 +73,7 @@ class Job(BaseModel):
 class ContributorProduct(BaseModel):
     id: str
     def get(self, prefix: str, headers: Dict[str, str], timeout: float = 5.0) -> httpx.Response:
-        return httpx.get(url=prefix + 'ContributorProduct' + self.id, headers=headers, timeout=timeout)
+        return httpx.get(url=prefix + 'ContributorProduct/' + self.id, headers=headers, timeout=timeout)
 
 class FileRecord(BaseModel):
     id: str
