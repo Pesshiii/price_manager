@@ -116,14 +116,18 @@ def _search_pim_id(product) -> str | None:
                 where=[Where(attribute='priceManagerId', type='like', value=str(product.pk))],
             )
         )
-        if not result.get('list') and product.name:
-            result = site.get(
-                EntityList(
-                    name='ContributorProduct',
-                    select=['id'],
-                    where=[Where(attribute='name', type='like', value=product.name)],
-                )
+        if result.get('list'):
+            return result['list'][0]['id']
+    except Exception as exc:
+            _record_pim_error("_search_pim_id", exc, int((time.monotonic() - t0) * 1000))
+    try:
+        result = site.get(
+            EntityList(
+                name='ContributorProduct',
+                select=['id'],
+                where=[Where(attribute='name', type='like', value=product.name)],
             )
+        )
         if result.get('list'):
             return result['list'][0]['id']
         # No match is normal — don't treat as error, just set no-match cache below
