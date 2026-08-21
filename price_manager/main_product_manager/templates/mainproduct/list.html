@@ -12,18 +12,111 @@
     max-height: calc(100vh - 110px);
     overflow: auto;
   }
+
+  .main-filters-card .card {
+    border: 1px solid #e9ecef;
+    border-radius: 1rem;
+    box-shadow: 0 0.5rem 1.5rem rgba(15, 23, 42, 0.06);
+  }
+
+  .filter-header h5 {
+    font-weight: 600;
+  }
+
+  .filter-header .bi {
+    font-size: 1.15rem;
+  }
+
+  .filter-section {
+    padding: 0.9rem 0;
+    border-bottom: 1px solid #f1f3f5;
+  }
+
+  .filter-section-last {
+    border-bottom: none;
+  }
+
+  .filter-section-title {
+    font-size: 0.8rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+    color: #6c757d;
+    margin-bottom: 0.6rem;
+    border: none;
+  }
+
+  .filter-switch .form-check-input {
+    width: 2.5em;
+    cursor: pointer;
+  }
+
+  .filter-switch .form-check-label {
+    cursor: pointer;
+    font-weight: 500;
+  }
+
+  .filter-scroll-list {
+    border: 1px solid #eef0f2;
+    border-radius: 0.75rem;
+    background-color: #fafbfc;
+    scrollbar-width: thin;
+  }
+
+  .filter-check-item {
+    padding: 0.25rem 0.5rem;
+    border-radius: 0.4rem;
+    transition: background-color 0.15s ease-in-out;
+  }
+
+  .filter-check-item:hover {
+    background-color: #eef2ff;
+  }
+
+  .filter-quick-search .input-group-text {
+    border: 1px solid #ced4da;
+  }
+
+  .filter-actions .btn {
+    border-radius: 0.6rem;
+    font-weight: 500;
+  }
+
+  .main-search-bar .input-group {
+    border-radius: 0.9rem;
+    overflow: hidden;
+    box-shadow: 0 0.35rem 1.25rem rgba(15, 23, 42, 0.08);
+  }
+
+  .main-search-bar .input-group-text {
+    background-color: #fff;
+    border: 1px solid #e2e5e9;
+    border-right: none;
+    color: #6c757d;
+  }
+
+  .main-search-bar .form-control {
+    border: 1px solid #e2e5e9;
+    border-left: none;
+  }
+
+  .main-search-bar .form-control:focus {
+    box-shadow: none;
+    border-color: #86b7fe;
+  }
 {% endblock %}
 
 {% block body %}
   {% partialdef list inline %}
     <div id="mainproducts-block" class="row gap-2 p-4">
-      
-      <div class="col-3">
+
+      <div class="col-12 col-lg-3">
         <div class="main-filters-card">
         {% include "mainproduct/partials/filter.html" %}
         </div>
       </div>
-      <div class="col-8">
+      <div class="col-12 col-lg-8">
+        {% include "mainproduct/partials/search_bar.html" %}
         {% include 'mainproduct/partials/tables_bycat.html' %}
       </div>
     </div>

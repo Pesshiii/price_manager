@@ -68,45 +68,42 @@ class MainProductFilter(FilterSet):
     self.form.helper.label_class='mt-2'
     self.form.helper.attrs = {
       'hx-get':url,
-      'hx-swap':'innerHTML',
+      'hx-swap':'outerHTML',
       'hx-trigger':'input changed delay:2s, change delay:2s, submit',
-      'hx-push-url':'true'
+      'hx-push-url':'true',
+      'hx-include':'#mainproducts-search',
     }
     if hx_target:
       self.form.helper.attrs['hx-target']=hx_target
     if not self.data.get('bound', None) or bound_ignore:
       self.form.helper.layout = Layout(
           Hidden('bound', 'true'),
-          HTML('<h5 class="mb-3">Фильтры товаров</h5>'),
+          HTML('''
+            <div class="filter-header d-flex align-items-center gap-2 mb-3">
+              <i class="bi bi-sliders text-primary"></i>
+              <h5 class="mb-0">Фильтры товаров</h5>
+            </div>
+          '''),
           Div(
-            Field('search'),
-            css_class='mb-3'
+            Field('available', template='core/includes/switch_field.html'),
+            css_class='filter-section'
           ),
-          HTML('<hr class="border-secondary">'),
-          Div(
-            Field('available'),
-            css_class='p-3 mb-3'
-          ),
-          HTML('<hr class="border-secondary">'),
           Div(
             Field('supplier', template='core/includes/checkbox_field.html'),
-            css_class='p-3 mb-3'
+            css_class='filter-section'
           ),
-          HTML('<hr class="border-secondary">'),
           Div(
             Field('manufacturer', template='core/includes/checkbox_field.html'),
-            css_class='p-3 mb-3'
+            css_class='filter-section'
           ),
-          HTML('<hr class="border-secondary">'),
           Div(
             Field('category', template='supplier/partials/category_filter_field.html'),
-            css_class='p-3'
+            css_class='filter-section filter-section-last'
           ),
-          HTML('<hr class="border-secondary">'),
           Div(
             Submit('action', 'Применить', title="Применить", css_class='btn btn-primary flex-grow-1'),
-            HTML(f"""<a href=\"{url}\" class=\"btn btn-outline-secondary\" title=\"Сбросить\">Сбросить</a>"""),
-            css_class='d-flex gap-2 mt-4'
+            HTML(f"""<a href=\"{url}\" class=\"btn btn-outline-secondary\" title=\"Сбросить\"><i class="bi bi-arrow-counterclockwise"></i></a>"""),
+            css_class='d-flex gap-2 mt-4 filter-actions'
           )
       )
     else:
