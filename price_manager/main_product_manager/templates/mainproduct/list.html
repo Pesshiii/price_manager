@@ -82,6 +82,21 @@
     font-weight: 500;
   }
 
+  .main-search-bar {
+    position: sticky;
+    top: 88px;
+    z-index: 20;
+    background-color: #fff;
+    padding: 0.75rem 0;
+    margin-top: -0.75rem;
+    transition: transform 0.25s ease, opacity 0.2s ease;
+  }
+
+  .main-search-bar.is-hidden {
+    transform: translateY(-135%);
+    opacity: 0;
+  }
+
   .main-search-bar .input-group {
     border-radius: 0.9rem;
     overflow: hidden;
@@ -135,4 +150,37 @@
           </div>
       </div>
   </div>
+{% endblock %}
+
+{% block script %}
+<script>
+  (function () {
+    var bar = document.querySelector('.main-search-bar');
+    if (!bar) return;
+    var lastY = window.scrollY;
+    var hideAfter = 160;
+    var delta = 8;
+    var ticking = false;
+
+    function onScroll() {
+      var currentY = window.scrollY;
+      if (Math.abs(currentY - lastY) > delta) {
+        if (currentY > lastY && currentY > hideAfter) {
+          bar.classList.add('is-hidden');
+        } else {
+          bar.classList.remove('is-hidden');
+        }
+        lastY = currentY;
+      }
+      ticking = false;
+    }
+
+    window.addEventListener('scroll', function () {
+      if (!ticking) {
+        window.requestAnimationFrame(onScroll);
+        ticking = true;
+      }
+    }, { passive: true });
+  })();
+</script>
 {% endblock %}
