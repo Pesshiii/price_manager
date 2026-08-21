@@ -61,8 +61,8 @@ class PersistentNotificationDeleteView(LoginRequiredMixin, View):
         )
         return render(
             request,
-            "core/partials/notifications_badge.html",
-            {"persistent_notifications": remaining, "oob": True},
+            "core/partials/notifications_delete_response.html",
+            {"persistent_notifications": remaining},
         )
 
 
