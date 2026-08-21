@@ -74,13 +74,49 @@
   }
 
   .filter-check-item {
-    padding: 0.25rem 0.5rem;
-    border-radius: 0.4rem;
-    transition: background-color 0.15s ease-in-out;
+    display: flex;
+    align-items: center;
+    padding: 0.4rem 0.6rem;
+    border-radius: 0.5rem;
+    border: 1px solid transparent;
+    transition: background-color 0.15s ease-in-out, border-color 0.15s ease-in-out;
   }
 
   .filter-check-item:hover {
     background-color: #eef2ff;
+  }
+
+  .filter-check-item .form-check-input {
+    width: 1.15em;
+    height: 1.15em;
+    margin-top: 0;
+    flex-shrink: 0;
+    border: 1.5px solid #adb5bd;
+    cursor: pointer;
+  }
+
+  .filter-check-item .form-check-input:checked {
+    background-color: #3b5bfd;
+    border-color: #3b5bfd;
+  }
+
+  .filter-check-item .form-check-input:focus {
+    box-shadow: 0 0 0 0.2rem rgba(59, 91, 253, 0.2);
+  }
+
+  .filter-check-item .form-check-label {
+    cursor: pointer;
+    margin-left: 0.1rem;
+  }
+
+  .filter-check-item:has(.form-check-input:checked) {
+    background-color: #eef1ff;
+    border-color: #c7d1fb;
+  }
+
+  .filter-check-item:has(.form-check-input:checked) .form-check-label {
+    font-weight: 600;
+    color: #29399b;
   }
 
   .filter-quick-search .input-group-text {
