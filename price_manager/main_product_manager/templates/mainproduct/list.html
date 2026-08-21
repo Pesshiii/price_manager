@@ -122,11 +122,59 @@
     box-shadow: none;
     border-color: #86b7fe;
   }
+
+  .table-skeleton {
+    display: flex;
+    flex-direction: column;
+    gap: 0.9rem;
+  }
+
+  .table-skeleton-row {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+  }
+
+  .table-skeleton-row--head {
+    opacity: 0.55;
+    margin-bottom: 0.15rem;
+  }
+
+  .table-skeleton-row--head .sk-bar {
+    height: 8px;
+  }
+
+  .sk-bar {
+    height: 12px;
+    border-radius: 6px;
+    flex: 1 1 auto;
+    background: linear-gradient(100deg, #eef1f4 30%, #dde3ea 45%, #eef1f4 60%);
+    background-size: 250% 100%;
+    animation: sk-shimmer 1.6s ease-in-out infinite;
+  }
+
+  .sk-bar--thumb {
+    flex: 0 0 auto;
+    width: 40px;
+    height: 40px;
+    border-radius: 0.65rem;
+  }
+
+  @keyframes sk-shimmer {
+    0% { background-position: 100% 0; }
+    100% { background-position: -50% 0; }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .sk-bar {
+      animation: none;
+    }
+  }
 {% endblock %}
 
 {% block body %}
   {% partialdef list inline %}
-    <div id="mainproducts-block" class="row gap-2 p-4">
+    <div id="mainproducts-block" class="row gap-2 pt-4 pb-4 ps-4 pe-2">
 
       <div class="col-12 col-lg-8 ps-lg-4">
         {% include "mainproduct/partials/search_bar.html" %}

@@ -42,12 +42,7 @@
           hx-get="{% url "mainproduct-table-nocat"%}{% querystring%}"
           hx-trigger="load"
           hx-swap="outerHTML">
-              <span class="placeholder col-12 placeholder-lg bg-light">
-              </span>
-              <span class="placeholder col-12 placeholder-lg bg-light">
-              </span>
-              <span class="placeholder col-12 placeholder-lg bg-light">
-              </span>
+              {% include "mainproduct/partials/table_skeleton.html" %}
           </div>
         </div>
     {% endif %}
@@ -76,12 +71,7 @@
             hx-get="{% url "mainproduct-table-bycat" category_pk=category.pk %}{% querystring %}"
             hx-trigger="load"
             hx-swap="outerHTML">
-              <span class="placeholder col-12 placeholder-lg bg-light">
-              </span>
-              <span class="placeholder col-12 placeholder-lg bg-light">
-              </span>
-              <span class="placeholder col-12 placeholder-lg bg-light">
-              </span>
+              {% include "mainproduct/partials/table_skeleton.html" %}
             </div>
           {% endif %}
         </div>
