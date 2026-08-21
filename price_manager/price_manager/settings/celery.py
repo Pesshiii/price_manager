@@ -19,8 +19,10 @@ CELERY_STOCK_UPDATE_MINUTES = int(os.environ.get('CELERY_STOCK_UPDATE_MINUTES', 
 CELERY_LOG_UPDATE_MINUTES = int(os.environ.get('CELERY_LOG_UPDATE_MINUTES', 60))
 CELERY_SUPPLIER_FILES_CLEANUP_MINUTES = int(os.environ.get('CELERY_SUPPLIER_FILES_CLEANUP_MINUTES', 30))
 CELERY_CATEGORY_SYNC_MINUTES = int(os.environ.get('CELERY_CATEGORY_SYNC_MINUTES', 360))
+CELERY_NOTIFICATION_CLEANUP_MINUTES = int(os.environ.get('CELERY_NOTIFICATION_CLEANUP_MINUTES', 60))
 
 SUPPLIER_FILES_KEEP_LAST = int(os.environ.get('SUPPLIER_FILES_KEEP_LAST', 0))
+PERSISTENT_NOTIFICATION_TTL_HOURS = int(os.environ.get('PERSISTENT_NOTIFICATION_TTL_HOURS', 72))
 
 
 CELERY_BEAT_SCHEDULE = {
@@ -51,5 +53,9 @@ CELERY_BEAT_SCHEDULE = {
     'sync-categories': {
         'task': 'supplier_manager.sync_categories',
         'schedule': CELERY_CATEGORY_SYNC_MINUTES * 60,
+    },
+    'cleanup-persistent-notifications': {
+        'task': 'core.cleanup_persistent_notifications',
+        'schedule': CELERY_NOTIFICATION_CLEANUP_MINUTES * 60,
     },
 }

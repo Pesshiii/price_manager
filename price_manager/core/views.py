@@ -54,7 +54,30 @@ class PersistentNotificationDeleteView(LoginRequiredMixin, View):
     def post(self, request, pk):
         notification = get_object_or_404(PersistentNotification, pk=pk, user=request.user)
         notification.delete()
-        return HttpResponse("")
+        remaining = (
+            PersistentNotification.objects
+            .filter(user=request.user)
+            .order_by('-created_at')[:30]
+        )
+        return render(
+            request,
+            "core/partials/notifications_badge.html",
+            {"persistent_notifications": remaining, "oob": True},
+        )
+
+
+class PersistentNotificationsPanelView(LoginRequiredMixin, View):
+    def get(self, request):
+        notifications = (
+            PersistentNotification.objects
+            .filter(user=request.user)
+            .order_by('-created_at')[:30]
+        )
+        return render(
+            request,
+            "core/partials/notifications_panel.html",
+            {"persistent_notifications": notifications},
+        )
 
 class AppLoginView(LoginView):
     template_name = 'registration/login.html'
