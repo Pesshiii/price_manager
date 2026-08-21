@@ -76,7 +76,9 @@
   .filter-check-item {
     display: flex;
     align-items: flex-start;
+    gap: 0.5rem;
     padding: 0.3rem 0.5rem;
+    padding-left: 0.5rem;
     border-radius: 0.5rem;
     border: 1px solid transparent;
     max-width: 100%;
@@ -88,9 +90,11 @@
   }
 
   .filter-check-item .form-check-input {
+    float: none;
     width: 1.15em;
     height: 1.15em;
     margin-top: 0.2em;
+    margin-left: 0;
     flex-shrink: 0;
     border: 1.5px solid #adb5bd;
     cursor: pointer;
@@ -107,7 +111,7 @@
 
   .filter-check-item .form-check-label {
     cursor: pointer;
-    margin-left: 0.1rem;
+    margin-left: 0;
     flex: 1 1 auto;
     min-width: 0;
     white-space: normal;
