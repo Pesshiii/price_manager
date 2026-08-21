@@ -1,7 +1,6 @@
 from django.core.management.base import BaseCommand
 
-from main_product_manager.models import MainProduct
-from main_product_manager.pim_api import Entity, EntityList, Where, site
+from main_product_manager.pim_api import EntityList, Where, site
 from supplier_manager.models import Category
 
 
@@ -25,24 +24,14 @@ class Command(BaseCommand):
             dest='from_pim',
             help='Удалить все категории и пересоздать их из PIM',
         )
-        parser.add_argument(
-            '--products-only',
-            action='store_true',
-            dest='products_only',
-            help='Пропустить синхронизацию категорий и сразу привязать продукты',
-        )
 
     def handle(self, *args, **options):
         entity = options['entity']
 
-        if options['products_only']:
-            self._link_products()
-        elif options['from_pim']:
+        if options['from_pim']:
             self._sync_from_pim(entity)
-            self._link_products()
         else:
             self._populate_pim_ids(entity, overwrite=options['overwrite'])
-            self._link_products()
 
     # ------------------------------------------------------------------
     # --from-pim: wipe and recreate from PIM
@@ -139,67 +128,4 @@ class Command(BaseCommand):
 
         self.stdout.write(self.style.SUCCESS(
             f'\nГотово: обновлено={updated}, не найдено={not_found}, пропущено={skipped}, ошибок={errors}'
-        ))
-
-    # ------------------------------------------------------------------
-    # product linking: assign category FK on MainProduct via PIM
-    # ------------------------------------------------------------------
-
-    def _link_products(self):
-        self.stdout.write('\nПривязка продуктов к категориям...')
-
-        try:
-            main_tree = Category.objects.get(name='Основной', parent=None)
-        except Category.DoesNotExist:
-            self.stdout.write(self.style.ERROR('Главная ветка не найдена — пропуск привязки продуктов.'))
-            return
-
-        cat_by_pim_id = {
-            cat.pim_id: cat
-            for cat in main_tree.get_descendants().exclude(pim_id__isnull=True)
-        }
-        if not cat_by_pim_id:
-            self.stdout.write(self.style.WARNING('Нет категорий с pim_id в главной ветке — пропуск привязки продуктов.'))
-            return
-
-        self.stdout.write('\n~Начало~')
-
-        linked = 0
-        skipped = 0
-        errors = 0
-
-        for product in MainProduct.objects.all():
-            try:
-                if not product.pim_id:
-                    result = site.get(EntityList(
-                        name='ContributorProduct',
-                        select=['id'],
-                        where=[Where(attribute='priceManagerId', type='equals', value=str(product.id))],
-                    ))
-                    items = result.get('list', [])
-                    if not items:
-                        skipped += 1
-                        self.stdout.write(self.style.WARNING(f'  {product}  →  не найден в PIM'))
-                        continue
-                    product.pim_id = items[0]['id']
-                    product.save(update_fields=['pim_id'])
-
-                pim_data = site.get(Entity(name='ContributorProduct', id=product.pim_id))
-                category_pim_ids = pim_data.get('categoriesIds', [])
-
-                cat = next((cat_by_pim_id[pid] for pid in category_pim_ids if pid in cat_by_pim_id), None)
-                if cat:
-                    product.category = cat
-                    product.save(update_fields=['category'])
-                    linked += 1
-                    self.stdout.write(f'  {product}  →  {cat}')
-                else:
-                    skipped += 1
-                    self.stdout.write(f'  {product}  x')
-            except Exception as exc:
-                errors += 1
-                self.stdout.write(self.style.ERROR(f'  {product}  →  ошибка: {exc}'))
-
-        self.stdout.write(self.style.SUCCESS(
-            f'\nПривязка завершена: обновлено={linked}, пропущено={skipped}, ошибок={errors}'
         ))

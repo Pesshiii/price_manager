@@ -42,8 +42,7 @@ class MainProduct(models.Model):
         ]
     pim_id = models.CharField(verbose_name='Id для системы Pim',
                               null=True,
-                              blank=True,
-                              unique=True)
+                              blank=True)
     sku = models.CharField(verbose_name='Артикул товара',
                          null=True,
                          blank=True,
@@ -60,11 +59,9 @@ class MainProduct(models.Model):
     name = models.CharField(verbose_name='Название',
                           null=False,
                           blank=False)
-    category = models.ForeignKey(Category,
-                               on_delete=models.SET_NULL,
-                               verbose_name='Категория',
+    categories = models.ManyToManyField(Category,
+                               verbose_name='Категории',
                                related_name='mainproducts',
-                               null=True,
                                blank=True)
     manufacturer = models.ForeignKey(Manufacturer,
                                    verbose_name='Производитель',
@@ -148,7 +145,6 @@ class MainProduct(models.Model):
             SearchVector('sku', weight='B', config='russian')+
             SearchVector('article', weight='B', config='russian') +
             SearchVector('description', weight='D', config='russian')+
-            SearchVector('category__name', weight='C', config='russian') +
             SearchVector("supplier__name", weight='C', config='russian') +
             SearchVector("manufacturer__name", weight='C', config='russian')
         )

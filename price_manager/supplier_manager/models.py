@@ -125,6 +125,10 @@ class Discount(models.Model):
 class Manufacturer(models.Model):
     name = models.CharField(verbose_name='Производитель',
                             unique=True)
+    pim_id = models.CharField(verbose_name='Id для системы Pim',
+                              null=True,
+                              blank=True,
+                              unique=True)
     class Meta:
         verbose_name = 'Производитель'
     def __str__(self):

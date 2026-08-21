@@ -21,7 +21,7 @@ AVAILABLE_COLUMN_GROUPS = [
       ('description', 'Описание'),
       ('supplier', 'Поставщик'),
       ('manufacturer', 'Производитель'),
-      ('category', 'Категория'),
+      ('categories', 'Категории'),
       ('stock', 'Остаток'),
       ('stock_msg', 'Статус наличия'),
       ('delivery_days', 'Срок поставки (Рабочие дни)'),
@@ -62,8 +62,6 @@ AVAILABLE_COLUMN_GROUPS = [
     'Производитель и категория',
     [
       ('manufacturer__name', 'Производитель • Название'),
-      ('category__name', 'Категория • Название'),
-      ('category__parent__name', 'Категория • Родитель'),
     ],
   ),
   (

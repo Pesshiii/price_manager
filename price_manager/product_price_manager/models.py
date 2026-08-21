@@ -181,7 +181,7 @@ class PriceManager(models.Model):
     
     mps = MainProduct.objects.filter(pk__in=products.values_list('main_product', flat=True))
     if price_manager.categories.exists():
-      mps = mps.filter(category__in=price_manager.categories.all())
+      mps = mps.filter(categories__in=price_manager.categories.all()).distinct()
     source = price_manager.source
     if price_manager.source in SP_PRICES:
       filtered_source_price = (

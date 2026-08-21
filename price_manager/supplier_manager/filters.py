@@ -12,7 +12,7 @@ class CategoryFilter(FilterSet):
     def __init__(self, data=None, product_qs=None, search_query=None, **kwargs):
         if product_qs is not None:
             kwargs.setdefault('queryset', Category.objects.filter(
-                pk__in=product_qs.values_list('category__pk')
+                pk__in=product_qs.values_list('categories__pk')
             ).select_related(
                 'parent__parent__parent__parent'
             ).prefetch_related(

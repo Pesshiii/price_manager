@@ -11,10 +11,11 @@ from django.db.models.functions import Coalesce
 from django.conf import settings
 
 from .models import MainProduct, MainProductLog, MP_PRICES
-from .pim_api import site, EntityList, Where, ContributorProduct, FileRecord
+from .pim_api import site, EntityList, Entity, Where, FileRecord
 from .columns import AVAILABLE_COLUMN_MAP, DEFAULT_VISIBLE_COLUMNS
 
 from supplier_product_manager.models import SupplierProduct
+from supplier_manager.models import Category, Manufacturer
 
 CACHE_TTL = 60 * 60 * 24 * 30  # 30 дней
 PIM_CACHE_TTL = 60 * 60 * 24  # 24 часа
@@ -58,7 +59,10 @@ def maybe_notify_pim_error(user) -> None:
 
 
 def _fetch_pim_product(pim_id: str) -> tuple[dict | None, bool]:
-    """Fetch a PIM product by id straight from the API (no cache).
+    """Fetch a verified PIM `Product` (master record) by id straight from the API (no cache).
+
+    pim_id is the id of the verified/merged PIM `Product`, not a `ContributorProduct` —
+    see _search_pim_id for how it's resolved via ContributorProduct.masterRecordId.
 
     Returns (data, not_found) — not_found is True only on an explicit 404,
     so callers can tell "PIM deleted/renumbered this id" apart from a
@@ -66,7 +70,7 @@ def _fetch_pim_product(pim_id: str) -> tuple[dict | None, bool]:
     """
     t0 = time.monotonic()
     try:
-        data = site.get(ContributorProduct(id=pim_id))
+        data = site.get(Entity(name='Product', id=pim_id))
         return data, False
     except httpx.HTTPStatusError as exc:
         _record_pim_error("get_pim_data", exc, int((time.monotonic() - t0) * 1000))
@@ -76,14 +80,28 @@ def _fetch_pim_product(pim_id: str) -> tuple[dict | None, bool]:
         return None, False
 
 
+def _queue_pim_population(pim_id: str) -> None:
+    """Enqueue the background relation-sync task for a pim_id whose data isn't cached yet.
+
+    Deduped via a short-lived cache flag (cache.add is atomic) so a burst of cache
+    misses for the same pim_id — e.g. rendering a product list — only fires one task.
+    """
+    queued_key = f"pim_populate_queued:{pim_id}"
+    if not cache.add(queued_key, True, _PIM_POPULATE_QUEUED_TTL):
+        return
+    from .tasks import populate_pim_relations_task
+    populate_pim_relations_task.delay(pim_id)
+
+
 def get_pim_data(pim_id: str | None, refresh: bool = False) -> dict | None:
     if not pim_id:
         return None
-    cache_key = f"pim:{pim_id}"
+    cache_key = f"pim_product:{pim_id}"
     if not refresh:
         cached = cache.get(cache_key)
         if cached is not None:
             return cached
+        _queue_pim_population(pim_id)
     data, not_found = _fetch_pim_product(pim_id)
     if data is not None:
         cache.set(cache_key, data, PIM_CACHE_TTL)
@@ -95,10 +113,17 @@ def get_pim_data(pim_id: str | None, refresh: bool = False) -> dict | None:
 
 
 _PIM_NO_MATCH_TTL = 60 * 60 * 4  # 4 hours — avoid hammering PIM for unlinked products
+_PIM_POPULATE_QUEUED_TTL = 60 * 10  # throttle for the cache-miss population trigger
 
 
 def _search_pim_id(product) -> str | None:
-    """Search PIM for a product's id, by priceManagerId then by article number.
+    """Resolve a MainProduct's pim_id: the verified PIM `Product` (master record) id.
+
+    A product isn't directly linked to a `Product` — it's found by searching
+    `ContributorProduct` (by priceManagerId, then by sku/number) and reading its
+    `masterRecordId`, which points at the merged/verified `Product`. A
+    ContributorProduct without a masterRecordId yet (not verified in PIM) counts
+    as no match.
 
     Throttled by a no-match cache (_PIM_NO_MATCH_TTL) so unmatched products
     are only retried periodically instead of on every lookup/task run.
@@ -107,33 +132,25 @@ def _search_pim_id(product) -> str | None:
     no_match_key = f"pim_no_match:{product.pk}"
     if cache.get(no_match_key):
         return None
-    t0 = time.monotonic()
-    try:
-        result = site.get(
-            EntityList(
-                name='ContributorProduct',
-                select=['id'],
-                where=[Where(attribute='priceManagerId', type='like', value=str(product.pk))],
-            )
-        )
-        if result.get('list'):
-            return result['list'][0]['id']
-    except Exception as exc:
-            _record_pim_error("_search_pim_id", exc, int((time.monotonic() - t0) * 1000))
+
+    searches = [Where(attribute='priceManagerId', type='like', value=str(product.pk))]
     if product.sku:
+        searches.append(Where(attribute='number', type='like', value=product.sku))
+
+    for where in searches:
+        t0 = time.monotonic()
         try:
             result = site.get(
-                EntityList(
-                    name='ContributorProduct',
-                    select=['id'],
-                    where=[Where(attribute='number', type='like', value=product.sku)],
-                )
+                EntityList(name='ContributorProduct', select=['masterRecordId'], where=[where])
             )
-            if result.get('list'):
-                return result['list'][0]['id']
+            for item in result.get('list', []):
+                master_record_id = item.get('masterRecordId')
+                if master_record_id:
+                    return master_record_id
             # No match is normal — don't treat as error, just set no-match cache below
         except Exception as exc:
             _record_pim_error("_search_pim_id", exc, int((time.monotonic() - t0) * 1000))
+
     cache.set(no_match_key, True, _PIM_NO_MATCH_TTL)
     return None
 
@@ -158,27 +175,74 @@ def get_pim_data_for_product(product, refresh: bool = False) -> dict | None:
         _resolve_pim_id(product)
     if not product.pim_id:
         return None
+    cache_key = f"pim_product:{product.pim_id}"
     if not refresh:
-        cached = cache.get(f"pim:{product.pim_id}")
+        cached = cache.get(cache_key)
         if cached is not None:
             return cached
+        _queue_pim_population(product.pim_id)
     data, not_found = _fetch_pim_product(product.pim_id)
     if data is not None:
-        cache.set(f"pim:{product.pim_id}", data, PIM_CACHE_TTL)
+        cache.set(cache_key, data, PIM_CACHE_TTL)
         return data
     if not not_found:
-        return cache.get(f"pim:{product.pim_id}")
+        return cache.get(cache_key)
 
     MainProduct.objects.filter(pk=product.pk).update(pim_id=None)
-    cache.delete(f"pim:{product.pim_id}")
+    cache.delete(cache_key)
     product.pim_id = None
     cache.delete(f"pim_no_match:{product.pk}")
     if not _resolve_pim_id(product):
         return None
     data, _ = _fetch_pim_product(product.pim_id)
     if data is not None:
-        cache.set(f"pim:{product.pim_id}", data, PIM_CACHE_TTL)
+        cache.set(f"pim_product:{product.pim_id}", data, PIM_CACHE_TTL)
     return data
+
+
+def _resolve_manufacturer(data: dict) -> Manufacturer | None:
+    """Find or create the Manufacturer matching a PIM Product's brandId/brandName."""
+    brand_id = data.get('brandId')
+    if not brand_id:
+        return None
+    manufacturer = Manufacturer.objects.filter(pim_id=brand_id).first()
+    if manufacturer:
+        return manufacturer
+    brand_name = data.get('brandName') or brand_id
+    manufacturer, created = Manufacturer.objects.get_or_create(
+        name=brand_name, defaults={'pim_id': brand_id}
+    )
+    if not created and not manufacturer.pim_id:
+        manufacturer.pim_id = brand_id
+        manufacturer.save(update_fields=['pim_id'])
+    return manufacturer
+
+
+def sync_pim_relations(pim_id: str, data: dict) -> int:
+    """Sync manufacturer + categories for every MainProduct linked to this PIM Product id.
+
+    Several MainProducts (from different suppliers) can share the same pim_id, since
+    it now points at a verified/merged PIM `Product` rather than a per-supplier
+    ContributorProduct — so this updates all of them in one go.
+    """
+    products = list(MainProduct.objects.filter(pim_id=pim_id))
+    if not products:
+        return 0
+
+    manufacturer = _resolve_manufacturer(data)
+    if manufacturer:
+        MainProduct.objects.filter(pim_id=pim_id).update(manufacturer=manufacturer)
+
+    category_ids = data.get('categoriesIds') or []
+    categories = list(Category.objects.filter(pim_id__in=category_ids)) if category_ids else []
+    if categories:
+        through = MainProduct.categories.through
+        through.objects.filter(mainproduct__in=products).delete()
+        through.objects.bulk_create(
+            [through(mainproduct=p, category=c) for p in products for c in categories],
+            ignore_conflicts=True,
+        )
+    return len(products)
 
 
 def prefetch_pim_data(products) -> dict:
@@ -304,7 +368,7 @@ def merge_selected_main_products(selected_ids: list[int], keep_product_id: int |
   
 def recalculate_search_vectors(mps):
     if not mps: return None
-    mps.select_related('supplier', 'category', 'manufacturer')
+    mps.select_related('supplier', 'manufacturer')
     def build_searchvector(mp):
       mp.search_vector = mp._build_searchvector()
       return mp

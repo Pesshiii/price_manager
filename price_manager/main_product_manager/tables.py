@@ -69,7 +69,7 @@ class MainProductTable(tables.Table):
     if not self.url:
       self.url = self.request.path_info
     if 'data' in kwargs:
-      kwargs['data'] = kwargs['data'].prefetch_related('supplier', 'category', 'manufacturer')
+      kwargs['data'] = kwargs['data'].prefetch_related('supplier', 'categories', 'manufacturer')
     super().__init__(*args, extra_columns=extra_columns, **kwargs)
 
     for column_key in AVAILABLE_COLUMN_MAP:
@@ -89,7 +89,7 @@ class MainProductTable(tables.Table):
       'name',
       'description',
       'supplier',
-      'category',
+      'categories',
       'manufacturer',
       'weight',
       'length',

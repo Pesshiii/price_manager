@@ -15,7 +15,7 @@ import re
 class MainProductFilter(FilterSet):
   class Meta:
     model = MainProduct
-    fields = ['search', 'category', 'available']
+    fields = ['search', 'categories', 'available']
 
   search = filters.CharFilter(
     method='search_method',
@@ -52,10 +52,10 @@ class MainProductFilter(FilterSet):
     )
     )
 
-  category = filters.ModelMultipleChoiceFilter(
+  categories = filters.ModelMultipleChoiceFilter(
     queryset=Category.objects.all(),
     widget=forms.CheckboxSelectMultiple(),
-    method='category_method',
+    method='categories_method',
     label='Категории'
   )
 
@@ -89,7 +89,7 @@ class MainProductFilter(FilterSet):
             css_class='filter-section'
           ),
           Div(
-            Field('category', template='supplier/partials/category_filter_field.html'),
+            Field('categories', template='supplier/partials/category_filter_field.html'),
             css_class='filter-section'
           ),
           Div(
@@ -110,7 +110,7 @@ class MainProductFilter(FilterSet):
     else:
       self.form.helper.form_tag = False
       self.form.helper.layout=Layout(
-          Field('category', template='supplier/partials/category_filter_field.html'),
+          Field('categories', template='supplier/partials/category_filter_field.html'),
           Field('supplier', template='core/includes/checkbox_field.html#checkboxes'),
           Field('manufacturer', template='core/includes/checkbox_field.html#checkboxes'),)
 
@@ -131,12 +131,12 @@ class MainProductFilter(FilterSet):
       ).order_by('name')
     self.filters['manufacturer'].field.queryset = manufacturer_queryset
 
-    category_queryset = Category.objects.filter(pk__in=queryset.values('category')).get_ancestors(include_self=True)
-    selected_categories = Category.objects.filter(pk__in=self.data.getlist('category', None))
+    category_queryset = Category.objects.filter(pk__in=queryset.values('categories')).get_ancestors(include_self=True)
+    selected_categories = Category.objects.filter(pk__in=self.data.getlist('categories', None))
     if selected_categories:
       category_queryset = Category.objects.filter(Q(pk__in=category_queryset)|Q(pk__in=selected_categories))
 
-    self.filters['category'].field.queryset = category_queryset
+    self.filters['categories'].field.queryset = category_queryset
 
     return None
 
@@ -159,21 +159,21 @@ class MainProductFilter(FilterSet):
     rank = SearchRank("search_vector", query)
     matching_categories = Category.objects.filter(search_vector=query)
     combined_filter = (
-      Q(category__in=matching_categories) |
+      Q(categories__in=matching_categories) |
       Q(search_vector=query)
     )
-    return queryset.annotate(rank=rank).filter(combined_filter).order_by("-rank")
+    return queryset.annotate(rank=rank).filter(combined_filter).distinct().order_by("-rank")
 
   def available_method(self, queryset, name, value):
     if value:
       return queryset.filter(stock__gt=0)
     return queryset
 
-  def category_method(self, queryset, name, value):
+  def categories_method(self, queryset, name, value):
     if list(value) == []:
       return queryset
     query = Q()
     for category in value:
       query |= Q(pk__in=category.get_descendants(include_self=True))
     categories = Category.objects.filter(query)
-    return queryset.filter(category__in=categories)
+    return queryset.filter(categories__in=categories).distinct()

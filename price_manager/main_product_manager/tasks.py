@@ -6,7 +6,7 @@ from django.contrib.auth import get_user_model
 from supplier_manager.models import Category
 from product_price_manager.models import update_prices
 
-from .utils import recalculate_search_vectors, update_logs, update_stocks, create_pim_links
+from .utils import recalculate_search_vectors, update_logs, update_stocks, create_pim_links, get_pim_data, sync_pim_relations
 from .models import MainProduct, MainProductLog
 
 
@@ -157,4 +157,24 @@ def create_pim_links_task() -> dict:
         task_name="main_product_manager.create_pim_links",
         lock_ttl=60 * 20,
         runner=create_pim_links,
+    )
+
+
+@shared_task(name="main_product_manager.populate_pim_relations")
+def populate_pim_relations_task(pim_id: str) -> dict:
+    """Populates MainProduct.manufacturer/categories from PIM once its data is cached.
+
+    Triggered by get_pim_data()/get_pim_data_for_product() on a cache miss for a
+    given pim_id (see utils._queue_pim_population), rather than run on a schedule.
+    """
+    def _runner():
+        data = get_pim_data(pim_id)
+        if not data:
+            return 0
+        return sync_pim_relations(pim_id, data)
+
+    return execute_locked_task(
+        task_name=f"main_product_manager.populate_pim_relations:{pim_id}",
+        lock_ttl=60 * 5,
+        runner=_runner,
     )

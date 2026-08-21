@@ -80,8 +80,8 @@ class MainPage(FilterView):
     cat_filter = CategoryFilter(product_qs=queryset, search_query=search_query)
     categories = Paginator(cat_filter.qs, 5).page(self.request.GET.get('page', 1))
     context['categories'] =  categories
-    context['has_nulled'] = queryset.filter(category__isnull=True).exists()
-    context['nulled_mp_count'] = queryset.filter(category__isnull=True).count()
+    context['has_nulled'] = queryset.filter(categories__isnull=True).exists()
+    context['nulled_mp_count'] = queryset.filter(categories__isnull=True).count()
     context['column_groups'] = AVAILABLE_COLUMN_GROUPS
     selected_columns = self.request.GET.getlist('columns')
     if selected_columns:
@@ -132,14 +132,14 @@ class MainProductTableView(SingleTableView):
       main_product=OuterRef('pk')
     ).order_by('-updated_at').values('discount_price')[:1]
 
-    qs = MainProductFilter(self.request.GET).qs.prefetch_related('category').annotate(
+    qs = MainProductFilter(self.request.GET).qs.prefetch_related('categories').annotate(
       supplier_product_price=Subquery(supplier_price_sq),
       supplier_product_rrp=Subquery(rrp_sq),
       supplier_product_discount_price=Subquery(discount_price_sq),
     )
     if not self.category_pk:
-      return qs.filter(category__isnull=True)
-    return qs.filter(category=Category.objects.get(pk=self.category_pk))
+      return qs.filter(categories__isnull=True)
+    return qs.filter(categories=Category.objects.get(pk=self.category_pk))
   def get_context_data(self, **kwargs) -> dict[str, Any]:
       context = super().get_context_data(**kwargs)
       if self.category_pk:
@@ -314,13 +314,17 @@ class MainProductBulkCategoryView(FormView):
     updated_ids = list(queryset.values_list('pk', flat=True))
     updated_count = len(updated_ids)
     if updated_count:
-      MainProduct.objects.filter(pk__in=updated_ids).update(category=category)
+      through = MainProduct.categories.through
+      through.objects.bulk_create(
+        [through(mainproduct_id=pk, category_id=category.pk) for pk in updated_ids],
+        ignore_conflicts=True,
+      )
       recalculate_search_vectors(
-        MainProduct.objects.filter(pk__in=updated_ids).select_related('supplier', 'category', 'manufacturer')
+        MainProduct.objects.filter(pk__in=updated_ids).select_related('supplier', 'manufacturer')
       )
     messages.success(
       self.request,
-      f'Категория «{category.name}» назначена для {updated_count} товар(ов).'
+      f'Категория «{category.name}» добавлена для {updated_count} товар(ов).'
     )
     url = reverse('mainproducts')
     if self.request.GET:

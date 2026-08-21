@@ -1,29 +1,32 @@
 import json
 from import_export import resources, fields
-from import_export.widgets import ForeignKeyWidget, ManyToManyWidget, Widget
+from import_export.widgets import ForeignKeyWidget, ManyToManyWidget
 from difflib import get_close_matches
 from .models import *
 from supplier_manager.models import ManufacturerDict, Discount
 
-class CategoryWidget(ForeignKeyWidget):
+class CategoryWidget(ManyToManyWidget):
     """Категория строкой: 'Инструмент > Ручной инструмент > Отвертки'."""
 
     def clean(self, value, row=None, *args, **kwargs):
         if not value:
-            return None
+            return []
         parts = [p.strip() for p in str(value).split(">") if p and str(p).strip()]
         parent = None
         node = None
         for name in parts[:10]:
             node, _ = Category.objects.get_or_create(name=name, parent=parent)
             parent = node
-        return node
+        return [node] if node else []
 
     def render(self, value, obj=None, **kwargs):
         if not value:
             return ""
+        cat = value.first() if hasattr(value, 'first') else next(iter(value), None)
+        if not cat:
+            return ""
         path = []
-        cur = value
+        cur = cat
         while cur:
             path.append(cur.name)
             cur = cur.parent
@@ -122,8 +125,8 @@ class MainProductResource(resources.ModelResource):
     )
     category = fields.Field(
         column_name="Название_группы",
-        attribute="category",
-        widget=CategoryWidget(Category, "name"),
+        attribute="categories",
+        widget=CategoryWidget(Category),
     )
     supplier_prices = fields.Field(column_name='Supplier Prices')
     m_price = fields.Field(
@@ -199,9 +202,12 @@ class MainProductResource(resources.ModelResource):
         return [self.fields[f] for f in self.Meta.export_fields]
 
 
-class PimCategoryWidget(Widget):
-    """Parses PIM category IDs from 'Categories' column and returns the first
-    category that belongs to the 'Main tree' (Основной, parent=None)."""
+class PimCategoryWidget(ManyToManyWidget):
+    """Parses PIM category IDs from 'Categories' column and returns the
+    categories that belong to the 'Main tree' (Основной, parent=None)."""
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(Category, *args, **kwargs)
 
     def _get_main_tree_map(self):
         try:
@@ -215,7 +221,7 @@ class PimCategoryWidget(Widget):
 
     def clean(self, value, row=None, *args, **kwargs):
         if not value:
-            return None
+            return []
         if isinstance(value, str):
             stripped = value.strip()
             if stripped.startswith('['):
@@ -231,14 +237,16 @@ class PimCategoryWidget(Widget):
             pim_ids = [str(value)]
 
         cat_map = self._get_main_tree_map()
-        for pim_id in pim_ids:
-            cat = cat_map.get(str(pim_id).strip())
-            if cat:
-                return cat
-        return None
+        return [
+            cat_map[str(pim_id).strip()]
+            for pim_id in pim_ids
+            if str(pim_id).strip() in cat_map
+        ]
 
     def render(self, value, obj=None, **kwargs):
-        return value.pim_id if value and value.pim_id else ''
+        if not value:
+            return ''
+        return ','.join(cat.pim_id for cat in value if cat.pim_id)
 
 
 class MainProductPimImportResource(resources.ModelResource):
@@ -254,7 +262,7 @@ class MainProductPimImportResource(resources.ModelResource):
     pim_id = fields.Field(column_name='ID', attribute='pim_id')
     category = fields.Field(
         column_name='Categories',
-        attribute='category',
+        attribute='categories',
         widget=PimCategoryWidget(),
     )
 
