@@ -103,6 +103,7 @@ class MainProductFilter(FilterSet):
           Div(
             Submit('action', 'Применить', title="Применить", css_class='btn btn-primary flex-grow-1'),
             HTML(f"""<a href=\"{url}\" class=\"btn btn-outline-secondary\" title=\"Сбросить\"><i class="bi bi-arrow-counterclockwise"></i></a>"""),
+            HTML('''<button type="button" class="btn btn-outline-secondary" id="filter-scroll-top-btn" title="Наверх" data-ignore-auto-update="true"><i class="bi bi-arrow-up"></i></button>'''),
             css_class='d-flex gap-2 filter-actions'
           )
       )

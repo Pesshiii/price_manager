@@ -301,5 +301,14 @@
       }
     }, { passive: true });
   })();
+
+  document.addEventListener('click', function (event) {
+    var btn = event.target.closest('#filter-scroll-top-btn');
+    if (!btn) return;
+    var panel = document.querySelector('.main-filters-card');
+    if (panel) {
+      panel.scrollTo({ top: 0, behavior: 'smooth' });
+    }
+  });
 </script>
 {% endblock %}
