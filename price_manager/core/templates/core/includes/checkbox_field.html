@@ -36,7 +36,7 @@
 
     {%partialdef checkboxes inline=True%}
     <div id="checkboxes_{{ field.auto_id }}" hx-swap-oob="outerHTML">
-        <div class="form-check-group filter-scroll-list" style="max-height: 260px; overflow: auto;">
+        <div class="form-check-group filter-scroll-list">
             {% if field.field.choices %}
                 {% for choice in field.field.choices %}
                     <div class="form-check filter-check-item mb-1" data-checkbox-filter-item data-checkbox-filter-text="{{ choice.1|lower }}">

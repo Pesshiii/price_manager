@@ -89,29 +89,29 @@ class MainProductFilter(FilterSet):
             css_class='filter-section'
           ),
           Div(
+            Field('category', template='supplier/partials/category_filter_field.html'),
+            css_class='filter-section'
+          ),
+          Div(
             Field('supplier', template='core/includes/checkbox_field.html'),
             css_class='filter-section'
           ),
           Div(
             Field('manufacturer', template='core/includes/checkbox_field.html'),
-            css_class='filter-section'
-          ),
-          Div(
-            Field('category', template='supplier/partials/category_filter_field.html'),
             css_class='filter-section filter-section-last'
           ),
           Div(
             Submit('action', 'Применить', title="Применить", css_class='btn btn-primary flex-grow-1'),
             HTML(f"""<a href=\"{url}\" class=\"btn btn-outline-secondary\" title=\"Сбросить\"><i class="bi bi-arrow-counterclockwise"></i></a>"""),
-            css_class='d-flex gap-2 mt-4 filter-actions'
+            css_class='d-flex gap-2 filter-actions'
           )
       )
     else:
       self.form.helper.form_tag = False
       self.form.helper.layout=Layout(
+          Field('category', template='supplier/partials/category_filter_field.html'),
           Field('supplier', template='core/includes/checkbox_field.html#checkboxes'),
-          Field('manufacturer', template='core/includes/checkbox_field.html#checkboxes'),
-          Field('category', template='supplier/partials/category_filter_field.html'),)
+          Field('manufacturer', template='core/includes/checkbox_field.html#checkboxes'),)
 
   def config_filters(self, queryset):
     selected_suppliers = self.data.getlist('supplier', None)
