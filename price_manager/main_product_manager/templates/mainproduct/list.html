@@ -89,8 +89,9 @@
     background-color: rgba(255, 255, 255, 0.72);
     backdrop-filter: blur(10px);
     -webkit-backdrop-filter: blur(10px);
-    padding: 0.75rem 0;
-    margin-top: -0.75rem;
+    border-radius: 1rem;
+    padding: 0.75rem 1rem;
+    margin: -0.75rem -1rem 0;
     transition: transform 0.25s ease, opacity 0.2s ease;
   }
 
@@ -127,7 +128,7 @@
   {% partialdef list inline %}
     <div id="mainproducts-block" class="row gap-2 p-4">
 
-      <div class="col-12 col-lg-8">
+      <div class="col-12 col-lg-8 ps-lg-4">
         {% include "mainproduct/partials/search_bar.html" %}
         {% include 'mainproduct/partials/tables_bycat.html' %}
       </div>
