@@ -1,5 +1,6 @@
 from .base import TIME_ZONE
 import os
+from celery.schedules import crontab
 from price_manager.celery import app
 from .databases import REDIS_URL
 
@@ -49,6 +50,10 @@ CELERY_BEAT_SCHEDULE = {
     'create-pim-links':{
         'task': 'main_product_manager.create_pim_links',
         'schedule': 1800,
+    },
+    'reindex-pim-ids': {
+        'task': 'main_product_manager.reindex_pim_ids',
+        'schedule': crontab(hour=3, minute=0),
     },
     'sync-categories': {
         'task': 'supplier_manager.sync_categories',

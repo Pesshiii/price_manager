@@ -6,7 +6,7 @@ from django.contrib.auth import get_user_model
 from supplier_manager.models import Category
 from product_price_manager.models import update_prices
 
-from .utils import recalculate_search_vectors, update_logs, update_stocks, create_pim_links, get_pim_data, sync_pim_relations
+from .utils import recalculate_search_vectors, update_logs, update_stocks, create_pim_links, reindex_pim_ids, get_pim_data, sync_pim_relations
 from .models import MainProduct, MainProductLog
 
 
@@ -157,6 +157,15 @@ def create_pim_links_task() -> dict:
         task_name="main_product_manager.create_pim_links",
         lock_ttl=60 * 20,
         runner=create_pim_links,
+    )
+
+
+@shared_task(name="main_product_manager.reindex_pim_ids", time_limit=None, soft_time_limit=None)
+def reindex_pim_ids_task() -> dict:
+    return execute_locked_task(
+        task_name="main_product_manager.reindex_pim_ids",
+        lock_ttl=60 * 60,
+        runner=reindex_pim_ids,
     )
 
 

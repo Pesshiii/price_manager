@@ -10,6 +10,7 @@ TASKS = {
     'update_logs': tasks.update_logs_task,
     'delete_outdated_logs': tasks.delete_outdated_logs_task,
     'create_pim_links': tasks.create_pim_links_task,
+    'reindex_pim_ids': tasks.reindex_pim_ids_task,
     'sync_categories': sm_tasks.sync_categories_task,
 }
 

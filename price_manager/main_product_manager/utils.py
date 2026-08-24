@@ -407,6 +407,31 @@ def create_pim_links(delay: float = 0.5) -> int:
     return len(result)
 
 
+def reindex_pim_ids(delay: float = 0.5, batch_size: int | None = None) -> int:
+    """Re-resolve pim_id for ALL MainProducts, including ones already linked.
+
+    Unlike create_pim_links (which only fills pim_id__isnull=True), this
+    re-searches PIM for every product so relinked/re-merged records pick up
+    their new pim_id. Only writes products whose resolved pim_id changed.
+    """
+    queryset = MainProduct.objects.all().order_by('pk')
+    if batch_size:
+        queryset = queryset[:batch_size]
+    products = list(queryset)
+    result = []
+    for product in products:
+        pim_id = _search_pim_id(product)
+        if pim_id and pim_id != product.pim_id:
+            product.pim_id = pim_id
+            result.append(product)
+        time.sleep(delay)
+    # bulk_update is the only DB write; kept outside the API loop so
+    # execute_locked_task's transaction.atomic() doesn't span HTTP calls.
+    if result:
+        MainProduct.objects.bulk_update(result, fields=['pim_id'])
+    return len(result)
+
+
 def update_logs():
   updated_logs = 0
   
