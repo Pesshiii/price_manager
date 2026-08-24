@@ -248,13 +248,13 @@ def sync_pim_relations(pim_id: str, data: dict) -> int:
 def prefetch_pim_data(products) -> dict:
     """Fetch PIM data for a list of MainProduct objects and return {product.pk: data}.
 
-    Resolves pim_id on the fly for products that don't have one yet (guarded by
-    a 4-hour no-match cache so PIM isn't hammered for unlinked products).
+    Table rendering never resolves/reindexes pim_id — that's the job of the
+    background tasks (create_pim_links, reindex_pim_ids). A product without a
+    pim_id, or whose pim_id 404s with nothing cached, is simply skipped here
+    rather than triggering a live PIM search.
     """
     result = {}
     for product in products:
-        if not product.pim_id:
-            _resolve_pim_id(product)
         if not product.pim_id:
             continue
         data = get_pim_data(product.pim_id)
