@@ -14,7 +14,7 @@ media/
 *.backup
 *.sql
 *.dump
-backup/
+backups/
 *~
 
 # IDE specific files
