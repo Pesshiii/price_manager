@@ -65,13 +65,6 @@ class MainPage(FilterView):
           return ["mainproduct/partials/tables_bycat.html#category-table"]
         return ["mainproduct/partials/tables_bycat.html"]
       return super().get_template_names()
-  def get_filterset_kwargs(self, filterset_class):
-      kwargs = super().get_filterset_kwargs(filterset_class)
-      # Add your custom kwarg here
-      kwargs['url'] = reverse_lazy('mainproducts')
-      if not self.request.htmx:
-        kwargs['bound_ignore']=True
-      return kwargs
   def get_context_data(self, **kwargs) -> dict[str, Any]:
     context = super().get_context_data(**kwargs)
     queryset = context['object_list']
@@ -97,6 +90,15 @@ class MainPage(FilterView):
     if self.request.htmx and self.request.GET.get('page', 1) == 1:
       response['Hx-Push'] = self.request.get_full_path()
     return response
+
+
+class MainProductFilterView(View):
+  def get(self, request, *args, **kwargs):
+    if not request.htmx:
+      return redirect(reverse_lazy('mainproducts'))
+    filterset = MainProductFilter(request.GET)
+    filterset.build_helper(url=reverse_lazy('mainproducts'))
+    return render(request, 'mainproduct/partials/filter.html', {'filter': filterset})
 
 
 class MainProductTableView(SingleTableView):
@@ -348,11 +350,11 @@ class ResolveMainproduct(SingleTableMixin, FilterView):
     if not self.request.htmx:
       return HttpResponseClientRedirect(reverse('mainproduct-detail', kwargs={'pk':self.kwargs.get('pk')}))
     return super().get(request, *args, **kwargs)
-  def get_filterset_kwargs(self, filterset_class):
-      kwargs = super().get_filterset_kwargs(filterset_class)
-      url=reverse('mainproduct-resolve', kwargs={'pk':self.kwargs.get('pk')})
-      kwargs['url'] = url
-      return kwargs
+  def get_filterset(self, filterset_class):
+      filterset = super().get_filterset(filterset_class)
+      url = reverse('mainproduct-resolve', kwargs={'pk':self.kwargs.get('pk')})
+      filterset.build_helper(url=url, stripped=bool(self.request.GET.get('bound')))
+      return filterset
   def get_table_kwargs(self):
     kwargs = super().get_table_kwargs()
     kwargs['request'] = self.request
@@ -449,13 +451,12 @@ class MainProductDuplicatesView(FilterView):
         if request.META['QUERY_STRING']:
             selection_query = f"{selection_query}&{request.META['QUERY_STRING']}"
         return redirect(f"{reverse('mainproduct-duplicate-select-keep')}?{selection_query}")
-    def get_filterset_kwargs(self, filterset_class):
+    def get_filterset(self, filterset_class):
+        filterset = super().get_filterset(filterset_class)
         selected_compare_fields = self._get_selected_compare_fields(self.request)
-        kwargs = super().get_filterset_kwargs(filterset_class)
-        kwargs['url'] = f"{reverse('mainproduct-duplicates')}?{'&'.join(['c' + lable + '=on' for lable in selected_compare_fields])}"
-        kwargs['hx_target']=None
-        kwargs['bound_ignore']=True
-        return kwargs
+        url = f"{reverse('mainproduct-duplicates')}?{'&'.join(['c' + lable + '=on' for lable in selected_compare_fields])}"
+        filterset.build_helper(url=url, hx_target=None)
+        return filterset
   
     def get_context_data(self, **kwargs) -> dict[str, Any]:
         context = super().get_context_data(**kwargs)

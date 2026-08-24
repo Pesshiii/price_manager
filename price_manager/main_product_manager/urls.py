@@ -8,6 +8,7 @@ urlpatterns = [
     path('', MainPage.as_view(), name='mainproducts'),
     path('table_bycat/<int:category_pk>', MainProductTableView.as_view(), name='mainproduct-table-bycat'),
     path('table_nocat/', MainProductTableView.as_view(), name='mainproduct-table-nocat'),
+    path('filter/', MainProductFilterView.as_view(), name='mainproduct-filter'),
 
     path('<int:pk>/update', MainProductUpdate.as_view(), name='main-product-update'),
     path('sync', sync_main_products, name='mainproducts-sync'),

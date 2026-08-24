@@ -59,14 +59,26 @@ class MainProductFilter(FilterSet):
     label='Категории'
   )
 
-  def __init__(self, *args, url=None, bound_ignore=False, hx_target:str|None='#mainproducts-table', **kwargs):
+  def __init__(self, *args, **kwargs):
     super().__init__(*args, **kwargs)
     self.config_filters(self.search_method(self.queryset, '', value=self.data.get('search', '')))
-    self.form.helper = FormHelper(self.form)
-    self.form.helper.form_id = 'mainproduct-filter'
-    self.form.helper.form_method = 'GET'
-    self.form.helper.label_class='mt-2'
-    self.form.helper.attrs = {
+
+  def build_helper(self, url, hx_target: str | None = '#mainproducts-table', stripped=False):
+    """Builds the crispy FormHelper/Layout for rendering the filter form.
+
+    Only needed by a view that actually renders mainproduct/partials/filter.html
+    (MainProductFilterView, ResolveMainproduct) — other callers only need `.qs`, so
+    this is kept out of __init__ to avoid paying for it on every filterset instantiation.
+
+    `stripped=True` renders just the filter fields with no <form> tag, header, or
+    submit button — used by ResolveMainproduct when re-embedding the form inside an
+    htmx-swapped table fragment that must stay bound to the same GET params.
+    """
+    helper = FormHelper(self.form)
+    helper.form_id = 'mainproduct-filter'
+    helper.form_method = 'GET'
+    helper.label_class = 'mt-2'
+    helper.attrs = {
       'hx-get':url,
       'hx-swap':'outerHTML',
       'hx-trigger':'input changed delay:2s, change delay:2s, submit',
@@ -74,9 +86,15 @@ class MainProductFilter(FilterSet):
       'hx-include':'#mainproducts-search',
     }
     if hx_target:
-      self.form.helper.attrs['hx-target']=hx_target
-    if not self.data.get('bound', None) or bound_ignore:
-      self.form.helper.layout = Layout(
+      helper.attrs['hx-target']=hx_target
+    if stripped:
+      helper.form_tag = False
+      helper.layout = Layout(
+          Field('categories', template='supplier/partials/category_filter_field.html'),
+          Field('supplier', template='core/includes/checkbox_field.html#checkboxes'),
+          Field('manufacturer', template='core/includes/checkbox_field.html#checkboxes'),)
+    else:
+      helper.layout = Layout(
           Hidden('bound', 'true'),
           HTML('''
             <div class="filter-header d-flex align-items-center gap-2 mb-3">
@@ -107,12 +125,8 @@ class MainProductFilter(FilterSet):
             css_class='d-flex gap-2 filter-actions'
           )
       )
-    else:
-      self.form.helper.form_tag = False
-      self.form.helper.layout=Layout(
-          Field('categories', template='supplier/partials/category_filter_field.html'),
-          Field('supplier', template='core/includes/checkbox_field.html#checkboxes'),
-          Field('manufacturer', template='core/includes/checkbox_field.html#checkboxes'),)
+    self.form.helper = helper
+    return helper
 
   def config_filters(self, queryset):
     selected_suppliers = self.data.getlist('supplier', None)
