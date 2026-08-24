@@ -472,22 +472,26 @@ def _pim_product_payload(name: str, description: str | None, number: str | None)
     return {'name': name, 'description': description or '', 'number': number or ''}
 
 
-def _push_pim_products(objects: list, payload_fn, batch_size: int = 1000) -> int:
+def _push_pim_products(objects: list, payload_fn, batch_size: int = 1000, delay: float = 0.5) -> int:
     """Bulk-create `objects` as PriceManagerProduct records in PIM via
     upsertAsync, persisting the ids PIM returns onto obj.pim_id.
 
     Split into chunks of `batch_size` so a large `objects` list doesn't go out
-    as one oversized upsertAsync payload/job. `objects` must all be instances
-    of the same model (bulk_update is called per chunk, on type(chunk[0])).
-    A chunk whose transport/timeout/job call errors is skipped (recorded via
-    _record_pim_error) without aborting the remaining chunks — a PIM outage
-    must not fail the caller's larger task. Returns how many objects were
-    successfully linked in total.
+    as one oversized upsertAsync payload/job, with `delay` seconds between
+    consecutive chunks so batches are spaced out rather than fired back to
+    back. `objects` must all be instances of the same model (bulk_update is
+    called per chunk, on type(chunk[0])). A chunk whose transport/timeout/job
+    call errors is skipped (recorded via _record_pim_error) without aborting
+    the remaining chunks — a PIM outage must not fail the caller's larger
+    task. Returns how many objects were successfully linked in total.
     """
     if not objects:
         return 0
     total_linked = 0
-    for start in range(0, len(objects), batch_size):
+    chunk_starts = list(range(0, len(objects), batch_size))
+    for i, start in enumerate(chunk_starts):
+        if i > 0:
+            time.sleep(delay)
         chunk = objects[start:start + batch_size]
         items = [{'entity': PIM_PRODUCT_ENTITY, 'payload': payload_fn(obj)} for obj in chunk]
         t0 = time.monotonic()
@@ -518,7 +522,7 @@ def _push_pim_products(objects: list, payload_fn, batch_size: int = 1000) -> int
     return total_linked
 
 
-def push_supplier_products_to_pim(supplier_products, batch_size: int = 1000) -> int:
+def push_supplier_products_to_pim(supplier_products, batch_size: int = 1000, delay: float = 0.5) -> int:
     """Bulk-create SupplierProduct rows lacking a pim_id as PriceManagerProduct
     records in PIM.
 
@@ -534,10 +538,12 @@ def push_supplier_products_to_pim(supplier_products, batch_size: int = 1000) -> 
     return _push_pim_products(
         targets,
         lambda sp: _pim_product_payload(sp.name, sp.description, compute_supplier_sku(sp.article, sp.supplier)),
+        batch_size=batch_size,
+        delay=delay,
     )
 
 
-def push_missing_pim_products(products, batch_size: int = 1000) -> int:
+def push_missing_pim_products(products, batch_size: int = 1000, delay: float = 0.5) -> int:
     """Bulk-create MainProducts with no PIM match as PriceManagerProduct records.
 
     Callers must pass only products already confirmed absent from PIM
@@ -546,14 +552,18 @@ def push_missing_pim_products(products, batch_size: int = 1000) -> int:
     silently create a duplicate PIM record for it.
     """
     return _push_pim_products(
-        list(products), lambda mp: _pim_product_payload(mp.name, mp.description, mp.sku), batch_size=batch_size
+        list(products),
+        lambda mp: _pim_product_payload(mp.name, mp.description, mp.sku),
+        batch_size=batch_size,
+        delay=delay,
     )
 
 
-def create_pim_links(delay: float = 0.5) -> tuple[int, int]:
+def create_pim_links(delay: float = 0.5, batch_size: int = 1000) -> tuple[int, int]:
     products = list(MainProduct.objects.filter(pim_id__isnull=True)[:1000])
     result = []
     missing = []
+    created = 0
     for product in products:
         pim_id = _search_pim_id(product)
         if pim_id:
@@ -561,12 +571,15 @@ def create_pim_links(delay: float = 0.5) -> tuple[int, int]:
             result.append(product)
         else:
             missing.append(product)
+            if len(missing) >= batch_size:
+                created += push_missing_pim_products(missing, batch_size=batch_size, delay=delay)
+                missing = []
         time.sleep(delay)
     # bulk_update is the only DB write; kept outside the API loop so
     # execute_locked_task's transaction.atomic() doesn't span HTTP calls.
     if result:
         MainProduct.objects.bulk_update(result, fields=['pim_id'])
-    created = push_missing_pim_products(missing)
+    created += push_missing_pim_products(missing, batch_size=batch_size, delay=delay)
     return len(result), created
 
 
@@ -576,14 +589,17 @@ def reindex_pim_ids(delay: float = 0.5, batch_size: int = 1000) -> tuple[int, in
     Unlike create_pim_links (which only fills pim_id__isnull=True), this
     re-searches PIM for every product so relinked/re-merged records pick up
     their new pim_id. Only writes products whose resolved pim_id changed.
-    Products that were never linked and still aren't found get bulk-created
-    in PIM (push_missing_pim_products), sent in chunks of `batch_size` rather
-    than as one giant upsertAsync payload — `batch_size` does not limit how
-    many MainProducts get processed here, every product is checked every run.
+    Products that were never linked and still aren't found get pushed to PIM
+    (push_missing_pim_products) in batches of `batch_size` as soon as each
+    batch fills up during the scan — not accumulated and sent only once the
+    full (potentially very long) catalog scan finishes. `batch_size` does not
+    limit how many MainProducts get processed here, every product is checked
+    every run.
     """
     products = list(MainProduct.objects.all().order_by('pk'))
     result = []
     missing = []
+    created = 0
     for product in products:
         pim_id = _search_pim_id(product)
         if pim_id:
@@ -592,12 +608,15 @@ def reindex_pim_ids(delay: float = 0.5, batch_size: int = 1000) -> tuple[int, in
                 result.append(product)
         elif product.pim_id is None:
             missing.append(product)
+            if len(missing) >= batch_size:
+                created += push_missing_pim_products(missing, batch_size=batch_size, delay=delay)
+                missing = []
         time.sleep(delay)
     # bulk_update is the only DB write; kept outside the API loop so
     # execute_locked_task's transaction.atomic() doesn't span HTTP calls.
     if result:
         MainProduct.objects.bulk_update(result, fields=['pim_id'])
-    created = push_missing_pim_products(missing, batch_size=batch_size)
+    created += push_missing_pim_products(missing, batch_size=batch_size, delay=delay)
     return len(result), created
 
 
