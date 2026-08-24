@@ -15,10 +15,8 @@ class CategoryFilter(FilterSet):
                 pk__in=product_qs.values_list('categories__pk')
             ).select_related(
                 'parent__parent__parent__parent'
-            ).prefetch_related(
-                'mainproducts'
             ).annotate(
-                mps_count=Count(F('mainproducts'))
+                mps_count=Count(F('mainproducts'), distinct=True)
             ).filter(~Q(mps_count=0)))
         self._search_query = search_query
         super().__init__(data, **kwargs)
