@@ -245,7 +245,7 @@
     <div id="mainproducts-block" class="row gap-2 p-4">
 
       <div class="col-12 col-lg-3">
-        <div class="main-filters-card"
+        <div id="main-filters-card" class="main-filters-card"
              hx-get="{% url 'mainproduct-filter' %}{% querystring %}"
              hx-trigger="load"
              hx-swap="innerHTML">

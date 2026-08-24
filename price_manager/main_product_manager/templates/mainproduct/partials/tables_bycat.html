@@ -84,6 +84,15 @@
   {% endif %}
 </div>
 
+{% if request.htmx %}
+  <div id="main-filters-card" hx-swap-oob="innerHTML">
+    <div class="card p-3 pe-1">
+      {%load crispy_forms_tags%}
+      {%crispy filter.form filter.form.helper%}
+    </div>
+  </div>
+{% endif %}
+
 <div  id="spinner" class="text-center htmx-indicator">
   <div class="spinner-grow" style="width: 2rem; height: 2rem;" role="status">
     <span class="visually-hidden">Loading...</span>

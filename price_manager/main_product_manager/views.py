@@ -84,6 +84,8 @@ class MainPage(FilterView):
     if not selected_columns:
         selected_columns = DEFAULT_VISIBLE_COLUMNS
     context['selected_columns'] = selected_columns if selected_columns else DEFAULT_VISIBLE_COLUMNS
+    if self.request.htmx and self.request.GET.get('page', 1) == 1:
+      self.filterset.build_helper(url=reverse_lazy('mainproducts'))
     return context
   def render_to_response(self, context, **response_kwargs):
     response = super().render_to_response(context, **response_kwargs)
