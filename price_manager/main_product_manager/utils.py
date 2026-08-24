@@ -37,6 +37,8 @@ def _record_pim_error(op: str, exc: Exception, elapsed_ms: int) -> None:
 
 def maybe_notify_pim_error(user) -> None:
     """Create one throttled PersistentNotification per error window when PIM is failing."""
+    if not settings.DEBUG:
+        return
     if not user or not user.is_authenticated:
         return
     error_info = cache.get(_PIM_LAST_ERROR_KEY)
