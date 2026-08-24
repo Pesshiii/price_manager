@@ -121,15 +121,17 @@ def upsert_async(items: List[Dict[str, Any]], poll_interval: float = 1.0, timeou
     """POST a batch of {'entity': <EntityName>, 'payload': {...}} items to
     upsertAsync and poll the resulting Job until it reaches a terminal status.
 
-    Returns the per-item result list from Job.payload, one entry per input
-    item in the same order, e.g. {'status': 'Created', 'stored': True,
-    'entity': {'id': ..., ...}} or {'status': 'Failed', 'stored': False,
-    'message': ...}.
+    Job.payload just echoes back the request; the actual per-item outcome is
+    a JSON-encoded string in Job.message, one entry per input item in the
+    same order, e.g. {'status': 'Created', 'stored': True,
+    'entity': 'PriceManagerProduct', 'id': '...'} or (presumably, unconfirmed
+    against a real failure) {'status': 'Failed', 'stored': False, ...} with no
+    'id'. Returns that parsed list.
 
     Raises TimeoutError if the job doesn't reach a terminal status within
-    `timeout` seconds, or RuntimeError if the job itself ends as
-    Failed/Canceled (as opposed to individual items failing, which is
-    reported per-item in the returned list).
+    `timeout` seconds, RuntimeError if the job itself ends as Failed/Canceled
+    or its message isn't parseable JSON (as opposed to individual items
+    failing, which is reported per-item in the returned list).
     """
     if not items:
         return []
@@ -151,11 +153,20 @@ def upsert_async(items: List[Dict[str, Any]], poll_interval: float = 1.0, timeou
         time.sleep(poll_interval)
 
     if settings.DEBUG:
-        print(f'[PIM] job {job_id} status={status} payload={job.get("payload")!r}')
+        print(f'[PIM] job {job_id} full response={job!r}')
 
     if status != 'Success':
         raise RuntimeError(f'PIM upsertAsync job {job_id} ended with status={status}: {job.get("message")}')
 
-    return job.get('payload') or []
+    message = job.get('message')
+    if not message:
+        return []
+    try:
+        results = json.loads(message)
+    except (TypeError, ValueError) as exc:
+        raise RuntimeError(f'PIM upsertAsync job {job_id}: unparseable message: {message!r:.500}') from exc
+    if not isinstance(results, list):
+        raise RuntimeError(f'PIM upsertAsync job {job_id}: message is not a list: {results!r:.500}')
+    return results
 
 

@@ -503,7 +503,7 @@ def _push_pim_products(objects: list, payload_fn, batch_size: int = 1000, delay:
         if not isinstance(results, list) or not all(isinstance(r, dict) for r in results):
             _record_pim_error(
                 'push_pim_products',
-                Exception(f'unexpected Job.payload shape: {results!r:.500}'),
+                Exception(f'unexpected upsertAsync result shape: {results!r:.500}'),
                 int((time.monotonic() - t0) * 1000),
             )
             continue
@@ -519,7 +519,7 @@ def _push_pim_products(objects: list, payload_fn, batch_size: int = 1000, delay:
         for obj, result in zip(chunk, results):
             if result.get('status') == 'Failed':
                 continue
-            pim_id = (result.get('entity') or {}).get('id')
+            pim_id = result.get('id')
             if pim_id:
                 obj.pim_id = pim_id
                 updated.append(obj)
