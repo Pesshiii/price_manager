@@ -2,7 +2,7 @@ from django_filters import filters, FilterSet
 from .models import Category, Supplier, Manufacturer, MainProduct
 from django import forms
 from django.contrib.postgres.search import SearchQuery, SearchRank
-from django.db.models import Q
+from django.db.models import Q, Case, When, Value, IntegerField
 
 
 from django.urls import reverse_lazy
@@ -134,7 +134,13 @@ class MainProductFilter(FilterSet):
     if selected_suppliers:
       supplier_queryset = Supplier.objects.filter(
         Q(pk__in=supplier_queryset) | Q(pk__in=selected_suppliers)
-      ).order_by('name')
+      ).annotate(
+        is_selected=Case(
+          When(pk__in=selected_suppliers, then=Value(0)),
+          default=Value(1),
+          output_field=IntegerField(),
+        )
+      ).order_by('is_selected', 'name')
     self.filters['supplier'].field.queryset = supplier_queryset
 
     selected_manufacturers = self.data.getlist('manufacturer', None)
@@ -142,7 +148,13 @@ class MainProductFilter(FilterSet):
     if selected_manufacturers:
       manufacturer_queryset = Manufacturer.objects.filter(
         Q(pk__in=manufacturer_queryset) | Q(pk__in=selected_manufacturers)
-      ).order_by('name')
+      ).annotate(
+        is_selected=Case(
+          When(pk__in=selected_manufacturers, then=Value(0)),
+          default=Value(1),
+          output_field=IntegerField(),
+        )
+      ).order_by('is_selected', 'name')
     self.filters['manufacturer'].field.queryset = manufacturer_queryset
 
     category_queryset = Category.objects.filter(pk__in=queryset.values('categories')).get_ancestors(include_self=True)
