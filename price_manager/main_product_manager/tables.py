@@ -7,83 +7,15 @@ import django_tables2 as tables
 from .models import *
 from core.utils import *
 from .forms import *
+from .columns import (
+  DEFAULT_VISIBLE_COLUMNS,
+  AVAILABLE_COLUMN_GROUPS,
+  AVAILABLE_COLUMN_CHOICES,
+  AVAILABLE_COLUMN_MAP,
+)
+from .utils import get_file_url
 
 import pandas as pd
-
-
-DEFAULT_VISIBLE_COLUMNS = [
-  'actions',
-  'article',
-  'supplier',
-  'name',
-  'manufacturer',
-  'prime_cost',
-  'stock',
-  'delivery_days',
-  'stock_msg',
-]
-
-
-AVAILABLE_COLUMN_GROUPS = [
-  (
-    'Главный прайс',
-    [
-      ('actions', 'Действия'),
-      ('sku', 'Артикул товара'),
-      ('article', 'Артикул поставщика'),
-      ('name', 'Название'),
-      ('description', 'Описание'),
-      ('supplier', 'Поставщик'),
-      ('manufacturer', 'Производитель'),
-      ('category', 'Категория'),
-      ('stock', 'Остаток'),
-      ('stock_msg', 'Статус наличия'),
-      ('delivery_days', 'Срок поставки (Рабочие дни)'),
-      ('prime_cost', 'Себестоимость'),
-      ('wholesale_price', 'Оптовая цена'),
-      ('basic_price', 'Базовая цена'),
-      ('m_price', 'Цена ИМ'),
-      ('wholesale_price_extra', 'Оптовая цена доп.'),
-      ('discount_price', 'Цена со скидкой'),
-      ('supplier_product_price', 'Цена поставщика'),
-      ('supplier_product_rrp', 'РРЦ'),
-      ('supplier_product_discount_price', 'Цена поставщика со скидкой'),
-      ('weight', 'Вес'),
-      ('length', 'Длина'),
-      ('width', 'Ширина'),
-      ('depth', 'Глубина'),
-      ('price_updated_at', 'Последнее обновление цены'),
-      ('stock_updated_at', 'Последнее обновление остатка'),
-    ],
-  ),
-  (
-    'Поставщик',
-    [
-      ('supplier__name', 'Поставщик • Название'),
-      ('supplier__currency__name', 'Поставщик • Валюта'),
-      ('supplier__price_updated_at', 'Поставщик • Обновление цены'),
-      ('supplier__stock_updated_at', 'Поставщик • Обновление остатков'),
-      ('supplier__delivery_days', 'Поставщик • Срок доставки'),
-      ('supplier__delivery_days_available', 'Поставщик • Срок поставки при наличии'),
-      ('supplier__delivery_days_navailable', 'Поставщик • Срок поставки при отсутствии'),
-      ('supplier__price_update_rate', 'Поставщик • Частота обновления цен'),
-      ('supplier__stock_update_rate', 'Поставщик • Частота обновления остатков'),
-      ('supplier__msg_available', 'Поставщик • Сообщение при наличии'),
-      ('supplier__msg_navailable', 'Поставщик • Сообщение при отсутствии'),
-    ],
-  ),
-  (
-    'Производитель и категория',
-    [
-      ('manufacturer__name', 'Производитель • Название'),
-      ('category__name', 'Категория • Название'),
-      ('category__parent__name', 'Категория • Родитель'),
-    ],
-  ),
-]
-
-AVAILABLE_COLUMN_CHOICES = [item for _, options in AVAILABLE_COLUMN_GROUPS for item in options]
-AVAILABLE_COLUMN_MAP = dict(AVAILABLE_COLUMN_CHOICES)
 
 class MainProductTable(tables.Table):
   '''Таблица Главного прайса отображаемая на главной странице'''
@@ -101,7 +33,17 @@ class MainProductTable(tables.Table):
     orderable=False,
     empty_values=(),
   )
+  pim_photo = tables.Column(verbose_name='PIM • Фото', orderable=False, empty_values=())
+  pim_name = tables.Column(verbose_name='PIM • Название', orderable=False, empty_values=())
+  pim_number = tables.Column(verbose_name='PIM • Номер', orderable=False, empty_values=())
+  pim_categories = tables.Column(verbose_name='PIM • Категории', orderable=False, empty_values=())
+  pim_tags = tables.Column(verbose_name='PIM • Теги', orderable=False, empty_values=())
+  pim_brand = tables.Column(verbose_name='PIM • Бренд', orderable=False, empty_values=())
+  pim_ean = tables.Column(verbose_name='PIM • EAN', orderable=False, empty_values=())
+  pim_status = tables.Column(verbose_name='PIM • Статус', orderable=False, empty_values=())
+
   def __init__(self, *args, **kwargs):
+    self.pim_map = kwargs.pop('pim_map', {})
     self.request = kwargs.pop('request')
     self.url = kwargs.pop('url', None)
     selected_columns = kwargs.pop('selected_columns', None) or []
@@ -127,7 +69,7 @@ class MainProductTable(tables.Table):
     if not self.url:
       self.url = self.request.path_info
     if 'data' in kwargs:
-      kwargs['data'] = kwargs['data'].prefetch_related('supplier', 'category', 'manufacturer')
+      kwargs['data'] = kwargs['data'].prefetch_related('supplier', 'categories', 'manufacturer')
     super().__init__(*args, extra_columns=extra_columns, **kwargs)
 
     for column_key in AVAILABLE_COLUMN_MAP:
@@ -147,7 +89,7 @@ class MainProductTable(tables.Table):
       'name',
       'description',
       'supplier',
-      'category',
+      'categories',
       'manufacturer',
       'weight',
       'length',
@@ -196,6 +138,57 @@ class MainProductTable(tables.Table):
         'record': record,
       }
     )
+
+  def _pim(self, record):
+    return self.pim_map.get(record.pk)
+
+  def render_pim_photo(self, record):
+    data = self._pim(record)
+    if not data:
+      return '—'
+    image_id = data.get('mainImageId') or data.get('imageId')
+    url = get_file_url(image_id)
+    if not url:
+      return '—'
+    return format_html(
+      '<img src="{}" style="max-height:50px;max-width:80px;object-fit:contain" loading="lazy" />',
+      url,
+    )
+
+  def render_pim_name(self, record):
+    data = self._pim(record)
+    return data.get('name') or '—' if data else '—'
+
+  def render_pim_number(self, record):
+    data = self._pim(record)
+    return data.get('number') or '—' if data else '—'
+
+  def render_pim_categories(self, record):
+    data = self._pim(record)
+    if not data:
+      return '—'
+    cats = data.get('categoriesNames') or {}
+    return ', '.join(cats.values()) or '—'
+
+  def render_pim_tags(self, record):
+    data = self._pim(record)
+    if not data:
+      return '—'
+    tags = data.get('tag') or []
+    return ', '.join(tags) or '—'
+
+  def render_pim_brand(self, record):
+    data = self._pim(record)
+    return data.get('brandName') or '—' if data else '—'
+
+  def render_pim_ean(self, record):
+    data = self._pim(record)
+    return data.get('ean') or '—' if data else '—'
+
+  def render_pim_status(self, record):
+    data = self._pim(record)
+    return data.get('status') or '—' if data else '—'
+
 
 class MainProductResolveTable(tables.Table):
   class Meta:

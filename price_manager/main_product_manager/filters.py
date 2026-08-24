@@ -15,7 +15,7 @@ import re
 class MainProductFilter(FilterSet):
   class Meta:
     model = MainProduct
-    fields = ['search', 'category', 'available']
+    fields = ['search', 'categories', 'available']
 
   search = filters.CharFilter(
     method='search_method',
@@ -52,10 +52,10 @@ class MainProductFilter(FilterSet):
     )
     )
 
-  category = filters.ModelMultipleChoiceFilter(
+  categories = filters.ModelMultipleChoiceFilter(
     queryset=Category.objects.all(),
     widget=forms.CheckboxSelectMultiple(),
-    method='category_method',
+    method='categories_method',
     label='Категории'
   )
 
@@ -68,53 +68,51 @@ class MainProductFilter(FilterSet):
     self.form.helper.label_class='mt-2'
     self.form.helper.attrs = {
       'hx-get':url,
-      'hx-swap':'innerHTML',
+      'hx-swap':'outerHTML',
       'hx-trigger':'input changed delay:2s, change delay:2s, submit',
-      'hx-push-url':'true'
+      'hx-push-url':'true',
+      'hx-include':'#mainproducts-search',
     }
     if hx_target:
       self.form.helper.attrs['hx-target']=hx_target
     if not self.data.get('bound', None) or bound_ignore:
       self.form.helper.layout = Layout(
           Hidden('bound', 'true'),
-          HTML('<h5 class="mb-3">Фильтры товаров</h5>'),
+          HTML('''
+            <div class="filter-header d-flex align-items-center gap-2 mb-3">
+              <i class="bi bi-sliders text-primary"></i>
+              <h5 class="mb-0">Фильтры товаров</h5>
+            </div>
+          '''),
           Div(
-            Field('search'),
-            css_class='mb-3'
+            Field('available', template='core/includes/switch_field.html'),
+            css_class='filter-section'
           ),
-          HTML('<hr class="border-secondary">'),
           Div(
-            Field('available'),
-            css_class='p-3 mb-3'
+            Field('categories', template='supplier/partials/category_filter_field.html'),
+            css_class='filter-section'
           ),
-          HTML('<hr class="border-secondary">'),
           Div(
             Field('supplier', template='core/includes/checkbox_field.html'),
-            css_class='p-3 mb-3'
+            css_class='filter-section'
           ),
-          HTML('<hr class="border-secondary">'),
           Div(
             Field('manufacturer', template='core/includes/checkbox_field.html'),
-            css_class='p-3 mb-3'
+            css_class='filter-section filter-section-last'
           ),
-          HTML('<hr class="border-secondary">'),
-          Div(
-            Field('category', template='supplier/partials/category_filter_field.html'),
-            css_class='p-3'
-          ),
-          HTML('<hr class="border-secondary">'),
           Div(
             Submit('action', 'Применить', title="Применить", css_class='btn btn-primary flex-grow-1'),
-            HTML(f"""<a href=\"{url}\" class=\"btn btn-outline-secondary\" title=\"Сбросить\">Сбросить</a>"""),
-            css_class='d-flex gap-2 mt-4'
+            HTML(f"""<a href=\"{url}\" class=\"btn btn-outline-secondary\" title=\"Сбросить\"><i class="bi bi-arrow-counterclockwise"></i></a>"""),
+            HTML('''<button type="button" class="btn btn-outline-secondary" id="filter-scroll-top-btn" title="Наверх" data-ignore-auto-update="true"><i class="bi bi-arrow-up"></i></button>'''),
+            css_class='d-flex gap-2 filter-actions'
           )
       )
     else:
       self.form.helper.form_tag = False
       self.form.helper.layout=Layout(
+          Field('categories', template='supplier/partials/category_filter_field.html'),
           Field('supplier', template='core/includes/checkbox_field.html#checkboxes'),
-          Field('manufacturer', template='core/includes/checkbox_field.html#checkboxes'),
-          Field('category', template='supplier/partials/category_filter_field.html'),)
+          Field('manufacturer', template='core/includes/checkbox_field.html#checkboxes'),)
 
   def config_filters(self, queryset):
     selected_suppliers = self.data.getlist('supplier', None)
@@ -133,19 +131,18 @@ class MainProductFilter(FilterSet):
       ).order_by('name')
     self.filters['manufacturer'].field.queryset = manufacturer_queryset
 
-    category_queryset = Category.objects.filter(pk__in=queryset.values('category')).get_ancestors(include_self=True)
-    selected_categories = Category.objects.filter(pk__in=self.data.getlist('category', None))
+    category_queryset = Category.objects.filter(pk__in=queryset.values('categories')).get_ancestors(include_self=True)
+    selected_categories = Category.objects.filter(pk__in=self.data.getlist('categories', None))
     if selected_categories:
       category_queryset = Category.objects.filter(Q(pk__in=category_queryset)|Q(pk__in=selected_categories))
 
-    self.filters['category'].field.queryset = category_queryset
+    self.filters['categories'].field.queryset = category_queryset
 
     return None
 
   def _get_terms(self, value):
-    first_terms = value.split()
     value = re.sub(r"[^\w\-\\\/]+", " ", value, flags=re.UNICODE)
-    return [*value.split(), *first_terms]
+    return [term for term in value.split() if term]
   def _build_partial_query(self, value):
       terms = self._get_terms(value)
       if not terms:
@@ -159,18 +156,23 @@ class MainProductFilter(FilterSet):
     if query is None:
       return queryset
     rank = SearchRank("search_vector", query)
-    return queryset.annotate(rank=rank).filter(search_vector=query).order_by("-rank")
+    matching_categories = Category.objects.filter(search_vector=query)
+    combined_filter = (
+      Q(categories__in=matching_categories) |
+      Q(search_vector=query)
+    )
+    return queryset.annotate(rank=rank).filter(combined_filter).distinct().order_by("-rank")
 
   def available_method(self, queryset, name, value):
     if value:
       return queryset.filter(stock__gt=0)
     return queryset
 
-  def category_method(self, queryset, name, value):
+  def categories_method(self, queryset, name, value):
     if list(value) == []:
       return queryset
     query = Q()
     for category in value:
       query |= Q(pk__in=category.get_descendants(include_self=True))
     categories = Category.objects.filter(query)
-    return queryset.filter(category__in=categories)
+    return queryset.filter(categories__in=categories).distinct()

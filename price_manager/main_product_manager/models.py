@@ -1,3 +1,4 @@
+from django.contrib.admin import site
 from django.db import models
 from django.contrib.postgres.search import SearchVectorField, SearchVector 
 from django.contrib.postgres.indexes import GinIndex
@@ -41,8 +42,7 @@ class MainProduct(models.Model):
         ]
     pim_id = models.CharField(verbose_name='Id для системы Pim',
                               null=True,
-                              blank=True,
-                              unique=True)
+                              blank=True)
     sku = models.CharField(verbose_name='Артикул товара',
                          null=True,
                          blank=True,
@@ -59,11 +59,9 @@ class MainProduct(models.Model):
     name = models.CharField(verbose_name='Название',
                           null=False,
                           blank=False)
-    category = models.ForeignKey(Category,
-                               on_delete=models.SET_NULL,
-                               verbose_name='Категория',
+    categories = models.ManyToManyField(Category,
+                               verbose_name='Категории',
                                related_name='mainproducts',
-                               null=True,
                                blank=True)
     manufacturer = models.ForeignKey(Manufacturer,
                                    verbose_name='Производитель',
@@ -132,28 +130,33 @@ class MainProduct(models.Model):
       blank=True)
     def __str__(self)->str:
         return f'{self.sku}' if self.sku is not None else 'Не указан'
-    def _build_search_text(self) -> str:
+    def _build_searchvector(self) -> SearchVector:
         """Собираем строку для поиска без join-ов."""
-        parts = [
-            self.sku or "",
-            self.article or "",
-            self.name or "",
-            self.description or "",
-            ' '.join(self.category.get_ancestors(include_self=True).values_list('name', flat=True) if self.category else ""),
-            getattr(self.supplier, "name", ""),
-            getattr(self.manufacturer, "name", ""),
-        ]
-        return " ".join(parts)
+        from main_product_manager.utils import _resolve_pim_id, get_pim_data
+        if self.pim_id is None:
+            _resolve_pim_id(self)
+        pim_product = get_pim_data(self.pim_id) or {}
+        vector = (
+            SearchVector(Value(''.join(pim_product.get('categoriesNames', {}).values())), weight='A', config='russian') +
+            SearchVector(Value(''.join(pim_product.get('tag', []))), weight='A', config='russian') +
+            SearchVector(Value(pim_product.get('name', '')), weight='A', config='russian') +
+            SearchVector(Value(pim_product.get('description', '')), weight='C', config='russian') +
+            SearchVector(Value(pim_product.get('longDescription', '')), weight='C', config='russian') +
+            SearchVector('sku', weight='B', config='russian')+
+            SearchVector('article', weight='B', config='russian') +
+            SearchVector('description', weight='D', config='russian')+
+            SearchVector("supplier__name", weight='C', config='russian') +
+            SearchVector("manufacturer__name", weight='C', config='russian')
+        )
+        return vector
     def rebuild_search_vector(self):
         """Обновляет search_vector без join-полей (через константу)."""
-        text = self._build_search_text()
         MainProduct.objects.filter(pk=self.pk).update(
-            search_vector=SearchVector(Value(text), config='russian')
+            search_vector=self._build_searchvector()
         )
     
     def save(self, *args, **kwargs):
         super().save(*args, **kwargs)
-        self.rebuild_search_vector()
   
 
 class MainProductLog(models.Model):

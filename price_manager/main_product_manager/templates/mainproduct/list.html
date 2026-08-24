@@ -6,24 +6,251 @@
 
 
 {% block style %}
+  #mainproducts-block {
+    --bs-gutter-x: 0;
+  }
+
   .main-filters-card {
     position: sticky;
     top: 88px;
-    max-height: calc(100vh - 110px);
+    max-height: calc(100vh - 120px);
     overflow: auto;
+    scrollbar-width: none;
+    -ms-overflow-style: none;
+  }
+
+  .main-filters-card::-webkit-scrollbar {
+    display: none;
+  }
+
+  .main-filters-card .card {
+    border: 1px solid #e9ecef;
+    border-radius: 1rem;
+    box-shadow: 0 0.5rem 1.5rem rgba(15, 23, 42, 0.06);
+  }
+
+  .filter-header h5 {
+    font-weight: 600;
+  }
+
+  .filter-header .bi {
+    font-size: 1.15rem;
+  }
+
+  .filter-section {
+    padding: 0.9rem 0;
+    border-bottom: 1px solid #f1f3f5;
+  }
+
+  .filter-section-last {
+    border-bottom: none;
+  }
+
+  .filter-section-title {
+    font-size: 0.8rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+    color: #6c757d;
+    margin-bottom: 0.6rem;
+    border: none;
+  }
+
+  .filter-switch .form-check-input {
+    width: 2.5em;
+    cursor: pointer;
+  }
+
+  .filter-switch .form-check-label {
+    cursor: pointer;
+    font-weight: 500;
+  }
+
+  .filter-scroll-list {
+    border: 1px solid #eef0f2;
+    border-radius: 0.75rem;
+    background-color: #fafbfc;
+    scrollbar-width: thin;
+  }
+
+  .filter-check-item {
+    display: flex;
+    align-items: flex-start;
+    gap: 0.5rem;
+    padding: 0.3rem 0.5rem;
+    padding-left: 0.5rem;
+    border-radius: 0.5rem;
+    border: 1px solid transparent;
+    max-width: 100%;
+    transition: background-color 0.15s ease-in-out, border-color 0.15s ease-in-out;
+  }
+
+  .filter-check-item:hover {
+    background-color: #eef2ff;
+  }
+
+  .filter-check-item .form-check-input {
+    float: none;
+    width: 1.15em;
+    height: 1.15em;
+    margin-top: 0.2em;
+    margin-left: 0;
+    flex-shrink: 0;
+    border: 1.5px solid #adb5bd;
+    cursor: pointer;
+  }
+
+  .filter-check-item .form-check-input:checked {
+    background-color: #3b5bfd;
+    border-color: #3b5bfd;
+  }
+
+  .filter-check-item .form-check-input:focus {
+    box-shadow: 0 0 0 0.2rem rgba(59, 91, 253, 0.2);
+  }
+
+  .filter-check-item .form-check-label {
+    cursor: pointer;
+    margin-left: 0;
+    flex: 1 1 auto;
+    min-width: 0;
+    white-space: normal;
+    overflow-wrap: break-word;
+    line-height: 1.25;
+    font-size: 0.9rem;
+  }
+
+  .filter-check-item:has(.form-check-input:checked) {
+    background-color: #eef1ff;
+    border-color: #c7d1fb;
+  }
+
+  .filter-check-item:has(.form-check-input:checked) .form-check-label {
+    font-weight: 600;
+    color: #29399b;
+  }
+
+  .filter-quick-search .input-group-text {
+    border: 1px solid #ced4da;
+  }
+
+  .filter-actions {
+    position: sticky;
+    bottom: 0;
+    margin: 0.9rem -0.25rem 0 -1rem;
+    padding: 0.75rem 1rem 1rem;
+    background-color: #fff;
+    border-top: 1px solid #f1f3f5;
+    box-shadow: 0 -0.35rem 0.75rem rgba(15, 23, 42, 0.05);
+    z-index: 5;
+  }
+
+  .filter-actions .btn {
+    border-radius: 0.6rem;
+    font-weight: 500;
+  }
+
+  .main-search-bar {
+    position: sticky;
+    top: 88px;
+    z-index: 20;
+    background-color: rgba(255, 255, 255, 0.72);
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
+    border-radius: 1rem;
+    padding: 0.5rem 0.75rem;
+    margin: -0.5rem 0 0;
+    transition: transform 0.25s ease, opacity 0.2s ease;
+  }
+
+  .main-search-bar.is-hidden {
+    transform: translateY(-135%);
+    opacity: 0;
+  }
+
+  .main-search-bar .input-group {
+    border-radius: 0.9rem;
+    overflow: hidden;
+    box-shadow: 0 0.35rem 1.25rem rgba(15, 23, 42, 0.08);
+  }
+
+  .main-search-bar .input-group-text {
+    background-color: #fff;
+    border: 1px solid #e2e5e9;
+    border-right: none;
+    color: #6c757d;
+  }
+
+  .main-search-bar .form-control {
+    border: 1px solid #e2e5e9;
+    border-left: none;
+  }
+
+  .main-search-bar .form-control:focus {
+    box-shadow: none;
+    border-color: #86b7fe;
+  }
+
+  .table-skeleton {
+    display: flex;
+    flex-direction: column;
+    gap: 0.9rem;
+  }
+
+  .table-skeleton-row {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+  }
+
+  .table-skeleton-row--head {
+    opacity: 0.55;
+    margin-bottom: 0.15rem;
+  }
+
+  .table-skeleton-row--head .sk-bar {
+    height: 8px;
+  }
+
+  .sk-bar {
+    height: 12px;
+    border-radius: 6px;
+    flex: 1 1 auto;
+    background: linear-gradient(100deg, #eef1f4 30%, #dde3ea 45%, #eef1f4 60%);
+    background-size: 250% 100%;
+    animation: sk-shimmer 1.6s ease-in-out infinite;
+  }
+
+  .sk-bar--thumb {
+    flex: 0 0 auto;
+    width: 40px;
+    height: 40px;
+    border-radius: 0.65rem;
+  }
+
+  @keyframes sk-shimmer {
+    0% { background-position: 100% 0; }
+    100% { background-position: -50% 0; }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .sk-bar {
+      animation: none;
+    }
   }
 {% endblock %}
 
 {% block body %}
   {% partialdef list inline %}
     <div id="mainproducts-block" class="row gap-2 p-4">
-      
-      <div class="col-3">
+
+      <div class="col-12 col-lg-3">
         <div class="main-filters-card">
         {% include "mainproduct/partials/filter.html" %}
         </div>
       </div>
-      <div class="col-8">
+      <div class="col-12 col-lg-8 ps-lg-4">
+        {% include "mainproduct/partials/search_bar.html" %}
         {% include 'mainproduct/partials/tables_bycat.html' %}
       </div>
     </div>
@@ -42,4 +269,46 @@
           </div>
       </div>
   </div>
+{% endblock %}
+
+{% block script %}
+<script>
+  (function () {
+    var bar = document.querySelector('.main-search-bar');
+    if (!bar) return;
+    var lastY = window.scrollY;
+    var hideAfter = 160;
+    var delta = 8;
+    var ticking = false;
+
+    function onScroll() {
+      var currentY = window.scrollY;
+      if (Math.abs(currentY - lastY) > delta) {
+        if (currentY > lastY && currentY > hideAfter) {
+          bar.classList.add('is-hidden');
+        } else {
+          bar.classList.remove('is-hidden');
+        }
+        lastY = currentY;
+      }
+      ticking = false;
+    }
+
+    window.addEventListener('scroll', function () {
+      if (!ticking) {
+        window.requestAnimationFrame(onScroll);
+        ticking = true;
+      }
+    }, { passive: true });
+  })();
+
+  document.addEventListener('click', function (event) {
+    var btn = event.target.closest('#filter-scroll-top-btn');
+    if (!btn) return;
+    var panel = document.querySelector('.main-filters-card');
+    if (panel) {
+      panel.scrollTo({ top: 0, behavior: 'smooth' });
+    }
+  });
+</script>
 {% endblock %}

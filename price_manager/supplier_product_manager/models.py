@@ -14,6 +14,9 @@ SP_PRICES = ['supplier_price', 'rrp', 'discount_price']
 SP_NUMBERS = ['supplier_price', 'rrp', 'stock', 'discount_price']
 
 class SupplierProduct(models.Model):
+  pim_id = models.CharField(verbose_name='Id для системы Pim',
+                            null=True,
+                            blank=True)
   main_product=models.ForeignKey(MainProduct,
                         verbose_name='sku',
                         related_name='supplierproducts',

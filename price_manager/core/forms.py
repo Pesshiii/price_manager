@@ -1,5 +1,5 @@
 from django import forms
-from core.models import ShoppingTab, AlternateProduct, ShoppingTab
+from core.models import CartItem, ShoppingTab, ShoppingTab
 from crispy_forms.helper import FormHelper
 from crispy_forms.layout import Submit, Layout, Field
 
@@ -32,16 +32,4 @@ class ShoppingTabUpdateForm(forms.ModelForm):
         'name': forms.TextInput(attrs={'class': 'form-control'}),
         'file': forms.FileInput(attrs={'class': 'form-control'}),
         'open': forms.CheckboxInput(attrs={'class': 'form-check-input'}),
-        }
-
-
-class AlternateProductForm(forms.ModelForm):
-    class Meta:
-        model = AlternateProduct
-        fields = ['name']
-        labels = {
-        'name': 'Название',
-        }
-        widgets = {
-        'name': forms.TextInput(attrs={'class': 'form-control'})
         }

@@ -1,5 +1,6 @@
 from .base import TIME_ZONE
 import os
+from celery.schedules import crontab
 from price_manager.celery import app
 from .databases import REDIS_URL
 
@@ -18,8 +19,11 @@ CELERY_PRICE_UPDATE_MINUTES = int(os.environ.get('CELERY_PRICE_UPDATE_MINUTES', 
 CELERY_STOCK_UPDATE_MINUTES = int(os.environ.get('CELERY_STOCK_UPDATE_MINUTES', 15))
 CELERY_LOG_UPDATE_MINUTES = int(os.environ.get('CELERY_LOG_UPDATE_MINUTES', 60))
 CELERY_SUPPLIER_FILES_CLEANUP_MINUTES = int(os.environ.get('CELERY_SUPPLIER_FILES_CLEANUP_MINUTES', 30))
+CELERY_CATEGORY_SYNC_MINUTES = int(os.environ.get('CELERY_CATEGORY_SYNC_MINUTES', 360))
+CELERY_NOTIFICATION_CLEANUP_MINUTES = int(os.environ.get('CELERY_NOTIFICATION_CLEANUP_MINUTES', 60))
 
 SUPPLIER_FILES_KEEP_LAST = int(os.environ.get('SUPPLIER_FILES_KEEP_LAST', 0))
+PERSISTENT_NOTIFICATION_TTL_HOURS = int(os.environ.get('PERSISTENT_NOTIFICATION_TTL_HOURS', 72))
 
 
 CELERY_BEAT_SCHEDULE = {
@@ -42,5 +46,21 @@ CELERY_BEAT_SCHEDULE = {
     'cleanup-supplier-files': {
         'task': 'supplier_product_manager.cleanup_supplier_files_task',
         'schedule': CELERY_SUPPLIER_FILES_CLEANUP_MINUTES * 60,
+    },
+    'create-pim-links':{
+        'task': 'main_product_manager.create_pim_links',
+        'schedule': 1800,
+    },
+    'reindex-pim-ids': {
+        'task': 'main_product_manager.reindex_pim_ids',
+        'schedule': crontab(hour=3, minute=0),
+    },
+    'sync-categories': {
+        'task': 'supplier_manager.sync_categories',
+        'schedule': CELERY_CATEGORY_SYNC_MINUTES * 60,
+    },
+    'cleanup-persistent-notifications': {
+        'task': 'core.cleanup_persistent_notifications',
+        'schedule': CELERY_NOTIFICATION_CLEANUP_MINUTES * 60,
     },
 }

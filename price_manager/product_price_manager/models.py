@@ -181,16 +181,21 @@ class PriceManager(models.Model):
     
     mps = MainProduct.objects.filter(pk__in=products.values_list('main_product', flat=True))
     if price_manager.categories.exists():
-      mps = mps.filter(category__in=price_manager.categories.all())
+      mps = mps.filter(categories__in=price_manager.categories.all()).distinct()
     source = price_manager.source
     if price_manager.source in SP_PRICES:
       filtered_source_price = (
         products.filter(main_product=OuterRef('pk'))
-        .values('main_product')
-        .annotate(source_price=Max(Coalesce(F(price_manager.source), Value(Decimal('0')), output_field=DecimalField())))
-        .values('source_price')[:1]
+        .order_by('-updated_at')
+        .values(price_manager.source)[:1]
       )
-      mps = mps.annotate(source_price=Subquery(filtered_source_price, output_field=DecimalField()))
+      mps = mps.annotate(
+        source_price=Coalesce(
+          Subquery(filtered_source_price, output_field=DecimalField()),
+          Value(Decimal('0')),
+          output_field=DecimalField()
+        )
+      )
       source = 'source_price'
       calc_qs = (
         mps.filter(pk=OuterRef("pk"))
@@ -403,11 +408,11 @@ class PriceTag(models.Model):
     if self.source in ('fixed_price', None):
       return self.fixed_price
     if self.source in SP_PRICES:
-      prices = list(self.mp.supplierproducts.values_list(self.source, flat=True))
-      if not prices:
+      sp = self.mp.supplierproducts.order_by('-updated_at').first()
+      if sp is None:
         return None
-      normalized_prices = [price if price is not None else Decimal('0') for price in prices]
-      return self.get_aggfunc()(normalized_prices) * self.mp.supplier.currency.value
+      price = getattr(sp, self.source)
+      return (price if price is not None else Decimal('0')) * self.mp.supplier.currency.value
     if self.source in MP_PRICES:
       return getattr(self.mp, self.source)
     return None

@@ -65,37 +65,35 @@
             <table class="table table-hover align-middle mb-0">
               <thead>
                 <tr>
-                  <th scope="col">Название</th>
-                  <th scope="col">Главный товар</th>
-                  <th scope="col" class="text-end">Действия</th>
-                </tr>
+                    <th scope="col">Запрос</th>
+                    <th scope="col">Найдено</th>
+                    <th scope="col">Количество</th>
+                    <th scope="col" class="text-end">Действия</th>
               </thead>
               <tbody>
                 {% for product in products %}
-                  <tr>
-                    <td class="fw-semibold">{{ product.name }}</td>
-                    <td>
-                      {% if product.main_product %}
-                        <a href="{% url 'main-product-update' product.main_product.pk %}">{{ product.main_product.name }}</a>
-                        <div class="small text-muted">Артикул: {{ product.main_product.article }}</div>
-                      {% else %}
-                        <span class="text-muted">Не привязан к основному товару</span>
-                      {% endif %}
-                    </td>
-                    <td class="text-end">
-                      <form method="post" action="{% url 'shopping-tab-product-delete' tab.pk product.pk %}" class="d-inline" onsubmit="return confirm('Удалить товар \"{{ product.name }}\" из корзины?');">
-                        {% csrf_token %}
-                        <div class="btn-group btn-group-sm" role="group" aria-label="Управление товаром">
-                          <a href="{% url 'shopping-tab-product-update' tab.pk product.pk %}" class="btn btn-outline-secondary" title="Редактировать">
-                            <i class="bi bi-pencil"></i>
-                          </a>
-                            <button type="submit" class="btn btn-outline-danger" title="Удалить">
-                              <i class="bi bi-trash"></i>
+                    <tr>
+                        <td>{{ product.search_query|json_script:"search_query" }}</td>
+                        <td>
+                        {% if product.products.all %}
+                            {{ product.products.count }}
+                        {% else %}
+                            <span class="text-muted">Нет совпадений</span>
+                        {% endif %}
+                        </td>
+                        <td>{{ product.quantity }}</td>
+                        <td class="text-end">
+                        <a href="{% url 'shopping-tab-product-update' tab.pk product.pk %}" class="btn btn-sm btn-outline-secondary">
+                            <i class="bi bi-pencil"></i> Редактировать
+                        </a>
+                        <form method="post" action="{% url 'shopping-tab-product-delete' tab.pk product.pk %}" class="d-inline">
+                            {% csrf_token %}
+                            <button type="submit" class="btn btn-sm btn-outline-danger" onclick="return confirm('Вы уверены, что хотите удалить этот товар?');">
+                            <i class="bi bi-trash"></i> Удалить
                             </button>
-                        </div>
-                      </form>
-                    </td>
-                  </tr>
+                        </form>
+                        </td>
+                    </tr>
                 {% endfor %}
               </tbody>
             </table>

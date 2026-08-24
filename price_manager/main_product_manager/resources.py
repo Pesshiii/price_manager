@@ -1,28 +1,32 @@
+import json
 from import_export import resources, fields
 from import_export.widgets import ForeignKeyWidget, ManyToManyWidget
 from difflib import get_close_matches
 from .models import *
 from supplier_manager.models import ManufacturerDict, Discount
 
-class CategoryWidget(ForeignKeyWidget):
+class CategoryWidget(ManyToManyWidget):
     """Категория строкой: 'Инструмент > Ручной инструмент > Отвертки'."""
 
     def clean(self, value, row=None, *args, **kwargs):
         if not value:
-            return None
+            return []
         parts = [p.strip() for p in str(value).split(">") if p and str(p).strip()]
         parent = None
         node = None
         for name in parts[:10]:
             node, _ = Category.objects.get_or_create(name=name, parent=parent)
             parent = node
-        return node
+        return [node] if node else []
 
     def render(self, value, obj=None, **kwargs):
         if not value:
             return ""
+        cat = value.first() if hasattr(value, 'first') else next(iter(value), None)
+        if not cat:
+            return ""
         path = []
-        cur = value
+        cur = cat
         while cur:
             path.append(cur.name)
             cur = cur.parent
@@ -121,8 +125,8 @@ class MainProductResource(resources.ModelResource):
     )
     category = fields.Field(
         column_name="Название_группы",
-        attribute="category",
-        widget=CategoryWidget(Category, "name"),
+        attribute="categories",
+        widget=CategoryWidget(Category),
     )
     supplier_prices = fields.Field(column_name='Supplier Prices')
     m_price = fields.Field(
@@ -196,3 +200,81 @@ class MainProductResource(resources.ModelResource):
     def get_export_fields(self, selected_fields=None):
         """Ограничить набор экспортируемых полей"""
         return [self.fields[f] for f in self.Meta.export_fields]
+
+
+class PimCategoryWidget(ManyToManyWidget):
+    """Parses PIM category IDs from 'Categories' column and returns the
+    categories that belong to the 'Main tree' (Основной, parent=None)."""
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(Category, *args, **kwargs)
+
+    def _get_main_tree_map(self):
+        try:
+            main_tree = Category.objects.get(name='Основной', parent=None)
+        except Category.DoesNotExist:
+            return {}
+        return {
+            cat.pim_id: cat
+            for cat in main_tree.get_descendants().exclude(pim_id__isnull=True)
+        }
+
+    def clean(self, value, row=None, *args, **kwargs):
+        if not value:
+            return []
+        if isinstance(value, str):
+            stripped = value.strip()
+            if stripped.startswith('['):
+                try:
+                    pim_ids = json.loads(stripped)
+                except json.JSONDecodeError:
+                    pim_ids = [v.strip() for v in stripped.strip('[]').split(',') if v.strip()]
+            else:
+                pim_ids = [v.strip() for v in stripped.split(',') if v.strip()]
+        elif isinstance(value, (list, tuple)):
+            pim_ids = list(value)
+        else:
+            pim_ids = [str(value)]
+
+        cat_map = self._get_main_tree_map()
+        return [
+            cat_map[str(pim_id).strip()]
+            for pim_id in pim_ids
+            if str(pim_id).strip() in cat_map
+        ]
+
+    def render(self, value, obj=None, **kwargs):
+        if not value:
+            return ''
+        return ','.join(cat.pim_id for cat in value if cat.pim_id)
+
+
+class MainProductPimImportResource(resources.ModelResource):
+    """Import MainProduct data exported from PIM.
+
+    Expected columns:
+      PriceManagerId  – MainProduct.id (used to locate the record)
+      ID              – PIM product ID  → MainProduct.pim_id
+      Categories      – JSON/CSV list of PIM category IDs; the first one found
+                        in the 'Main tree' (Основной) is assigned as category
+    """
+    id = fields.Field(column_name='PriceManagerId', attribute='id')
+    pim_id = fields.Field(column_name='ID', attribute='pim_id')
+    category = fields.Field(
+        column_name='Categories',
+        attribute='categories',
+        widget=PimCategoryWidget(),
+    )
+
+    class Meta:
+        model = MainProduct
+        import_id_fields = ('id',)
+        fields = ('id', 'pim_id', 'category')
+        skip_unchanged = True
+        report_skipped = True
+
+    def skip_row(self, instance, original, row, import_validation_errors=None):
+        # только обновление — пропускаем строки без совпадения в БД
+        if instance.pk is None:
+            return True
+        return super().skip_row(instance, original, row, import_validation_errors)

@@ -3,36 +3,19 @@ from django.db.models import TextChoices
 from main_product_manager.models import MainProduct
 # Обработка заявок
 
-class AlternateProduct(models.Model):
-    name = models.CharField(verbose_name='Название',
-                          null=False)
-    # filter = models.JSONField(verbose_name='Фильтр',
-    #                           null=True)
-    main_product = models.ForeignKey(
-        MainProduct, 
-        verbose_name='Главный продукт',
-        related_name='alternate_products',
-        on_delete=models.SET_NULL,
-        null=True,
-        blank=True)
-    class Meta:
-        constraints = [models.UniqueConstraint(fields=['name', 'main_product'], name='name_main_product_constraint')]
-
 class CartItem(models.Model):
     user = models.ForeignKey(
         'auth.User',
         verbose_name='Пользователь',
         on_delete=models.CASCADE,
         related_name='cart_items')
-    product = models.ForeignKey(
-        AlternateProduct,
+    search_query = models.CharField(verbose_name='Поисковый запрос', null=True, blank=True)
+    products = models.ManyToManyField(
+        MainProduct,
         verbose_name='Товар',
-        on_delete=models.CASCADE,
         related_name='cart_items')
     quantity = models.PositiveIntegerField(verbose_name='Количество', default=1)
-    class Meta:
-        constraints = [models.UniqueConstraint(fields=['user', 'product'], name='user_product_constraint')]
-
+    
 class ShoppingTab(models.Model):
     user = models.ForeignKey(
         'auth.User',
@@ -45,9 +28,6 @@ class ShoppingTab(models.Model):
                           upload_to='shopping_tabs/',
                           null=True,
                           blank=True)
-    products = models.ManyToManyField(AlternateProduct,
-                                    verbose_name='Товары',
-                                    related_name='shopping_tabs')
     items = models.ManyToManyField(CartItem,
                                     verbose_name='Элементы корзины',
                                     related_name='shopping_tabs')

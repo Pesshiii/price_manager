@@ -106,7 +106,7 @@ class PriceManagerCreate(CreateView):
     form = context['form']
     context['supplier'] = supplier
     form.fields['discounts'].queryset = supplier.discounts.all()
-    form.fields['categories'].queryset = Category.objects.filter(pk__in=MainProduct.objects.select_related('supplierproducts', 'category').filter(supplierproducts__in=supplier.supplierproducts.all()).values('category'))
+    form.fields['categories'].queryset = Category.objects.filter(pk__in=MainProduct.objects.select_related('supplierproducts').filter(supplierproducts__in=supplier.supplierproducts.all()).values('categories'))
     context['selected_discount_ids'] = []
     return context
   def form_invalid(self, form):
@@ -168,9 +168,9 @@ class PriceManagerUpdate(SingleTableMixin, UpdateView):
     form.initial['price_fixed'] = self.instance.source == 'fixed_price'
     form.fields['discounts'].queryset = supplier.discounts.all()
     form.fields['categories'].queryset = Category.objects.filter(
-      pk__in=MainProduct.objects.select_related('supplierproducts', 'category')
+      pk__in=MainProduct.objects.select_related('supplierproducts')
         .filter(supplierproducts__in=supplier.supplierproducts.all())
-        .values('category')
+        .values('categories')
     )
     context['selected_discount_ids'] = list(self.instance.discounts.values_list('pk', flat=True))
     return context

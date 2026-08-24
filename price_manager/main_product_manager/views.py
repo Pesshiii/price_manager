@@ -38,12 +38,14 @@ from crispy_forms.utils import render_crispy_form
 from .models import *
 from supplier_product_manager.models import SupplierProduct
 from supplier_manager.models import Category
+from supplier_manager.filters import CategoryFilter
 from file_manager.models import FileModel
 from core.utils import *
 from .forms import *
 from .tables import *
 from .filters import *
-from .functions import *
+from .utils import *
+from .utils import get_pim_data_for_product, prefetch_pim_data, get_file_url, maybe_notify_pim_error
 from .tasks import sync_main_products_task
 from supplier_product_manager.views import UploadSupplierFile
 
@@ -73,19 +75,13 @@ class MainPage(FilterView):
   def get_context_data(self, **kwargs) -> dict[str, Any]:
     context = super().get_context_data(**kwargs)
     queryset = context['object_list']
-    categories = Paginator(
-        Category.objects.filter(
-        pk__in=queryset.prefetch_related('category').values_list('category__pk')
-      ).prefetch_related(
-        'mainproducts'
-      ).annotate(
-        mps_count=Count(F('mainproducts'))
-      ).filter(~Q(mps_count=0)),
-      5
-    ).page(self.request.GET.get('page', 1))
+    search_value = self.request.GET.get('search', '')
+    search_query = self.filterset._build_partial_query(search_value) if search_value else None
+    cat_filter = CategoryFilter(product_qs=queryset, search_query=search_query)
+    categories = Paginator(cat_filter.qs, 5).page(self.request.GET.get('page', 1))
     context['categories'] =  categories
-    context['has_nulled'] = queryset.filter(category__isnull=True).exists()
-    context['nulled_mp_count'] = queryset.filter(category__isnull=True).count()
+    context['has_nulled'] = queryset.filter(categories__isnull=True).exists()
+    context['nulled_mp_count'] = queryset.filter(categories__isnull=True).count()
     context['column_groups'] = AVAILABLE_COLUMN_GROUPS
     selected_columns = self.request.GET.getlist('columns')
     if selected_columns:
@@ -136,18 +132,28 @@ class MainProductTableView(SingleTableView):
       main_product=OuterRef('pk')
     ).order_by('-updated_at').values('discount_price')[:1]
 
-    qs = MainProductFilter(self.request.GET).qs.prefetch_related('category').annotate(
+    qs = MainProductFilter(self.request.GET).qs.prefetch_related('categories').annotate(
       supplier_product_price=Subquery(supplier_price_sq),
       supplier_product_rrp=Subquery(rrp_sq),
       supplier_product_discount_price=Subquery(discount_price_sq),
     )
     if not self.category_pk:
-      return qs.filter(category__isnull=True)
-    return qs.filter(category=Category.objects.get(pk=self.category_pk))
+      return qs.filter(categories__isnull=True)
+    return qs.filter(categories=Category.objects.get(pk=self.category_pk))
   def get_context_data(self, **kwargs) -> dict[str, Any]:
       context = super().get_context_data(**kwargs)
       if self.category_pk:
         context["category"] = Category.objects.get(pk=self.category_pk)
+      table = context.get('table')
+      if table is not None:
+        try:
+          page_records = [row.record for row in table.page.object_list]
+        except Exception:
+          page_records = []
+        table.pim_map = prefetch_pim_data(page_records)
+        for data in table.pim_map.values():
+          get_file_url(data.get('mainImageId') or data.get('imageId'))
+        maybe_notify_pim_error(self.request.user)
       return context
 
 
@@ -169,8 +175,13 @@ class MainProductInfo(DetailView):
     if self.request.htmx:
       return [self.template_name + '#partial']
     return super().get_template_names()
-  
-  
+  def get_context_data(self, **kwargs):
+    context = super().get_context_data(**kwargs)
+    pim_data = get_pim_data_for_product(self.object, refresh=True)
+    context['pim_data'] = pim_data
+    if pim_data:
+      context['pim_image_url'] = get_file_url(pim_data.get('mainImageId') or pim_data.get('imageId'))
+    return context
 
 
 class MainProductDetail(DetailView):
@@ -180,7 +191,14 @@ class MainProductDetail(DetailView):
     if not self.request.htmx:
       return redirect(reverse('mainproduct-info', kwargs=self.kwargs))
     return super().get(request, *args, **kwargs)
-  
+  def get_context_data(self, **kwargs):
+    context = super().get_context_data(**kwargs)
+    pim_data = get_pim_data_for_product(self.object, refresh=True)
+    context['pim_data'] = pim_data
+    if pim_data:
+      context['pim_image_url'] = get_file_url(pim_data.get('mainImageId') or pim_data.get('imageId'))
+    return context
+
 
 class MainProductUpdate(UpdateView):
   model = MainProduct
@@ -296,13 +314,17 @@ class MainProductBulkCategoryView(FormView):
     updated_ids = list(queryset.values_list('pk', flat=True))
     updated_count = len(updated_ids)
     if updated_count:
-      MainProduct.objects.filter(pk__in=updated_ids).update(category=category)
+      through = MainProduct.categories.through
+      through.objects.bulk_create(
+        [through(mainproduct_id=pk, category_id=category.pk) for pk in updated_ids],
+        ignore_conflicts=True,
+      )
       recalculate_search_vectors(
-        MainProduct.objects.filter(pk__in=updated_ids).select_related('supplier', 'category', 'manufacturer')
+        MainProduct.objects.filter(pk__in=updated_ids).select_related('supplier', 'manufacturer')
       )
     messages.success(
       self.request,
-      f'Категория «{category.name}» назначена для {updated_count} товар(ов).'
+      f'Категория «{category.name}» добавлена для {updated_count} товар(ов).'
     )
     url = reverse('mainproducts')
     if self.request.GET:

@@ -1,0 +1,7 @@
+<span id="persistent-notifications-badge"{% if oob %} hx-swap-oob="true"{% endif %}>
+  {% if persistent_notifications|length %}
+    <span class="position-absolute top-0 start-100 translate-middle badge rounded-pill bg-danger">
+      {{ persistent_notifications|length }}
+    </span>
+  {% endif %}
+</span>

@@ -1,0 +1,18 @@
+<div class="main-search-bar mb-4">
+  <div class="input-group">
+    <span class="input-group-text"><i class="bi bi-search"></i></span>
+    <input type="search"
+           id="mainproducts-search"
+           name="search"
+           class="form-control"
+           placeholder="Название, артикул или ключевое слово"
+           value="{{ filter.form.search.value|default_if_none:'' }}"
+           hx-get="{% url 'mainproducts' %}"
+           hx-target="#mainproducts-table"
+           hx-swap="outerHTML"
+           hx-trigger="input changed delay:0.5s, search"
+           hx-include="#mainproduct-filter"
+           hx-push-url="true"
+           autocomplete="off">
+  </div>
+</div>
