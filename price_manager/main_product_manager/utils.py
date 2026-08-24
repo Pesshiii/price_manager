@@ -93,6 +93,29 @@ def _queue_pim_population(pim_id: str) -> None:
     populate_pim_relations_task.delay(pim_id)
 
 
+_PIM_404_COUNT_PREFIX = "pim_404_count:"
+_PIM_404_THRESHOLD = 3  # consecutive 404s before we treat pim_id as dead
+_PIM_404_COUNT_TTL = 60 * 60 * 24  # window resets if failures aren't consecutive-ish
+
+
+def _note_pim_404(pim_id: str) -> None:
+    """Track a 404 for a pim_id; once _PIM_404_THRESHOLD is hit in a row,
+    clear pim_id from every MainProduct pointing at it so renders stop
+    hammering a dead id — create_pim_links/reindex_pim_ids will re-link it.
+    """
+    count_key = f"{_PIM_404_COUNT_PREFIX}{pim_id}"
+    count = cache.get(count_key, 0) + 1
+    if count < _PIM_404_THRESHOLD:
+        cache.set(count_key, count, _PIM_404_COUNT_TTL)
+        return
+    cache.delete(count_key)
+    MainProduct.objects.filter(pim_id=pim_id).update(pim_id=None)
+
+
+def _note_pim_success(pim_id: str) -> None:
+    cache.delete(f"{_PIM_404_COUNT_PREFIX}{pim_id}")
+
+
 def get_pim_data(pim_id: str | None, refresh: bool = False) -> dict | None:
     if not pim_id:
         return None
@@ -105,9 +128,11 @@ def get_pim_data(pim_id: str | None, refresh: bool = False) -> dict | None:
     data, not_found = _fetch_pim_product(pim_id)
     if data is not None:
         cache.set(cache_key, data, PIM_CACHE_TTL)
+        _note_pim_success(pim_id)
         return data
     if not_found:
         cache.delete(cache_key)
+        _note_pim_404(pim_id)
         return None
     return cache.get(cache_key)
 
@@ -167,37 +192,27 @@ def _resolve_pim_id(product) -> str | None:
 def get_pim_data_for_product(product, refresh: bool = False) -> dict | None:
     """Return PIM data for a MainProduct, resolving pim_id if not set.
 
-    If the stored pim_id comes back 404 (deleted/renumbered in PIM), the
-    stale link is cleared and re-resolved by priceManagerId/name before
+    If the stored pim_id 404s _PIM_404_THRESHOLD times in a row (deleted/
+    renumbered in PIM), get_pim_data clears it from the DB — detected here via
+    refresh_from_db — and it's re-resolved by priceManagerId/sku before
     retrying once.
     """
     if not product.pim_id:
         _resolve_pim_id(product)
     if not product.pim_id:
         return None
-    cache_key = f"pim_product:{product.pim_id}"
-    if not refresh:
-        cached = cache.get(cache_key)
-        if cached is not None:
-            return cached
-        _queue_pim_population(product.pim_id)
-    data, not_found = _fetch_pim_product(product.pim_id)
+    data = get_pim_data(product.pim_id, refresh=refresh)
     if data is not None:
-        cache.set(cache_key, data, PIM_CACHE_TTL)
         return data
-    if not not_found:
-        return cache.get(cache_key)
 
-    MainProduct.objects.filter(pk=product.pk).update(pim_id=None)
-    cache.delete(cache_key)
-    product.pim_id = None
+    product.refresh_from_db(fields=['pim_id'])
+    if product.pim_id:
+        return None  # still linked — transient error or under the 404 threshold
+
     cache.delete(f"pim_no_match:{product.pk}")
     if not _resolve_pim_id(product):
         return None
-    data, _ = _fetch_pim_product(product.pim_id)
-    if data is not None:
-        cache.set(f"pim_product:{product.pim_id}", data, PIM_CACHE_TTL)
-    return data
+    return get_pim_data(product.pim_id, refresh=refresh)
 
 
 def _resolve_manufacturer(data: dict) -> Manufacturer | None:
