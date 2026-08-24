@@ -233,6 +233,53 @@ def _resolve_manufacturer(data: dict) -> Manufacturer | None:
     return manufacturer
 
 
+def _fetch_pim_category(pim_category_id: str) -> dict | None:
+    t0 = time.monotonic()
+    try:
+        return site.get(Entity(name='Category', id=pim_category_id))
+    except Exception as exc:
+        _record_pim_error("_ensure_pim_category", exc, int((time.monotonic() - t0) * 1000))
+        return None
+
+
+def _ensure_pim_category(pim_category_id: str) -> Category | None:
+    """Find or create the local Category matching a PIM category id.
+
+    Walks up `parentsIds[0]` (the immediate parent — the local Category tree only
+    supports a single parent) creating any missing ancestors too, so the full
+    branch ends up marked in the tree. Each newly created/linked category gets its
+    search_vector (re)built. Returns None if the category can't be resolved (PIM
+    error) rather than risk misplacing it under the wrong parent.
+    """
+    if not pim_category_id:
+        return None
+    category = Category.objects.filter(pim_id=pim_category_id).first()
+    if category:
+        return category
+
+    data = _fetch_pim_category(pim_category_id)
+    if not data:
+        return None
+
+    parent_ids = data.get('parentsIds') or []
+    parent = None
+    if parent_ids:
+        parent = _ensure_pim_category(parent_ids[0])
+        if parent is None:
+            return None
+
+    category, created = Category.objects.get_or_create(
+        parent=parent, name=data.get('name') or pim_category_id,
+        defaults={'pim_id': pim_category_id},
+    )
+    if not created and not category.pim_id:
+        category.pim_id = pim_category_id
+        category.save(update_fields=['pim_id'])
+    if created or category.search_vector is None:
+        category.rebuild_search_vector()
+    return category
+
+
 def sync_pim_relations(pim_id: str, data: dict) -> int:
     """Sync manufacturer + categories for every MainProduct linked to this PIM Product id.
 
@@ -249,7 +296,7 @@ def sync_pim_relations(pim_id: str, data: dict) -> int:
         MainProduct.objects.filter(pim_id=pim_id).update(manufacturer=manufacturer)
 
     category_ids = data.get('categoriesIds') or []
-    categories = list(Category.objects.filter(pim_id__in=category_ids)) if category_ids else []
+    categories = [c for c in (_ensure_pim_category(cid) for cid in category_ids) if c]
     if categories:
         through = MainProduct.categories.through
         through.objects.filter(mainproduct__in=products).delete()
