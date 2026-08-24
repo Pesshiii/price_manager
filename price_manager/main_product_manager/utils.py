@@ -11,7 +11,7 @@ from django.db.models.functions import Coalesce
 from django.conf import settings
 
 from .models import MainProduct, MainProductLog, MP_PRICES
-from .pim_api import site, EntityList, Entity, Where, FileRecord
+from .pim_api import site, EntityList, Entity, Where, FileRecord, upsert_async
 from .columns import AVAILABLE_COLUMN_MAP, DEFAULT_VISIBLE_COLUMNS
 
 from supplier_product_manager.models import SupplierProduct
@@ -453,45 +453,145 @@ def update_stocks():
     MainProductLog.objects.bulk_create(mpls)
     return mps.update(stock=F('new_stock'), stock_updated_at=timezone.now())
 
-def create_pim_links(delay: float = 0.5) -> int:
+PIM_PRODUCT_ENTITY = 'PriceManagerProduct'
+
+
+def compute_supplier_sku(article: str, supplier) -> str:
+    """The MainProduct.sku a SupplierProduct.article turns into once copied to
+    MainProduct (copy_supplier_products_to_main_task) — prefixed/suffixed per
+    supplier.sku_type/sku_value. Centralized so PIM pushes for SupplierProduct
+    (pre-copy) and MainProduct (post-copy) agree on the same `number` and
+    don't create two separate PriceManagerProduct records for one product.
+    """
+    prefix = (supplier.sku_value or '') if supplier.sku_type == 'prefix' else ''
+    suffix = (supplier.sku_value or '') if supplier.sku_type == 'suffix' else ''
+    return f'{prefix}{article}{suffix}'
+
+
+def _pim_product_payload(name: str, description: str | None, number: str | None) -> dict:
+    return {'name': name, 'description': description or '', 'number': number or ''}
+
+
+def _push_pim_products(objects: list, payload_fn) -> int:
+    """Bulk-create `objects` as PriceManagerProduct records in PIM via
+    upsertAsync, persisting the ids PIM returns onto obj.pim_id.
+
+    `objects` must all be instances of the same model (bulk_update is called
+    once, on type(objects[0])). On any transport/timeout/job error the whole
+    batch is skipped and the error is recorded via _record_pim_error — a PIM
+    outage must not fail the caller's larger task. Returns how many objects
+    were successfully linked.
+    """
+    if not objects:
+        return 0
+    items = [{'entity': PIM_PRODUCT_ENTITY, 'payload': payload_fn(obj)} for obj in objects]
+    t0 = time.monotonic()
+    try:
+        results = upsert_async(items)
+    except Exception as exc:
+        _record_pim_error('push_pim_products', exc, int((time.monotonic() - t0) * 1000))
+        return 0
+    if len(results) != len(objects):
+        _record_pim_error(
+            'push_pim_products',
+            Exception(f'result count {len(results)} != item count {len(objects)}'),
+            int((time.monotonic() - t0) * 1000),
+        )
+        return 0
+
+    updated = []
+    for obj, result in zip(objects, results):
+        if result.get('status') == 'Failed':
+            continue
+        pim_id = (result.get('entity') or {}).get('id')
+        if pim_id:
+            obj.pim_id = pim_id
+            updated.append(obj)
+    if updated:
+        type(updated[0]).objects.bulk_update(updated, fields=['pim_id'])
+    return len(updated)
+
+
+def push_supplier_products_to_pim(supplier_products) -> int:
+    """Bulk-create SupplierProduct rows lacking a pim_id as PriceManagerProduct
+    records in PIM.
+
+    `supplier_products` may be an iterable of SupplierProduct instances or
+    pks (e.g. the rows just written by load_setting's bulk_create). pim_id is
+    always re-read from the DB rather than trusted off the caller's in-memory
+    instances, since bulk_create(update_conflicts=True) does not refresh
+    non-pk fields on rows it updates rather than inserts — trusting the
+    in-memory value would re-push every already-linked row on each re-import.
+    """
+    pks = [sp.pk if isinstance(sp, SupplierProduct) else sp for sp in supplier_products]
+    targets = list(SupplierProduct.objects.filter(pk__in=pks, pim_id__isnull=True).select_related('supplier'))
+    return _push_pim_products(
+        targets,
+        lambda sp: _pim_product_payload(sp.name, sp.description, compute_supplier_sku(sp.article, sp.supplier)),
+    )
+
+
+def push_missing_pim_products(products) -> int:
+    """Bulk-create MainProducts with no PIM match as PriceManagerProduct records.
+
+    Callers must pass only products already confirmed absent from PIM
+    (pim_id is None and _search_pim_id just found nothing) — this doesn't
+    re-check, so a transient search miss on an already-linked product won't
+    silently create a duplicate PIM record for it.
+    """
+    return _push_pim_products(list(products), lambda mp: _pim_product_payload(mp.name, mp.description, mp.sku))
+
+
+def create_pim_links(delay: float = 0.5) -> tuple[int, int]:
     products = list(MainProduct.objects.filter(pim_id__isnull=True)[:1000])
     result = []
+    missing = []
     for product in products:
         pim_id = _search_pim_id(product)
         if pim_id:
             product.pim_id = pim_id
             result.append(product)
+        else:
+            missing.append(product)
         time.sleep(delay)
     # bulk_update is the only DB write; kept outside the API loop so
     # execute_locked_task's transaction.atomic() doesn't span HTTP calls.
     if result:
         MainProduct.objects.bulk_update(result, fields=['pim_id'])
-    return len(result)
+    created = push_missing_pim_products(missing)
+    return len(result), created
 
 
-def reindex_pim_ids(delay: float = 0.5, batch_size: int | None = None) -> int:
+def reindex_pim_ids(delay: float = 0.5, batch_size: int | None = None) -> tuple[int, int]:
     """Re-resolve pim_id for ALL MainProducts, including ones already linked.
 
     Unlike create_pim_links (which only fills pim_id__isnull=True), this
     re-searches PIM for every product so relinked/re-merged records pick up
     their new pim_id. Only writes products whose resolved pim_id changed.
+    Products that were never linked and still aren't found get bulk-created
+    in PIM (push_missing_pim_products) instead of left dangling.
     """
     queryset = MainProduct.objects.all().order_by('pk')
     if batch_size:
         queryset = queryset[:batch_size]
     products = list(queryset)
     result = []
+    missing = []
     for product in products:
         pim_id = _search_pim_id(product)
-        if pim_id and pim_id != product.pim_id:
-            product.pim_id = pim_id
-            result.append(product)
+        if pim_id:
+            if pim_id != product.pim_id:
+                product.pim_id = pim_id
+                result.append(product)
+        elif product.pim_id is None:
+            missing.append(product)
         time.sleep(delay)
     # bulk_update is the only DB write; kept outside the API loop so
     # execute_locked_task's transaction.atomic() doesn't span HTTP calls.
     if result:
         MainProduct.objects.bulk_update(result, fields=['pim_id'])
-    return len(result)
+    created = push_missing_pim_products(missing)
+    return len(result), created
 
 
 def update_logs():

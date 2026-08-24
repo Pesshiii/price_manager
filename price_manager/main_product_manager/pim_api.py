@@ -1,5 +1,6 @@
 import httpx
 import json
+import time
 from urllib.parse import urlencode
 from dataclasses import  dataclass
 from typing import List, Dict, Protocol, Optional, Any
@@ -111,5 +112,47 @@ class SiteAPI(BaseModel):
         return response.content
 
 site = SiteAPI(token=f'{token}', host=f'{host}')
+
+
+PIM_JOB_TERMINAL_STATUSES = {'Success', 'Failed', 'Canceled'}
+
+
+def upsert_async(items: List[Dict[str, Any]], poll_interval: float = 1.0, timeout: float = 60.0) -> List[Dict[str, Any]]:
+    """POST a batch of {'entity': <EntityName>, 'payload': {...}} items to
+    upsertAsync and poll the resulting Job until it reaches a terminal status.
+
+    Returns the per-item result list from Job.payload, one entry per input
+    item in the same order, e.g. {'status': 'Created', 'stored': True,
+    'entity': {'id': ..., ...}} or {'status': 'Failed', 'stored': False,
+    'message': ...}.
+
+    Raises TimeoutError if the job doesn't reach a terminal status within
+    `timeout` seconds, or RuntimeError if the job itself ends as
+    Failed/Canceled (as opposed to individual items failing, which is
+    reported per-item in the returned list).
+    """
+    if not items:
+        return []
+    response = site.get(UpsertAsync(payload=items))
+    job_id = response['jobId']
+
+    deadline = time.monotonic() + timeout
+    job: Dict[str, Any] = {}
+    status = None
+    while True:
+        job = site.get(Job(id=job_id))
+        status = job.get('status')
+        if status in PIM_JOB_TERMINAL_STATUSES:
+            break
+        if time.monotonic() > deadline:
+            raise TimeoutError(
+                f'PIM upsertAsync job {job_id} did not finish within {timeout}s (last status={status})'
+            )
+        time.sleep(poll_interval)
+
+    if status != 'Success':
+        raise RuntimeError(f'PIM upsertAsync job {job_id} ended with status={status}: {job.get("message")}')
+
+    return job.get('payload') or []
 
 

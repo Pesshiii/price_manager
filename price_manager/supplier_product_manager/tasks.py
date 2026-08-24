@@ -5,7 +5,7 @@ from django.utils import timezone
 from django.conf import settings
 
 from core.models import PersistentNotification
-from main_product_manager.utils import recalculate_search_vectors
+from main_product_manager.utils import recalculate_search_vectors, compute_supplier_sku
 from main_product_manager.models import MainProduct
 
 from .functions import load_setting, SupplierFileStorageMissingError
@@ -232,13 +232,11 @@ def copy_supplier_products_to_main_task(
 
             sp_by_key = {(sp.article, sp.name): sp for sp in batch}
             supplier = Supplier.objects.get(id=supplier_id)
-            prefix = supplier.sku_value if supplier.sku_type == 'prefix' else ''
-            suffix = supplier.sku_value if supplier.sku_type == 'suffix' else ''
             mps_to_create = [
                 MainProduct(
                     supplier_id=supplier_id,
                     article=article,
-                    sku=prefix + article + suffix,
+                    sku=compute_supplier_sku(article, supplier),
                     name=name,
                     description=sp_by_key[(article, name)].description,
                     manufacturer=sp_by_key[(article, name)].manufacturer,
