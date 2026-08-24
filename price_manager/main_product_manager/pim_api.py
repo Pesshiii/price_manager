@@ -150,6 +150,9 @@ def upsert_async(items: List[Dict[str, Any]], poll_interval: float = 1.0, timeou
             )
         time.sleep(poll_interval)
 
+    if settings.DEBUG:
+        print(f'[PIM] job {job_id} status={status} payload={job.get("payload")!r}')
+
     if status != 'Success':
         raise RuntimeError(f'PIM upsertAsync job {job_id} ended with status={status}: {job.get("message")}')
 

@@ -500,6 +500,13 @@ def _push_pim_products(objects: list, payload_fn, batch_size: int = 1000, delay:
         except Exception as exc:
             _record_pim_error('push_pim_products', exc, int((time.monotonic() - t0) * 1000))
             continue
+        if not isinstance(results, list) or not all(isinstance(r, dict) for r in results):
+            _record_pim_error(
+                'push_pim_products',
+                Exception(f'unexpected Job.payload shape: {results!r:.500}'),
+                int((time.monotonic() - t0) * 1000),
+            )
+            continue
         if len(results) != len(chunk):
             _record_pim_error(
                 'push_pim_products',
