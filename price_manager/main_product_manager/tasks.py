@@ -152,20 +152,20 @@ def sync_main_products_task(user_id: int):
     return workflow.apply_async()
 
 @shared_task(name="main_product_manager.create_pim_links")
-def create_pim_links_task() -> dict:
+def create_pim_links_task(delay: float = 0.5, batch_size: int = 1000) -> dict:
     return execute_locked_task(
         task_name="main_product_manager.create_pim_links",
         lock_ttl=60 * 20,
-        runner=create_pim_links,
+        runner=lambda: create_pim_links(delay=delay, batch_size=batch_size),
     )
 
 
 @shared_task(name="main_product_manager.reindex_pim_ids", time_limit=None, soft_time_limit=None)
-def reindex_pim_ids_task() -> dict:
+def reindex_pim_ids_task(delay: float = 0.5, batch_size: int = 1000) -> dict:
     return execute_locked_task(
         task_name="main_product_manager.reindex_pim_ids",
         lock_ttl=60 * 60,
-        runner=reindex_pim_ids,
+        runner=lambda: reindex_pim_ids(delay=delay, batch_size=batch_size),
     )
 
 

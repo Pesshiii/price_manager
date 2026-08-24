@@ -31,18 +31,40 @@ class Command(BaseCommand):
             dest='async_mode',
             help='Отправить задачу в Celery вместо синхронного выполнения.',
         )
+        parser.add_argument(
+            '--batch-size',
+            type=int,
+            default=None,
+            dest='batch_size',
+            help='Размер батча upsertAsync для create_pim_links/reindex_pim_ids.',
+        )
+        parser.add_argument(
+            '--delay',
+            type=float,
+            default=None,
+            dest='delay',
+            help='Задержка (сек) между запросами к PIM для create_pim_links/reindex_pim_ids.',
+        )
 
     def handle(self, *args, **options):
         task_name = options['task']
         async_mode = options['async_mode']
+        batch_size = options['batch_size']
+        delay = options['delay']
 
         to_run = {task_name: TASKS[task_name]} if task_name else TASKS
 
         for name, task in to_run.items():
             self.stdout.write(f'Запуск: {name} ...')
+            kwargs = {}
+            if name in ('create_pim_links', 'reindex_pim_ids'):
+                if batch_size is not None:
+                    kwargs['batch_size'] = batch_size
+                if delay is not None:
+                    kwargs['delay'] = delay
             if async_mode:
-                task.delay()
+                task.delay(**kwargs)
                 self.stdout.write(self.style.SUCCESS(f'  → Отправлено в Celery'))
             else:
-                result = task()
+                result = task(**kwargs)
                 self.stdout.write(self.style.SUCCESS(f'  → Готово: {result}'))
