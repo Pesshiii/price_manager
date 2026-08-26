@@ -155,8 +155,6 @@ class MainProductTableView(SingleTableView):
         except Exception:
           page_records = []
         table.pim_map = prefetch_pim_data(page_records)
-        for data in table.pim_map.values():
-          get_file_url(data.get('mainImageId') or data.get('imageId'))
         maybe_notify_pim_error(self.request.user)
       return context
 

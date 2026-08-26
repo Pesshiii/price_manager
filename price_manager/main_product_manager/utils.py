@@ -310,30 +310,36 @@ def sync_pim_relations(pim_id: str, data: dict) -> int:
 
 
 def prefetch_pim_data(products) -> dict:
-    """Fetch PIM data for a list of MainProduct objects and return {product.pk: data}.
+    """Return {product.pk: data} for MainProducts whose PIM data is already cached.
 
-    Table rendering never resolves/reindexes pim_id — that's the job of the
-    background tasks (create_pim_links, reindex_pim_ids). A product without a
-    pim_id, or whose pim_id 404s with nothing cached, is simply skipped here
-    rather than triggering a live PIM search.
+    Main-page table rendering must never talk to PIM directly — the cache is
+    only ever populated by the product detail page (get_pim_data_for_product
+    with refresh=True) and by the background relation-sync task. This reads
+    the cache and nothing else: no live fetch, no population queuing.
     """
     result = {}
     for product in products:
         if not product.pim_id:
             continue
-        data = get_pim_data(product.pim_id)
+        data = cache.get(f"pim_product:{product.pim_id}")
         if data:
             result[product.pk] = data
     return result
 
 
-def get_file_url(file_id: str | None, size: str = 'medium') -> str | None:
-    """Return a thumbnail URL for a PIM File record. size: 'small', 'medium', 'large'."""
+def get_file_url(file_id: str | None, size: str = 'medium', cache_only: bool = False) -> str | None:
+    """Return a thumbnail URL for a PIM File record. size: 'small', 'medium', 'large'.
+
+    cache_only=True skips the live PIM fetch on a cache miss and returns None
+    instead — used by main-page table rendering, which must not connect to PIM.
+    """
     if not file_id:
         return None
     cache_key = f"pim_file:{file_id}"
     data = cache.get(cache_key)
     if data is None:
+        if cache_only:
+            return None
         t0 = time.monotonic()
         try:
             data = site.get(FileRecord(id=file_id))
