@@ -117,4 +117,16 @@ LOGGING = {
             "format": "%(asctime)s %(levelname)-7s %(name)s %(message)s"
         },
     },
+    "handlers": {
+        "console": {
+            "class": "logging.StreamHandler",
+        },
+    },
+    "loggers": {
+        "main_product_manager": {
+            "handlers": ["console"],
+            "level": "INFO",
+            "propagate": False,
+        },
+    },
 }

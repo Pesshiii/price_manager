@@ -54,6 +54,10 @@ from decimal import Decimal, InvalidOperation
 import pandas as pd
 import re
 import math
+import json
+import logging
+
+logger = logging.getLogger(__name__)
 
 class MainPage(FilterView):
   model = MainProduct
@@ -69,6 +73,16 @@ class MainPage(FilterView):
     context = super().get_context_data(**kwargs)
     queryset = context['object_list']
     search_value = self.request.GET.get('search', '')
+    filters = {
+      name: self.request.GET.getlist(name)
+      for name in self.filterset.filters
+      if name != 'search' and name in self.request.GET
+    }
+    logger.info(json.dumps({
+      'timestamp': timezone.now().isoformat(),
+      'query': search_value,
+      'filters': filters,
+    }, ensure_ascii=False))
     search_query = self.filterset._build_partial_query(search_value) if search_value else None
     cat_filter = CategoryFilter(product_qs=queryset, search_query=search_query)
     categories = Paginator(cat_filter.qs, 5).page(self.request.GET.get('page', 1))
