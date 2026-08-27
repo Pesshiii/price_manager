@@ -147,7 +147,7 @@ class MainProductTable(tables.Table):
     if not data:
       return '—'
     image_id = data.get('mainImageId') or data.get('imageId')
-    url = get_file_url(image_id, cache_only=True)
+    url = get_file_url(image_id)
     if not url:
       return '—'
     return format_html(
