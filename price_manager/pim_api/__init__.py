@@ -1,15 +1,10 @@
-import httpx
 import json
 import time
-from urllib.parse import urlencode
-from dataclasses import  dataclass
 from typing import List, Dict, Protocol, Optional, Any
-from pydantic import BaseModel
 from enum import Enum
-from django.conf import settings
 
-token = settings.PIM_TOKEN
-host = settings.PIM_HOST
+import httpx
+from pydantic import BaseModel
 
 
 class Method(Protocol):
@@ -91,6 +86,7 @@ class SiteAPI(BaseModel):
     token: str
     host: str
     timeout: float = 5.0
+    debug: bool = False
 
     def get(self, method: Method):
         headers = {
@@ -98,7 +94,7 @@ class SiteAPI(BaseModel):
             'Authorization-Token': self.token
         }
         response = method.get(prefix=f'https://{self.host}/api/', headers=headers, timeout=self.timeout)
-        if settings.DEBUG:
+        if self.debug:
             print(f'[PIM] {response.request.method} {response.request.url}')
         response.raise_for_status()
         return response.json()
@@ -106,18 +102,16 @@ class SiteAPI(BaseModel):
     def download(self, method: Method) -> bytes:
         headers = {'Authorization-Token': self.token}
         response = method.get(prefix=f'https://{self.host}/api/', headers=headers)
-        if settings.DEBUG:
+        if self.debug:
             print(f'[PIM] {response.request.method} {response.request.url}')
         response.raise_for_status()
         return response.content
-
-site = SiteAPI(token=f'{token}', host=f'{host}')
 
 
 PIM_JOB_TERMINAL_STATUSES = {'Success', 'Failed', 'Canceled'}
 
 
-def upsert_async(items: List[Dict[str, Any]], poll_interval: float = 1.0, timeout: float = 60.0) -> List[Dict[str, Any]]:
+def upsert_async(site: SiteAPI, items: List[Dict[str, Any]], poll_interval: float = 1.0, timeout: float = 60.0) -> List[Dict[str, Any]]:
     """POST a batch of {'entity': <EntityName>, 'payload': {...}} items to
     upsertAsync and poll the resulting Job until it reaches a terminal status.
 
@@ -152,7 +146,7 @@ def upsert_async(items: List[Dict[str, Any]], poll_interval: float = 1.0, timeou
             )
         time.sleep(poll_interval)
 
-    if settings.DEBUG:
+    if site.debug:
         print(f'[PIM] job {job_id} full response={job!r}')
 
     if status != 'Success':
@@ -168,5 +162,3 @@ def upsert_async(items: List[Dict[str, Any]], poll_interval: float = 1.0, timeou
     if not isinstance(results, list):
         raise RuntimeError(f'PIM upsertAsync job {job_id}: message is not a list: {results!r:.500}')
     return results
-
-

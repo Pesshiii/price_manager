@@ -1,7 +1,7 @@
 import time
 import httpx
 from django.core.management.base import BaseCommand
-from main_product_manager.pim_api import site
+from main_product_manager.pim_client import site
 
 
 class Command(BaseCommand):

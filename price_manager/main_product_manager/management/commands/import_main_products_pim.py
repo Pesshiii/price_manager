@@ -1,7 +1,9 @@
 import os
 from django.core.management.base import BaseCommand, CommandError
 from import_export.formats.base_formats import CSV, XLSX
-from main_product_manager.pim_api import site, Download
+from pim_api import Download
+
+from main_product_manager.pim_client import site
 from main_product_manager.resources import MainProductPimImportResource
 
 

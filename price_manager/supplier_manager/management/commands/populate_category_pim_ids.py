@@ -1,6 +1,8 @@
 from django.core.management.base import BaseCommand
 
-from main_product_manager.pim_api import EntityList, Where, site
+from pim_api import EntityList, Where
+
+from main_product_manager.pim_client import site
 from supplier_manager.models import Category
 
 

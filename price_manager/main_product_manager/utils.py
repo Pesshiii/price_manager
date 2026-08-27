@@ -10,8 +10,10 @@ from django.contrib.postgres.search import SearchVectorField, SearchVector
 from django.db.models.functions import Coalesce
 from django.conf import settings
 
+from pim_api import EntityList, Entity, Where, FileRecord, upsert_async as _upsert_async
+
 from .models import MainProduct, MainProductLog, MP_PRICES
-from .pim_api import site, EntityList, Entity, Where, FileRecord, upsert_async
+from .pim_client import site
 from .columns import AVAILABLE_COLUMN_MAP, DEFAULT_VISIBLE_COLUMNS
 
 from supplier_product_manager.models import SupplierProduct
@@ -496,7 +498,7 @@ def _push_pim_products(objects: list, payload_fn, batch_size: int = 1000, delay:
         items = [{'entity': PIM_PRODUCT_ENTITY, 'payload': payload_fn(obj)} for obj in chunk]
         t0 = time.monotonic()
         try:
-            results = upsert_async(items)
+            results = _upsert_async(site, items)
         except Exception as exc:
             _record_pim_error('push_pim_products', exc, int((time.monotonic() - t0) * 1000))
             continue
