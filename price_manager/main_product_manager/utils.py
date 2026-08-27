@@ -614,7 +614,7 @@ def reindex_pim_ids(delay: float = 0.5, batch_size: int = 1000) -> tuple[int, in
         pim_id = _search_pim_id(product)
         if pim_id:
             if pim_id != product.pim_id:
-                print('Новый ID: ', pim_id)
+                print('Новый ID: ', pim_id, '. Накоплено: ', len(result))
                 product.pim_id = pim_id
                 result.append(product)
         elif product.pim_id is None:

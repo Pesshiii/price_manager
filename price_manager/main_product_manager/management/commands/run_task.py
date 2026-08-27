@@ -60,8 +60,10 @@ class Command(BaseCommand):
             if name in ('create_pim_links', 'reindex_pim_ids'):
                 if batch_size is not None:
                     kwargs['batch_size'] = batch_size
+                    self.stdout.write(self.style.SUCCESS(f'Размер батча: {batch_size}'))
                 if delay is not None:
                     kwargs['delay'] = delay
+                    self.stdout.write(self.style.SUCCESS(f'Delay: {delay}'))
             if async_mode:
                 task.delay(**kwargs)
                 self.stdout.write(self.style.SUCCESS(f'  → Отправлено в Celery'))
