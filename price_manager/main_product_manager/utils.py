@@ -609,14 +609,16 @@ def reindex_pim_ids(delay: float = 0.5, batch_size: int = 1000) -> tuple[int, in
     created = 0
     for product in products:
         if len(result) > batch_size:
-            MainProduct.objects.bulk_update(result, fields=['pim_id'])
+            print('Обновлено', MainProduct.objects.bulk_update(result, fields=['pim_id']), ' товаров')
             result = []
         pim_id = _search_pim_id(product)
         if pim_id:
             if pim_id != product.pim_id:
+                print('Новый ID: ', pim_id)
                 product.pim_id = pim_id
                 result.append(product)
         elif product.pim_id is None:
+            print(product.id, ' не найден')
             missing.append(product)
             if len(missing) >= batch_size:
                 created += push_missing_pim_products(missing, batch_size=batch_size, delay=delay)
