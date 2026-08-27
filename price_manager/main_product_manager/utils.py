@@ -166,12 +166,12 @@ def _search_pim_id(product) -> str | None:
         t0 = time.monotonic()
         try:
             result = site.get(
-                EntityList(name='ContributorProduct', select=['masterRecordId'], where=[where])
+                EntityList(name='Product', select=['id'], where=[where])
             )
             for item in result.get('list', []):
-                master_record_id = item.get('masterRecordId')
-                if master_record_id:
-                    return master_record_id
+                product_id = item.get('id')
+                if product_id:
+                    return product_id
             # No match is normal — don't treat as error, just set no-match cache below
         except Exception as exc:
             _record_pim_error("_search_pim_id", exc, int((time.monotonic() - t0) * 1000))
