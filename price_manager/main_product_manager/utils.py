@@ -608,6 +608,9 @@ def reindex_pim_ids(delay: float = 0.5, batch_size: int = 1000) -> tuple[int, in
     missing = []
     created = 0
     for product in products:
+        if len(result) > batch_size:
+            MainProduct.objects.bulk_update(result, fields=['pim_id'])
+            result = []
         pim_id = _search_pim_id(product)
         if pim_id:
             if pim_id != product.pim_id:
@@ -621,7 +624,7 @@ def reindex_pim_ids(delay: float = 0.5, batch_size: int = 1000) -> tuple[int, in
         time.sleep(delay)
     # bulk_update is the only DB write; kept outside the API loop so
     # execute_locked_task's transaction.atomic() doesn't span HTTP calls.
-    if result:
+    if len(result) > 0:
         MainProduct.objects.bulk_update(result, fields=['pim_id'])
     created += push_missing_pim_products(missing, batch_size=batch_size, delay=delay)
     return len(result), created
