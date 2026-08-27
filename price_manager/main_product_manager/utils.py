@@ -610,6 +610,7 @@ def reindex_pim_ids(delay: float = 0.5, batch_size: int = 1000) -> tuple[int, in
     for product in products:
         if len(result) > batch_size:
             print('Обновлено', MainProduct.objects.bulk_update(result, fields=['pim_id']), ' товаров')
+            print('Товары: ', '; '.join(p.sku for p in result))
             result = []
         pim_id = _search_pim_id(product)
         if pim_id:
@@ -618,7 +619,7 @@ def reindex_pim_ids(delay: float = 0.5, batch_size: int = 1000) -> tuple[int, in
                 product.pim_id = pim_id
                 result.append(product)
         elif product.pim_id is None:
-            print(product.id, ' не найден')
+            print(product.sku, ' не найден')
             missing.append(product)
             if len(missing) >= batch_size:
                 created += push_missing_pim_products(missing, batch_size=batch_size, delay=delay)
