@@ -160,9 +160,7 @@ def _search_pim_id(product) -> str | None:
     if cache.get(no_match_key):
         return None
 
-    searches = [Where(attribute='priceManagerId', type='like', value=str(product.pk))]
-    if product.sku:
-        searches.append(Where(attribute='number', type='like', value=product.sku))
+    searches = [Where(attribute='number', type='like', value=product.sku)]
 
     for where in searches:
         t0 = time.monotonic()
