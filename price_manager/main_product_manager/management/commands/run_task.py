@@ -45,12 +45,19 @@ class Command(BaseCommand):
             dest='delay',
             help='Задержка (сек) между запросами к PIM для create_pim_links/reindex_pim_ids.',
         )
+        parser.add_argument(
+            '--skip-non-empty',
+            action='store_true',
+            dest='skip_non_empty',
+            help='Пропускать продукты с уже заполненным pim_id для reindex_pim_ids.',
+        )
 
     def handle(self, *args, **options):
         task_name = options['task']
         async_mode = options['async_mode']
         batch_size = options['batch_size']
         delay = options['delay']
+        skip_non_empty = options['skip_non_empty']
 
         to_run = {task_name: TASKS[task_name]} if task_name else TASKS
 
@@ -64,6 +71,9 @@ class Command(BaseCommand):
                 if delay is not None:
                     kwargs['delay'] = delay
                     self.stdout.write(self.style.SUCCESS(f'Delay: {delay}'))
+            if name == 'reindex_pim_ids' and skip_non_empty:
+                kwargs['skip_non_empty'] = True
+                self.stdout.write(self.style.SUCCESS('Пропуск продуктов с заполненным pim_id: включен'))
             if async_mode:
                 task.delay(**kwargs)
                 self.stdout.write(self.style.SUCCESS(f'  → Отправлено в Celery'))

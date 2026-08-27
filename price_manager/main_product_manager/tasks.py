@@ -161,10 +161,10 @@ def create_pim_links_task(delay: float = 0.5, batch_size: int = 1000) -> dict:
 
 
 @shared_task(name="main_product_manager.reindex_pim_ids", time_limit=None, soft_time_limit=None)
-def reindex_pim_ids_task(delay: float = 0.5, batch_size: int = 1000) -> dict:
+def reindex_pim_ids_task(delay: float = 0.5, batch_size: int = 1000, skip_non_empty: bool = False) -> dict:
     def _runner():
         dispatched = 0
-        for pks in iter_pim_id_pk_batches(batch_size=batch_size):
+        for pks in iter_pim_id_pk_batches(batch_size=batch_size, skip_non_empty=skip_non_empty):
             reindex_pim_ids_batch_task.delay(pks=pks, delay=delay, batch_size=batch_size)
             dispatched += 1
         return dispatched

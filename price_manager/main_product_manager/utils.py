@@ -592,14 +592,19 @@ def create_pim_links(delay: float = 0.5, batch_size: int = 1000) -> tuple[int, i
     return len(result), created
 
 
-def iter_pim_id_pk_batches(batch_size: int = 1000):
+def iter_pim_id_pk_batches(batch_size: int = 1000, skip_non_empty: bool = False):
     """Yield MainProduct pks in pk order, chunked to `batch_size` each.
 
     Used by reindex_pim_ids_task to fan out one reindex_pim_ids_batch_task
     per chunk, so the full catalog re-scan runs as separate parallel Celery
-    tasks instead of a single long sequential loop.
+    tasks instead of a single long sequential loop. With skip_non_empty,
+    products that already have a pim_id are excluded, so the re-scan only
+    resolves products still missing one.
     """
-    pks = list(MainProduct.objects.order_by('pk').values_list('pk', flat=True))
+    products = MainProduct.objects.order_by('pk')
+    if skip_non_empty:
+        products = products.filter(pim_id__isnull=True)
+    pks = list(products.values_list('pk', flat=True))
     for i in range(0, len(pks), batch_size):
         yield pks[i:i + batch_size]
 
