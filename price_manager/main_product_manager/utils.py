@@ -590,46 +590,48 @@ def create_pim_links(delay: float = 0.5, batch_size: int = 1000) -> tuple[int, i
     return len(result), created
 
 
-def reindex_pim_ids(delay: float = 0.5, batch_size: int = 1000) -> tuple[int, int]:
-    """Re-resolve pim_id for ALL MainProducts, including ones already linked.
+def iter_pim_id_pk_batches(batch_size: int = 1000):
+    """Yield MainProduct pks in pk order, chunked to `batch_size` each.
+
+    Used by reindex_pim_ids_task to fan out one reindex_pim_ids_batch_task
+    per chunk, so the full catalog re-scan runs as separate parallel Celery
+    tasks instead of a single long sequential loop.
+    """
+    pks = list(MainProduct.objects.order_by('pk').values_list('pk', flat=True))
+    for i in range(0, len(pks), batch_size):
+        yield pks[i:i + batch_size]
+
+
+def reindex_pim_ids_batch(pks: list[int], delay: float = 0.5, batch_size: int = 1000) -> tuple[int, int]:
+    """Re-resolve pim_id for one batch of MainProducts, including ones already linked.
 
     Unlike create_pim_links (which only fills pim_id__isnull=True), this
-    re-searches PIM for every product so relinked/re-merged records pick up
-    their new pim_id. Only writes products whose resolved pim_id changed.
-    Products that were never linked and still aren't found get pushed to PIM
-    (push_missing_pim_products) in batches of `batch_size` as soon as each
-    batch fills up during the scan — not accumulated and sent only once the
-    full (potentially very long) catalog scan finishes. `batch_size` does not
-    limit how many MainProducts get processed here, every product is checked
-    every run.
+    re-searches PIM for every product in the batch so relinked/re-merged
+    records pick up their new pim_id. Only writes products whose resolved
+    pim_id changed. Products that were never linked and still aren't found
+    get pushed to PIM via push_missing_pim_products.
+
+    Runs as its own Celery task (see reindex_pim_ids_batch_task) — pks is one
+    chunk produced by iter_pim_id_pk_batches, so many batches process in
+    parallel across Celery workers instead of one product at a time.
     """
-    products = list(MainProduct.objects.all().order_by('pk'))
+    products = MainProduct.objects.filter(pk__in=pks).order_by('pk')
     result = []
     missing = []
-    created = 0
     for product in products:
-        if len(result) > batch_size:
-            print('Обновлено', MainProduct.objects.bulk_update(result, fields=['pim_id']), ' товаров')
-            print('Товары: ', '; '.join(p.sku for p in result))
-            result = []
         pim_id = _search_pim_id(product)
         if pim_id:
             if pim_id != product.pim_id:
-                print('Новый ID: ', pim_id, '. Накоплено: ', len(result))
                 product.pim_id = pim_id
                 result.append(product)
         elif product.pim_id is None:
-            print(product.sku, ' не найден')
             missing.append(product)
-            if len(missing) >= batch_size:
-                created += push_missing_pim_products(missing, batch_size=batch_size, delay=delay)
-                missing = []
         time.sleep(delay)
     # bulk_update is the only DB write; kept outside the API loop so
     # execute_locked_task's transaction.atomic() doesn't span HTTP calls.
-    if len(result) > 0:
+    if result:
         MainProduct.objects.bulk_update(result, fields=['pim_id'])
-    created += push_missing_pim_products(missing, batch_size=batch_size, delay=delay)
+    created = push_missing_pim_products(missing, batch_size=batch_size, delay=delay)
     return len(result), created
 
 

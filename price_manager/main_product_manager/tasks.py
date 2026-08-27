@@ -6,7 +6,7 @@ from django.contrib.auth import get_user_model
 from supplier_manager.models import Category
 from product_price_manager.models import update_prices
 
-from .utils import recalculate_search_vectors, update_logs, update_stocks, create_pim_links, reindex_pim_ids, get_pim_data, sync_pim_relations
+from .utils import recalculate_search_vectors, update_logs, update_stocks, create_pim_links, iter_pim_id_pk_batches, reindex_pim_ids_batch, get_pim_data, sync_pim_relations
 from .models import MainProduct, MainProductLog
 
 
@@ -162,10 +162,26 @@ def create_pim_links_task(delay: float = 0.5, batch_size: int = 1000) -> dict:
 
 @shared_task(name="main_product_manager.reindex_pim_ids", time_limit=None, soft_time_limit=None)
 def reindex_pim_ids_task(delay: float = 0.5, batch_size: int = 1000) -> dict:
+    def _runner():
+        dispatched = 0
+        for pks in iter_pim_id_pk_batches(batch_size=batch_size):
+            reindex_pim_ids_batch_task.delay(pks=pks, delay=delay, batch_size=batch_size)
+            dispatched += 1
+        return dispatched
+
     return execute_locked_task(
         task_name="main_product_manager.reindex_pim_ids",
         lock_ttl=60 * 60,
-        runner=lambda: reindex_pim_ids(delay=delay, batch_size=batch_size),
+        runner=_runner,
+    )
+
+
+@shared_task(name="main_product_manager.reindex_pim_ids_batch", time_limit=None, soft_time_limit=None)
+def reindex_pim_ids_batch_task(pks: list[int], delay: float = 0.5, batch_size: int = 1000) -> dict:
+    return execute_locked_task(
+        task_name=f"main_product_manager.reindex_pim_ids_batch:{pks[0]}-{pks[-1]}",
+        lock_ttl=60 * 30,
+        runner=lambda: reindex_pim_ids_batch(pks, delay=delay, batch_size=batch_size),
     )
 
 
