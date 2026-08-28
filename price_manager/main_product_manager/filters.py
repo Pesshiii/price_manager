@@ -167,7 +167,7 @@ class MainProductFilter(FilterSet):
     return None
 
   def _get_terms(self, value):
-    value = re.sub(r"[^\w\-\\\/]+", " ", value, flags=re.UNICODE)
+    value = re.sub(r"[^\w\-\\\/]+|_", " ", value, flags=re.UNICODE)
     return [term for term in value.split() if term]
   def _build_partial_query(self, value):
       terms = self._get_terms(value)
