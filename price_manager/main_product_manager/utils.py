@@ -546,7 +546,7 @@ def push_supplier_products_to_pim(supplier_products, batch_size: int = 1000, del
     targets = list(SupplierProduct.objects.filter(pk__in=pks, pim_id__isnull=True).select_related('supplier'))
     return _push_pim_products(
         targets,
-        lambda sp: _pim_product_payload(sp.name, sp.description, compute_supplier_sku(sp.article, sp.supplier)),
+        lambda sp: _pim_product_payload(sp.name, sp.description, sp.main_product.sku or compute_supplier_sku(sp.article, sp.supplier)),
         batch_size=batch_size,
         delay=delay,
     )
