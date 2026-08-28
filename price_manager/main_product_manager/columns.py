@@ -8,6 +8,7 @@ DEFAULT_VISIBLE_COLUMNS = [
   'stock',
   'delivery_days',
   'stock_msg',
+  'pim_photo',
 ]
 
 AVAILABLE_COLUMN_GROUPS = [
@@ -79,5 +80,11 @@ AVAILABLE_COLUMN_GROUPS = [
   ),
 ]
 
-AVAILABLE_COLUMN_CHOICES = [item for _, options in AVAILABLE_COLUMN_GROUPS for item in options]
+ORDERED_COLUMNS = [
+    ('actions', 'Действия'),
+    ('pim_photo', 'PIM • Фото'),
+    ('article', 'Артикул поставщика'),
+    ('name', 'Название'),
+]
+AVAILABLE_COLUMN_CHOICES = ORDERED_COLUMNS + [item for _, options in AVAILABLE_COLUMN_GROUPS for item in options if not item in ORDERED_COLUMNS]
 AVAILABLE_COLUMN_MAP = dict(AVAILABLE_COLUMN_CHOICES)
