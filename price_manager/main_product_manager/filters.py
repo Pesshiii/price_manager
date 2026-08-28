@@ -8,7 +8,7 @@ from django.db.models import Q, Case, When, Value, IntegerField
 from django.urls import reverse_lazy
 from crispy_forms.helper import FormHelper
 from crispy_forms.layout import Submit, Layout, Field, Div, HTML, Hidden
-from core.crispy_fields import CustomCheckbox
+from core.crispy_fields import CustomCheckbox, OobField
 
 import re
 
@@ -90,9 +90,9 @@ class MainProductFilter(FilterSet):
     if stripped:
       helper.form_tag = False
       helper.layout = Layout(
-          Field('categories', template='supplier/partials/category_filter_field.html'),
-          Field('supplier', template='core/includes/checkbox_field.html#checkboxes'),
-          Field('manufacturer', template='core/includes/checkbox_field.html#checkboxes'),)
+          OobField('categories', template='supplier/partials/category_filter_field.html'),
+          OobField('supplier', template='core/includes/checkbox_field.html#checkboxes'),
+          OobField('manufacturer', template='core/includes/checkbox_field.html#checkboxes'),)
     else:
       helper.layout = Layout(
           Hidden('bound', 'true'),

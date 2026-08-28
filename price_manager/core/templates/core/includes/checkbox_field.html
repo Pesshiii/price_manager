@@ -35,7 +35,7 @@
     </div>
 
     {%partialdef checkboxes inline=True%}
-    <div id="checkboxes_{{ field.auto_id }}" hx-swap-oob="outerHTML">
+    <div id="checkboxes_{{ field.auto_id }}"{% if oob %} hx-swap-oob="outerHTML"{% endif %}>
         <div class="form-check-group filter-scroll-list">
             {% if field.field.choices %}
                 {% for choice in field.field.choices %}

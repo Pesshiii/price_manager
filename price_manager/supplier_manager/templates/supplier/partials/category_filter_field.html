@@ -1,5 +1,5 @@
 {% load crispy_forms_field mptt_tags %}
-<div class="container p-0" id="div_category" hx-swap-oob="true">
+<div class="container p-0" id="div_category"{% if oob %} hx-swap-oob="true"{% endif %}>
   <legend class="filter-section-title">
       {{ field.label }}
       {% if field.field.required %}
