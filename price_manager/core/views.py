@@ -137,6 +137,15 @@ class ShoppingTabDeleteView(LoginRequiredMixin, View):
         return redirect('shopping-tab-list')
 
 
+def _get_shopping_tab_items(tab):
+    return (
+        tab.items
+        .select_related('confirmed_product')
+        .prefetch_related('products')
+        .all()
+    )
+
+
 class ShoppingTabDetailView(LoginRequiredMixin, View):
     template_name = 'shopping_tab/detail.html'
     form_class = ShoppingTabUpdateForm
@@ -145,12 +154,7 @@ class ShoppingTabDetailView(LoginRequiredMixin, View):
         return {
             'tab': tab,
             'form': form if form is not None else self.form_class(instance=tab),
-            'items': (
-                tab.items
-                .select_related('confirmed_product')
-                .prefetch_related('products')
-                .all()
-            ),
+            'items': _get_shopping_tab_items(tab),
         }
 
     def get(self, request, pk):
@@ -165,6 +169,32 @@ class ShoppingTabDetailView(LoginRequiredMixin, View):
             messages.success(request, 'Корзина обновлена.')
             return redirect('shopping-tab-detail', pk=tab.pk)
         return render(request, self.template_name, self.get_context_data(tab, form=form))
+
+
+class ShoppingTabAddItemView(LoginRequiredMixin, View):
+    template_name = 'shopping_tab/partials/add_item_form.html'
+
+    def get(self, request, pk):
+        if not request.htmx:
+            return redirect('shopping-tab-detail', pk=pk)
+        tab = get_object_or_404(ShoppingTab, pk=pk, user=request.user)
+        return render(request, self.template_name, {'tab': tab})
+
+    def post(self, request, pk):
+        if not request.htmx:
+            return redirect('shopping-tab-detail', pk=pk)
+        tab = get_object_or_404(ShoppingTab, pk=pk, user=request.user)
+        search_query = request.POST.get('search_query', '').strip()
+        context = {'tab': tab, 'search_query': search_query}
+        if not search_query:
+            context['error'] = 'Введите название или артикул товара.'
+            return render(request, self.template_name, context)
+        item = CartItem.objects.create(user=request.user, search_query=search_query)
+        tab.items.add(item)
+        context['search_query'] = ''
+        context['item_added'] = True
+        context['items'] = _get_shopping_tab_items(tab)
+        return render(request, self.template_name, context)
 
 
 class InstructionsView(LoginRequiredMixin, TemplateView):

@@ -6,7 +6,7 @@
 <div class="d-flex justify-content-between align-items-start flex-wrap gap-3 mb-4">
   <div>
     <h1 class="h3 mb-1">{{ tab.name }}</h1>
-    <p class="text-muted mb-0">Всего товаров: {{ items|length }}</p>
+    <p class="text-muted mb-0">Всего товаров: <span id="cart-items-count">{{ items|length }}</span></p>
   </div>
   <a href="{% url 'shopping-tab-list' %}" class="btn btn-outline-secondary">
     <i class="bi bi-arrow-left"></i> Ко всем корзинам
@@ -57,46 +57,11 @@
             </button>
           </div>
         </div>
-        {% if items %}
-          <div class="table-responsive">
-            <table class="table table-hover align-middle mb-0">
-              <thead>
-                <tr>
-                    <th scope="col">Запрос</th>
-                    <th scope="col">Подтверждённый товар</th>
-                    <th scope="col">Найдено</th>
-                    <th scope="col">Количество</th>
-              </thead>
-              <tbody>
-                {% for item in items %}
-                    <tr>
-                        <td>{{ item.search_query }}</td>
-                        <td>
-                        {% if item.confirmed_product %}
-                            {{ item.confirmed_product.name }}
-                        {% else %}
-                            <span class="text-muted">Не выбран</span>
-                        {% endif %}
-                        </td>
-                        <td>
-                        {% if item.products.all %}
-                            {{ item.products.count }}
-                        {% else %}
-                            <span class="text-muted">Нет совпадений</span>
-                        {% endif %}
-                        </td>
-                        <td>{{ item.quantity }}</td>
-                    </tr>
-                {% endfor %}
-              </tbody>
-            </table>
-          </div>
-        {% else %}
-          <div class="text-center text-muted py-5">
-            <i class="bi bi-card-list fs-1 d-block mb-3"></i>
-            <p class="mb-0">В этой корзине пока нет товаров. Добавьте товар вручную или через главный прайс.</p>
-          </div>
-        {% endif %}
+        <div id="cart-add-item-slot"
+             hx-get="{% url 'shopping-tab-item-add' tab.pk %}"
+             hx-trigger="load"
+             hx-swap="innerHTML"></div>
+        {% include 'shopping_tab/partials/items_table.html' %}
       </div>
     </div>
   </div>

@@ -1,0 +1,42 @@
+<div id="cart-items-list" hx-swap-oob="true">
+  {% if items %}
+    <div class="table-responsive">
+      <table class="table table-hover align-middle mb-0">
+        <thead>
+          <tr>
+              <th scope="col">Запрос</th>
+              <th scope="col">Подтверждённый товар</th>
+              <th scope="col">Найдено</th>
+              <th scope="col">Количество</th>
+        </thead>
+        <tbody>
+          {% for item in items %}
+              <tr>
+                  <td>{{ item.search_query }}</td>
+                  <td>
+                  {% if item.confirmed_product %}
+                      {{ item.confirmed_product.name }}
+                  {% else %}
+                      <span class="text-muted">Не выбран</span>
+                  {% endif %}
+                  </td>
+                  <td>
+                  {% if item.products.all %}
+                      {{ item.products.count }}
+                  {% else %}
+                      <span class="text-muted">Нет совпадений</span>
+                  {% endif %}
+                  </td>
+                  <td>{{ item.quantity }}</td>
+              </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  {% else %}
+    <div class="text-center text-muted py-5">
+      <i class="bi bi-card-list fs-1 d-block mb-3"></i>
+      <p class="mb-0">В этой корзине пока нет товаров. Добавьте товар вручную или через главный прайс.</p>
+    </div>
+  {% endif %}
+</div>
