@@ -11,13 +11,12 @@ class ShoppingTabCreateForm(forms.ModelForm):
         self.helper.form_method = 'post'
         self.helper.layout = Layout(
         Field('name', css_class='form-control'),
-        Field('file', css_class='form-control'),
         Submit('submit', 'Создать', css_class='btn btn-primary')
         )
-    
+
     class Meta:
         model = ShoppingTab
-        fields = ['name', 'file']
+        fields = ['name']
 
 class ShoppingTabUpdateForm(forms.ModelForm):
     class Meta:

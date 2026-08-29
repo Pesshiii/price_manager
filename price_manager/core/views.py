@@ -29,7 +29,6 @@ from django_htmx.http import reswap, trigger_client_event
 # Импорты моделей, функций, форм, таблиц
 from core.models import *
 from file_manager.models import FileModel
-from core.tasks import update_cart_items_task
 from .utils import *
 from .forms import *
 from .tables import *
@@ -116,8 +115,8 @@ class ShoppingTabListView(LoginRequiredMixin, TemplateView):
         return context
 
     def post(self, request, *args, **kwargs):
-        form = self.form_class(request.POST, request.FILES)
-        if form.is_valid(): 
+        form = self.form_class(request.POST)
+        if form.is_valid():
             name = form.cleaned_data['name']
             if ShoppingTab.objects.filter(user=request.user, name=name).exists():
                 form.add_error('name', 'Корзина с таким названием уже существует.')
@@ -126,11 +125,6 @@ class ShoppingTabListView(LoginRequiredMixin, TemplateView):
                 tab.user = request.user
                 tab.save()
                 messages.success(request, 'Корзина создана.')
-                if tab.file:
-                    try:
-                        update_cart_items_task.s(tab.id)
-                    except Exception as e:
-                        messages.error(request, f'Ошибка при обработке файла: {str(e)}')
                 return redirect('shopping-tab-list')
         return self.render_to_response(self.get_context_data(form=form))
 
