@@ -6,7 +6,7 @@
 <div class="d-flex justify-content-between align-items-start flex-wrap gap-3 mb-4">
   <div>
     <h1 class="h3 mb-1">{{ tab.name }}</h1>
-    <p class="text-muted mb-0">Всего товаров: {{ products|length }}</p>
+    <p class="text-muted mb-0">Всего товаров: {{ items|length }}</p>
   </div>
   <a href="{% url 'shopping-tab-list' %}" class="btn btn-outline-secondary">
     <i class="bi bi-arrow-left"></i> Ко всем корзинам
@@ -51,48 +51,41 @@
           <div class="d-flex gap-3">
             <h2 class="h5 mb-0">Товары в корзине</h2>
             <button class="btn btn-sm btn-outline-secondary" onclick="copyToClipboard(
-              '{% if products %}{{tab.name}}\n{% for product in products %}{{product.name}}   -    {{product.main_product.name}}\n{%endfor%}{% endif %}'
+              '{% if items %}{{tab.name}}\n{% for item in items %}{{item.search_query}}   -    {{item.confirmed_product.name}}\n{%endfor%}{% endif %}'
               )">
               <i class="bi bi-clipboard-plus"></i>
             </button>
           </div>
-          <a href="{% url 'shopping-tab-product-create' tab.pk %}" class="btn btn-primary btn-sm">
-            <i class="bi bi-plus-lg"></i> Добавить товар
-          </a>
         </div>
-        {% if products %}
+        {% if items %}
           <div class="table-responsive">
             <table class="table table-hover align-middle mb-0">
               <thead>
                 <tr>
                     <th scope="col">Запрос</th>
+                    <th scope="col">Подтверждённый товар</th>
                     <th scope="col">Найдено</th>
                     <th scope="col">Количество</th>
-                    <th scope="col" class="text-end">Действия</th>
               </thead>
               <tbody>
-                {% for product in products %}
+                {% for item in items %}
                     <tr>
-                        <td>{{ product.search_query|json_script:"search_query" }}</td>
+                        <td>{{ item.search_query }}</td>
                         <td>
-                        {% if product.products.all %}
-                            {{ product.products.count }}
+                        {% if item.confirmed_product %}
+                            {{ item.confirmed_product.name }}
+                        {% else %}
+                            <span class="text-muted">Не выбран</span>
+                        {% endif %}
+                        </td>
+                        <td>
+                        {% if item.products.all %}
+                            {{ item.products.count }}
                         {% else %}
                             <span class="text-muted">Нет совпадений</span>
                         {% endif %}
                         </td>
-                        <td>{{ product.quantity }}</td>
-                        <td class="text-end">
-                        <a href="{% url 'shopping-tab-product-update' tab.pk product.pk %}" class="btn btn-sm btn-outline-secondary">
-                            <i class="bi bi-pencil"></i> Редактировать
-                        </a>
-                        <form method="post" action="{% url 'shopping-tab-product-delete' tab.pk product.pk %}" class="d-inline">
-                            {% csrf_token %}
-                            <button type="submit" class="btn btn-sm btn-outline-danger" onclick="return confirm('Вы уверены, что хотите удалить этот товар?');">
-                            <i class="bi bi-trash"></i> Удалить
-                            </button>
-                        </form>
-                        </td>
+                        <td>{{ item.quantity }}</td>
                     </tr>
                 {% endfor %}
               </tbody>

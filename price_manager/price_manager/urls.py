@@ -68,6 +68,7 @@ urlpatterns = [
     path('upload/<str:name>/<int:id>/', fm_views.FileUpload.as_view(), name='upload'),
 
     path('shopping-tabs/', views.ShoppingTabListView.as_view(), name='shopping-tab-list'),
+    path('shopping-tabs/<int:pk>/', views.ShoppingTabDetailView.as_view(), name='shopping-tab-detail'),
     path('shopping-tabs/<int:pk>/delete/', views.ShoppingTabDeleteView.as_view(), name='shopping-tab-delete'),
     path('blog/', include('blogapp.urls')),
     path('api/', include('api_urls')),

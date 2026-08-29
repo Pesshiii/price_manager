@@ -30,7 +30,7 @@
                 <div class="d-flex flex-column flex-md-row justify-content-between align-items-md-center gap-3">
                   <div>
                     <h3 class="h5 mb-1">
-                      <a href="" class="text-decoration-none">{{ tab.name }}</a>
+                      <a href="{% url 'shopping-tab-detail' tab.pk %}" class="text-decoration-none">{{ tab.name }}</a>
                     </h3>
                     <div class="text-muted small d-flex flex-wrap align-items-center gap-2">
                       <span>{{ tab.item_count }} товар(ов)</span>

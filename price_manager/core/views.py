@@ -137,6 +137,36 @@ class ShoppingTabDeleteView(LoginRequiredMixin, View):
         return redirect('shopping-tab-list')
 
 
+class ShoppingTabDetailView(LoginRequiredMixin, View):
+    template_name = 'shopping_tab/detail.html'
+    form_class = ShoppingTabUpdateForm
+
+    def get_context_data(self, tab, form=None):
+        return {
+            'tab': tab,
+            'form': form if form is not None else self.form_class(instance=tab),
+            'items': (
+                tab.items
+                .select_related('confirmed_product')
+                .prefetch_related('products')
+                .all()
+            ),
+        }
+
+    def get(self, request, pk):
+        tab = get_object_or_404(ShoppingTab, pk=pk, user=request.user)
+        return render(request, self.template_name, self.get_context_data(tab))
+
+    def post(self, request, pk):
+        tab = get_object_or_404(ShoppingTab, pk=pk, user=request.user)
+        form = self.form_class(request.POST, instance=tab)
+        if form.is_valid():
+            form.save()
+            messages.success(request, 'Корзина обновлена.')
+            return redirect('shopping-tab-detail', pk=tab.pk)
+        return render(request, self.template_name, self.get_context_data(tab, form=form))
+
+
 class InstructionsView(LoginRequiredMixin, TemplateView):
     template_name = 'main/instructions.html'
 
