@@ -14,6 +14,13 @@ class CartItem(models.Model):
         MainProduct,
         verbose_name='Товар',
         related_name='cart_items')
+    confirmed_product = models.ForeignKey(
+        MainProduct,
+        verbose_name='Подтверждённый товар',
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='confirmed_cart_items')
     quantity = models.PositiveIntegerField(verbose_name='Количество', default=1)
     
 class ShoppingTab(models.Model):
