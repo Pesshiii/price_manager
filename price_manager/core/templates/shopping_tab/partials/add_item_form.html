@@ -10,6 +10,8 @@
       <div class="invalid-feedback d-block">{{ error }}</div>
     {% endif %}
   </div>
+  <input type="number" name="quantity" class="form-control form-control-sm" style="width: 6rem;"
+         min="1" step="1" placeholder="Кол-во" value="{{ quantity|default:1 }}">
   <button type="submit" class="btn btn-primary btn-sm">
     <i class="bi bi-plus-lg"></i> Добавить
   </button>

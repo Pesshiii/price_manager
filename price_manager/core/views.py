@@ -185,13 +185,22 @@ class ShoppingTabAddItemView(LoginRequiredMixin, View):
             return redirect('shopping-tab-detail', pk=pk)
         tab = get_object_or_404(ShoppingTab, pk=pk, user=request.user)
         search_query = request.POST.get('search_query', '').strip()
-        context = {'tab': tab, 'search_query': search_query}
+        quantity_raw = request.POST.get('quantity', '').strip()
+        context = {'tab': tab, 'search_query': search_query, 'quantity': quantity_raw}
         if not search_query:
             context['error'] = 'Введите название или артикул товара.'
             return render(request, self.template_name, context)
-        item = CartItem.objects.create(user=request.user, search_query=search_query)
+        try:
+            quantity = int(quantity_raw) if quantity_raw else 1
+            if quantity < 1:
+                raise ValueError
+        except ValueError:
+            context['error'] = 'Количество должно быть целым числом не меньше 1.'
+            return render(request, self.template_name, context)
+        item = CartItem.objects.create(user=request.user, search_query=search_query, quantity=quantity)
         tab.items.add(item)
         context['search_query'] = ''
+        context['quantity'] = 1
         context['item_added'] = True
         context['items'] = _get_shopping_tab_items(tab)
         return render(request, self.template_name, context)
