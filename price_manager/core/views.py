@@ -198,12 +198,32 @@ class ShoppingTabAddItemView(LoginRequiredMixin, View):
             context['error'] = 'Количество должно быть целым числом не меньше 1.'
             return render(request, self.template_name, context)
         item = CartItem.objects.create(user=request.user, search_query=search_query, quantity=quantity)
+        item.products.set(find_main_products(search_query))
         tab.items.add(item)
         context['search_query'] = ''
         context['quantity'] = 1
         context['item_added'] = True
         context['items'] = _get_shopping_tab_items(tab)
         return render(request, self.template_name, context)
+
+
+class CartItemDetailView(LoginRequiredMixin, DetailView):
+    model = CartItem
+    template_name = 'shopping_tab/item_detail.html'
+    context_object_name = 'item'
+
+    def get_queryset(self):
+        return (
+            CartItem.objects
+            .filter(user=self.request.user)
+            .select_related('confirmed_product')
+            .prefetch_related('products')
+        )
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        context['tab'] = self.object.shopping_tabs.filter(user=self.request.user).first()
+        return context
 
 
 class InstructionsView(LoginRequiredMixin, TemplateView):

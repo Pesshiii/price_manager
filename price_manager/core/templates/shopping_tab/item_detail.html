@@ -1,0 +1,79 @@
+{% extends 'base.html' %}
+
+{% block title %}{{ item.search_query }}{% endblock %}
+
+{% block body %}
+<div class="d-flex justify-content-between align-items-start flex-wrap gap-3 mb-4">
+  <div>
+    <h1 class="h3 mb-1">{{ item.search_query }}</h1>
+    <p class="text-muted mb-0">Количество: {{ item.quantity }}</p>
+  </div>
+  {% if tab %}
+    <a href="{% url 'shopping-tab-detail' tab.pk %}" class="btn btn-outline-secondary">
+      <i class="bi bi-arrow-left"></i> К корзине «{{ tab.name }}»
+    </a>
+  {% endif %}
+</div>
+
+<div class="card shadow-sm mb-4">
+  <div class="card-body">
+    <h2 class="h5 mb-3">Подтверждённый товар</h2>
+    {% if item.confirmed_product %}
+      <table class="table table-sm mb-0">
+        <tbody>
+          <tr>
+            <th scope="row">Артикул</th>
+            <td>{{ item.confirmed_product.sku|default:item.confirmed_product.article }}</td>
+          </tr>
+          <tr>
+            <th scope="row">Название</th>
+            <td><a href="{% url 'mainproduct-detail' item.confirmed_product.pk %}">{{ item.confirmed_product.name }}</a></td>
+          </tr>
+          <tr>
+            <th scope="row">Производитель</th>
+            <td>{{ item.confirmed_product.manufacturer|default:"—" }}</td>
+          </tr>
+          <tr>
+            <th scope="row">Остаток</th>
+            <td>{{ item.confirmed_product.stock|default:"—" }}</td>
+          </tr>
+        </tbody>
+      </table>
+    {% else %}
+      <p class="text-muted mb-0">Товар ещё не подтверждён.</p>
+    {% endif %}
+  </div>
+</div>
+
+<div class="card shadow-sm">
+  <div class="card-body">
+    <h2 class="h5 mb-3">Подходящие товары</h2>
+    {% if item.products.all %}
+      <div class="table-responsive">
+        <table class="table table-hover align-middle mb-0">
+          <thead>
+            <tr>
+              <th scope="col">Артикул</th>
+              <th scope="col">Название</th>
+              <th scope="col">Производитель</th>
+              <th scope="col">Остаток</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for product in item.products.all %}
+              <tr{% if item.confirmed_product_id == product.id %} class="table-success"{% endif %}>
+                <td>{{ product.sku|default:product.article }}</td>
+                <td><a href="{% url 'mainproduct-detail' product.pk %}">{{ product.name }}</a></td>
+                <td>{{ product.manufacturer|default:"—" }}</td>
+                <td>{{ product.stock|default:"—" }}</td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    {% else %}
+      <p class="text-muted mb-0">Подходящие товары не найдены.</p>
+    {% endif %}
+  </div>
+</div>
+{% endblock %}
