@@ -47,33 +47,19 @@
 
 <div class="card shadow-sm">
   <div class="card-body">
-    <h2 class="h5 mb-3">Подходящие товары</h2>
-    {% if item.products.all %}
-      <div class="table-responsive">
-        <table class="table table-hover align-middle mb-0">
-          <thead>
-            <tr>
-              <th scope="col">Артикул</th>
-              <th scope="col">Название</th>
-              <th scope="col">Производитель</th>
-              <th scope="col">Остаток</th>
-            </tr>
-          </thead>
-          <tbody>
-            {% for product in item.products.all %}
-              <tr{% if item.confirmed_product_id == product.id %} class="table-success"{% endif %}>
-                <td>{{ product.sku|default:product.article }}</td>
-                <td><a href="{% url 'mainproduct-detail' product.pk %}">{{ product.name }}</a></td>
-                <td>{{ product.manufacturer|default:"—" }}</td>
-                <td>{{ product.stock|default:"—" }}</td>
-              </tr>
-            {% endfor %}
-          </tbody>
-        </table>
+    {% include 'shopping_tab/partials/item_products.html' %}
+  </div>
+</div>
+
+<div id="modal-container" class="modal fade" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-xl modal-dialog-centered modal-dialog-scrollable">
+    <div class="modal-content">
+      <div class="container d-flex justify-content-center gap-2 mb-4 mt-4">
+        <div class="spinner-grow" role="status"></div>
+        <div class="spinner-grow" role="status"></div>
+        <div class="spinner-grow" role="status"></div>
       </div>
-    {% else %}
-      <p class="text-muted mb-0">Подходящие товары не найдены.</p>
-    {% endif %}
+    </div>
   </div>
 </div>
 {% endblock %}

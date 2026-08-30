@@ -29,6 +29,8 @@ from django_htmx.http import reswap, trigger_client_event
 # Импорты моделей, функций, форм, таблиц
 from core.models import *
 from file_manager.models import FileModel
+from main_product_manager.models import MainProduct
+from main_product_manager.filters import MainProductFilter
 from .utils import *
 from .forms import *
 from .tables import *
@@ -224,6 +226,89 @@ class CartItemDetailView(LoginRequiredMixin, DetailView):
         context = super().get_context_data(**kwargs)
         context['tab'] = self.object.shopping_tabs.filter(user=self.request.user).first()
         return context
+
+
+class CartItemProductSelectView(LoginRequiredMixin, SingleTableMixin, FilterView):
+    """Модалка выбора товаров Главного прайса для элемента корзины.
+
+    Построена по образцу ResolveMainproduct: тот же MainProductFilter и та же
+    htmx-таблица с догрузкой страниц, но одной плоской таблицей вместо разбивки
+    по категориям — иначе отметки чекбоксов разъехались бы по независимо
+    подгружаемым фрагментам.
+    """
+    model = MainProduct
+    filterset_class = MainProductFilter
+    table_class = CartItemProductTable
+    template_name = 'shopping_tab/partials/product_select_modal.html'
+
+    def get(self, request, *args, **kwargs):
+        if not request.htmx:
+            return redirect('cart-item-detail', pk=self.kwargs.get('pk'))
+        self.item = get_object_or_404(CartItem, pk=self.kwargs.get('pk'), user=request.user)
+        return super().get(request, *args, **kwargs)
+
+    def get_template_names(self):
+        if self.request.GET.get('page'):
+            return [self.template_name + '#table']
+        if self.request.GET.get('bound'):
+            return [self.template_name + '#tableblock']
+        return [self.template_name]
+
+    def _select_url(self):
+        return reverse('cart-item-products-select', kwargs={'pk': self.item.pk})
+
+    def get_filterset_kwargs(self, filterset_class):
+        kwargs = super().get_filterset_kwargs(filterset_class)
+        data = self.request.GET.copy()
+        if 'bound' not in data and 'search' not in data:
+            data['search'] = self.item.search_query or ''
+        # MainProductFilter.config_filters вызывает data.getlist, поэтому нужен QueryDict
+        kwargs['data'] = data
+        return kwargs
+
+    def get_filterset(self, filterset_class):
+        filterset = super().get_filterset(filterset_class)
+        helper = filterset.build_helper(url=self._select_url(), hx_target='#cart-item-product-table')
+        helper.attrs['hx-push-url'] = 'false'
+        return filterset
+
+    def get_table_kwargs(self):
+        kwargs = super().get_table_kwargs()
+        kwargs['request'] = self.request
+        kwargs['url'] = self._select_url()
+        kwargs['item'] = self.item
+        kwargs['existing_ids'] = set(self.item.products.values_list('pk', flat=True))
+        return kwargs
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        context['item'] = self.item
+        return context
+
+
+class CartItemAddProductsView(LoginRequiredMixin, View):
+    template_name = 'shopping_tab/partials/products_added.html'
+
+    def post(self, request, pk):
+        if not request.htmx:
+            return redirect('cart-item-detail', pk=pk)
+        item = get_object_or_404(CartItem, pk=pk, user=request.user)
+        # Клик по названию шлёт single_product_id: htmx подмешивает в запрос поля
+        # окружающей формы, поэтому отмеченные чекбоксы нужно явно проигнорировать.
+        single_product_id = request.POST.get('single_product_id')
+        raw_ids = [single_product_id] if single_product_id else request.POST.getlist('product_ids')
+        ids = [raw_id for raw_id in raw_ids if str(raw_id).isdigit()]
+        existing_ids = set(item.products.values_list('pk', flat=True))
+        added_products = [
+            product for product in MainProduct.objects.filter(pk__in=ids)
+            if product.pk not in existing_ids
+        ]
+        if added_products:
+            item.products.add(*added_products)
+        return render(request, self.template_name, {
+            'item': item,
+            'added_products': added_products,
+        })
 
 
 class InstructionsView(LoginRequiredMixin, TemplateView):

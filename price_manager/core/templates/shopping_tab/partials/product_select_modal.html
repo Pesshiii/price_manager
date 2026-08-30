@@ -1,0 +1,87 @@
+{% comment %}
+Модальное окно выбора товаров Главного прайса для элемента корзины.
+Повторяет главную страницу: фильтры слева, поиск и таблица справа,
+но одной плоской таблицей — чтобы отметки чекбоксов жили в одной форме.
+{% endcomment %}
+<div class="modal-header">
+  <div>
+    <h5 class="modal-title">Добавить товары</h5>
+    {% if item.search_query %}
+      <p class="small text-muted mb-0">Запрос: {{ item.search_query }}</p>
+    {% endif %}
+  </div>
+  <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Закрыть"></button>
+</div>
+<div class="modal-body">
+  <div class="row g-3">
+    <div class="col-12 col-lg-4">
+      {% include "mainproduct/partials/filter.html" %}
+    </div>
+    <div class="col-12 col-lg-8">
+      <div class="input-group mb-3">
+        <span class="input-group-text"><i class="bi bi-search"></i></span>
+        <input type="search"
+               id="mainproducts-search"
+               name="search"
+               class="form-control"
+               placeholder="Название, артикул или ключевое слово"
+               value="{{ filter.form.search.value|default_if_none:'' }}"
+               hx-get="{% url 'cart-item-products-select' item.pk %}"
+               hx-target="#cart-item-product-table"
+               hx-swap="outerHTML"
+               hx-trigger="input changed delay:0.5s, search"
+               hx-include="#mainproduct-filter"
+               autocomplete="off">
+      </div>
+      {% comment %}
+      Форма обёрнута вокруг таблицы, а не внутри неё: страницы 2+ догружаются
+      в <tbody> отдельными <tr>, и внутри таблицы они остались бы вне формы.
+      {% endcomment %}
+      <form id="cart-item-add-form"
+            hx-post="{% url 'cart-item-products-add' item.pk %}"
+            hx-swap="none">
+        {% csrf_token %}
+        {% partialdef tableblock inline=True %}
+          <div id="cart-item-product-table" class="border rounded-3 overflow-auto" style="max-height: 55vh;">
+            {% partialdef table inline=True %}
+              {% load django_tables2 %}
+              {% render_table table %}
+            {% endpartialdef %}
+          </div>
+        {% endpartialdef %}
+      </form>
+    </div>
+  </div>
+</div>
+<div class="modal-footer justify-content-between">
+  <span class="text-muted small">Выбрано: <span id="cart-item-selected-count">0</span></span>
+  <div class="d-flex gap-2">
+    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Закрыть</button>
+    <button type="submit"
+            form="cart-item-add-form"
+            id="cart-item-add-selected"
+            class="btn btn-primary"
+            disabled>
+      <i class="bi bi-plus-lg"></i> Добавить выбранные
+    </button>
+  </div>
+</div>
+<script>
+  (function () {
+    var form = document.getElementById('cart-item-add-form');
+    if (!form) return;
+
+    function update() {
+      var count = form.querySelectorAll('input[name="product_ids"]:checked').length;
+      var badge = document.getElementById('cart-item-selected-count');
+      var button = document.getElementById('cart-item-add-selected');
+      if (badge) badge.textContent = count;
+      if (button) button.disabled = count === 0;
+    }
+
+    // Отметки сбрасываются при смене фильтра или поиска — таблица заменяется целиком.
+    form.addEventListener('change', update);
+    form.addEventListener('htmx:afterSwap', update);
+    update();
+  })();
+</script>

@@ -1,0 +1,8 @@
+{% comment %}
+Ответ на добавление товаров: модалка остаётся открытой, а список подходящих
+товаров под ней и строки добавленных товаров обновляются через OOB-свопы.
+{% endcomment %}
+{% include 'shopping_tab/partials/item_products.html' %}
+{% for product in added_products %}
+  {% include 'shopping_tab/includes/product_select_cell.html' with record=product added=True oob=True %}
+{% endfor %}

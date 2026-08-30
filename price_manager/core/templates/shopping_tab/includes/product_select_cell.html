@@ -1,0 +1,17 @@
+{% comment %}
+Ячейка выбора товара. Тот же шаблон используется для OOB-обновления строки
+после добавления товара — тогда передаётся oob=True.
+{% endcomment %}
+<div id="cart-item-select-{{ record.pk }}"{% if oob %} hx-swap-oob="true"{% endif %}>
+  {% if added %}
+    <span class="badge text-bg-success" title="Уже в подходящих товарах">
+      <i class="bi bi-check-lg"></i>
+    </span>
+  {% else %}
+    <input class="form-check-input"
+           type="checkbox"
+           name="product_ids"
+           value="{{ record.pk }}"
+           aria-label="Выбрать товар {{ record.name }}">
+  {% endif %}
+</div>

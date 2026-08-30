@@ -1,0 +1,14 @@
+{% comment %}
+Название товара добавляет его в «Подходящие товары» по клику.
+type="button" — чтобы клик не отправлял форму массового добавления,
+а single_product_id — чтобы вьюха проигнорировала отмеченные чекбоксы,
+которые htmx подмешивает из окружающей формы.
+{% endcomment %}
+<button type="button"
+        class="btn btn-link p-0 text-start text-decoration-none"
+        hx-post="{% url 'cart-item-products-add' item.pk %}"
+        hx-vals='{"single_product_id": "{{ record.pk }}"}'
+        hx-swap="none"
+        title="Добавить в подходящие товары">
+  {{ record.name }}
+</button>
