@@ -38,6 +38,12 @@ class MainProductCreateForm(forms.ModelForm):
     }
 
   def __init__(self, *args, **kwargs):
+    # The create modal overlays mainproducts' list page without removing it from the
+    # DOM, and MainProductFilter has fields with the same names (supplier, manufacturer,
+    # categories) — without a prefix this form's auto_id/html_name would collide with
+    # the filter sidebar's, so a <label for="id_supplier_0"> click in the modal could
+    # toggle the filter's checkbox instead of this form's radio.
+    kwargs.setdefault('prefix', 'mpcreate')
     super().__init__(*args, **kwargs)
     self.fields['supplier'].queryset = Supplier.objects.order_by('name')
     self.fields['manufacturer'].queryset = Manufacturer.objects.order_by('name')
