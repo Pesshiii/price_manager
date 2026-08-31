@@ -170,19 +170,22 @@ class MainProductFilter(FilterSet):
     value = re.sub(r"[^\w\-\\\/]+|_", " ", value, flags=re.UNICODE)
     return [term for term in value.split() if term]
   def _build_partial_query(self, value):
-      terms = self._get_terms(value)
-      if not terms:
-        return None
-      query = SearchQuery('')
-      for term in terms:
-        query &= SearchQuery(f'{term}:*', search_type='raw', config='russian')
-      return query
+    #   terms = self._get_terms(value)
+    #   if not terms:
+    #     return None
+    #   query = SearchQuery('')
+    #   for term in terms:
+    #     query &= SearchQuery(f'{term}:*', search_type='raw', config='russian')
+        query = Q()
+        for bit in value.split(' '):
+            query &= (Q(sku__contains=bit)|Q(name__contains=bit)|Q(supplier_article__contains=bit))
+        return query
   def search_method(self, queryset, name, value):
     query = self._build_partial_query(value)
     if query is None:
       return queryset
     rank = SearchRank("search_vector", SearchQuery(value, config='russian'))
-    return queryset.annotate(rank=rank).filter(search_vector=query).order_by("-rank")
+    return queryset.annotate(rank=rank).filter(Q(search_vector=query)|query).order_by("-rank")
 
   def available_method(self, queryset, name, value):
     if value:
