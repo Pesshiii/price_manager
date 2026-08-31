@@ -20,18 +20,6 @@
         </p>
     {% endif %}
 
-    <div class="input-group input-group-sm mb-2 filter-quick-search">
-        <span class="input-group-text bg-transparent border-end-0"><i class="bi bi-search text-muted"></i></span>
-        <input
-            type="search"
-            class="form-control border-start-0 ps-0"
-            id="searchbar_{{ field.auto_id }}"
-            placeholder="Быстрый поиск"
-            data-radio-filter-search
-            form="none"
-        >
-    </div>
-
     <div class="accordion accordion-flush">
       <div class="accordion-item">
         <span class="accordion-header">
@@ -46,6 +34,18 @@
         </span>
         <div id="collapse_{{ field.auto_id }}" class="accordion-collapse collapse{% if field.value %} show{% endif %}">
           <div class="accordion-body py-2">
+
+            <div class="input-group input-group-sm mb-2 filter-quick-search">
+                <span class="input-group-text bg-transparent border-end-0"><i class="bi bi-search text-muted"></i></span>
+                <input
+                    type="search"
+                    class="form-control border-start-0 ps-0"
+                    id="searchbar_{{ field.auto_id }}"
+                    placeholder="Быстрый поиск"
+                    data-radio-filter-search
+                    form="none"
+                >
+            </div>
 
             <div class="form-check-group filter-scroll-list">
                 {% if field.field.choices %}
@@ -95,7 +95,6 @@
                     if (!search || search.dataset.radioFilterBound) return;
                     search.dataset.radioFilterBound = 'true';
                     const items = Array.from(block.querySelectorAll('[data-radio-filter-item]'));
-                    const collapseEl = block.querySelector('.accordion-collapse');
                     search.addEventListener('input', () => {
                         const term = search.value.trim().toLowerCase();
                         items.forEach((item) => {
@@ -103,9 +102,6 @@
                             const isChecked = item.querySelector('input').checked;
                             item.classList.toggle('d-none', Boolean(term) && !name.includes(term) && !isChecked);
                         });
-                        if (term && collapseEl && !collapseEl.classList.contains('show') && window.bootstrap) {
-                            window.bootstrap.Collapse.getOrCreateInstance(collapseEl, { toggle: false }).show();
-                        }
                     });
                 });
             };
