@@ -91,6 +91,8 @@
     border-left: 3px solid transparent;
   }
   .ci-cand > * { min-width: 0; }
+  /* Нужно явно: авторский display: grid перебивает [hidden] из стилей браузера. */
+  .ci-cand[hidden] { display: none; }
   .ci-cand:first-child { border-top: 0; }
   .ci-cand:hover { background: #f8f9fb; }
   .ci-cand.is-chosen, .ci-cand.is-chosen:hover { border-left-color: #198754; background: #e7f5ee; }

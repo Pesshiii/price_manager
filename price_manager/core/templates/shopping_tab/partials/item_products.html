@@ -20,9 +20,22 @@
   </div>
 
   {% if item.products.all %}
-    <div class="ci-cand-list">
+    <div class="p-3 border-bottom">
+      <div class="input-group input-group-sm">
+        <span class="input-group-text"><i class="bi bi-funnel"></i></span>
+        <input type="search"
+               id="cart-item-product-filter"
+               class="form-control"
+               placeholder="Фильтр по названию, артикулу, поставщику"
+               aria-label="Фильтр подходящих товаров"
+               autocomplete="off">
+      </div>
+    </div>
+
+    <div class="ci-cand-list" id="cart-item-products-list">
       {% for product in item.products.all %}
-        <article class="ci-cand{% if item.confirmed_product_id == product.id %} is-chosen{% endif %}">
+        <article class="ci-cand{% if item.confirmed_product_id == product.id %} is-chosen{% endif %}"
+                 data-search="{{ product.name|lower }} {{ product.sku|default:product.article|lower }} {{ product.supplier|lower }} {{ product.manufacturer|default_if_none:''|lower }}">
           <div>
             <p class="ci-cand-name mb-1">{{ product.name }}</p>
             <p class="ci-cand-sub mb-0">
@@ -59,6 +72,9 @@
           </div>
         </article>
       {% endfor %}
+    </div>
+    <div id="cart-item-filter-empty" class="text-center text-muted py-4 px-3" hidden>
+      <p class="mb-0">Среди подходящих товаров ничего не найдено.</p>
     </div>
   {% else %}
     <div class="text-center text-muted py-5 px-3">
