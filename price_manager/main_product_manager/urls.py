@@ -7,6 +7,7 @@ urlpatterns = [
 
     path('', MainPage.as_view(), name='mainproducts'),
     path('create', MainProductCreate.as_view(), name='mainproduct-create'),
+    path('create/categories', MainProductCreateCategoryTree.as_view(), name='mainproduct-create-categories'),
     path('table_bycat/<int:category_pk>', MainProductTableView.as_view(), name='mainproduct-table-bycat'),
     path('table_nocat/', MainProductTableView.as_view(), name='mainproduct-table-nocat'),
     path('filter/', MainProductFilterView.as_view(), name='mainproduct-filter'),

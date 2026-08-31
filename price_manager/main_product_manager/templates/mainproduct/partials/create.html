@@ -7,6 +7,17 @@
           method="POST">
         {% csrf_token %}
         {{form|crispy}}
+        {% if form.is_bound %}
+          {% include "supplier/partials/category_filter_field.html" with field=form.categories %}
+        {% else %}
+          <div id="mainproduct-create-categories"
+               hx-get="{% url 'mainproduct-create-categories' %}"
+               hx-trigger="load"
+               hx-swap="innerHTML"
+               class="mb-3">
+            <div class="text-muted small">Загрузка категорий...</div>
+          </div>
+        {% endif %}
         <div class="mt-4">
             <button class="btn btn-success">
                 Добавить

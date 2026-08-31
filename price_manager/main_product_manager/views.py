@@ -231,6 +231,20 @@ class MainProductCreate(CreateView):
     return HttpResponseClientRedirect(reverse('mainproduct-detail', kwargs={'pk': self.object.pk}))
 
 
+class MainProductCreateCategoryTree(View):
+  """Lazy-loaded category tree checkboxes for the create-product modal.
+
+  Split out from MainProductCreate so opening the modal doesn't pay for
+  building the whole Category tree unless/until the fragment is requested —
+  same reasoning as MainProductFilterView being separate from MainPage.
+  """
+  def get(self, request, *args, **kwargs):
+    if not self.request.htmx:
+      return redirect(reverse('mainproducts'))
+    form = MainProductCreateForm()
+    return render(request, 'supplier/partials/category_filter_field.html', {'field': form['categories']})
+
+
 class MainProductUpdate(UpdateView):
   model = MainProduct
   form_class = MainProductForm
