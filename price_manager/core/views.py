@@ -22,7 +22,7 @@ from django.db.models import Count, Prefetch
 from django_tables2 import SingleTableView, RequestConfig, SingleTableMixin
 from django_filters.views import FilterView, FilterMixin
 from dal import autocomplete
-from django.http import HttpResponse
+from django.http import HttpResponse, FileResponse, Http404
 from django_htmx.http import reswap, trigger_client_event
 
 
@@ -31,7 +31,7 @@ from core.models import *
 from file_manager.models import FileModel
 from main_product_manager.models import MainProduct
 from main_product_manager.filters import MainProductFilter
-from .tasks import update_cart_items_task
+from .tasks import update_cart_items_task, export_shopping_tab_task
 from .utils import *
 from .forms import *
 from .tables import *
@@ -160,6 +160,8 @@ def _shopping_tab_summary(tab):
         'items_pending': len(items) - len(confirmed),
         'items_sum': sum((item.line_total or 0) for item in items),
         'progress': round(len(confirmed) / len(items) * 100) if items else 0,
+        # Здесь, а не в контексте страницы: сводка перерисовывается и по htmx.
+        'latest_export': tab.exports.exclude(file='').exclude(file__isnull=True).first(),
     }
 
 
@@ -186,6 +188,30 @@ class ShoppingTabDetailView(LoginRequiredMixin, View):
             messages.success(request, 'Корзина обновлена.')
             return redirect('shopping-tab-detail', pk=tab.pk)
         return render(request, self.template_name, self.get_context_data(tab, form=form))
+
+
+class ShoppingTabExportView(LoginRequiredMixin, View):
+    """Ставит выгрузку заявки в очередь."""
+
+    def post(self, request, pk):
+        tab = get_object_or_404(ShoppingTab, pk=pk, user=request.user)
+        export_shopping_tab_task.delay(shopping_tab_id=tab.pk, user_id=request.user.pk)
+        messages.info(request, 'Экспорт запущен. Ссылка на файл придёт в уведомлениях.')
+        return redirect('shopping-tab-detail', pk=tab.pk)
+
+
+class ShoppingTabExportDownloadView(LoginRequiredMixin, View):
+    """Отдаёт готовый файл выгрузки владельцу."""
+
+    def get(self, request, pk):
+        export = get_object_or_404(ShoppingTabExport, pk=pk, user=request.user)
+        if not export.file:
+            raise Http404('Файл выгрузки не найден')
+        return FileResponse(
+            export.file.open('rb'),
+            as_attachment=True,
+            filename=f'{export.tab.name}.xlsx',
+        )
 
 
 IMPORT_PREVIEW_ROWS = 5

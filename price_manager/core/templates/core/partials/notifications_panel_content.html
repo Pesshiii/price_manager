@@ -7,6 +7,11 @@
   {% for notification in persistent_notifications %}
     <div class="alert alert-{{ notification.level }} alert-dismissible py-2 px-3 mb-2" id="notification-{{ notification.pk }}">
       <div class="small">{{ notification.message|safe }}</div>
+      {% if notification.link %}
+        <a href="{{ notification.link }}" class="btn btn-sm btn-light border mt-2">
+          <i class="bi bi-download"></i> {{ notification.link_text|default:"Открыть" }}
+        </a>
+      {% endif %}
       <div class="text-muted small mt-1">{{ notification.created_at|date:"d.m.Y H:i" }}</div>
       <button
         type="button"

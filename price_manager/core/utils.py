@@ -1,8 +1,10 @@
 import pandas as pd
-from io import StringIO
+from io import StringIO, BytesIO
 from .models import *
 from django.db import transaction
+from django.core.files.base import ContentFile
 from django.http import QueryDict
+from django.utils import timezone
 from supplier_manager.models import Manufacturer, Category, ManufacturerDict
 from .models import ShoppingTab, CartItem
 from main_product_manager.models import MainProduct
@@ -155,6 +157,63 @@ def update_cart_items(
         shopping_tab.items.add(cart_item)
         created_count += 1
     return created_count
+
+SHOPPING_TAB_EXPORT_COLUMNS = [
+    'Запрос',
+    'Количество',
+    'Статус',
+    'Товар',
+    'Артикул',
+    'Поставщик',
+    'Производитель',
+    'Цена',
+    'Сумма',
+]
+
+
+def build_shopping_tab_export(shopping_tab_id: int, user_id: int | None = None) -> ShoppingTabExport:
+    """Собирает xlsx по позициям заявки и сохраняет его в ShoppingTabExport."""
+    shopping_tab = ShoppingTab.objects.get(pk=shopping_tab_id)
+    items = (
+        shopping_tab.items
+        .select_related(
+            'confirmed_product',
+            'confirmed_product__supplier',
+            'confirmed_product__manufacturer',
+        )
+        .all()
+    )
+
+    rows = []
+    for item in items:
+        product = item.confirmed_product
+        rows.append({
+            'Запрос': item.search_query or '',
+            'Количество': item.quantity,
+            'Статус': 'Подтверждён' if product else 'Требует выбора',
+            'Товар': product.name if product else '',
+            'Артикул': (product.sku or product.article) if product else '',
+            'Поставщик': str(product.supplier) if product else '',
+            'Производитель': str(product.manufacturer) if product and product.manufacturer else '',
+            'Цена': item.confirmed_price,
+            'Сумма': item.line_total,
+        })
+
+    df = pd.DataFrame(rows, columns=SHOPPING_TAB_EXPORT_COLUMNS)
+    buffer = BytesIO()
+    df.to_excel(buffer, index=False)
+    buffer.seek(0)
+
+    export = ShoppingTabExport(
+        tab=shopping_tab,
+        user_id=user_id or shopping_tab.user_id,
+        rows_count=len(rows),
+    )
+    # Имя на диске держим ASCII — красивое имя подставляется при скачивании.
+    filename = f'shopping-tab-{shopping_tab.pk}-{timezone.now():%Y%m%d-%H%M%S}.xlsx'
+    export.file.save(filename, ContentFile(buffer.read()), save=True)
+    return export
+
 
 def find_main_products(search_query: str|None) -> list[MainProduct]:
     """

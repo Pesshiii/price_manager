@@ -36,11 +36,28 @@
         <p class="text-muted small mb-3">В заявке пока нет позиций. Добавьте первую справа.</p>
       {% endif %}
 
-      <button class="btn btn-sm btn-outline-secondary w-100" type="button" onclick="copyToClipboard(
-        '{% if items %}{{ tab.name }}\n{% for item in items %}{{ item.search_query }}   -    {{ item.confirmed_product.name }}\n{% endfor %}{% endif %}'
-        )">
-        <i class="bi bi-clipboard-plus"></i> Скопировать список
-      </button>
+      <div class="d-flex flex-column gap-2">
+        <button class="btn btn-sm btn-outline-secondary" type="button" onclick="copyToClipboard(
+          '{% if items %}{{ tab.name }}\n{% for item in items %}{{ item.search_query }}   -    {{ item.confirmed_product.name }}\n{% endfor %}{% endif %}'
+          )">
+          <i class="bi bi-clipboard-plus"></i> Скопировать список
+        </button>
+
+        <form method="post" action="{% url 'shopping-tab-export' tab.pk %}">
+          {% csrf_token %}
+          <button type="submit" class="btn btn-sm btn-outline-secondary w-100"{% if not items_total %} disabled{% endif %}>
+            <i class="bi bi-file-earmark-excel"></i> Выгрузить в Excel
+          </button>
+        </form>
+
+        {% if latest_export %}
+          <a href="{% url 'shopping-tab-export-download' latest_export.pk %}"
+             class="btn btn-sm btn-outline-primary">
+            <i class="bi bi-download"></i>
+            Скачать выгрузку от {{ latest_export.created_at|date:"d.m.Y H:i" }}
+          </a>
+        {% endif %}
+      </div>
     </div>
   </section>
 </div>

@@ -62,6 +62,34 @@ class ShoppingTab(models.Model):
         verbose_name = 'Заявка'
         constraints = [models.UniqueConstraint(fields=['user', 'name'], name='user_name_constraint')]
 
+class ShoppingTabExport(models.Model):
+    tab = models.ForeignKey(
+        ShoppingTab,
+        verbose_name='Заявка',
+        on_delete=models.CASCADE,
+        related_name='exports')
+    user = models.ForeignKey(
+        'auth.User',
+        verbose_name='Пользователь',
+        on_delete=models.CASCADE,
+        related_name='shopping_tab_exports')
+    file = models.FileField(
+        verbose_name='Файл',
+        upload_to='shopping_tab_exports/',
+        null=True,
+        blank=True)
+    rows_count = models.PositiveIntegerField(verbose_name='Строк', default=0)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ('-created_at',)
+        verbose_name = 'Экспорт заявки'
+        verbose_name_plural = 'Экспорты заявок'
+
+    def __str__(self):
+        return f'{self.tab.name} — {self.created_at:%d.%m.%Y %H:%M}'
+
+
 class LevelChoices(TextChoices):
     INFO = 'info', 'Инфо'
     SUCCESS = 'success', 'Успех'
@@ -82,6 +110,9 @@ class PersistentNotification(models.Model):
         default=LevelChoices.INFO, 
         verbose_name='Уровень')
     message = models.TextField(verbose_name='Сообщение')
+    # Необязательная кнопка-действие: например, ссылка на скачивание экспорта.
+    link = models.CharField(verbose_name='Ссылка', max_length=500, null=True, blank=True)
+    link_text = models.CharField(verbose_name='Текст ссылки', max_length=100, null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
