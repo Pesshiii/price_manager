@@ -227,6 +227,7 @@ class MainProductCreate(CreateView):
     return super().get(request, *args, **kwargs)
   def form_valid(self, form):
     self.object = form.save()
+    self.object.rebuild_search_vector()
     return HttpResponseClientRedirect(reverse('mainproduct-detail', kwargs={'pk': self.object.pk}))
 
 

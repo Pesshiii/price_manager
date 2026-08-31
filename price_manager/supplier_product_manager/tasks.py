@@ -240,7 +240,6 @@ def copy_supplier_products_to_main_task(
                     name=name,
                     description=sp_by_key[(article, name)].description,
                     manufacturer=sp_by_key[(article, name)].manufacturer,
-                    category=sp_by_key[(article, name)].category,
                 )
                 for article, name in keys
             ]
@@ -248,7 +247,7 @@ def copy_supplier_products_to_main_task(
                 mps_to_create,
                 update_conflicts=True,
                 unique_fields=["supplier", "article", "name"],
-                update_fields=["manufacturer", "category", "description"],
+                update_fields=["manufacturer", "description"],
                 batch_size=batch_size,
             )
 
@@ -259,6 +258,8 @@ def copy_supplier_products_to_main_task(
             mp_by_key = {(mp.article, mp.name): mp.id for mp in mps}
 
             supplier_products_to_update = []
+            category_links = []
+            through = MainProduct.categories.through
             for sp in batch:
                 mp_id = mp_by_key.get((sp.article, sp.name))
                 if not mp_id:
@@ -267,6 +268,8 @@ def copy_supplier_products_to_main_task(
                 if sp.main_product_id != mp_id:
                     sp.main_product_id = mp_id
                     supplier_products_to_update.append(sp)
+                if sp.category_id:
+                    category_links.append(through(mainproduct_id=mp_id, category_id=sp.category_id))
 
             if supplier_products_to_update:
                 SupplierProduct.objects.bulk_update(
@@ -275,6 +278,9 @@ def copy_supplier_products_to_main_task(
                     batch_size=batch_size,
                 )
                 updated_links_count += len(supplier_products_to_update)
+
+            if category_links:
+                through.objects.bulk_create(category_links, ignore_conflicts=True, batch_size=batch_size)
 
         for ids_chunk in _chunked(list(touched_main_product_ids), batch_size):
             recalculate_search_vectors(MainProduct.objects.filter(pk__in=ids_chunk))

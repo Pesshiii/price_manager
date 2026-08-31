@@ -30,6 +30,17 @@ class MainProductCreateForm(forms.ModelForm):
       'depth',
     )
 
+  def clean(self):
+    cleaned_data = super().clean()
+    supplier = cleaned_data.get('supplier')
+    article = cleaned_data.get('article')
+    name = cleaned_data.get('name')
+    if article and name and MainProduct.objects.filter(supplier=supplier, article=article, name=name).exists():
+      raise forms.ValidationError(
+        'Главный продукт с таким поставщиком, артикулом и названием уже существует.'
+      )
+    return cleaned_data
+
 
 class MainProductBulkCategoryForm(forms.Form):
   category = forms.ModelChoiceField(
