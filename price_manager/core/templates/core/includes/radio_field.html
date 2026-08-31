@@ -5,66 +5,80 @@
     class="mb-3{% if field.errors %} has-error{% endif %}"
     data-radio-filter>
 
-    {% if field.label %}
-        <legend class="filter-section-title">
+    <div class="accordion accordion-flush">
+      <div class="accordion-item">
+        <span class="accordion-header">
+          <button class="accordion-button{% if not field.value %} collapsed{% endif %} py-2"
+                  type="button"
+                  data-bs-toggle="collapse"
+                  data-bs-target="#collapse_{{ field.auto_id }}"
+                  aria-expanded="{% if field.value %}true{% else %}false{% endif %}"
+                  aria-controls="collapse_{{ field.auto_id }}">
             {{ field.label }}
             {% if field.field.required %}
                 <span class="text-danger">*</span>
             {% endif %}
-        </legend>
-    {% endif %}
+          </button>
+        </span>
+        <div id="collapse_{{ field.auto_id }}" class="accordion-collapse collapse{% if field.value %} show{% endif %}">
+          <div class="accordion-body py-2">
 
-    {% if field.help_text %}
-        <p class="form-text text-muted mb-2">
-            {{ field.help_text|safe }}
-        </p>
-    {% endif %}
+            {% if field.help_text %}
+                <p class="form-text text-muted mb-2">
+                    {{ field.help_text|safe }}
+                </p>
+            {% endif %}
 
-    <div class="input-group input-group-sm mb-2 filter-quick-search">
-        <span class="input-group-text bg-transparent border-end-0"><i class="bi bi-search text-muted"></i></span>
-        <input
-            type="search"
-            class="form-control border-start-0 ps-0"
-            id="searchbar_{{ field.auto_id }}"
-            placeholder="Быстрый поиск"
-            data-radio-filter-search
-            form="none"
-        >
-    </div>
+            <div class="input-group input-group-sm mb-2 filter-quick-search">
+                <span class="input-group-text bg-transparent border-end-0"><i class="bi bi-search text-muted"></i></span>
+                <input
+                    type="search"
+                    class="form-control border-start-0 ps-0"
+                    id="searchbar_{{ field.auto_id }}"
+                    placeholder="Быстрый поиск"
+                    data-radio-filter-search
+                    form="none"
+                >
+            </div>
 
-    <div class="form-check-group filter-scroll-list">
-        {% if field.field.choices %}
-            {% for choice in field.field.choices %}
-                {% if choice.0|stringformat:'s' %}
-                <div class="form-check filter-check-item mb-1" data-radio-filter-item data-radio-filter-text="{{ choice.1|lower }}">
-                    <input
-                        type="radio"
-                        name="{{ field.html_name }}"
-                        value="{{ choice.0 }}"
-                        id="{{ field.auto_id }}_{{ forloop.counter0 }}"
-                        class="form-check-input{% if field.errors %} is-invalid{% endif %}"
-                        {% if choice.0|stringformat:'s' == field.value|stringformat:'s' %}checked{% endif %}
-                    >
-                    <label class="form-check-label" for="{{ field.auto_id }}_{{ forloop.counter0 }}">
-                        {{ choice.1 }}
-                    </label>
-                </div>
+            <div class="form-check-group filter-scroll-list">
+                {% if field.field.choices %}
+                    {% for choice in field.field.choices %}
+                        {% if choice.0|stringformat:'s' %}
+                        <div class="form-check filter-check-item mb-1" data-radio-filter-item data-radio-filter-text="{{ choice.1|lower }}">
+                            <input
+                                type="radio"
+                                name="{{ field.html_name }}"
+                                value="{{ choice.0 }}"
+                                id="{{ field.auto_id }}_{{ forloop.counter0 }}"
+                                class="form-check-input{% if field.errors %} is-invalid{% endif %}"
+                                {% if choice.0|stringformat:'s' == field.value|stringformat:'s' %}checked{% endif %}
+                            >
+                            <label class="form-check-label" for="{{ field.auto_id }}_{{ forloop.counter0 }}">
+                                {{ choice.1 }}
+                            </label>
+                        </div>
+                        {% endif %}
+                    {% endfor %}
+                {% elif field.label %}
+                    <div>{{ field.label }} не найдены</div>
+                {% else %}
+                    <div>Нет подходящих</div>
                 {% endif %}
-            {% endfor %}
-        {% elif field.label %}
-            <div>{{ field.label }} не найдены</div>
-        {% else %}
-            <div>Нет подходящих</div>
-        {% endif %}
-    </div>
+            </div>
 
-    {% if field.errors %}
-    <div class="invalid-feedback d-block">
-        {% for error in field.errors %}
-        {{ error }}
-        {% endfor %}
+            {% if field.errors %}
+            <div class="invalid-feedback d-block">
+                {% for error in field.errors %}
+                {{ error }}
+                {% endfor %}
+            </div>
+            {% endif %}
+
+          </div>
+        </div>
+      </div>
     </div>
-    {% endif %}
 
     <script>
         if (!window.__priceManagerRadioFilterInit) {
