@@ -1,4 +1,5 @@
 from django_filters import FilterSet
+from django.contrib.postgres.search import SearchQuery
 from django.db.models import Count, F, Q, Case, When, Value, IntegerField
 
 from .models import Category
@@ -18,7 +19,7 @@ class CategoryFilter(FilterSet):
             ).annotate(
                 mps_count=Count(F('mainproducts'), distinct=True)
             ).filter(~Q(mps_count=0)))
-        self._search_query = search_query
+        self._search_query = SearchQuery(search_query, config='russian') if search_query else None
         super().__init__(data, **kwargs)
 
     @property

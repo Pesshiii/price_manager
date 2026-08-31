@@ -83,8 +83,7 @@ class MainPage(FilterView):
       'query': search_value,
       'filters': filters,
     }, ensure_ascii=False))
-    search_query = self.filterset._build_partial_query(search_value) if search_value else None
-    cat_filter = CategoryFilter(product_qs=queryset, search_query=search_query)
+    cat_filter = CategoryFilter(product_qs=queryset, search_query=search_value or None)
     categories = Paginator(cat_filter.qs, 5).page(self.request.GET.get('page', 1))
     context['categories'] =  categories
     context['has_nulled'] = queryset.filter(categories__isnull=True).exists()
