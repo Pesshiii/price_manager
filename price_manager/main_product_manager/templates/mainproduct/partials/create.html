@@ -13,6 +13,7 @@
           <div id="mainproduct-create-categories"
                hx-get="{% url 'mainproduct-create-categories' %}"
                hx-trigger="load"
+               hx-target="this"
                hx-swap="innerHTML"
                class="mb-3">
             <div class="text-muted small">Загрузка категорий...</div>
