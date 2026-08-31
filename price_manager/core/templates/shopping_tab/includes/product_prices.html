@@ -1,0 +1,16 @@
+{% comment %}
+Все заполненные цены товара. Цена, по которой считается итог позиции
+(CartItem.PRICE_FIELD), выделяется — остальные приводятся для сравнения.
+{% endcomment %}
+{% with prices=product.price_list %}
+  {% if prices %}
+    <dl class="ci-prices">
+      {% for field, label, value in prices %}
+        <dt{% if field == item.PRICE_FIELD %} class="is-active"{% endif %}>{{ label }}</dt>
+        <dd{% if field == item.PRICE_FIELD %} class="is-active"{% endif %}>{{ value|floatformat:2 }}</dd>
+      {% endfor %}
+    </dl>
+  {% else %}
+    <span class="text-muted">—</span>
+  {% endif %}
+{% endwith %}

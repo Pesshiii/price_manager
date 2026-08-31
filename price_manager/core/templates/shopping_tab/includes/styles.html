@@ -105,6 +105,25 @@
   .ci-cand-sub { font-size: .79rem; color: #6a7183; overflow-wrap: anywhere; }
   .ci-cand-price { font-size: .98rem; font-weight: 600; text-align: right; white-space: nowrap; }
   .ci-cand-actions { justify-self: end; }
+
+  /* Все цены товара — подпись слева, значение справа */
+  .ci-prices {
+    display: grid;
+    grid-template-columns: auto auto;
+    gap: .12rem .6rem;
+    margin: 0;
+    font-size: .76rem;
+    font-weight: 400;
+  }
+  .ci-prices dt { color: #6a7183; font-weight: 400; text-align: left; white-space: nowrap; }
+  .ci-prices dd {
+    margin: 0;
+    color: #4a5260;
+    text-align: right;
+    white-space: nowrap;
+    font-variant-numeric: tabular-nums;
+  }
+  .ci-prices .is-active { color: #29399b; font-weight: 600; }
   /* Ниже 1200px правая колонка уже слишком узкая для четырёх столбцов:
      название с ценой в первой строке, наличие с кнопками — во второй. */
   @media (max-width: 1200px) {

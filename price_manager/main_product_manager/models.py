@@ -130,6 +130,13 @@ class MainProduct(models.Model):
       blank=True)
     def __str__(self)->str:
         return f'{self.sku}' if self.sku is not None else 'Не указан'
+    def price_list(self) -> list[tuple[str, str, Decimal]]:
+        """Заполненные цены товара — [(имя поля, подпись, значение), …] в порядке MP_PRICES."""
+        return [
+            (name, self._meta.get_field(name).verbose_name, getattr(self, name))
+            for name in MP_PRICES
+            if getattr(self, name) is not None
+        ]
     def _build_searchvector(self) -> SearchVector:
         """Собираем строку для поиска без join-ов."""
         from main_product_manager.utils import _resolve_pim_id, get_pim_data
