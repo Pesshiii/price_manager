@@ -1,0 +1,9 @@
+{% comment %}
+Цена товара в позиции заявки. Поле должно совпадать с CartItem.PRICE_FIELD —
+там же решается, какая из цен MainProduct считается ценой позиции.
+{% endcomment %}
+{% if product.basic_price %}
+  <span class="ci-num">{{ product.basic_price|floatformat:2 }} тг</span>
+{% else %}
+  <span class="text-muted">—</span>
+{% endif %}

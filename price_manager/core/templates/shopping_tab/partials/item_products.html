@@ -1,15 +1,15 @@
 {% comment %}
-Список подходящих товаров элемента корзины. Помечен hx-swap-oob, чтобы
-обновляться после добавления товаров из модального окна.
+Правая колонка — подходящие товары. Порядок сейчас произвольный (M2M отдаёт их
+в порядке id), поэтому «лучшее совпадение» не отмечается: все кандидаты равны.
 {% endcomment %}
-<div id="cart-item-products" hx-swap-oob="true">
-  <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-3">
-    <h2 class="h5 mb-0">
+<section class="ci-panel" aria-label="Подходящие товары">
+  <div class="ci-panel-head">
+    <h2 class="ci-panel-title">
       Подходящие товары
-      <span class="badge text-bg-light">{{ item.products.count }}</span>
+      <span class="ci-count">{{ item.products.count }}</span>
     </h2>
     <button type="button"
-            class="btn btn-primary btn-sm"
+            class="btn btn-sm btn-outline-secondary"
             data-bs-toggle="modal"
             data-bs-target="#modal-container"
             hx-get="{% url 'cart-item-products-select' item.pk %}"
@@ -18,30 +18,43 @@
       <i class="bi bi-plus-lg"></i> Добавить товары
     </button>
   </div>
+
   {% if item.products.all %}
-    <div class="table-responsive">
-      <table class="table table-hover align-middle mb-0">
-        <thead>
-          <tr>
-            <th scope="col">Артикул</th>
-            <th scope="col">Название</th>
-            <th scope="col">Производитель</th>
-            <th scope="col">Остаток</th>
-          </tr>
-        </thead>
-        <tbody>
-          {% for product in item.products.all %}
-            <tr{% if item.confirmed_product_id == product.id %} class="table-success"{% endif %}>
-              <td>{{ product.sku|default:product.article }}</td>
-              <td><a href="{% url 'mainproduct-detail' product.pk %}">{{ product.name }}</a></td>
-              <td>{{ product.manufacturer|default:"—" }}</td>
-              <td>{{ product.stock|default:"—" }}</td>
-            </tr>
-          {% endfor %}
-        </tbody>
-      </table>
+    <div class="ci-cand-list">
+      {% for product in item.products.all %}
+        <article class="ci-cand{% if item.confirmed_product_id == product.id %} is-chosen{% endif %}">
+          <div>
+            <p class="ci-cand-name mb-1">{{ product.name }}</p>
+            <p class="ci-cand-sub mb-0">
+              <span class="ci-num">арт. {{ product.sku|default:product.article }}</span>
+              · {{ product.supplier }}{% if product.manufacturer %} · {{ product.manufacturer }}{% endif %}
+            </p>
+          </div>
+          <div class="ci-cand-price">
+            {% include 'shopping_tab/includes/product_price.html' with product=product %}
+          </div>
+          <div>
+            {% include 'shopping_tab/includes/stock_badge.html' with product=product %}
+          </div>
+          <div>
+            {% if item.confirmed_product_id == product.id %}
+              <span class="ci-chosen-chip"><i class="bi bi-check-lg"></i> Выбрано</span>
+            {% else %}
+              <button type="button"
+                      class="btn btn-sm btn-outline-primary"
+                      hx-post="{% url 'cart-item-confirm' item.pk product.pk %}"
+                      hx-swap="none">
+                Подтвердить
+              </button>
+            {% endif %}
+          </div>
+        </article>
+      {% endfor %}
     </div>
   {% else %}
-    <p class="text-muted mb-0">Подходящие товары не найдены.</p>
+    <div class="text-center text-muted py-5 px-3">
+      <i class="bi bi-search fs-1 d-block mb-3 opacity-50"></i>
+      <p class="mb-0">Подходящие товары не найдены. Добавьте нужный товар из главного прайса.</p>
+    </div>
   {% endif %}
-</div>
+</section>

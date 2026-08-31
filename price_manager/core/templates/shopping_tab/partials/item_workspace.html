@@ -1,0 +1,12 @@
+{% comment %}
+Обе колонки одним куском — подтверждение меняет и решение, и список кандидатов,
+поэтому проще обновлять их вместе одним OOB-свопом.
+{% endcomment %}
+<div id="cart-item-workspace" hx-swap-oob="true" class="row g-4">
+  <div class="col-12 col-lg-4">
+    {% include 'shopping_tab/partials/item_decision.html' %}
+  </div>
+  <div class="col-12 col-lg-8">
+    {% include 'shopping_tab/partials/item_products.html' %}
+  </div>
+</div>

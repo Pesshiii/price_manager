@@ -1,0 +1,9 @@
+{% comment %}Наличие как статус. Тексты берутся у поставщика — те же, что в главном прайсе.{% endcomment %}
+<span class="ci-stock {% if product.stock %}ci-stock-in{% else %}ci-stock-out{% endif %}">
+  <span class="ci-dot"></span>
+  {% if product.stock %}
+    {{ product.supplier.msg_available }} · <span class="ci-num">{{ product.stock }}</span> шт.
+  {% else %}
+    {{ product.supplier.msg_navailable }}
+  {% endif %}
+</span>

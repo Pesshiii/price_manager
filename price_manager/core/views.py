@@ -228,6 +228,36 @@ class CartItemDetailView(LoginRequiredMixin, DetailView):
         return context
 
 
+class CartItemConfirmProductView(LoginRequiredMixin, View):
+    """Подтверждает товар для позиции заявки."""
+    template_name = 'shopping_tab/partials/item_confirm_response.html'
+
+    def post(self, request, pk, product_pk):
+        if not request.htmx:
+            return redirect('cart-item-detail', pk=pk)
+        item = get_object_or_404(CartItem, pk=pk, user=request.user)
+        product = get_object_or_404(MainProduct, pk=product_pk)
+        # Подтверждать можно и товар, которого ещё нет в подходящих — тогда добавляем его.
+        if not item.products.filter(pk=product.pk).exists():
+            item.products.add(product)
+        item.confirmed_product = product
+        item.save(update_fields=['confirmed_product'])
+        return render(request, self.template_name, {'item': item})
+
+
+class CartItemUnconfirmView(LoginRequiredMixin, View):
+    """Снимает подтверждение товара, оставляя его в списке подходящих."""
+    template_name = 'shopping_tab/partials/item_confirm_response.html'
+
+    def post(self, request, pk):
+        if not request.htmx:
+            return redirect('cart-item-detail', pk=pk)
+        item = get_object_or_404(CartItem, pk=pk, user=request.user)
+        item.confirmed_product = None
+        item.save(update_fields=['confirmed_product'])
+        return render(request, self.template_name, {'item': item})
+
+
 class CartItemProductSelectView(LoginRequiredMixin, SingleTableMixin, FilterView):
     """Модалка выбора товаров Главного прайса для элемента корзины.
 

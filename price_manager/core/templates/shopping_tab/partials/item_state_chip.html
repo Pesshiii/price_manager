@@ -1,0 +1,8 @@
+{% comment %}Статус позиции в шапке.{% endcomment %}
+<div id="cart-item-state" hx-swap-oob="true">
+  {% if item.confirmed_product %}
+    <span class="ci-chip ci-chip-ok"><span class="ci-dot"></span>Подтверждён</span>
+  {% else %}
+    <span class="ci-chip ci-chip-warn"><span class="ci-dot"></span>Требует выбора</span>
+  {% endif %}
+</div>

@@ -74,6 +74,8 @@ urlpatterns = [
     path('cart-items/<int:pk>/', views.CartItemDetailView.as_view(), name='cart-item-detail'),
     path('cart-items/<int:pk>/products/select/', views.CartItemProductSelectView.as_view(), name='cart-item-products-select'),
     path('cart-items/<int:pk>/products/add/', views.CartItemAddProductsView.as_view(), name='cart-item-products-add'),
+    path('cart-items/<int:pk>/confirm/<int:product_pk>/', views.CartItemConfirmProductView.as_view(), name='cart-item-confirm'),
+    path('cart-items/<int:pk>/unconfirm/', views.CartItemUnconfirmView.as_view(), name='cart-item-unconfirm'),
     path('blog/', include('blogapp.urls')),
     path('api/', include('api_urls')),
 

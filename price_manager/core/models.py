@@ -22,7 +22,25 @@ class CartItem(models.Model):
         blank=True,
         related_name='confirmed_cart_items')
     quantity = models.PositiveIntegerField(verbose_name='Количество', default=1)
-    
+
+    # Какая из цен MainProduct считается ценой позиции — решается здесь и только здесь.
+    PRICE_FIELD = 'basic_price'
+
+    @property
+    def confirmed_price(self):
+        """Цена подтверждённого товара или None."""
+        if not self.confirmed_product:
+            return None
+        return getattr(self.confirmed_product, self.PRICE_FIELD, None)
+
+    @property
+    def line_total(self):
+        """Сумма по позиции: цена × количество."""
+        price = self.confirmed_price
+        if price is None:
+            return None
+        return price * self.quantity
+
 class ShoppingTab(models.Model):
     user = models.ForeignKey(
         'auth.User',

@@ -1,0 +1,65 @@
+{% comment %}Левая колонка — решение по позиции. Два состояния: товар выбран или нет.{% endcomment %}
+<section class="ci-panel ci-decision" aria-label="Решение">
+  {% if item.confirmed_product %}<div class="ci-stripe"></div>{% endif %}
+  <div class="ci-panel-head">
+    <h2 class="ci-panel-title">Решение</h2>
+  </div>
+
+  {% if item.confirmed_product %}
+    <div class="p-3">
+      <p class="ci-decided-name">{{ item.confirmed_product.name }}</p>
+      <p class="ci-decided-sub">
+        <span class="ci-num">арт. {{ item.confirmed_product.sku|default:item.confirmed_product.article }}</span>
+        · {{ item.confirmed_product.supplier }}
+      </p>
+
+      <dl class="ci-spec">
+        <dt>Производитель</dt>
+        <dd>{{ item.confirmed_product.manufacturer|default:"—" }}</dd>
+        <dt>Наличие</dt>
+        <dd>{% include 'shopping_tab/includes/stock_badge.html' with product=item.confirmed_product %}</dd>
+        <dt>Цена</dt>
+        <dd>{% include 'shopping_tab/includes/product_price.html' with product=item.confirmed_product %}</dd>
+      </dl>
+
+      {% if item.line_total %}
+        <div class="ci-total">
+          <div class="d-flex justify-content-between align-items-baseline gap-2 mb-1">
+            <span class="ci-total-label">Итого по позиции</span>
+            <span class="ci-total-calc ci-num">{{ item.quantity }} × {{ item.confirmed_price|floatformat:2 }}</span>
+          </div>
+          <div class="ci-total-sum ci-num">{{ item.line_total|floatformat:2 }} тг</div>
+        </div>
+      {% endif %}
+
+      <div class="d-flex gap-2">
+        <a href="{% url 'mainproduct-detail' item.confirmed_product.pk %}" class="btn btn-outline-secondary btn-sm">
+          Открыть в прайсе
+        </a>
+        <button type="button"
+                class="btn btn-sm btn-link text-muted text-decoration-none"
+                hx-post="{% url 'cart-item-unconfirm' item.pk %}"
+                hx-swap="none">
+          Снять выбор
+        </button>
+      </div>
+    </div>
+  {% else %}
+    <div class="ci-empty">
+      <div class="ci-empty-mark" aria-hidden="true"><i class="bi bi-question-lg"></i></div>
+      <h3 class="h6 mb-2">Товар не выбран</h3>
+      <p class="text-muted small mb-3">
+        Подтвердите один из подходящих товаров справа — или добавьте нужный из главного прайса.
+      </p>
+      <button type="button"
+              class="btn btn-outline-secondary w-100"
+              data-bs-toggle="modal"
+              data-bs-target="#modal-container"
+              hx-get="{% url 'cart-item-products-select' item.pk %}"
+              hx-target="#modal-container .modal-content"
+              hx-swap="innerHTML">
+        <i class="bi bi-plus-lg"></i> Добавить товары
+      </button>
+    </div>
+  {% endif %}
+</section>
