@@ -167,25 +167,24 @@ class MainProductFilter(FilterSet):
     return None
 
   def _get_terms(self, value):
-    value = re.sub(r"[^\w\-\\\/]+|_", " ", value, flags=re.UNICODE)
+    # value = re.sub(r"[^\w\-\\\/]+|_", " ", value, flags=re.UNICODE)
     return [term for term in value.split() if term]
   def _build_partial_query(self, value):
-    #   terms = self._get_terms(value)
-    #   if not terms:
-    #     return None
-    #   query = SearchQuery('')
-    #   for term in terms:
-    #     query &= SearchQuery(f'{term}:*', search_type='raw', config='russian')
-        query = Q()
-        for bit in value.split(' '):
-            query &= (Q(sku__contain=bit)|Q(name__contain=bit)|Q(article__contain=bit))
-        return query
+    terms = self._get_terms(value)
+    if not terms:
+      return None
+    query = Q()
+    for term in terms:
+      query &= (Q(sku__icontains=term)|Q(name__icontains=term)|Q(article__icontains=term))
+    return query
+
   def search_method(self, queryset, name, value):
     query = self._build_partial_query(value)
     if query is None:
       return queryset
-    rank = SearchRank("search_vector", SearchQuery(value, config='russian'))
-    return queryset.annotate(rank=rank).filter(Q(search_vector=query)|query).order_by("-rank")
+    search_query = SearchQuery(value, config='russian')
+    rank = SearchRank("search_vector", search_query)
+    return queryset.annotate(rank=rank).filter(Q(search_vector=search_query)|query).order_by("-rank")
 
   def available_method(self, queryset, name, value):
     if value:
