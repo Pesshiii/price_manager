@@ -142,10 +142,24 @@ class ShoppingTabDeleteView(LoginRequiredMixin, View):
 def _get_shopping_tab_items(tab):
     return (
         tab.items
-        .select_related('confirmed_product')
+        .select_related('confirmed_product', 'confirmed_product__supplier')
         .prefetch_related('products')
         .all()
     )
+
+
+def _shopping_tab_summary(tab):
+    """Позиции заявки вместе со сводкой: сколько подтверждено и на какую сумму."""
+    items = list(_get_shopping_tab_items(tab))
+    confirmed = [item for item in items if item.confirmed_product_id]
+    return {
+        'items': items,
+        'items_total': len(items),
+        'items_confirmed': len(confirmed),
+        'items_pending': len(items) - len(confirmed),
+        'items_sum': sum((item.line_total or 0) for item in items),
+        'progress': round(len(confirmed) / len(items) * 100) if items else 0,
+    }
 
 
 class ShoppingTabDetailView(LoginRequiredMixin, View):
@@ -156,7 +170,7 @@ class ShoppingTabDetailView(LoginRequiredMixin, View):
         return {
             'tab': tab,
             'form': form if form is not None else self.form_class(instance=tab),
-            'items': _get_shopping_tab_items(tab),
+            **_shopping_tab_summary(tab),
         }
 
     def get(self, request, pk):
@@ -205,7 +219,7 @@ class ShoppingTabAddItemView(LoginRequiredMixin, View):
         context['search_query'] = ''
         context['quantity'] = 1
         context['item_added'] = True
-        context['items'] = _get_shopping_tab_items(tab)
+        context.update(_shopping_tab_summary(tab))
         return render(request, self.template_name, context)
 
 

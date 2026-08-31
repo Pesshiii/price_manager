@@ -1,0 +1,188 @@
+{% comment %}
+Общие стили страниц заявки и позиции заявки.
+Подключается внутрь {% templatetag openblock %} block style {% templatetag closeblock %} — без тега <style>.
+{% endcomment %}
+  .ci-num { font-variant-numeric: tabular-nums; }
+
+  .ci-panel {
+    background: #fff;
+    border: 1px solid #e9ecef;
+    border-radius: 1rem;
+    box-shadow: 0 .5rem 1.5rem rgba(15, 23, 42, .06);
+    overflow: hidden;
+  }
+  .ci-panel-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: .75rem;
+    padding: 1rem 1.15rem;
+    border-bottom: 1px solid #e9ecef;
+  }
+  .ci-panel-title {
+    font-size: .72rem;
+    font-weight: 600;
+    letter-spacing: .09em;
+    text-transform: uppercase;
+    color: #6a7183;
+    margin: 0;
+  }
+  .ci-count {
+    font-size: .78rem;
+    font-weight: 600;
+    letter-spacing: 0;
+    color: #4a5260;
+    background: #f8f9fb;
+    border: 1px solid #e9ecef;
+    border-radius: .4rem;
+    padding: .1rem .45rem;
+  }
+
+  .ci-decision { position: sticky; top: 88px; }
+  @media (max-width: 991.98px) { .ci-decision { position: static; } }
+
+  .ci-stripe { height: 3px; background: #198754; }
+
+  .ci-empty { padding: 1.6rem 1.25rem; text-align: center; }
+  .ci-empty-mark {
+    width: 3rem; height: 3rem;
+    margin: 0 auto .9rem;
+    border: 2px dashed #dbe0e6;
+    border-radius: 50%;
+    display: grid; place-items: center;
+    color: #6a7183;
+  }
+
+  .ci-decided-name { font-size: 1.05rem; font-weight: 600; line-height: 1.32; margin: 0 0 .5rem; }
+  .ci-decided-sub { font-size: .83rem; color: #6a7183; margin: 0 0 1.05rem; }
+
+  .ci-spec {
+    display: grid;
+    grid-template-columns: auto 1fr;
+    gap: .5rem 1rem;
+    font-size: .86rem;
+    margin: 0 0 1.05rem;
+  }
+  .ci-spec dt { color: #6a7183; font-weight: 400; }
+  .ci-spec dd { margin: 0; text-align: right; color: #4a5260; }
+
+  .ci-total {
+    background: #eef1ff;
+    border: 1px solid #c7d1fb;
+    border-radius: .7rem;
+    padding: .8rem .95rem;
+    margin-bottom: 1.05rem;
+  }
+  .ci-total-label { font-size: .78rem; color: #29399b; font-weight: 600; }
+  .ci-total-calc { font-size: .78rem; color: #29399b; opacity: .75; }
+  .ci-total-sum { font-size: 1.25rem; font-weight: 600; color: #29399b; letter-spacing: -.01em; }
+
+  /* Строка списка — кандидат на странице позиции, позиция на странице заявки */
+  .ci-cand {
+    display: grid;
+    grid-template-columns: 1fr auto auto auto;
+    gap: .6rem 1.25rem;
+    align-items: center;
+    padding: .95rem 1.15rem;
+    border-top: 1px solid #e9ecef;
+    border-left: 3px solid transparent;
+  }
+  .ci-cand:first-child { border-top: 0; }
+  .ci-cand:hover { background: #f8f9fb; }
+  .ci-cand.is-chosen, .ci-cand.is-chosen:hover { border-left-color: #198754; background: #e7f5ee; }
+  .ci-cand-name { font-size: .95rem; font-weight: 500; line-height: 1.35; }
+  .ci-cand-sub { font-size: .79rem; color: #6a7183; }
+  .ci-cand-price { font-size: .98rem; font-weight: 600; text-align: right; white-space: nowrap; }
+  @media (max-width: 720px) {
+    .ci-cand { grid-template-columns: 1fr auto; }
+    .ci-cand-price { text-align: left; }
+  }
+
+  /* Строка-ссылка (список позиций заявки) */
+  a.ci-cand { text-decoration: none; color: inherit; }
+  a.ci-cand:hover .ci-cand-name { color: #29399b; }
+
+  .ci-stock {
+    display: inline-flex;
+    align-items: center;
+    gap: .4rem;
+    font-size: .79rem;
+    white-space: nowrap;
+    color: #4a5260;
+  }
+  .ci-dot { width: .5rem; height: .5rem; border-radius: 50%; flex: none; background: #adb5bd; }
+  .ci-stock-in .ci-dot { background: #16794c; }
+  .ci-stock-out { color: #6a7183; }
+
+  .ci-chosen-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: .35rem;
+    font-size: .79rem;
+    font-weight: 600;
+    color: #16794c;
+    white-space: nowrap;
+  }
+
+  .ci-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: .5rem;
+    padding: .5rem .9rem;
+    border-radius: .65rem;
+    font-size: .88rem;
+    font-weight: 600;
+    white-space: nowrap;
+    border: 1px solid;
+  }
+  .ci-chip .ci-dot { background: currentColor; }
+  .ci-chip-warn { color: #96601a; background: #fdf3e3; border-color: #f0dcb8; }
+  .ci-chip-ok { color: #16794c; background: #e7f5ee; border-color: #b7e0ca; }
+  .ci-chip-muted { color: #6a7183; background: #f8f9fb; border-color: #e9ecef; }
+  .ci-chip-sm { padding: .2rem .55rem; font-size: .78rem; border-radius: .5rem; gap: .35rem; }
+
+  .ci-qty-pill {
+    display: inline-flex;
+    align-items: baseline;
+    gap: .3rem;
+    background: #fff;
+    border: 1px solid #e9ecef;
+    border-radius: .5rem;
+    padding: .15rem .55rem;
+    color: #4a5260;
+  }
+
+  /* Сводка заявки */
+  .ci-progress {
+    height: .5rem;
+    background: #eef1ff;
+    border-radius: 1rem;
+    overflow: hidden;
+  }
+  .ci-progress-bar {
+    height: 100%;
+    background: #3b5bfd;
+    border-radius: 1rem;
+    transition: width .2s ease;
+  }
+  .ci-progress-bar.is-complete { background: #198754; }
+  .ci-headline {
+    font-size: 1.5rem;
+    font-weight: 600;
+    letter-spacing: -.02em;
+    line-height: 1.1;
+  }
+  .ci-headline small { font-size: .95rem; font-weight: 400; color: #6a7183; }
+  .ci-stat {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    gap: 1rem;
+    font-size: .86rem;
+  }
+  .ci-stat-label { color: #6a7183; }
+  .ci-stat-value { font-weight: 600; color: #1b2027; }
+
+  @media (prefers-reduced-motion: reduce) {
+    .ci-progress-bar { transition: none; }
+  }

@@ -1,7 +1,7 @@
 <form hx-post="{% url 'shopping-tab-item-add' tab.pk %}"
       hx-target="this"
       hx-swap="outerHTML"
-      class="d-flex gap-2 align-items-start mb-3">
+      class="d-flex gap-2 align-items-start">
   {% csrf_token %}
   <div class="flex-grow-1">
     <input type="text" name="search_query" class="form-control form-control-sm{% if error %} is-invalid{% endif %}"
@@ -17,6 +17,7 @@
   </button>
 </form>
 {% if item_added %}
-  <span id="cart-items-count" hx-swap-oob="true">{{ items|length }}</span>
+  <span id="cart-items-count" hx-swap-oob="true">{{ items_total }}</span>
+  {% include 'shopping_tab/partials/tab_summary.html' %}
   {% include 'shopping_tab/partials/items_table.html' %}
 {% endif %}

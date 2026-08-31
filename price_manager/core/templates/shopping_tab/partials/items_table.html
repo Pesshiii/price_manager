@@ -1,42 +1,45 @@
+{% comment %}
+Позиции заявки. Вся строка — ссылка на страницу позиции, где выбирается товар.
+{% endcomment %}
 <div id="cart-items-list" hx-swap-oob="true">
   {% if items %}
-    <div class="table-responsive">
-      <table class="table table-hover align-middle mb-0">
-        <thead>
-          <tr>
-              <th scope="col">Запрос</th>
-              <th scope="col">Подтверждённый товар</th>
-              <th scope="col">Найдено</th>
-              <th scope="col">Количество</th>
-        </thead>
-        <tbody>
-          {% for item in items %}
-              <tr>
-                  <td><a href="{% url 'cart-item-detail' item.pk %}">{{ item.search_query }}</a></td>
-                  <td>
-                  {% if item.confirmed_product %}
-                      {{ item.confirmed_product.name }}
-                  {% else %}
-                      <span class="text-muted">Не выбран</span>
-                  {% endif %}
-                  </td>
-                  <td>
-                  {% if item.products.all %}
-                      {{ item.products.count }}
-                  {% else %}
-                      <span class="text-muted">Нет совпадений</span>
-                  {% endif %}
-                  </td>
-                  <td>{{ item.quantity }}</td>
-              </tr>
-          {% endfor %}
-        </tbody>
-      </table>
+    <div class="ci-cand-list">
+      {% for item in items %}
+        <a href="{% url 'cart-item-detail' item.pk %}" class="ci-cand">
+          <div>
+            <p class="ci-cand-name mb-1">{{ item.search_query }}</p>
+            <p class="ci-cand-sub mb-0">
+              {% if item.confirmed_product %}
+                {{ item.confirmed_product.name }}
+              {% elif item.products.all %}
+                Подходящих товаров: {{ item.products.count }}
+              {% else %}
+                Совпадений не найдено
+              {% endif %}
+            </p>
+          </div>
+          <div class="ci-cand-sub text-nowrap"><span class="ci-num">{{ item.quantity }}</span> шт.</div>
+          <div class="ci-cand-price">
+            {% if item.line_total %}
+              <span class="ci-num">{{ item.line_total|floatformat:2 }} тг</span>
+            {% else %}
+              <span class="text-muted">—</span>
+            {% endif %}
+          </div>
+          <div>
+            {% if item.confirmed_product %}
+              <span class="ci-chip ci-chip-sm ci-chip-ok"><span class="ci-dot"></span>Подтверждён</span>
+            {% else %}
+              <span class="ci-chip ci-chip-sm ci-chip-warn"><span class="ci-dot"></span>Требует выбора</span>
+            {% endif %}
+          </div>
+        </a>
+      {% endfor %}
     </div>
   {% else %}
-    <div class="text-center text-muted py-5">
-      <i class="bi bi-card-list fs-1 d-block mb-3"></i>
-      <p class="mb-0">В этой корзине пока нет товаров. Добавьте товар вручную или через главный прайс.</p>
+    <div class="text-center text-muted py-5 px-3">
+      <i class="bi bi-card-list fs-1 d-block mb-3 opacity-50"></i>
+      <p class="mb-0">В этой заявке пока нет позиций. Добавьте товар вручную или через главный прайс.</p>
     </div>
   {% endif %}
 </div>

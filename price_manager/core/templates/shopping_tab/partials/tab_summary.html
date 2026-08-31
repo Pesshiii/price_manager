@@ -1,0 +1,46 @@
+{% comment %}Сводка заявки: сколько позиций закрыто и на какую сумму.{% endcomment %}
+<div id="shopping-tab-summary" hx-swap-oob="true">
+  <section class="ci-panel" aria-label="Сводка">
+    <div class="ci-panel-head">
+      <h2 class="ci-panel-title">Сводка</h2>
+    </div>
+    <div class="p-3">
+      {% if items_total %}
+        <div class="ci-headline mb-1">
+          <span class="ci-num">{{ items_confirmed }}</span><small> / {{ items_total }}</small>
+        </div>
+        <div class="ci-stat-label small mb-2">Позиций подтверждено</div>
+        <div class="ci-progress mb-3" role="progressbar"
+             aria-valuenow="{{ progress }}" aria-valuemin="0" aria-valuemax="100"
+             aria-label="Готовность заявки">
+          <div class="ci-progress-bar{% if not items_pending %} is-complete{% endif %}"
+               style="width: {{ progress }}%;"></div>
+        </div>
+
+        <div class="d-flex flex-column gap-2 mb-3">
+          <div class="ci-stat">
+            <span class="ci-stat-label">Готовность</span>
+            <span class="ci-stat-value ci-num">{{ progress }}%</span>
+          </div>
+          <div class="ci-stat">
+            <span class="ci-stat-label">Осталось выбрать</span>
+            <span class="ci-stat-value ci-num">{{ items_pending }}</span>
+          </div>
+        </div>
+
+        <div class="ci-total mb-3">
+          <div class="ci-total-label mb-1">Сумма по подтверждённым</div>
+          <div class="ci-total-sum ci-num">{{ items_sum|floatformat:2 }} тг</div>
+        </div>
+      {% else %}
+        <p class="text-muted small mb-3">В заявке пока нет позиций. Добавьте первую справа.</p>
+      {% endif %}
+
+      <button class="btn btn-sm btn-outline-secondary w-100" type="button" onclick="copyToClipboard(
+        '{% if items %}{{ tab.name }}\n{% for item in items %}{{ item.search_query }}   -    {{ item.confirmed_product.name }}\n{% endfor %}{% endif %}'
+        )">
+        <i class="bi bi-clipboard-plus"></i> Скопировать список
+      </button>
+    </div>
+  </section>
+</div>

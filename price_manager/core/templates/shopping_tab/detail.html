@@ -1,68 +1,91 @@
 {% extends 'base.html' %}
 
-{% block title %}Корзина {{ tab.name }}{% endblock %}
+{% block title %}Заявка {{ tab.name }}{% endblock %}
+
+{% block style %}{% include 'shopping_tab/includes/styles.html' %}{% endblock %}
 
 {% block body %}
-<div class="d-flex justify-content-between align-items-start flex-wrap gap-3 mb-4">
-  <div>
-    <h1 class="h3 mb-1">{{ tab.name }}</h1>
-    <p class="text-muted mb-0">Всего товаров: <span id="cart-items-count">{{ items|length }}</span></p>
-  </div>
-  <a href="{% url 'shopping-tab-list' %}" class="btn btn-outline-secondary">
-    <i class="bi bi-arrow-left"></i> Ко всем корзинам
-  </a>
-</div>
+<div class="container-fluid px-4 py-4">
 
-<div class="row g-4">
-  <div class="col-lg-4">
-    <div class="card shadow-sm h-100">
-      <div class="card-body">
-        <h2 class="h5 mb-3">Настройки корзины</h2>
-        <form method="post" novalidate>
-          {% csrf_token %}
-          {% if form.non_field_errors %}
-            <div class="alert alert-danger">
-              {{ form.non_field_errors }}
-            </div>
-          {% endif %}
-          <div class="mb-3">
-            {{ form.name.label_tag }}
-            {{ form.name }}
-            {% if form.name.errors %}
-              <div class="invalid-feedback d-block">{{ form.name.errors|striptags }}</div>
-            {% endif %}
-          </div>
-          <div class="form-check form-switch mb-3">
-            {{ form.open }}
-            <label class="form-check-label" for="{{ form.open.id_for_label }}">{{ form.open.label }}</label>
-            {% if form.open.errors %}
-              <div class="invalid-feedback d-block">{{ form.open.errors|striptags }}</div>
-            {% endif %}
-          </div>
-          <button type="submit" class="btn btn-primary w-100">Сохранить</button>
-        </form>
+  <nav aria-label="Навигация" class="mb-3">
+    <ol class="breadcrumb mb-0 small">
+      <li class="breadcrumb-item"><a href="{% url 'shopping-tab-list' %}">Заявки</a></li>
+      <li class="breadcrumb-item active" aria-current="page">{{ tab.name }}</li>
+    </ol>
+  </nav>
+
+  <div class="d-flex justify-content-between align-items-start flex-wrap gap-3 mb-4">
+    <div>
+      <h1 class="h3 mb-2">{{ tab.name }}</h1>
+      <div class="d-flex align-items-center gap-2 flex-wrap small text-muted">
+        <span>Заявка клиента</span>
+        <span>·</span>
+        <span class="ci-qty-pill">Позиций: <b class="ci-num">{{ items_total }}</b></span>
       </div>
     </div>
+    <div class="d-flex align-items-center gap-2">
+      {% if tab.open %}
+        <span class="ci-chip ci-chip-ok"><span class="ci-dot"></span>Открыта</span>
+      {% else %}
+        <span class="ci-chip ci-chip-muted"><span class="ci-dot"></span>Закрыта</span>
+      {% endif %}
+      <a href="{% url 'shopping-tab-list' %}" class="btn btn-outline-secondary">
+        <i class="bi bi-arrow-left"></i> Ко всем заявкам
+      </a>
+    </div>
   </div>
-  <div class="col-lg-8">
-    <div class="card shadow-sm h-100">
-      <div class="card-body d-flex flex-column">
-        <div class="d-flex justify-content-between align-items-start flex-wrap gap-2 mb-3">
-          <div class="d-flex gap-3">
-            <h2 class="h5 mb-0">Товары в корзине</h2>
-            <button class="btn btn-sm btn-outline-secondary" onclick="copyToClipboard(
-              '{% if items %}{{tab.name}}\n{% for item in items %}{{item.search_query}}   -    {{item.confirmed_product.name}}\n{%endfor%}{% endif %}'
-              )">
-              <i class="bi bi-clipboard-plus"></i>
-            </button>
+
+  <div class="row g-4">
+    <div class="col-12 col-lg-4">
+      <div class="d-flex flex-column gap-4 ci-decision">
+        {% include 'shopping_tab/partials/tab_summary.html' %}
+
+        <section class="ci-panel" aria-label="Настройки заявки">
+          <div class="ci-panel-head">
+            <h2 class="ci-panel-title">Настройки</h2>
           </div>
+          <div class="p-3">
+            <form method="post" novalidate>
+              {% csrf_token %}
+              {% if form.non_field_errors %}
+                <div class="alert alert-danger">{{ form.non_field_errors }}</div>
+              {% endif %}
+              <div class="mb-3">
+                <label class="form-label small text-muted" for="{{ form.name.id_for_label }}">{{ form.name.label }}</label>
+                {{ form.name }}
+                {% if form.name.errors %}
+                  <div class="invalid-feedback d-block">{{ form.name.errors|striptags }}</div>
+                {% endif %}
+              </div>
+              <div class="form-check form-switch mb-3">
+                {{ form.open }}
+                <label class="form-check-label" for="{{ form.open.id_for_label }}">{{ form.open.label }}</label>
+                {% if form.open.errors %}
+                  <div class="invalid-feedback d-block">{{ form.open.errors|striptags }}</div>
+                {% endif %}
+              </div>
+              <button type="submit" class="btn btn-primary w-100">Сохранить</button>
+            </form>
+          </div>
+        </section>
+      </div>
+    </div>
+
+    <div class="col-12 col-lg-8">
+      <section class="ci-panel" aria-label="Позиции заявки">
+        <div class="ci-panel-head">
+          <h2 class="ci-panel-title">
+            Позиции заявки
+            <span class="ci-count" id="cart-items-count">{{ items_total }}</span>
+          </h2>
         </div>
-        <div id="cart-add-item-slot"
+        <div class="p-3 border-bottom"
+             id="cart-add-item-slot"
              hx-get="{% url 'shopping-tab-item-add' tab.pk %}"
              hx-trigger="load"
              hx-swap="innerHTML"></div>
         {% include 'shopping_tab/partials/items_table.html' %}
-      </div>
+      </section>
     </div>
   </div>
 </div>
@@ -70,8 +93,8 @@
 
 {% block script %}
   <script>
-  function copyToClipboard(text) {
+    function copyToClipboard(text) {
       navigator.clipboard.writeText(text);
-  }
+    }
   </script>
 {% endblock %}
