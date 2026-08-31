@@ -80,22 +80,34 @@
   /* Строка списка — кандидат на странице позиции, позиция на странице заявки */
   .ci-cand {
     display: grid;
-    grid-template-columns: 1fr auto auto auto;
+    /* minmax(0, …) обязательно: у 1fr минимальный размер равен min-content,
+       поэтому длинное название распирало строку и выталкивало кнопки
+       за край панели, где их обрезал overflow: hidden. */
+    grid-template-columns: minmax(0, 1fr) auto auto auto;
     gap: .6rem 1.25rem;
     align-items: center;
     padding: .95rem 1.15rem;
     border-top: 1px solid #e9ecef;
     border-left: 3px solid transparent;
   }
+  .ci-cand > * { min-width: 0; }
   .ci-cand:first-child { border-top: 0; }
   .ci-cand:hover { background: #f8f9fb; }
   .ci-cand.is-chosen, .ci-cand.is-chosen:hover { border-left-color: #198754; background: #e7f5ee; }
-  .ci-cand-name { font-size: .95rem; font-weight: 500; line-height: 1.35; }
-  .ci-cand-sub { font-size: .79rem; color: #6a7183; }
+  .ci-cand-name {
+    font-size: .95rem;
+    font-weight: 500;
+    line-height: 1.35;
+    overflow-wrap: anywhere;
+  }
+  .ci-cand-sub { font-size: .79rem; color: #6a7183; overflow-wrap: anywhere; }
   .ci-cand-price { font-size: .98rem; font-weight: 600; text-align: right; white-space: nowrap; }
-  @media (max-width: 720px) {
-    .ci-cand { grid-template-columns: 1fr auto; }
-    .ci-cand-price { text-align: left; }
+  .ci-cand-actions { justify-self: end; }
+  /* Ниже 1200px правая колонка уже слишком узкая для четырёх столбцов:
+     название с ценой в первой строке, наличие с кнопками — во второй. */
+  @media (max-width: 1200px) {
+    .ci-cand { grid-template-columns: minmax(0, 1fr) auto; }
+    .ci-cand-price { text-align: right; }
   }
 
   /* Строка-ссылка (список позиций заявки) */

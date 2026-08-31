@@ -36,7 +36,7 @@
           <div>
             {% include 'shopping_tab/includes/stock_badge.html' with product=product %}
           </div>
-          <div class="d-flex align-items-center justify-content-end gap-1">
+          <div class="ci-cand-actions d-flex align-items-center justify-content-end gap-1">
             {% if item.confirmed_product_id == product.id %}
               <span class="ci-chosen-chip"><i class="bi bi-check-lg"></i> Выбрано</span>
             {% else %}
