@@ -1,14 +1,14 @@
 {% load crispy_forms_field mptt_tags %}
-<div class="container p-0" id="div_category"{% if oob %} hx-swap-oob="true"{% endif %}>
+<div class="container p-0" id="div_{{ field.auto_id }}"{% if oob %} hx-swap-oob="true"{% endif %}>
   <legend class="filter-section-title">
       {{ field.label }}
       {% if field.field.required %}
           <span class="text-danger">*</span>
       {% endif %}
   </legend>
-  <div class="accordion accordion-flush filter-scroll-list" id="categoryAccordion" style="max-height: 320px; overflow: auto;">
+  <div class="accordion accordion-flush filter-scroll-list" id="categoryAccordion_{{ field.auto_id }}" style="max-height: 320px; overflow: auto;">
     {% recursetree field.field.queryset %}
-      {% include "supplier/partials/category_filter_node.html" with node=node children=children field=field parent_accordion_id="categoryAccordion" %}
+      {% include "supplier/partials/category_filter_node.html" with node=node children=children field=field %}
     {% endrecursetree %}
   </div>
 </div>

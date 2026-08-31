@@ -3,19 +3,19 @@
   {% with input_id='id_'|add:field.html_name|add:'_'|add:pk_str %}
     {% if not node.is_leaf_node %}
       <div class="accordion-item">
-        <span class="accordion-header" id="heading-{{ node.pk }}">
+        <span class="accordion-header" id="heading-{{ field.auto_id }}-{{ pk_str }}">
           <div class="d-flex align-items-center gap-2 pe-2">
             <div class="form-check mb-0 ms-1">
               <input class="form-check-input" type="checkbox" name="{{ field.html_name }}" value="{{ node.pk }}" id="{{ input_id }}" {% if selected_values and node.pk|slugify in selected_values %}checked{% endif %}>
               <label class="form-check-label" for="{{ input_id }}">{{ node.name }}</label>
             </div>
-            <button class="accordion-button collapsed py-2 ps-3 pe-2 flex-grow-1" type="button" data-bs-toggle="collapse" data-bs-target="#collapse-{{ node.pk }}" aria-expanded="{% if node.pk|slugify in selected_values or node.get_descendants|values_list:'pk'|intersection:selected_values%} true {% else %} false {% endif %}" aria-controls="collapse-{{ node.pk }}">
+            <button class="accordion-button collapsed py-2 ps-3 pe-2 flex-grow-1" type="button" data-bs-toggle="collapse" data-bs-target="#collapse-{{ field.auto_id }}-{{ pk_str }}" aria-expanded="{% if node.pk|slugify in selected_values or node.get_descendants|values_list:'pk'|intersection:selected_values%} true {% else %} false {% endif %}" aria-controls="collapse-{{ field.auto_id }}-{{ pk_str }}">
             </button>
           </div>
         </span>
-        <div id="collapse-{{ node.pk }}" class="accordion-collapse  {% if node.pk|slugify in selected_values or node.get_descendants|values_list:'pk'|intersection:selected_values%} {% else %} collapse{% endif %}" aria-labelledby="heading-{{ node.pk }}">
+        <div id="collapse-{{ field.auto_id }}-{{ pk_str }}" class="accordion-collapse  {% if node.pk|slugify in selected_values or node.get_descendants|values_list:'pk'|intersection:selected_values%} {% else %} collapse{% endif %}" aria-labelledby="heading-{{ field.auto_id }}-{{ pk_str }}">
           <div class="accordion-body py-2">
-            <div class="accordion accordion-flush" id="accordion-{{ node.pk }}">
+            <div class="accordion accordion-flush" id="accordion-{{ field.auto_id }}-{{ pk_str }}">
               {{ children }}
             </div>
           </div>
