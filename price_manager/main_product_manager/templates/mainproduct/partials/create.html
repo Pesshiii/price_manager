@@ -6,7 +6,7 @@
           hx-swap="innerHTML"
           method="POST">
         {% csrf_token %}
-        {{form|crispy}}
+        {% crispy form form.helper %}
         {% if form.is_bound %}
           {% include "supplier/partials/category_filter_field.html" with field=form.categories %}
         {% else %}
