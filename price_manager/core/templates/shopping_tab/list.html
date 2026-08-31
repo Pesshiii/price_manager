@@ -1,75 +1,116 @@
 {% extends 'base.html' %}
-
-{% block title %}Корзины{% endblock %}
-
 {% load crispy_forms_tags %}
 
+{% block title %}Заявки{% endblock %}
+
+{% block style %}{% include 'shopping_tab/includes/styles.html' %}{% endblock %}
+
 {% block body %}
-<div class="row g-4">
-  <div class="col-lg-4">
-    <div class="card shadow-sm h-100">
-      <div class="card-body">
-        <h1 class="h4 mb-3">Создать корзину</h1>
-        {% crispy form %}
+<div class="container-fluid px-4 py-4">
+
+  <div class="d-flex justify-content-between align-items-start flex-wrap gap-3 mb-4">
+    <div>
+      <h1 class="h3 mb-2">Заявки</h1>
+      <div class="d-flex align-items-center gap-2 flex-wrap small text-muted">
+        <span class="ci-qty-pill">Открытых: <b class="ci-num">{{ open_count }}</b></span>
+        {% if pending_total %}
+          <span>·</span>
+          <span>Позиций без выбора: <b class="ci-num">{{ pending_total }}</b></span>
+        {% endif %}
       </div>
     </div>
   </div>
-  <div class="col-lg-8">
-    <div class="card shadow-sm h-100">
-      <div class="card-body d-flex flex-column">
-        <div class="d-flex justify-content-between align-items-start flex-wrap gap-2 mb-3">
-            <h2 class="h4 mb-0">Мои корзины</h2>
-            <a href="{% url 'shopping-tab-list' %}" class="btn btn-outline-secondary btn-sm">
-                    <i class="bi bi-arrow-clockwise"></i> Обновить
-            </a>
+
+  <div class="row g-4">
+    <div class="col-12 col-lg-4">
+      <section class="ci-panel ci-decision" aria-label="Новая заявка">
+        <div class="ci-panel-head">
+          <h2 class="ci-panel-title">Новая заявка</h2>
         </div>
+        <div class="p-3">
+          {% crispy form %}
+        </div>
+      </section>
+    </div>
+
+    <div class="col-12 col-lg-8">
+      <section class="ci-panel" aria-label="Мои заявки">
+        <div class="ci-panel-head">
+          <h2 class="ci-panel-title">
+            Мои заявки
+            <span class="ci-count">{{ tabs|length }}</span>
+          </h2>
+        </div>
+
         {% if tabs %}
-          <div class="list-group list-group-flush">
+          <div class="ci-cand-list">
             {% for tab in tabs %}
-              <div class="list-group-item py-3">
-                <div class="d-flex flex-column flex-md-row justify-content-between align-items-md-center gap-3">
-                  <div>
-                    <h3 class="h5 mb-1">
-                      <a href="{% url 'shopping-tab-detail' tab.pk %}" class="text-decoration-none">{{ tab.name }}</a>
-                    </h3>
-                    <div class="text-muted small d-flex flex-wrap align-items-center gap-2">
-                      <span>{{ tab.item_count }} товар(ов)</span>
-                      {% if tab.open %}
-                        <span class="badge bg-success-subtle text-success-emphasis">Открыта</span>
-                      {% else %}
-                        <span class="badge bg-secondary">Закрыта</span>
-                      {% endif %}
+              <div class="ci-cand">
+                <div>
+                  <p class="ci-cand-name mb-1">
+                    <a href="{% url 'shopping-tab-detail' tab.pk %}" class="text-decoration-none">{{ tab.name }}</a>
+                  </p>
+                  <p class="ci-cand-sub mb-0">
+                    {% if tab.item_count %}
+                      Позиций: {{ tab.item_count }}{% if tab.pending_count %} · осталось выбрать: {{ tab.pending_count }}{% endif %}
+                    {% else %}
+                      Пока пусто
+                    {% endif %}
+                  </p>
+                </div>
+
+                <div>
+                  {% if tab.item_count %}
+                    <div class="ci-progress ci-progress-sm mb-1"
+                         role="progressbar"
+                         aria-valuenow="{{ tab.progress }}" aria-valuemin="0" aria-valuemax="100"
+                         aria-label="Готовность заявки {{ tab.name }}">
+                      <div class="ci-progress-bar{% if not tab.pending_count %} is-complete{% endif %}"
+                           style="width: {{ tab.progress }}%;"></div>
                     </div>
-                  </div>
-                  <div class="d-flex gap-2">
-                    {% load special_tags %}
-                    <form method="post" action="{% url 'shopping-tab-delete' tab.pk %}" onsubmit="return confirm('Удалить корзину \"{{ tab.name }}\"?');">
-                      {% csrf_token %}
-                      <button type="submit" class="btn btn-sm btn-outline-danger">
-                        <i class="bi bi-trash"></i>
-                      </button>
-                    </form>
-                  </div>
+                    <div class="ci-cand-sub text-end">
+                      <span class="ci-num">{{ tab.confirmed_count }}</span> / <span class="ci-num">{{ tab.item_count }}</span>
+                    </div>
+                  {% endif %}
+                </div>
+
+                <div class="ci-cand-price">
+                  {% if tab.items_sum %}
+                    <span class="ci-num">{{ tab.items_sum|floatformat:2 }} тг</span>
+                  {% else %}
+                    <span class="text-muted">—</span>
+                  {% endif %}
+                </div>
+
+                <div class="ci-cand-actions d-flex align-items-center gap-2">
+                  {% if tab.open %}
+                    <span class="ci-chip ci-chip-sm ci-chip-ok"><span class="ci-dot"></span>Открыта</span>
+                  {% else %}
+                    <span class="ci-chip ci-chip-sm ci-chip-muted"><span class="ci-dot"></span>Закрыта</span>
+                  {% endif %}
+                  <form method="post"
+                        action="{% url 'shopping-tab-delete' tab.pk %}"
+                        onsubmit="return confirm('Удалить заявку «{{ tab.name|escapejs }}» со всеми позициями?');">
+                    {% csrf_token %}
+                    <button type="submit"
+                            class="ci-remove"
+                            title="Удалить заявку"
+                            aria-label="Удалить заявку {{ tab.name }}">
+                      <i class="bi bi-trash"></i>
+                    </button>
+                  </form>
                 </div>
               </div>
             {% endfor %}
           </div>
         {% else %}
-          <div class="text-center text-muted py-5">
-            <i class="bi bi-basket fs-1 d-block mb-3"></i>
-            <p class="mb-0">У вас пока нет созданных корзин. Используйте форму слева, чтобы добавить первую.</p>
+          <div class="text-center text-muted py-5 px-3">
+            <i class="bi bi-basket fs-1 d-block mb-3 opacity-50"></i>
+            <p class="mb-0">У вас пока нет заявок. Создайте первую в форме слева.</p>
           </div>
         {% endif %}
-      </div>
+      </section>
     </div>
   </div>
 </div>
-{% endblock %}
-
-{% block script %}
-  <script>
-  function copyToClipboard(text) {
-      navigator.clipboard.writeText(text);
-  }
-  </script>
 {% endblock %}

@@ -18,7 +18,7 @@ from django.contrib.auth.mixins import LoginRequiredMixin
 from django.urls import reverse
 from typing import Optional, Any, Dict, Iterable
 from collections import defaultdict, OrderedDict
-from django.db.models import Count, Prefetch
+from django.db.models import Count, Prefetch, Q, Sum, F, ExpressionWrapper, DecimalField
 from django_tables2 import SingleTableView, RequestConfig, SingleTableMixin
 from django_filters.views import FilterView, FilterMixin
 from dal import autocomplete
@@ -104,17 +104,42 @@ class ShoppingTabListView(LoginRequiredMixin, TemplateView):
     template_name = 'shopping_tab/list.html'
     form_class = ShoppingTabCreateForm
 
+    def get_tabs(self):
+        """Заявки со сводкой: сколько позиций, сколько подтверждено, на какую сумму."""
+        price_path = f'items__confirmed_product__{CartItem.PRICE_FIELD}'
+        tabs = list(
+            ShoppingTab.objects
+            .filter(user=self.request.user)
+            .annotate(
+                item_count=Count('items', distinct=True),
+                confirmed_count=Count(
+                    'items',
+                    filter=Q(items__confirmed_product__isnull=False),
+                    distinct=True,
+                ),
+                # Все три агрегата идут по одному join'у items, поэтому не перемножаются.
+                items_sum=Sum(
+                    ExpressionWrapper(
+                        F(price_path) * F('items__quantity'),
+                        output_field=DecimalField(max_digits=20, decimal_places=2),
+                    )
+                ),
+            )
+            .order_by('-open', 'name')
+        )
+        for tab in tabs:
+            tab.pending_count = tab.item_count - tab.confirmed_count
+            tab.progress = round(tab.confirmed_count / tab.item_count * 100) if tab.item_count else 0
+        return tabs
+
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
         form = kwargs.get('form')
         context['form'] = form if form is not None else self.form_class()
-        context['tabs'] = (
-        ShoppingTab.objects
-            .filter(user=self.request.user)
-            .annotate(item_count=Count('items', distinct=True))
-            .order_by('name')
-        )
-        context['items'] = {tab.name: [item for item in tab.items.all()] for tab in context['tabs']}
+        tabs = self.get_tabs()
+        context['tabs'] = tabs
+        context['open_count'] = sum(1 for tab in tabs if tab.open)
+        context['pending_total'] = sum(tab.pending_count for tab in tabs)
         return context
 
     def post(self, request, *args, **kwargs):
