@@ -1,0 +1,16 @@
+{% load crispy_forms_tags %}
+<div class="container p-4">
+    <h2 class="h4 mb-3">Новый товар</h2>
+    <form hx-post="{% url 'mainproduct-create' %}" method="POST">
+        {% csrf_token %}
+        {{form|crispy}}
+        <div class="mt-4">
+            <button class="btn btn-success">
+                Добавить
+            </button>
+            <button class="btn btn-outline-secondary" type="button" data-bs-dismiss="modal">
+                Отмена
+            </button>
+        </div>
+    </form>
+</div>

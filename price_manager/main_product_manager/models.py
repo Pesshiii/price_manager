@@ -34,7 +34,8 @@ class MainProduct(models.Model):
         constraints = [
           models.UniqueConstraint(
             fields=['supplier', 'article', 'name'],
-            name='mp_unique_supplier_article_name'
+            name='mp_unique_supplier_article_name',
+            nulls_distinct=False,
           )
         ]
         indexes = [
@@ -51,8 +52,8 @@ class MainProduct(models.Model):
                              verbose_name='Поставщик',
                              related_name='main_products',
                              on_delete=models.PROTECT,
-                             null=False,
-                             blank=False)
+                             null=True,
+                             blank=True)
     article = models.CharField(verbose_name='Артикул поставщика',
                              null=False,
                              blank=False)

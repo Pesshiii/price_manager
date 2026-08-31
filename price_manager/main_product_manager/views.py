@@ -217,6 +217,19 @@ class MainProductDetail(DetailView):
     return context
 
 
+class MainProductCreate(CreateView):
+  model = MainProduct
+  form_class = MainProductCreateForm
+  template_name = 'mainproduct/partials/create.html'
+  def get(self, request, *args, **kwargs):
+    if not self.request.htmx:
+      return redirect(reverse('mainproducts'))
+    return super().get(request, *args, **kwargs)
+  def form_valid(self, form):
+    self.object = form.save()
+    return HttpResponseClientRedirect(reverse('mainproduct-detail', kwargs={'pk': self.object.pk}))
+
+
 class MainProductUpdate(UpdateView):
   model = MainProduct
   form_class = MainProductForm

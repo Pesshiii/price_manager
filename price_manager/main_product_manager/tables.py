@@ -115,12 +115,16 @@ class MainProductTable(tables.Table):
       'class': 'clickable-rows table table-auto table-stripped table-hover'
       }
   def render_stock_msg(self, record):
+    if not record.supplier:
+      return ''
     if not record.stock or record.stock == 0:
       return record.supplier.msg_navailable
     else:
       return record.supplier.msg_available
-  
+
   def render_delivery_days(self, record):
+    if not record.supplier:
+      return ''
     return record.supplier.get_delivery_days_for_stock(record.stock)
   def render_actions(self, record):
         return render_to_string(

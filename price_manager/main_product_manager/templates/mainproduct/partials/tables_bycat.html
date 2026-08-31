@@ -7,6 +7,16 @@
       {% include "mainproduct/partials/fields_selector.html" %}
       <button type="button"
               class="btn btn-outline-primary"
+              title="Добавить товар"
+              data-bs-toggle="modal"
+              data-bs-target="#modal-container"
+              hx-get="{% url 'mainproduct-create' %}"
+              hx-target="#modal-container .modal-content"
+              hx-swap="innerHTML">
+        Добавить товар
+      </button>
+      <button type="button"
+              class="btn btn-outline-primary"
               title="Добавить категорию"
               data-bs-toggle="modal"
               data-bs-target="#modal-container"

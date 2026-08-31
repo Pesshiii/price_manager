@@ -6,6 +6,7 @@ from product_price_manager import views as ppm_views
 urlpatterns = [
 
     path('', MainPage.as_view(), name='mainproducts'),
+    path('create', MainProductCreate.as_view(), name='mainproduct-create'),
     path('table_bycat/<int:category_pk>', MainProductTableView.as_view(), name='mainproduct-table-bycat'),
     path('table_nocat/', MainProductTableView.as_view(), name='mainproduct-table-nocat'),
     path('filter/', MainProductFilterView.as_view(), name='mainproduct-filter'),

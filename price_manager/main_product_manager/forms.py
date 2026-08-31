@@ -13,6 +13,24 @@ class MainProductForm(forms.ModelForm):
     )
 
 
+class MainProductCreateForm(forms.ModelForm):
+  class Meta:
+    model = MainProduct
+    fields = (
+      'supplier',
+      'article',
+      'name',
+      'sku',
+      'manufacturer',
+      'categories',
+      'stock',
+      'weight',
+      'length',
+      'width',
+      'depth',
+    )
+
+
 class MainProductBulkCategoryForm(forms.Form):
   category = forms.ModelChoiceField(
     label='Категория',
