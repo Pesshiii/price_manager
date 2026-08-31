@@ -1,5 +1,6 @@
 {% with selected_values=field.value %}
-  {% with input_id='id_'|add:field.html_name|add:'_'|add:node.pk|stringformat:'s' %}
+  {% with pk_str=node.pk|stringformat:'s' %}
+  {% with input_id='id_'|add:field.html_name|add:'_'|add:pk_str %}
     {% if not node.is_leaf_node %}
       <div class="accordion-item">
         <span class="accordion-header" id="heading-{{ node.pk }}">
@@ -26,5 +27,6 @@
         <label class="form-check-label" for="{{ input_id }}">{{ node.name }}</label>
       </div>
     {% endif %}
+  {% endwith %}
   {% endwith %}
 {% endwith %}
