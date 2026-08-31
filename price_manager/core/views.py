@@ -272,6 +272,23 @@ class CartItemUnconfirmView(LoginRequiredMixin, View):
         return render(request, self.template_name, {'item': item})
 
 
+class CartItemRemoveProductView(LoginRequiredMixin, View):
+    """Убирает товар из подходящих. Подтверждение с него снимается заодно."""
+    template_name = 'shopping_tab/partials/item_confirm_response.html'
+
+    def post(self, request, pk, product_pk):
+        if not request.htmx:
+            return redirect('cart-item-detail', pk=pk)
+        item = get_object_or_404(CartItem, pk=pk, user=request.user)
+        product = get_object_or_404(MainProduct, pk=product_pk)
+        item.products.remove(product)
+        # Подтверждённым не может остаться товар, которого больше нет в подходящих.
+        if item.confirmed_product_id == product.pk:
+            item.confirmed_product = None
+            item.save(update_fields=['confirmed_product'])
+        return render(request, self.template_name, {'item': item})
+
+
 class CartItemProductSelectView(LoginRequiredMixin, SingleTableMixin, FilterView):
     """Модалка выбора товаров Главного прайса для элемента корзины.
 

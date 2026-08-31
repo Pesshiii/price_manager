@@ -114,6 +114,22 @@
   .ci-stock-in .ci-dot { background: #16794c; }
   .ci-stock-out { color: #6a7183; }
 
+  .ci-remove {
+    border: 0;
+    background: transparent;
+    color: #adb5bd;
+    width: 1.9rem;
+    height: 1.9rem;
+    border-radius: .45rem;
+    display: inline-grid;
+    place-items: center;
+    flex: none;
+    cursor: pointer;
+    transition: color .14s ease, background .14s ease;
+  }
+  .ci-remove:hover { color: #b02a37; background: #fdeaec; }
+  .ci-remove:focus-visible { outline: 2px solid #b02a37; outline-offset: 1px; }
+
   .ci-chosen-chip {
     display: inline-flex;
     align-items: center;

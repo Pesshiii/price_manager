@@ -32,15 +32,25 @@
         </div>
       {% endif %}
 
-      <div class="d-flex gap-2">
+      <div class="d-flex gap-2 align-items-center">
         <a href="{% url 'mainproduct-detail' item.confirmed_product.pk %}" class="btn btn-outline-secondary btn-sm">
           Открыть в прайсе
         </a>
         <button type="button"
                 class="btn btn-sm btn-link text-muted text-decoration-none"
+                title="Товар останется в списке подходящих"
                 hx-post="{% url 'cart-item-unconfirm' item.pk %}"
                 hx-swap="none">
           Снять выбор
+        </button>
+        <button type="button"
+                class="ci-remove ms-auto"
+                title="Убрать товар из подходящих"
+                aria-label="Убрать «{{ item.confirmed_product.name }}» из подходящих"
+                hx-post="{% url 'cart-item-product-remove' item.pk item.confirmed_product.pk %}"
+                hx-swap="none"
+                hx-confirm="Убрать подтверждённый товар из подходящих? Подтверждение будет снято.">
+          <i class="bi bi-x-lg"></i>
         </button>
       </div>
     </div>

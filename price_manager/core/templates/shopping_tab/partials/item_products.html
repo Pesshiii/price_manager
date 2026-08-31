@@ -36,7 +36,7 @@
           <div>
             {% include 'shopping_tab/includes/stock_badge.html' with product=product %}
           </div>
-          <div>
+          <div class="d-flex align-items-center justify-content-end gap-1">
             {% if item.confirmed_product_id == product.id %}
               <span class="ci-chosen-chip"><i class="bi bi-check-lg"></i> Выбрано</span>
             {% else %}
@@ -47,6 +47,15 @@
                 Подтвердить
               </button>
             {% endif %}
+            <button type="button"
+                    class="ci-remove"
+                    title="Убрать из подходящих"
+                    aria-label="Убрать «{{ product.name }}» из подходящих"
+                    hx-post="{% url 'cart-item-product-remove' item.pk product.pk %}"
+                    hx-swap="none"
+                    {% if item.confirmed_product_id == product.id %}hx-confirm="Убрать подтверждённый товар из подходящих? Подтверждение будет снято."{% endif %}>
+              <i class="bi bi-x-lg"></i>
+            </button>
           </div>
         </article>
       {% endfor %}
