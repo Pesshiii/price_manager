@@ -2,6 +2,7 @@ import pandas as pd
 from io import StringIO
 from .models import *
 from django.db import transaction
+from django.http import QueryDict
 from supplier_manager.models import Manufacturer, Category, ManufacturerDict
 from .models import ShoppingTab, CartItem
 from main_product_manager.models import MainProduct
@@ -118,6 +119,12 @@ def update_cart_items(shopping_tab_id: int) -> int:
 def find_main_products(search_query: str|None) -> list[MainProduct]:
     """
     Находит все главные продукты, подходящие под поисковый запрос.
+    Пустой запрос не совпадает ни с чем.
     """
-    filter = MainProductFilter(data={'search': search_query}, queryset=MainProduct.objects.all())
+    if not search_query or not search_query.strip():
+        return []
+    # MainProductFilter.config_filters читает data.getlist — нужен QueryDict, а не dict.
+    data = QueryDict(mutable=True)
+    data['search'] = search_query
+    filter = MainProductFilter(data=data, queryset=MainProduct.objects.all())
     return list(filter.qs)
