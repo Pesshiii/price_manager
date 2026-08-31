@@ -78,6 +78,15 @@
             Позиции заявки
             <span class="ci-count" id="cart-items-count">{{ items_total }}</span>
           </h2>
+          <button type="button"
+                  class="btn btn-sm btn-outline-secondary"
+                  data-bs-toggle="modal"
+                  data-bs-target="#modal-container"
+                  hx-get="{% url 'shopping-tab-import' tab.pk %}"
+                  hx-target="#modal-container .modal-content"
+                  hx-swap="innerHTML">
+            <i class="bi bi-filetype-xlsx"></i> Импорт из файла
+          </button>
         </div>
         <div class="p-3 border-bottom"
              id="cart-add-item-slot"
@@ -86,6 +95,18 @@
              hx-swap="innerHTML"></div>
         {% include 'shopping_tab/partials/items_table.html' %}
       </section>
+    </div>
+  </div>
+</div>
+
+<div id="modal-container" class="modal fade" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-lg modal-dialog-centered modal-dialog-scrollable">
+    <div class="modal-content">
+      <div class="container d-flex justify-content-center gap-2 mb-4 mt-4">
+        <div class="spinner-grow" role="status"></div>
+        <div class="spinner-grow" role="status"></div>
+        <div class="spinner-grow" role="status"></div>
+      </div>
     </div>
   </div>
 </div>

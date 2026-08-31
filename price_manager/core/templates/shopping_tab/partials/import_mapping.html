@@ -1,0 +1,91 @@
+{% comment %}
+Шаг 2 импорта: выбор колонок и предпросмотр. Смена любого списка перезапрашивает
+предпросмотр на отдельном URL, поэтому его нельзя перепутать с запуском импорта.
+{% endcomment %}
+<div class="modal-header">
+  <div>
+    <h5 class="modal-title">Сопоставьте колонки</h5>
+    <p class="small text-muted mb-0">{{ tab.name }} · {{ tab.file.name|cut:"shopping_tabs/" }}</p>
+  </div>
+  <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Закрыть"></button>
+</div>
+
+<form hx-post="{% url 'shopping-tab-import-run' tab.pk %}"
+      hx-target="#modal-container .modal-content"
+      hx-swap="innerHTML">
+  {% csrf_token %}
+  <div class="modal-body">
+    <div class="row g-3 mb-3">
+      <div class="col-md-6">
+        <label class="form-label" for="import-query-column">Колонка с запросом</label>
+        <select class="form-select"
+                name="query_column"
+                id="import-query-column"
+                hx-post="{% url 'shopping-tab-import-preview' tab.pk %}"
+                hx-target="#modal-container .modal-content"
+                hx-swap="innerHTML"
+                hx-include="closest form"
+                hx-trigger="change">
+          {% for column in columns %}
+            <option value="{{ column }}"{% if column == query_column %} selected{% endif %}>{{ column }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="col-md-6">
+        <label class="form-label" for="import-quantity-column">Колонка с количеством</label>
+        <select class="form-select"
+                name="quantity_column"
+                id="import-quantity-column"
+                hx-post="{% url 'shopping-tab-import-preview' tab.pk %}"
+                hx-target="#modal-container .modal-content"
+                hx-swap="innerHTML"
+                hx-include="closest form"
+                hx-trigger="change">
+          <option value="">— не указана, по 1 шт. —</option>
+          {% for column in columns %}
+            <option value="{{ column }}"{% if column == quantity_column %} selected{% endif %}>{{ column }}</option>
+          {% endfor %}
+        </select>
+      </div>
+    </div>
+
+    {% if preview %}
+      <div class="d-flex justify-content-between align-items-baseline mb-2">
+        <span class="small text-muted">Первые строки после разбора</span>
+        <span class="small text-muted">
+          Будет создано: <b>{{ total_rows }}</b>{% if skipped_rows %} · пропущено пустых: {{ skipped_rows }}{% endif %}
+        </span>
+      </div>
+      <div class="table-responsive border rounded-3">
+        <table class="table table-sm mb-0">
+          <thead>
+            <tr>
+              <th scope="col">Запрос</th>
+              <th scope="col" class="text-end" style="width: 8rem;">Количество</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for row in preview %}
+              <tr>
+                <td>{{ row.search_query }}</td>
+                <td class="text-end">{{ row.quantity }}</td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    {% else %}
+      <div class="alert alert-warning mb-0">
+        В выбранной колонке нет непустых значений. Выберите другую колонку с запросом.
+      </div>
+    {% endif %}
+  </div>
+
+  <div class="modal-footer">
+    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Отмена</button>
+    <button type="submit" class="btn btn-primary"{% if not preview %} disabled{% endif %}>
+      <i class="bi bi-database-add"></i>
+      Импортировать {{ total_rows }}
+    </button>
+  </div>
+</form>

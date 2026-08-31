@@ -88,32 +88,72 @@ def get_or_create_category_by_path(path: str, delimiter: str = ">") -> Category 
         parent = node
     return node
 
-def update_cart_items(shopping_tab_id: int) -> int:
-    shopping_tab = ShoppingTab.objects.get(id=shopping_tab_id)
+# Сколько кандидатов оставлять каждой позиции при массовом импорте.
+# find_main_products отдаёт их по убыванию релевантности, поэтому это лучшие N.
+CART_IMPORT_MAX_CANDIDATES = 20
+
+CART_IMPORT_EXTENSIONS = ('.csv', '.xlsx', '.xls')
+
+
+def read_shopping_tab_dataframe(shopping_tab: ShoppingTab) -> pd.DataFrame:
+    """Читает прикреплённый к заявке файл в DataFrame."""
     if not shopping_tab.file:
         raise ValueError("Файл не найден")
-    # Чтение файла и создание CartItem
-    # Возвращает количество созданных CartItem
-    created_count = 0
-    if shopping_tab.file.name.endswith('.csv'):
-        df = pd.read_csv(shopping_tab.file.path, encoding='utf-8')
-    elif shopping_tab.file.name.endswith('.xlsx'):
-        df = pd.read_excel(shopping_tab.file.path)
-    else:
-        raise ValueError("Неподдерживаемый формат файла")
-    
+    name = shopping_tab.file.name.lower()
+    if name.endswith('.csv'):
+        return pd.read_csv(shopping_tab.file.path, encoding='utf-8')
+    if name.endswith(('.xlsx', '.xls')):
+        return pd.read_excel(shopping_tab.file.path)
+    raise ValueError("Неподдерживаемый формат файла")
+
+
+def parse_cart_item_rows(
+    df: pd.DataFrame,
+    query_column: str,
+    quantity_column: str | None = None,
+) -> list[dict]:
+    """Строки файла → [{'search_query': …, 'quantity': …}]. Пустые запросы пропускаются."""
+    rows = []
     for _, row in df.iterrows():
-        quantity = int(row.get('quantity', 0))
-        search_query = {key: value for key, value in row.items() if pd.notnull(value) and key != 'quantity'}
-        if quantity > 0:
-            cart_item = CartItem.objects.create(
-                shopping_tab=shopping_tab,
-                quantity=quantity,
-                search_query= ' '.join(f"{k} {v}" for k, v in search_query.items())
-            )
-            cart_item.products.set(find_main_products(cart_item.search_query))
-            shopping_tab.items.add(cart_item)
-            created_count += 1
+        raw_query = row.get(query_column)
+        if pd.isnull(raw_query):
+            continue
+        search_query = str(raw_query).strip()
+        if not search_query:
+            continue
+        quantity = 1
+        if quantity_column:
+            try:
+                quantity = int(float(row.get(quantity_column)))
+            except (TypeError, ValueError):
+                quantity = 1
+            if quantity < 1:
+                quantity = 1
+        rows.append({'search_query': search_query, 'quantity': quantity})
+    return rows
+
+
+def update_cart_items(
+    shopping_tab_id: int,
+    query_column: str,
+    quantity_column: str | None = None,
+    max_candidates: int = CART_IMPORT_MAX_CANDIDATES,
+) -> int:
+    """Создаёт позиции заявки из прикреплённого файла. Возвращает количество созданных."""
+    shopping_tab = ShoppingTab.objects.get(id=shopping_tab_id)
+    df = read_shopping_tab_dataframe(shopping_tab)
+    created_count = 0
+    for row in parse_cart_item_rows(df, query_column, quantity_column):
+        cart_item = CartItem.objects.create(
+            user=shopping_tab.user,
+            search_query=row['search_query'],
+            quantity=row['quantity'],
+        )
+        candidates = find_main_products(row['search_query'])[:max_candidates]
+        if candidates:
+            cart_item.products.set(candidates)
+        shopping_tab.items.add(cart_item)
+        created_count += 1
     return created_count
 
 def find_main_products(search_query: str|None) -> list[MainProduct]:

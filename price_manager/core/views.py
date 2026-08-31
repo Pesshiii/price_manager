@@ -31,6 +31,7 @@ from core.models import *
 from file_manager.models import FileModel
 from main_product_manager.models import MainProduct
 from main_product_manager.filters import MainProductFilter
+from .tasks import update_cart_items_task
 from .utils import *
 from .forms import *
 from .tables import *
@@ -185,6 +186,130 @@ class ShoppingTabDetailView(LoginRequiredMixin, View):
             messages.success(request, 'Корзина обновлена.')
             return redirect('shopping-tab-detail', pk=tab.pk)
         return render(request, self.template_name, self.get_context_data(tab, form=form))
+
+
+IMPORT_PREVIEW_ROWS = 5
+IMPORT_UPLOAD_TEMPLATE = 'shopping_tab/partials/import_upload.html'
+IMPORT_MAPPING_TEMPLATE = 'shopping_tab/partials/import_mapping.html'
+
+
+def _guess_column(columns, keywords):
+    for column in columns:
+        lowered = str(column).lower()
+        if any(keyword in lowered for keyword in keywords):
+            return column
+    return None
+
+
+def _render_import_mapping(request, tab, query_column=None, quantity_column=None, guess=False):
+    """Шаг сопоставления колонок вместе с разбором первых строк."""
+    try:
+        df = read_shopping_tab_dataframe(tab)
+    except Exception as exc:
+        return render(request, IMPORT_UPLOAD_TEMPLATE, {
+            'tab': tab,
+            'error': f'Не удалось прочитать файл: {exc}',
+        })
+
+    columns = [str(column) for column in df.columns]
+    if not columns:
+        return render(request, IMPORT_UPLOAD_TEMPLATE, {
+            'tab': tab,
+            'error': 'В файле не найдено ни одной колонки.',
+        })
+
+    if guess:
+        query_column = _guess_column(columns, ('наимен', 'назв', 'товар', 'запрос', 'name')) or columns[0]
+        quantity_column = _guess_column(columns, ('кол', 'колич', 'quantity', 'qty'))
+    else:
+        if query_column not in columns:
+            query_column = columns[0]
+        # Пустое значение — осознанный выбор «не указана», а не повод угадывать заново.
+        if quantity_column not in columns:
+            quantity_column = None
+
+    rows = parse_cart_item_rows(df, query_column, quantity_column)
+    return render(request, IMPORT_MAPPING_TEMPLATE, {
+        'tab': tab,
+        'columns': columns,
+        'query_column': query_column,
+        'quantity_column': quantity_column,
+        'preview': rows[:IMPORT_PREVIEW_ROWS],
+        'total_rows': len(rows),
+        'skipped_rows': len(df.index) - len(rows),
+    })
+
+
+class ShoppingTabImportView(LoginRequiredMixin, View):
+    """Шаг 1: загрузка файла. Файл сохраняется в ShoppingTab.file и читается дальше оттуда."""
+
+    def get(self, request, pk):
+        if not request.htmx:
+            return redirect('shopping-tab-detail', pk=pk)
+        tab = get_object_or_404(ShoppingTab, pk=pk, user=request.user)
+        return render(request, IMPORT_UPLOAD_TEMPLATE, {'tab': tab})
+
+    def post(self, request, pk):
+        if not request.htmx:
+            return redirect('shopping-tab-detail', pk=pk)
+        tab = get_object_or_404(ShoppingTab, pk=pk, user=request.user)
+        uploaded = request.FILES.get('file')
+        if not uploaded:
+            return render(request, IMPORT_UPLOAD_TEMPLATE, {'tab': tab, 'error': 'Выберите файл.'})
+        if not uploaded.name.lower().endswith(CART_IMPORT_EXTENSIONS):
+            return render(request, IMPORT_UPLOAD_TEMPLATE, {
+                'tab': tab,
+                'error': 'Поддерживаются только файлы .xlsx, .xls и .csv.',
+            })
+        tab.file = uploaded
+        tab.save(update_fields=['file'])
+        return _render_import_mapping(request, tab, guess=True)
+
+
+class ShoppingTabImportPreviewView(LoginRequiredMixin, View):
+    """Шаг 2: пересборка предпросмотра при смене колонок."""
+
+    def post(self, request, pk):
+        if not request.htmx:
+            return redirect('shopping-tab-detail', pk=pk)
+        tab = get_object_or_404(ShoppingTab, pk=pk, user=request.user)
+        return _render_import_mapping(
+            request,
+            tab,
+            query_column=request.POST.get('query_column'),
+            quantity_column=request.POST.get('quantity_column'),
+        )
+
+
+class ShoppingTabImportRunView(LoginRequiredMixin, View):
+    """Шаг 3: запуск фонового импорта."""
+    template_name = 'shopping_tab/partials/import_started.html'
+
+    def post(self, request, pk):
+        if not request.htmx:
+            return redirect('shopping-tab-detail', pk=pk)
+        tab = get_object_or_404(ShoppingTab, pk=pk, user=request.user)
+        query_column = request.POST.get('query_column')
+        quantity_column = request.POST.get('quantity_column') or None
+        try:
+            columns = [str(column) for column in read_shopping_tab_dataframe(tab).columns]
+        except Exception as exc:
+            return render(request, IMPORT_UPLOAD_TEMPLATE, {
+                'tab': tab,
+                'error': f'Не удалось прочитать файл: {exc}',
+            })
+        if query_column not in columns:
+            return _render_import_mapping(request, tab, query_column, quantity_column)
+        if quantity_column not in columns:
+            quantity_column = None
+
+        update_cart_items_task.delay(
+            shopping_tab_id=tab.pk,
+            query_column=query_column,
+            quantity_column=quantity_column,
+            user_id=request.user.pk,
+        )
+        return render(request, self.template_name, {'tab': tab})
 
 
 class ShoppingTabAddItemView(LoginRequiredMixin, View):

@@ -1,0 +1,39 @@
+{% comment %}Шаг 1 импорта: загрузка файла.{% endcomment %}
+<div class="modal-header">
+  <div>
+    <h5 class="modal-title">Импорт позиций из файла</h5>
+    <p class="small text-muted mb-0">{{ tab.name }}</p>
+  </div>
+  <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Закрыть"></button>
+</div>
+
+<form hx-post="{% url 'shopping-tab-import' tab.pk %}"
+      hx-target="#modal-container .modal-content"
+      hx-swap="innerHTML"
+      hx-encoding="multipart/form-data">
+  {% csrf_token %}
+  <div class="modal-body">
+    {% if error %}
+      <div class="alert alert-danger py-2">{{ error }}</div>
+    {% endif %}
+    <div class="mb-1">
+      <label class="form-label" for="import-file">Файл</label>
+      <input type="file"
+             class="form-control"
+             name="file"
+             id="import-file"
+             accept=".csv,.xlsx,.xls"
+             required>
+      <div class="form-text">
+        Excel (.xlsx, .xls) или CSV. Первая строка должна содержать заголовки колонок —
+        по ним вы выберете, где запрос, а где количество.
+      </div>
+    </div>
+  </div>
+  <div class="modal-footer">
+    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Отмена</button>
+    <button type="submit" class="btn btn-primary">
+      <i class="bi bi-upload"></i> Загрузить
+    </button>
+  </div>
+</form>

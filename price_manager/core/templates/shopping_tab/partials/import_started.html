@@ -1,0 +1,18 @@
+{% comment %}Шаг 3 импорта: задача поставлена в очередь.{% endcomment %}
+<div class="modal-header">
+  <h5 class="modal-title">Импорт запущен</h5>
+  <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Закрыть"></button>
+</div>
+<div class="modal-body">
+  <div class="alert alert-info mb-3">
+    Импорт выполняется в фоне — по каждой строке идёт поиск подходящих товаров.
+    Когда всё закончится, вы получите уведомление.
+  </div>
+  <p class="small text-muted mb-0">
+    Позиции появятся в заявке по мере создания — обновите страницу, чтобы увидеть их.
+  </p>
+</div>
+<div class="modal-footer">
+  <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Закрыть</button>
+  <a href="{% url 'shopping-tab-detail' tab.pk %}" class="btn btn-primary">Обновить страницу</a>
+</div>
