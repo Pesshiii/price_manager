@@ -178,7 +178,7 @@ class MainProductFilter(FilterSet):
     #     query &= SearchQuery(f'{term}:*', search_type='raw', config='russian')
         query = Q()
         for bit in value.split(' '):
-            query &= (Q(sku__contains=bit)|Q(name__contains=bit)|Q(article__contains=bit))
+            query &= (Q(sku__contain=bit)|Q(name__contain=bit)|Q(article__contain=bit))
         return query
   def search_method(self, queryset, name, value):
     query = self._build_partial_query(value)
