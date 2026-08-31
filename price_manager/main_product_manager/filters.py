@@ -181,7 +181,7 @@ class MainProductFilter(FilterSet):
     query = self._build_partial_query(value)
     if query is None:
       return queryset
-    rank = SearchRank("search_vector", query)
+    rank = SearchRank("search_vector", SearchQuery(value))
     return queryset.annotate(rank=rank).filter(search_vector=query).order_by("-rank")
 
   def available_method(self, queryset, name, value):
