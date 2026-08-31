@@ -543,10 +543,14 @@ def push_supplier_products_to_pim(supplier_products, batch_size: int = 1000, del
     in-memory value would re-push every already-linked row on each re-import.
     """
     pks = [sp.pk if isinstance(sp, SupplierProduct) else sp for sp in supplier_products]
-    targets = list(SupplierProduct.objects.filter(pk__in=pks, pim_id__isnull=True).select_related('supplier'))
+    targets = list(SupplierProduct.objects.filter(pk__in=pks, pim_id__isnull=True).select_related('supplier', 'main_product'))
     return _push_pim_products(
         targets,
-        lambda sp: _pim_product_payload(sp.name, sp.description, sp.main_product.sku or compute_supplier_sku(sp.article, sp.supplier)),
+        lambda sp: _pim_product_payload(
+            sp.name,
+            sp.description,
+            (sp.main_product.sku if sp.main_product else None) or compute_supplier_sku(sp.article, sp.supplier),
+        ),
         batch_size=batch_size,
         delay=delay,
     )
