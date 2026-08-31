@@ -3,6 +3,7 @@ from io import StringIO, BytesIO
 from .models import *
 from django.db import transaction
 from django.core.files.base import ContentFile
+from django.db.models import Case, When, Value, IntegerField
 from django.http import QueryDict
 from django.utils import timezone
 from supplier_manager.models import Manufacturer, Category, ManufacturerDict
@@ -158,6 +159,17 @@ def update_cart_items(
         created_count += 1
     return created_count
 
+def order_cart_items(queryset):
+    """Неподтверждённые позиции — наверх: именно они требуют решения."""
+    return queryset.annotate(
+        needs_choice=Case(
+            When(confirmed_product__isnull=True, then=Value(0)),
+            default=Value(1),
+            output_field=IntegerField(),
+        )
+    ).order_by('needs_choice', 'id')
+
+
 SHOPPING_TAB_EXPORT_COLUMNS = [
     'Запрос',
     'Количество',
@@ -174,14 +186,13 @@ SHOPPING_TAB_EXPORT_COLUMNS = [
 def build_shopping_tab_export(shopping_tab_id: int, user_id: int | None = None) -> ShoppingTabExport:
     """Собирает xlsx по позициям заявки и сохраняет его в ShoppingTabExport."""
     shopping_tab = ShoppingTab.objects.get(pk=shopping_tab_id)
-    items = (
+    items = order_cart_items(
         shopping_tab.items
         .select_related(
             'confirmed_product',
             'confirmed_product__supplier',
             'confirmed_product__manufacturer',
         )
-        .all()
     )
 
     rows = []

@@ -141,11 +141,10 @@ class ShoppingTabDeleteView(LoginRequiredMixin, View):
 
 
 def _get_shopping_tab_items(tab):
-    return (
+    return order_cart_items(
         tab.items
         .select_related('confirmed_product', 'confirmed_product__supplier')
         .prefetch_related('products')
-        .all()
     )
 
 
