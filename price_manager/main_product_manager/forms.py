@@ -42,8 +42,10 @@ class MainProductCreateForm(forms.ModelForm):
     # DOM, and MainProductFilter has fields with the same names (supplier, manufacturer,
     # categories) — without a prefix this form's auto_id/html_name would collide with
     # the filter sidebar's, so a <label for="id_supplier_0"> click in the modal could
-    # toggle the filter's checkbox instead of this form's radio.
-    kwargs.setdefault('prefix', 'mpcreate')
+    # toggle the filter's checkbox instead of this form's radio. Forced unconditionally
+    # (not setdefault) because CreateView.get_form_kwargs() always passes prefix=None
+    # explicitly, which would otherwise win over any default.
+    kwargs['prefix'] = kwargs.get('prefix') or 'mpcreate'
     super().__init__(*args, **kwargs)
     self.fields['supplier'].queryset = Supplier.objects.order_by('name')
     self.fields['manufacturer'].queryset = Manufacturer.objects.order_by('name')
