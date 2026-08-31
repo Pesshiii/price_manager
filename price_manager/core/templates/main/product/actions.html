@@ -1,4 +1,13 @@
 <div class="d-flex gap-1">
+  <button type="button"
+          class="btn btn-sm btn-outline-primary"
+          title="Добавить в заявку"
+          aria-label="Добавить «{{ record.name }}» в заявку"
+          data-bs-toggle="modal"
+          data-bs-target="#modal-container"
+          hx-get="{% url 'cart-item-quick-add' record.pk %}"
+          hx-target="#modal-container .modal-content"
+          hx-swap="innerHTML">
     <i class="bi bi-cart-plus"></i>
   </button>
 </div>

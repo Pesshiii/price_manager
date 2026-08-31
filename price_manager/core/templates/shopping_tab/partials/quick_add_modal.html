@@ -1,0 +1,80 @@
+{% comment %}
+Быстрое добавление товара из главного прайса в заявку.
+Только bootstrap-классы: на главной странице стили shopping_tab не подключены.
+Форма охватывает и тело, и футер — тогда кнопка отправки работает без атрибута form.
+{% endcomment %}
+<div class="modal-header">
+  <div>
+    <h5 class="modal-title">Добавить в заявку</h5>
+    <p class="small text-muted mb-0">{{ product.name }}</p>
+  </div>
+  <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Закрыть"></button>
+</div>
+
+{% if tabs %}
+  <form hx-post="{% url 'cart-item-quick-add' product.pk %}"
+        hx-target="#modal-container .modal-content"
+        hx-swap="innerHTML">
+    {% csrf_token %}
+    <div class="modal-body">
+      {% if error %}
+        <div class="alert alert-danger py-2">{{ error }}</div>
+      {% endif %}
+
+      <div class="mb-3">
+        <label class="form-label" for="quick-add-tab">Заявка</label>
+        <select class="form-select" name="tab" id="quick-add-tab">
+          <option value="">— выберите заявку —</option>
+          {% for tab in tabs %}
+            <option value="{{ tab.pk }}"{% if selected_tab == tab.pk|stringformat:"s" %} selected{% endif %}>
+              {{ tab.name }}{% if not tab.open %} (закрыта){% endif %}
+            </option>
+          {% endfor %}
+        </select>
+      </div>
+
+      <div class="mb-3">
+        <label class="form-label" for="quick-add-query">Поисковый запрос</label>
+        <input type="text"
+               class="form-control"
+               name="search_query"
+               id="quick-add-query"
+               value="{{ search_query }}">
+        <div class="form-text">
+          Подставлен из названия товара. По нему подберутся остальные подходящие товары —
+          например, тот же товар у других поставщиков.
+        </div>
+      </div>
+
+      <div class="mb-1">
+        <label class="form-label" for="quick-add-qty">Количество</label>
+        <input type="number"
+               class="form-control"
+               style="max-width: 8rem;"
+               name="quantity"
+               id="quick-add-qty"
+               min="1"
+               step="1"
+               value="{{ quantity|default:1 }}">
+      </div>
+    </div>
+
+    <div class="modal-footer">
+      <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Отмена</button>
+      <button type="submit" class="btn btn-primary">
+        <i class="bi bi-cart-plus"></i> Добавить
+      </button>
+    </div>
+  </form>
+{% else %}
+  <div class="modal-body">
+    <div class="text-center text-muted py-4">
+      <i class="bi bi-basket fs-1 d-block mb-3 opacity-50"></i>
+      <p class="mb-0">У вас ещё нет заявок. Сначала создайте заявку.</p>
+    </div>
+  </div>
+  <div class="modal-footer">
+    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Закрыть</button>
+    <a href="{% url 'shopping-tab-list' %}" class="btn btn-primary">Создать заявку</a>
+  </div>
+{% endif %}

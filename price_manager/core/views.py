@@ -242,6 +242,79 @@ class CartItemDetailView(LoginRequiredMixin, DetailView):
         return context
 
 
+class CartItemQuickAddView(LoginRequiredMixin, View):
+    """Добавление товара из главного прайса в заявку одной модалкой.
+
+    Запрос подставляется из названия товара, но остаётся редактируемым: по нему
+    подбираются остальные кандидаты, а сам выбранный товар сразу подтверждается.
+    """
+    template_name = 'shopping_tab/partials/quick_add_modal.html'
+    result_template_name = 'shopping_tab/partials/quick_add_result.html'
+
+    def get_tabs(self):
+        return ShoppingTab.objects.filter(user=self.request.user).order_by('-open', 'name')
+
+    def get(self, request, product_pk):
+        if not request.htmx:
+            return redirect('mainproducts')
+        product = get_object_or_404(MainProduct, pk=product_pk)
+        return render(request, self.template_name, {
+            'product': product,
+            'tabs': self.get_tabs(),
+            'search_query': product.name,
+            'quantity': 1,
+        })
+
+    def post(self, request, product_pk):
+        if not request.htmx:
+            return redirect('mainproducts')
+        product = get_object_or_404(MainProduct, pk=product_pk)
+        tabs = self.get_tabs()
+        search_query = (request.POST.get('search_query') or '').strip()
+        quantity_raw = (request.POST.get('quantity') or '').strip()
+        selected_tab = request.POST.get('tab') or ''
+        context = {
+            'product': product,
+            'tabs': tabs,
+            'search_query': search_query,
+            'quantity': quantity_raw or 1,
+            'selected_tab': selected_tab,
+        }
+
+        tab = tabs.filter(pk=selected_tab).first() if selected_tab.isdigit() else None
+        if tab is None:
+            context['error'] = 'Выберите заявку.'
+            return render(request, self.template_name, context)
+        if not search_query:
+            context['error'] = 'Введите поисковый запрос.'
+            return render(request, self.template_name, context)
+        try:
+            quantity = int(quantity_raw) if quantity_raw else 1
+            if quantity < 1:
+                raise ValueError
+        except ValueError:
+            context['error'] = 'Количество должно быть целым числом не меньше 1.'
+            return render(request, self.template_name, context)
+
+        item = CartItem.objects.create(
+            user=request.user,
+            search_query=search_query,
+            quantity=quantity,
+        )
+        candidates = find_main_products(search_query)
+        if product not in candidates:
+            candidates.append(product)
+        item.products.set(candidates)
+        item.confirmed_product = product
+        item.save(update_fields=['confirmed_product'])
+        tab.items.add(item)
+        return render(request, self.result_template_name, {
+            'product': product,
+            'tab': tab,
+            'item': item,
+        })
+
+
 class CartItemConfirmProductView(LoginRequiredMixin, View):
     """Подтверждает товар для позиции заявки."""
     template_name = 'shopping_tab/partials/item_confirm_response.html'

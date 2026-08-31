@@ -1,0 +1,23 @@
+{% comment %}Результат быстрого добавления. Только bootstrap-классы — см. quick_add_modal.html.{% endcomment %}
+<div class="modal-header">
+  <h5 class="modal-title">Позиция добавлена</h5>
+  <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Закрыть"></button>
+</div>
+<div class="modal-body">
+  <div class="alert alert-success">
+    «{{ product.name }}» добавлен в заявку «{{ tab.name }}» и сразу подтверждён.
+  </div>
+  <dl class="row mb-0 small">
+    <dt class="col-5 text-muted fw-normal">Поисковый запрос</dt>
+    <dd class="col-7 mb-2">{{ item.search_query }}</dd>
+    <dt class="col-5 text-muted fw-normal">Количество</dt>
+    <dd class="col-7 mb-2">{{ item.quantity }} шт.</dd>
+    <dt class="col-5 text-muted fw-normal">Подходящих товаров</dt>
+    <dd class="col-7 mb-0">{{ item.products.count }}</dd>
+  </dl>
+</div>
+<div class="modal-footer">
+  <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Закрыть</button>
+  <a href="{% url 'cart-item-detail' item.pk %}" class="btn btn-outline-primary">Открыть позицию</a>
+  <a href="{% url 'shopping-tab-detail' tab.pk %}" class="btn btn-primary">Перейти к заявке</a>
+</div>
