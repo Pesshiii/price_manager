@@ -18,6 +18,7 @@ class Migration(migrations.Migration):
             fields=[
                 ('id', models.BigAutoField(auto_created=True, primary_key=True, serialize=False, verbose_name='ID')),
                 ('name', models.CharField(max_length=255, verbose_name='Название')),
+                ('sku', models.CharField(blank=True, max_length=255, null=False, verbose_name='Артикул')),
                 ('slug', models.SlugField(max_length=255, unique=True, verbose_name='Слаг')),
                 ('pim_id', models.CharField(blank=True, max_length=64, null=True, unique=True, verbose_name='Id категории в PIM')),
                 ('lft', models.PositiveIntegerField(editable=False)),
