@@ -29,4 +29,8 @@ class Migration(migrations.Migration):
             model_name='product',
             name='sku',
         ),
+        migrations.RemoveField(
+            model_name='product',
+            name='description',
+        ),
     ]

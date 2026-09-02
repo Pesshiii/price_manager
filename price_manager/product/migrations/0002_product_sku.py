@@ -13,4 +13,9 @@ class Migration(migrations.Migration):
             name='sku',
             field=models.CharField(blank=True, max_length=128, null=True, verbose_name='Артикул'),
         ),
+        migrations.AddField(
+            model_name='product',
+            name='description',
+            field=models.TextField(blank=True, null=True, verbose_name='Описание'),
+        ),
     ]
