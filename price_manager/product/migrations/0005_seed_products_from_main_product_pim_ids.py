@@ -32,7 +32,7 @@ def seed_products_from_main_product_pim_ids(apps, schema_editor):
 class Migration(migrations.Migration):
 
     dependencies = [
-        ('product', '0003_alter_product_number'),
+        ('product', '0004_alter_product_number'),
         ('main_product_manager', '0008_remove_mp_unique_supplier_article_name'),
     ]
 
