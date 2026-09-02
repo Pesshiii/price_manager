@@ -20,4 +20,9 @@ class Migration(migrations.Migration):
             name='pim_id',
             field=models.CharField(max_length=64, unique=True, verbose_name='Id товара в PIM'),
         ),
+        migrations.AddField(
+            model_name='product',
+            name='raw_data',
+            field=models.JSONField(blank=True, default=dict, verbose_name='Сырые данные PIM'),
+        ),
     ]
