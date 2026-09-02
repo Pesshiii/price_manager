@@ -12,7 +12,7 @@ class CategoryAdmin(DraggableMPTTAdmin):
 
 @admin.register(Product)
 class ProductAdmin(admin.ModelAdmin):
-    list_display = ('number', 'name', 'pim_id', 'category_path', 'updated_at')
+    list_display = ('number', 'name', 'pim_id',  'updated_at')
     search_fields = ('number', 'name', 'pim_id')
     filter_horizontal = ('categories',)
-    readonly_fields = ('raw_data', 'category_path', 'created_at', 'updated_at')
+    readonly_fields = ('raw_data', 'created_at', 'updated_at')
