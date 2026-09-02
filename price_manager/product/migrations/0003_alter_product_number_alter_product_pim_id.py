@@ -57,4 +57,8 @@ class Migration(migrations.Migration):
             model_name='product',
             name='product_chars_gin_idx',
         ),
+        migrations.RemoveField(
+            model_name='product',
+            name='embedding_text_hash',
+        ),
     ]

@@ -44,6 +44,11 @@ class Migration(migrations.Migration):
             name='category',
             field=models.ForeignKey(blank=True, null=True, on_delete=models.PROTECT, related_name='products', to='product.category', verbose_name='Категория'),
         ),
+        migrations.AddField(
+            model_name='product',
+            name='embedding_text_hash',
+            field=models.CharField(blank=True, max_length=64, null=True, verbose_name='Хеш текста для встраивания'),
+        ),
         migrations.AddIndex(
             model_name='product',
             index=django.contrib.postgres.indexes.GinIndex(fields=['characteristics'], name='product_chars_gin_idx'),
