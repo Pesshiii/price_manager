@@ -30,7 +30,7 @@ class SupplierLinkApiBase(TestCase):
         User = get_user_model()
         cls.user = User.objects.create_user(username='linkuser', password='p')
         cls.supplier = make_supplier(name='Поставщик А')
-        cls.product = make_product(sku='SKU-A', name='Товар А')
+        cls.product = make_product(pim_id='PIM-A', number='SKU-A', name='Товар А')
 
     def setUp(self):
         self.client.force_login(self.user)
@@ -48,7 +48,7 @@ class SupplierLinkApiBase(TestCase):
 class ListLinksTracerTest(SupplierLinkApiBase):
     def test_list_returns_200_with_nested_supplier_and_product(self):
         """GET /links/ returns 200; each item has nested supplier {id,name}
-        and product {id,name,sku}."""
+        and product {id,name,number}."""
         self._make_link()
 
         resp = self.client.get(reverse(LINK_LIST_URL))
@@ -72,7 +72,7 @@ class ListLinksTracerTest(SupplierLinkApiBase):
         self.assertIsInstance(product_obj, dict)
         self.assertEqual(product_obj['id'], self.product.pk)
         self.assertEqual(product_obj['name'], self.product.name)
-        self.assertEqual(product_obj['sku'], self.product.sku)
+        self.assertEqual(product_obj['number'], self.product.number)
 
 
 # ── Cycles 2-4: filtering ─────────────────────────────────────────────────────
@@ -82,7 +82,7 @@ class FilterLinksTests(SupplierLinkApiBase):
     def setUpTestData(cls):
         super().setUpTestData()
         cls.supplier_b = make_supplier(name='Поставщик Б')
-        cls.product_b = make_product(sku='SKU-B', name='Товар Б')
+        cls.product_b = make_product(pim_id='PIM-B', number='SKU-B', name='Товар Б')
 
     def setUp(self):
         super().setUp()
@@ -165,7 +165,7 @@ class PatchLinkTests(SupplierLinkApiBase):
     @classmethod
     def setUpTestData(cls):
         super().setUpTestData()
-        cls.product_new = make_product(sku='SKU-NEW', name='Новый Товар', brand_name='Новый Бренд', category_name='Новая Кат')
+        cls.product_new = make_product(pim_id='PIM-NEW', number='SKU-NEW', name='Новый Товар')
 
     def setUp(self):
         super().setUp()
@@ -183,7 +183,7 @@ class PatchLinkTests(SupplierLinkApiBase):
 
         data = resp.json()
         self.assertEqual(data['product']['id'], self.product_new.pk)
-        self.assertEqual(data['product']['sku'], self.product_new.sku)
+        self.assertEqual(data['product']['number'], self.product_new.number)
 
         # Persisted
         self.link.refresh_from_db()

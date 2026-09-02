@@ -125,10 +125,8 @@ class FeedDetailStatsTests(SupplierFeedApiBase):
         self.assertEqual(data['skipped'], 0)
 
     def test_detail_stats_count_correctly(self):
-        from product.models import Product, Category, Brand
-        brand = Brand.objects.create(name='B2')
-        cat = Category.objects.create(name='Cat2', slug='cat2')
-        prod = Product.objects.create(name='Prod2', sku='SKU-PROD2', brand=brand, category=cat)
+        from product.models import Product
+        prod = Product.objects.create(name='Prod2', number='SKU-PROD2', pim_id='PIM-SKU-PROD2')
 
         self._make_entry(sku='sku-1')                       # queued
         self._make_entry(product=prod, sku='sku-2')         # matched

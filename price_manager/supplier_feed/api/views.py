@@ -28,8 +28,6 @@ from .serializers import (
 
 
 def _try_close_feed(feed):
-    from pricing.tasks import apply_feed_pricing
-
     with transaction.atomic():
         locked = SupplierFeed.objects.select_for_update().get(pk=feed.pk)
         if locked.status == STATUS_DONE:
@@ -40,7 +38,6 @@ def _try_close_feed(feed):
         if not remaining:
             locked.status = STATUS_DONE
             locked.save(update_fields=['status'])
-            transaction.on_commit(lambda: apply_feed_pricing.delay(locked.pk))
 
 
 class _QueuePagination(PageNumberPagination):
@@ -264,14 +261,16 @@ class SupplierFeedViewSet(viewsets.ModelViewSet):
         url_name='create-product',
     )
     def create_product(self, request, pk=None, entry_id=None):
-        """Create a new Product from a queued entry and link it.
+        """Create/link a Product from a queued entry by syncing it from PIM.
 
-        Request body: {sku: str, name: str}
-        Atomically creates the Product (status=draft), a SupplierLink, and
-        resolves the entry.  Returns 201 with the updated entry.
+        Request body: {pim_id: str}
+        Fetches the full record from PIM (number, name, categories,
+        category_path, raw_data all populated in one sync call), dedupes on
+        pim_id (already-synced -> reuses the existing row), links it to the
+        entry and creates a SupplierLink.  Returns 201 with the updated entry.
         """
-        from django.db import transaction
-        from product.models import Product
+        from django.db import IntegrityError, transaction
+        from product.services.pim_sync import sync_product_from_pim
 
         feed = self.get_object()
         try:
@@ -288,115 +287,37 @@ class SupplierFeedViewSet(viewsets.ModelViewSet):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-        sku = request.data.get('sku', '').strip()
-        name = request.data.get('name', '').strip()
-        if not sku or not name:
+        pim_id = str(request.data.get('pim_id', '')).strip()
+        if not pim_id:
             return Response(
-                {'detail': 'Необходимо передать sku и name.'},
+                {'detail': 'Необходимо передать pim_id.'},
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-        if Product.objects.filter(sku=sku).exists():
+        try:
+            with transaction.atomic():
+                product = sync_product_from_pim(pim_id)
+                SupplierLink.objects.update_or_create(
+                    supplier=feed.supplier,
+                    supplier_sku=entry.supplier_sku,
+                    defaults={'product': product},
+                )
+                entry.product = product
+                entry.save(update_fields=['product'])
+        except IntegrityError:
             return Response(
-                {'detail': f'Товар с артикулом «{sku}» уже существует.'},
+                {'detail': 'Товар с таким номером PIM уже существует под другим pim_id.'},
                 status=status.HTTP_400_BAD_REQUEST,
             )
-
-        with transaction.atomic():
-            product = Product.objects.create(sku=sku, name=name)
-            SupplierLink.objects.update_or_create(
-                supplier=feed.supplier,
-                supplier_sku=entry.supplier_sku,
-                defaults={'product': product},
+        except Exception as exc:
+            return Response(
+                {'detail': f'Не удалось получить товар из PIM: {exc}'},
+                status=status.HTTP_400_BAD_REQUEST,
             )
-            entry.product = product
-            entry.save(update_fields=['product'])
 
         _try_close_feed(feed)
 
         return Response(SupplierFeedEntrySerializer(entry).data, status=status.HTTP_201_CREATED)
-
-    # ── Bulk-create products from queue ───────────────────────────────────────
-
-    @action(
-        detail=True,
-        methods=['post'],
-        url_path='queue/bulk-create-products',
-        url_name='bulk-create-products',
-    )
-    def bulk_create_products(self, request, pk=None):
-        """Create new Products for all remaining queued entries in one request.
-
-        Request body: {name_column: str}
-        For each product=None, skipped=False entry:
-          - name = entry.data[name_column] (error if missing or empty)
-          - sku  = entry.data[feed_mapping.product_sku_column] if set,
-                   else entry.supplier_sku
-        Behaviour: skip-and-continue on per-entry errors.
-        Returns {created, failed, errors: [{entry_id, reason}]}.
-        Auto-transitions feed to 'done' if queue empties.
-        """
-        from django.db import transaction
-        from product.models import Product
-
-        feed = self.get_object()
-        name_column = request.data.get('name_column', '').strip()
-        if not name_column:
-            return Response(
-                {'detail': 'Необходимо передать name_column.'},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-
-        mapping = feed.feed_mapping
-        sku_column = mapping.product_sku_column or ''
-
-        entries = list(
-            SupplierFeedEntry.objects
-            .filter(feed=feed, product__isnull=True, skipped=False)
-        )
-
-        created_count = 0
-        failed_count = 0
-        errors = []
-
-        for entry in entries:
-            name = str(entry.data.get(name_column) or '').strip()
-            if not name:
-                failed_count += 1
-                errors.append({'entry_id': entry.pk, 'reason': f'Колонка «{name_column}» пуста или отсутствует.'})
-                continue
-
-            if sku_column and sku_column in entry.data:
-                sku = str(entry.data[sku_column]).strip() or entry.supplier_sku
-            else:
-                sku = entry.supplier_sku
-
-            if Product.objects.filter(sku=sku).exists():
-                failed_count += 1
-                errors.append({'entry_id': entry.pk, 'reason': f'Товар с артикулом «{sku}» уже существует.'})
-                continue
-
-            try:
-                with transaction.atomic():
-                    product = Product.objects.create(sku=sku, name=name)
-                    SupplierLink.objects.update_or_create(
-                        supplier=feed.supplier,
-                        supplier_sku=entry.supplier_sku,
-                        defaults={'product': product},
-                    )
-                    entry.product = product
-                    entry.save(update_fields=['product'])
-                created_count += 1
-            except Exception as exc:
-                failed_count += 1
-                errors.append({'entry_id': entry.pk, 'reason': str(exc)})
-
-        _try_close_feed(feed)
-
-        return Response(
-            {'created': created_count, 'failed': failed_count, 'errors': errors},
-            status=status.HTTP_200_OK,
-        )
 
     # ── Ignore a queue entry ───────────────────────────────────────────────────
 

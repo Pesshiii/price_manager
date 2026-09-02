@@ -18,7 +18,7 @@ class _SupplierMinSerializer(serializers.Serializer):
 class _ProductMiniSerializer(serializers.Serializer):
     id = serializers.IntegerField()
     name = serializers.CharField()
-    sku = serializers.CharField()
+    number = serializers.CharField()
 
 
 class SupplierLinkSerializer(serializers.ModelSerializer):

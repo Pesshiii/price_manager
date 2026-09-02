@@ -34,16 +34,10 @@ def make_feed_mapping(supplier=None, name='Прайс', supplier_sku_column='art
     )
 
 
-def make_product(sku='PROD-001', name='Тест Товар', brand_name='Бренд', category_name='Категория'):
-    """Create a minimal Product for use in supplier_feed tests."""
-    from product.models import Brand, Category, Product
-    brand, _ = Brand.objects.get_or_create(name=brand_name)
-    category, _ = Category.objects.get_or_create(
-        name=category_name,
-        defaults={'slug': category_name.lower().replace(' ', '-')},
-    )
+def make_product(pim_id='PIM-001', number='PROD-001', name='Тест Товар'):
+    """Create a minimal Product for use in supplier_feed tests (no live PIM call)."""
+    from product.models import Product
     product, _ = Product.objects.get_or_create(
-        sku=sku,
-        defaults={'name': name, 'brand': brand, 'category': category},
+        pim_id=pim_id, defaults={'number': number, 'name': name},
     )
     return product

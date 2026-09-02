@@ -83,10 +83,8 @@ class SupplierLinkConstraintTests(TestCase):
 
     def test_unique_together_supplier_sku(self):
         from django.db import IntegrityError
-        from product.models import Product, Category, Brand
-        brand = Brand.objects.create(name='Brand A')
-        cat = Category.objects.create(name='Cat', slug='cat')
-        prod = Product.objects.create(name='P', sku='SKU-1', brand=brand, category=cat)
+        from product.models import Product
+        prod = Product.objects.create(name='P', number='SKU-1', pim_id='PIM-SKU-1')
 
         SupplierLink.objects.create(
             supplier=self.supplier, supplier_sku='X', product=prod
