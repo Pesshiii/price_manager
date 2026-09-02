@@ -17,12 +17,17 @@ class SupplierProduct(models.Model):
   pim_id = models.CharField(verbose_name='Id для системы Pim',
                             null=True,
                             blank=True)
+  # unique=True (not OneToOneField) so `related_name='supplierproducts'` keeps
+  # working as a manager everywhere it's used (dehydrate_supplier_prices,
+  # get_sprice, update_stocks, ...) while still enforcing one MainProduct per
+  # SupplierProduct at the DB level.
   main_product=models.ForeignKey(MainProduct,
                         verbose_name='sku',
                         related_name='supplierproducts',
                         on_delete=models.SET_NULL,
                         null=True,
-                        blank=True)
+                        blank=True,
+                        unique=True)
   supplier=models.ForeignKey(Supplier,
                              verbose_name='Поставщик',
                              related_name='supplierproducts',

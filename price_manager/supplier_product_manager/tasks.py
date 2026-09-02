@@ -1,5 +1,4 @@
 from celery import shared_task
-from django.db.models import Q
 from django.http import QueryDict
 from django.utils import timezone
 from django.conf import settings
@@ -223,61 +222,53 @@ def copy_supplier_products_to_main_task(
         processed_count = 0
         updated_links_count = 0
         touched_main_product_ids = set()
+        supplier = Supplier.objects.get(id=supplier_id)
+        through = MainProduct.categories.through
 
         for batch in _chunked(products_qs.iterator(chunk_size=batch_size), batch_size):
             processed_count += len(batch)
-            keys = {(sp.article, sp.name) for sp in batch}
-            if not keys:
+            if not batch:
                 continue
 
-            sp_by_key = {(sp.article, sp.name): sp for sp in batch}
-            supplier = Supplier.objects.get(id=supplier_id)
-            mps_to_create = [
-                MainProduct(
-                    supplier_id=supplier_id,
-                    article=article,
-                    sku=compute_supplier_sku(article, supplier),
-                    name=name,
-                    description=sp_by_key[(article, name)].description,
-                    manufacturer=sp_by_key[(article, name)].manufacturer,
-                )
-                for article, name in keys
-            ]
-            MainProduct.objects.bulk_create(
-                mps_to_create,
-                update_conflicts=True,
-                unique_fields=["supplier", "article", "name"],
-                update_fields=["manufacturer", "description"],
-                batch_size=batch_size,
-            )
-
-            key_filter = Q()
-            for article, name in keys:
-                key_filter |= Q(article=article, name=name)
-            mps = MainProduct.objects.filter(supplier_id=supplier_id).filter(key_filter)
-            mp_by_key = {(mp.article, mp.name): mp.id for mp in mps}
-
-            supplier_products_to_update = []
+            linked = [sp for sp in batch if sp.main_product_id]
+            unlinked = [sp for sp in batch if not sp.main_product_id]
             category_links = []
-            through = MainProduct.categories.through
-            for sp in batch:
-                mp_id = mp_by_key.get((sp.article, sp.name))
-                if not mp_id:
-                    continue
-                touched_main_product_ids.add(mp_id)
-                if sp.main_product_id != mp_id:
-                    sp.main_product_id = mp_id
-                    supplier_products_to_update.append(sp)
-                if sp.category_id:
-                    category_links.append(through(mainproduct_id=mp_id, category_id=sp.category_id))
 
-            if supplier_products_to_update:
-                SupplierProduct.objects.bulk_update(
-                    supplier_products_to_update,
-                    fields=["main_product"],
-                    batch_size=batch_size,
+            if linked:
+                mps_to_update = [
+                    MainProduct(id=sp.main_product_id, manufacturer=sp.manufacturer, description=sp.description)
+                    for sp in linked
+                ]
+                MainProduct.objects.bulk_update(
+                    mps_to_update, fields=["manufacturer", "description"], batch_size=batch_size
                 )
-                updated_links_count += len(supplier_products_to_update)
+                for sp in linked:
+                    touched_main_product_ids.add(sp.main_product_id)
+                    if sp.category_id:
+                        category_links.append(through(mainproduct_id=sp.main_product_id, category_id=sp.category_id))
+
+            if unlinked:
+                new_mps = [
+                    MainProduct(
+                        supplier_id=supplier_id,
+                        article=sp.article,
+                        sku=compute_supplier_sku(sp.article, supplier),
+                        name=sp.name,
+                        description=sp.description,
+                        manufacturer=sp.manufacturer,
+                    )
+                    for sp in unlinked
+                ]
+                MainProduct.objects.bulk_create(new_mps, batch_size=batch_size)
+
+                for sp, mp in zip(unlinked, new_mps):
+                    sp.main_product_id = mp.id
+                    touched_main_product_ids.add(mp.id)
+                    if sp.category_id:
+                        category_links.append(through(mainproduct_id=mp.id, category_id=sp.category_id))
+
+                SupplierProduct.objects.bulk_update(unlinked, fields=["main_product"], batch_size=batch_size)
+                updated_links_count += len(unlinked)
 
             if category_links:
                 through.objects.bulk_create(category_links, ignore_conflicts=True, batch_size=batch_size)

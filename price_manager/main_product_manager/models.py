@@ -31,13 +31,6 @@ class MainProduct(models.Model):
     class Meta:
         verbose_name = 'Главный продукт'
         ordering = ['id']
-        constraints = [
-          models.UniqueConstraint(
-            fields=['supplier', 'article', 'name'],
-            name='mp_unique_supplier_article_name',
-            nulls_distinct=False,
-          )
-        ]
         indexes = [
           GinIndex(fields=['search_vector']),
         ]
@@ -144,6 +137,10 @@ class MainProduct(models.Model):
         if self.pim_id is None:
             _resolve_pim_id(self)
         pim_product = get_pim_data(self.pim_id) or {}
+        # Значения, а не field references ("supplier__name") - bulk_update()/update()
+        # не допускают joined-полей в выражении SET.
+        supplier_name = self.supplier.name if self.supplier_id else ''
+        manufacturer_name = self.manufacturer.name if self.manufacturer_id else ''
         vector = (
             SearchVector(Value(''.join(pim_product.get('categoriesNames', {}).values())), weight='A', config='russian') +
             SearchVector(Value(''.join(pim_product.get('tag', []))), weight='A', config='russian') +
@@ -153,8 +150,8 @@ class MainProduct(models.Model):
             SearchVector('sku', weight='B', config='russian')+
             SearchVector('article', weight='B', config='russian') +
             SearchVector('description', weight='D', config='russian')+
-            SearchVector("supplier__name", weight='C', config='russian') +
-            SearchVector("manufacturer__name", weight='C', config='russian')
+            SearchVector(Value(supplier_name), weight='C', config='russian') +
+            SearchVector(Value(manufacturer_name), weight='C', config='russian')
         )
         return vector
     def rebuild_search_vector(self):
@@ -195,17 +192,3 @@ class MainProductLog(models.Model):
         constraints = []
         ordering = ['-update_time']
 
-DUPLICATE_LOOKUPS={
-        'name':{
-          'verbose_name':'Имя содержит',
-          'field':'name',
-          },
-        'article':{
-          'verbose_name':'Артикул',
-          'field':'article',
-          },
-        'supplier__id':{
-          'verbose_name':'Поставщик(по id)',
-          'field':'supplier__id',
-          }
-    }

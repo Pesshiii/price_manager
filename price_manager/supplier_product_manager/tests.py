@@ -3,12 +3,15 @@ from decimal import Decimal
 
 import pandas as pd
 from django import forms
+from django.contrib.auth import get_user_model
 from django.core.cache import cache
 from django.core.files.uploadedfile import SimpleUploadedFile
+from django.db import IntegrityError, transaction
 from django.http import QueryDict
 from django.test import TestCase, override_settings
 from django.utils import timezone
 
+from main_product_manager.models import MainProduct
 from supplier_manager.models import Category, Currency, Discount, Supplier, Manufacturer
 from supplier_product_manager.filters import SupplierProductFilter
 from supplier_product_manager.functions import (
@@ -19,6 +22,7 @@ from supplier_product_manager.functions import (
     load_setting,
 )
 from supplier_product_manager.models import Link, Setting, SupplierFile, SupplierProduct
+from supplier_product_manager.tasks import copy_supplier_products_to_main_task
 
 
 class BasicLoadTests(TestCase):
@@ -621,3 +625,116 @@ class SupplierProductFilterTests(TestCase):
         )
         self.assertIsInstance(filterset.filters["manufacturer"].field.widget, forms.CheckboxSelectMultiple)
         self.assertIsInstance(filterset.filters["discount"].field.widget, forms.CheckboxSelectMultiple)
+
+
+class CopySupplierProductsToMainTaskTests(TestCase):
+    """copy_supplier_products_to_main_task no longer matches MainProducts by
+    (supplier, article, name) - MainProduct.main_product is now the identity,
+    so every unlinked SupplierProduct must get its own MainProduct instead of
+    being matched/merged into an existing one via that triple."""
+
+    def setUp(self):
+        self.currency = Currency.objects.get(name="KZT")
+        self.supplier = Supplier.objects.create(
+            name="Copy task supplier",
+            currency=self.currency,
+            price_update_rate="Каждый день",
+            stock_update_rate="Каждый день",
+            delivery_days_available=1,
+            delivery_days_navailable=3,
+        )
+        self.user = get_user_model().objects.create_user(username="copytaskuser", password="p")
+
+    def test_each_unlinked_supplier_product_gets_its_own_main_product(self):
+        manufacturer = Manufacturer.objects.create(name="Copy task manufacturer")
+        sp1 = SupplierProduct.objects.create(
+            supplier=self.supplier, article="CT-1", name="Товар 1",
+            manufacturer=manufacturer, description="Desc 1",
+        )
+        sp2 = SupplierProduct.objects.create(supplier=self.supplier, article="CT-2", name="Товар 2")
+
+        result = copy_supplier_products_to_main_task(self.supplier.id, None, self.user.id)
+
+        sp1.refresh_from_db()
+        sp2.refresh_from_db()
+        self.assertIsNotNone(sp1.main_product_id)
+        self.assertIsNotNone(sp2.main_product_id)
+        self.assertNotEqual(sp1.main_product_id, sp2.main_product_id)
+
+        mp1 = MainProduct.objects.get(pk=sp1.main_product_id)
+        self.assertEqual(mp1.article, "CT-1")
+        self.assertEqual(mp1.name, "Товар 1")
+        self.assertEqual(mp1.manufacturer_id, manufacturer.id)
+        self.assertEqual(mp1.description, "Desc 1")
+        self.assertEqual(mp1.sku, "CT-1")
+
+        self.assertEqual(result["created_count"], 2)
+        self.assertEqual(result["updated_links_count"], 2)
+
+    def test_already_linked_supplier_product_refreshes_its_main_product_without_creating_a_new_one(self):
+        mp = MainProduct.objects.create(supplier=self.supplier, article="CT-3", name="Товар 3")
+        manufacturer = Manufacturer.objects.create(name="Refreshed manufacturer")
+        SupplierProduct.objects.create(
+            supplier=self.supplier, article="CT-3", name="Товар 3",
+            main_product=mp, manufacturer=manufacturer, description="Refreshed description",
+        )
+
+        result = copy_supplier_products_to_main_task(self.supplier.id, None, self.user.id)
+
+        mp.refresh_from_db()
+        self.assertEqual(mp.manufacturer_id, manufacturer.id)
+        self.assertEqual(mp.description, "Refreshed description")
+        self.assertEqual(result["created_count"], 0)
+        self.assertEqual(result["updated_links_count"], 0)
+        self.assertEqual(MainProduct.objects.filter(supplier=self.supplier, article="CT-3").count(), 1)
+
+    def test_running_task_twice_does_not_duplicate_category_links(self):
+        category = Category.objects.create(name="Категория для копирования")
+        sp = SupplierProduct.objects.create(
+            supplier=self.supplier, article="CT-4", name="Товар 4", category=category,
+        )
+
+        copy_supplier_products_to_main_task(self.supplier.id, None, self.user.id)
+        sp.refresh_from_db()
+        mp = MainProduct.objects.get(pk=sp.main_product_id)
+        self.assertEqual(list(mp.categories.all()), [category])
+
+        second_result = copy_supplier_products_to_main_task(self.supplier.id, None, self.user.id)
+
+        mp.refresh_from_db()
+        self.assertEqual(mp.categories.count(), 1)
+        self.assertEqual(second_result["created_count"], 0)
+        self.assertEqual(second_result["updated_links_count"], 0)
+
+
+class MainProductLinkUniquenessTests(TestCase):
+    """Regression guard for the core invariant this app's schema now
+    enforces: at most one SupplierProduct may claim a given MainProduct."""
+
+    def setUp(self):
+        self.currency = Currency.objects.get(name="KZT")
+        self.supplier = Supplier.objects.create(
+            name="Uniqueness supplier",
+            currency=self.currency,
+            price_update_rate="Каждый день",
+            stock_update_rate="Каждый день",
+            delivery_days_available=1,
+            delivery_days_navailable=3,
+        )
+        self.main_product = MainProduct.objects.create(
+            supplier=self.supplier, article="U-1", name="Уникальный товар",
+        )
+
+    def test_second_supplier_product_cannot_claim_an_already_linked_main_product(self):
+        SupplierProduct.objects.create(
+            main_product=self.main_product, supplier=self.supplier, article="U-1", name="Товар",
+        )
+        other = SupplierProduct.objects.create(supplier=self.supplier, article="U-2", name="Другой товар")
+
+        with self.assertRaises(IntegrityError):
+            with transaction.atomic():
+                other.main_product = self.main_product
+                other.save()
+
+        other.refresh_from_db()
+        self.assertIsNone(other.main_product_id)

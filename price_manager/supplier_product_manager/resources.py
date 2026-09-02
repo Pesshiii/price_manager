@@ -1,7 +1,7 @@
 from import_export import resources, fields
 from import_export.widgets import ForeignKeyWidget, ManyToManyWidget
 from .models import *
-from core.resources import MainProductWidget, SupplierWidget, ManufacturerWidget, CategoryWidget, DiscountWidget
+from main_product_manager.resources import MainProductWidget, SupplierWidget, ManufacturerWidget, CategoryWidget, DiscountWidget
 
 class SupplierProductResource(resources.ModelResource):
     main_product = fields.Field(

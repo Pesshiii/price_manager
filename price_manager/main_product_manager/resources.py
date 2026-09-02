@@ -42,10 +42,14 @@ class MainProductWidget(ForeignKeyWidget):
         supplier_name = row.get("supplier", "").strip()
         if not supplier_name:
             return None
+        name = row.get("name", "").strip()
+        if not name:
+            return None
         supplier, _ = Supplier.objects.get_or_create(name=supplier_name)
         main_product, _ = MainProduct.objects.get_or_create(
             article=value,
             supplier=supplier,
+            name=name,
         )
         return main_product
     def render(self, value, obj=None, **kwargs):
