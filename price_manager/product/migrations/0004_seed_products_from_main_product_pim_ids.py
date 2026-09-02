@@ -13,7 +13,7 @@ def seed_products_from_main_product_pim_ids(apps, schema_editor):
     """
     MainProduct = apps.get_model('main_product_manager', 'MainProduct')
     Product = apps.get_model('product', 'Product')
-
+    Product.objects.all().delete()  # delete any existing products, since we don't know if they were created from pim_ids that have since been deleted
     pim_ids = (
         MainProduct.objects
         .exclude(pim_id__isnull=True)
