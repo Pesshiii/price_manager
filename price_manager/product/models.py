@@ -48,7 +48,7 @@ class Category(MPTTModel):
 class Product(models.Model):
     pim_id = models.CharField('Id товара в PIM', max_length=64, unique=True)
     number = models.CharField('Номер PIM (артикул)', max_length=128, null=True, blank=True, unique=True)
-    name = models.CharField('Название', max_length=512, db_index=True)
+    name = models.CharField('Название', max_length=512, unique=True, null=True, blank=True)
     categories = models.ManyToManyField(
         Category, related_name='products', blank=True, verbose_name='Категории',
     )
