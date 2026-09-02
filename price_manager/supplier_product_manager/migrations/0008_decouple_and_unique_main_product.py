@@ -1,5 +1,4 @@
-from django.db import migrations, models
-import django.db.models.deletion
+from django.db import migrations
 from django.db.models import Count
 
 
@@ -7,13 +6,20 @@ def decouple_shared_main_products(apps, schema_editor):
     """One MainProduct can currently be linked from several SupplierProducts
     (produced by the now-retired "merge duplicate MainProducts" feature,
     which re-pointed every SupplierProduct from the losing MainProducts onto
-    one survivor). Before main_product can become unique, every MainProduct
-    must be split back down to at most one link: keep the SupplierProduct
-    whose own (supplier, article, name) matches the MainProduct's own fields
-    (the one that originally created/matched it via the normal copy
-    pipeline), and give every other linked SupplierProduct its own new
-    MainProduct, cloned the same way copy_supplier_products_to_main_task
-    creates one for an unlinked SupplierProduct.
+    one survivor). Before main_product can become unique (migration 0009),
+    every MainProduct must be split back down to at most one link: keep the
+    SupplierProduct whose own (supplier, article, name) matches the
+    MainProduct's own fields (the one that originally created/matched it via
+    the normal copy pipeline), and give every other linked SupplierProduct
+    its own new MainProduct, cloned the same way
+    copy_supplier_products_to_main_task creates one for an unlinked
+    SupplierProduct.
+
+    Kept in its own migration, separate from the AlterField that adds the
+    unique constraint: inserting rows here and then altering a FK pointing
+    at the same table in one atomic migration makes Postgres refuse the
+    ALTER TABLE with "cannot ALTER TABLE ... because it has pending trigger
+    events" - splitting lets this data migration's changes commit first.
     """
     MainProduct = apps.get_model('main_product_manager', 'MainProduct')
     SupplierProduct = apps.get_model('supplier_product_manager', 'SupplierProduct')
@@ -64,17 +70,4 @@ class Migration(migrations.Migration):
 
     operations = [
         migrations.RunPython(decouple_shared_main_products, reverse_code=migrations.RunPython.noop),
-        migrations.AlterField(
-            model_name='supplierproduct',
-            name='main_product',
-            field=models.ForeignKey(
-                blank=True,
-                null=True,
-                on_delete=django.db.models.deletion.SET_NULL,
-                related_name='supplierproducts',
-                to='main_product_manager.mainproduct',
-                unique=True,
-                verbose_name='sku',
-            ),
-        ),
     ]
