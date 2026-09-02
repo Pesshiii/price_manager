@@ -25,8 +25,4 @@ class Migration(migrations.Migration):
             name='raw_data',
             field=models.JSONField(blank=True, default=dict, verbose_name='Сырые данные PIM'),
         ),
-        migrations.RemoveField(
-            model_name='product',
-            name='sku',
-        ),
     ]
