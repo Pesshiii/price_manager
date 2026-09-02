@@ -33,4 +33,28 @@ class Migration(migrations.Migration):
             model_name='product',
             name='description',
         ),
+        migrations.RemoveField(
+            model_name='product',
+            name='status',
+        ),
+        migrations.RemoveField(
+            model_name='product',
+            name='characteristics',
+        ),
+        migrations.RemoveField(
+            model_name='product',
+            name='image_urls',
+        ),
+        migrations.RemoveField(
+            model_name='product',
+            name='brand',
+        ),
+        migrations.RemoveField(
+            model_name='product',
+            name='category',
+        ),
+        migrations.RemoveIndex(
+            model_name='product',
+            name='product_chars_gin_idx',
+        ),
     ]
