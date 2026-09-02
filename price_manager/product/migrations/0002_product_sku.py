@@ -37,7 +37,7 @@ class Migration(migrations.Migration):
         migrations.AddField(
             model_name='product',
             name='brand',
-            field=models.ForeignKey(blank=True, null=True, on_delete=models.PROTECT, related_name='products', to='product.brand', verbose_name='Бренд'),
+            field=models.ForeignKey(blank=True, null=True, on_delete=models.PROTECT, related_name='products', to='supplier_manager.manufacturer', verbose_name='Бренд'),
         ),
         migrations.AddField(
             model_name='product',
