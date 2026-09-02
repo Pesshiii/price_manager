@@ -52,7 +52,6 @@ class Product(models.Model):
     categories = models.ManyToManyField(
         Category, related_name='products', blank=True, verbose_name='Категории',
     )
-    category_path = models.TextField('Путь категории', blank=True, default='')
     raw_data = models.JSONField('Сырые данные PIM', default=dict, blank=True)
     created_at = models.DateTimeField('Создан', auto_now_add=True)
     updated_at = models.DateTimeField('Обновлён', auto_now=True)

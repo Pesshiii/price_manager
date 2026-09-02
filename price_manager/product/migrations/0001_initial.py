@@ -36,7 +36,6 @@ class Migration(migrations.Migration):
             fields=[
                 ('id', models.BigAutoField(auto_created=True, primary_key=True, serialize=False, verbose_name='ID')),
                 ('name', models.CharField(db_index=True, max_length=512, verbose_name='Название')),
-                ('category_path', models.TextField(blank=True, default='', verbose_name='Путь категории')),
                 ('raw_data', models.JSONField(blank=True, default=dict, verbose_name='Сырые данные PIM')),
                 ('created_at', models.DateTimeField(auto_now_add=True, verbose_name='Создан')),
                 ('updated_at', models.DateTimeField(auto_now=True, verbose_name='Обновлён')),
