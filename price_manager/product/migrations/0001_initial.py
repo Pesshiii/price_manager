@@ -36,7 +36,6 @@ class Migration(migrations.Migration):
             fields=[
                 ('id', models.BigAutoField(auto_created=True, primary_key=True, serialize=False, verbose_name='ID')),
                 ('pim_id', models.CharField(db_index=True, max_length=64, unique=True, verbose_name='Id товара в PIM')),
-                ('number', models.CharField(db_index=True, max_length=128, unique=True, verbose_name='Номер PIM (артикул)')),
                 ('name', models.CharField(db_index=True, max_length=512, verbose_name='Название')),
                 ('category_path', models.TextField(blank=True, default='', verbose_name='Путь категории')),
                 ('raw_data', models.JSONField(blank=True, default=dict, verbose_name='Сырые данные PIM')),

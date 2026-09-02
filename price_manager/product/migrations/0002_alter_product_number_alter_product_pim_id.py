@@ -10,7 +10,7 @@ class Migration(migrations.Migration):
     ]
 
     operations = [
-        migrations.AlterField(
+        migrations.AddField(
             model_name='product',
             name='number',
             field=models.CharField(max_length=128, unique=True, verbose_name='Номер PIM (артикул)'),
