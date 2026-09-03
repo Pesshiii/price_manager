@@ -11,13 +11,15 @@ isn't under the app that renders it, look here first.
 `core/task_runner.py`. Keyword-only signature:
 
 ```python
-execute_locked_task(task_name=..., lock_ttl=..., runner=...)  # -> dict
+execute_locked_task(task_name=..., lock_ttl=..., runner=..., atomic=True)  # -> dict
 ```
 
 What it gives you, in order:
 1. Redis lock via `cache.add(f"task-lock:{task_name}", ..., timeout=lock_ttl)`
    — atomic; a second runner gets `status="skipped"`, `reason="lock_exists"`.
-2. `runner()` inside `transaction.atomic()`.
+2. `runner()` inside `transaction.atomic()` — **unless `atomic=False`**, which
+   runs it in autocommit. Only the transaction is dropped; steps 1, 3 and 4
+   are unaffected, so the Redis lock still guarantees a single runner.
 3. A `TaskRunHistory` row for **every** outcome — success, error, *and*
    lock-skipped — with `duration_ms` and `updated_count`.
 4. `cache.delete(lock_key)` in `finally`.
@@ -38,7 +40,7 @@ The trap this sets: a runner returning a summary like
 `return (42, 3)` — records **45**, a silently wrong metric that is worse. The
 tuple branch is only correct when every member counts the same thing (that is
 why `create_pim_links` returning `len(result), created`,
-`main_product_manager/utils.py:527`, is fine). **Return the one bare int you
+`main_product_manager/utils.py:530`, is fine). **Return the one bare int you
 actually want counted.**
 
 The rest of a dict return is not lost: the success path writes
@@ -51,12 +53,16 @@ Three consequences worth remembering:
 - `task_name` is the lock identity, independent of the Celery
   `@shared_task(name=...)`. Tasks meant to run in parallel need uniquified
   names — see the batch fan-out in [[main_product_manager]].
-- `transaction.atomic()` cannot span an HTTP call. A runner that calls PIM
-  holds a transaction open across the network.
-- A runner that `.delay()`s subtasks inside that `transaction.atomic()` (`:57`)
-  queues them on Redis **immediately**, while its own DB writes can still roll
-  back — the subtask then runs against rows that never committed.
-  `main_product_manager/tasks.py:167`–`170` does exactly this.
+- A transaction must not span an HTTP call, and moving the *write* after the
+  API loop does **not** achieve that — the transaction opens here, before the
+  runner is ever entered, so it is held for the whole loop no matter where the
+  write sits. `atomic=False` is the only thing that actually drops it. The two
+  PIM scans in [[main_product_manager]] use it.
+- A runner that `.delay()`s subtasks inside the transaction queues them on
+  Redis **immediately**, while its own DB writes can still roll back — the
+  subtask then runs against rows that never committed.
+  `main_product_manager/tasks.py` `reindex_pim_ids_task` does exactly this; it
+  is still `atomic=True` and still has the bug.
 
 ## Gotcha: `core/models/` is an empty directory
 

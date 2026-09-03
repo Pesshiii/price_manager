@@ -42,7 +42,21 @@ def execute_locked_task(
     task_name: str,
     lock_ttl: int,
     runner: Callable[[], Any],
+    atomic: bool = True,
 ) -> dict[str, Any]:
+    """Run `runner` once cluster-wide, recording a TaskRunHistory row for the run.
+
+    Mutual exclusion comes from the Redis lock (`cache.add`), not from the
+    transaction — the lock is taken before, and released after, whatever
+    `atomic` does.
+
+    `atomic=False` runs the runner in autocommit instead of wrapping it in
+    `transaction.atomic()`. Pass it for runners that make network calls (or
+    sleep) between their DB writes: an open transaction would otherwise be
+    held for the whole of that I/O. Only safe for runners that are idempotent
+    and need no cross-statement DB isolation, since a run that dies partway
+    leaves its committed writes behind for the next run to continue from.
+    """
     lock_key = f"task-lock:{task_name}"
     start = time.monotonic()
     started_at = timezone.now()
@@ -70,7 +84,10 @@ def execute_locked_task(
         return payload
 
     try:
-        with transaction.atomic():
+        if atomic:
+            with transaction.atomic():
+                result = runner()
+        else:
             result = runner()
         updated_count = _normalize_updated_count(result)
         finished_at = timezone.now()
