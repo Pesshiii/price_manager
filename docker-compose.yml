@@ -56,6 +56,7 @@ services:
       PIM_TOKEN: ${PIM_TOKEN:-dummy-token}
       PIM_HOST: ${PIM_HOST:-http://pim.invalid}
       CSRF_TRUSTED_ORIGINS: ${CSRF_TRUSTED_ORIGINS:-http://localhost,http://127.0.0.1}
+      HTTP_X_FORWARDED_PROTO: ${HTTP_X_FORWARDED_PROTO:-https}
     ports:
       - "${WEB_PORT:-8000}:8000"
     volumes:

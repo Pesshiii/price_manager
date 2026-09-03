@@ -58,7 +58,7 @@ SECURE_HSTS_PRELOAD = not DEBUG
 USE_X_FORWARDED_HOST = True
 CSRF_COOKIE_SECURE = not DEBUG
 SESSION_COOKIE_SECURE = not DEBUG
-SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')      
+SECURE_PROXY_SSL_HEADER = os.environ.get('HTTP_X_FORWARDED_PROTO', 'https')      
 
 # Internationalization
 # https://docs.djangoproject.com/en/5.2/topics/i18n/
