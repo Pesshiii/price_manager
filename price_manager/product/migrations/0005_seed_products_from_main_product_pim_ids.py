@@ -37,10 +37,5 @@ class Migration(migrations.Migration):
     ]
 
     operations = [
-        migrations.AlterField(
-            model_name='product',
-            name='name',
-            field=models.CharField(blank=True, max_length=512, null=True, unique=True, verbose_name='Название'),
-        ),
         migrations.RunPython(seed_products_from_main_product_pim_ids, reverse_code=migrations.RunPython.noop),
     ]
