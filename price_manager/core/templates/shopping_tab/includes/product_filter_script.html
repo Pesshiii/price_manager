@@ -1,0 +1,47 @@
+<script>
+  (function () {
+    // Фильтр живёт здесь, а не внутри списка: подтверждение, удаление и
+    // добавление перерисовывают список OOB-свопом и стёрли бы обработчик.
+    var query = '';
+
+    function apply() {
+      var list = document.getElementById('cart-item-products-list');
+      if (!list) return;
+      var needle = query.trim().toLowerCase();
+      var shown = 0;
+      list.querySelectorAll('.ci-cand').forEach(function (row) {
+        var match = !needle || (row.dataset.search || '').indexOf(needle) !== -1;
+        row.hidden = !match;
+        if (match) shown += 1;
+      });
+      var empty = document.getElementById('cart-item-filter-empty');
+      if (empty) empty.hidden = !(needle && shown === 0);
+    }
+
+    function onQueryChange(event) {
+      if (!event.target.matches || !event.target.matches('#cart-item-product-filter')) return;
+      query = event.target.value;
+      apply();
+    }
+
+    document.addEventListener('input', onQueryChange);
+    document.addEventListener('search', onQueryChange);
+
+    // Список подменяется целиком — возвращаем строку фильтра и применяем заново.
+    document.body.addEventListener('htmx:afterSwap', function () {
+      var input = document.getElementById('cart-item-product-filter');
+      if (input && query) input.value = query;
+      apply();
+    });
+
+    // На странице заявки одна модалка обслуживает разные позиции по очереди —
+    // без сброса фильтр от предыдущей позиции подмешался бы к следующей.
+    var modalContainer = document.getElementById('modal-container');
+    if (modalContainer) {
+      modalContainer.addEventListener('hidden.bs.modal', function () {
+        var input = document.getElementById('cart-item-product-filter');
+        if (!input || modalContainer.contains(input)) query = '';
+      });
+    }
+  })();
+</script>

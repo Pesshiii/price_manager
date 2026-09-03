@@ -10,7 +10,13 @@
       <p class="small text-muted mb-0">Запрос: {{ item.search_query }}</p>
     {% endif %}
   </div>
-  <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Закрыть"></button>
+  <button type="button" class="btn-close"
+          {% if from_cart_modal %}
+            hx-get="{% url 'cart-item-detail' item.pk %}" hx-target="#modal-container .modal-content" hx-swap="innerHTML"
+          {% else %}
+            data-bs-dismiss="modal"
+          {% endif %}
+          aria-label="Закрыть"></button>
 </div>
 <div class="modal-body">
   <div class="row g-3">
@@ -56,7 +62,12 @@
 <div class="modal-footer justify-content-between">
   <span class="text-muted small">Выбрано: <span id="cart-item-selected-count">0</span></span>
   <div class="d-flex gap-2">
-    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Закрыть</button>
+    <button type="button" class="btn btn-secondary"
+            {% if from_cart_modal %}
+              hx-get="{% url 'cart-item-detail' item.pk %}" hx-target="#modal-container .modal-content" hx-swap="innerHTML"
+            {% else %}
+              data-bs-dismiss="modal"
+            {% endif %}>Закрыть</button>
     <button type="submit"
             form="cart-item-add-form"
             id="cart-item-add-selected"

@@ -1,0 +1,14 @@
+{% comment %}
+Модалка выбора подходящего товара для позиции заявки — открывается кликом по
+строке в списке позиций (items_table.html) вместо перехода на страницу позиции.
+{% endcomment %}
+<div class="modal-header">
+  <h5 class="modal-title">{{ item.search_query }}</h5>
+  <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Закрыть"></button>
+</div>
+<div class="modal-body p-0">
+  {% include 'shopping_tab/partials/item_products.html' with modal=True %}
+</div>
+<div class="modal-footer">
+  <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Закрыть</button>
+</div>

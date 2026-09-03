@@ -1,0 +1,9 @@
+{% comment %}
+Ответ на удаление товара из подходящих внутри модалки: сама модалка
+перерисовывается на месте, а строка позиции в списке за модалкой обновляется
+OOB-свопом (статус/цена могли измениться, если убрали подтверждённый товар).
+{% endcomment %}
+{% include 'shopping_tab/partials/item_products_modal.html' %}
+{% if items is not None %}
+  {% include 'shopping_tab/partials/items_table.html' %}
+{% endif %}

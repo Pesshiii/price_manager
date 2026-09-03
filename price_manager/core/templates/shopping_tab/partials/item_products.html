@@ -10,9 +10,8 @@
     </h2>
     <button type="button"
             class="btn btn-sm btn-outline-secondary"
-            data-bs-toggle="modal"
-            data-bs-target="#modal-container"
-            hx-get="{% url 'cart-item-products-select' item.pk %}"
+            {% if not modal %}data-bs-toggle="modal" data-bs-target="#modal-container"{% endif %}
+            hx-get="{% url 'cart-item-products-select' item.pk %}{% if modal %}?modal=1{% endif %}"
             hx-target="#modal-container .modal-content"
             hx-swap="innerHTML">
       <i class="bi bi-plus-lg"></i> Добавить товары
@@ -56,6 +55,7 @@
               <button type="button"
                       class="btn btn-sm btn-outline-primary"
                       hx-post="{% url 'cart-item-confirm' item.pk product.pk %}"
+                      {% if modal %}hx-vals='{"modal": "true"}'{% endif %}
                       hx-swap="none">
                 Подтвердить
               </button>
@@ -65,7 +65,13 @@
                     title="Убрать из подходящих"
                     aria-label="Убрать «{{ product.name }}» из подходящих"
                     hx-post="{% url 'cart-item-product-remove' item.pk product.pk %}"
-                    hx-swap="none"
+                    {% if modal %}
+                      hx-vals='{"modal": "true"}'
+                      hx-target="#modal-container .modal-content"
+                      hx-swap="innerHTML"
+                    {% else %}
+                      hx-swap="none"
+                    {% endif %}
                     {% if item.confirmed_product_id == product.id %}hx-confirm="Убрать подтверждённый товар из подходящих? Подтверждение будет снято."{% endif %}>
               <i class="bi bi-x-lg"></i>
             </button>

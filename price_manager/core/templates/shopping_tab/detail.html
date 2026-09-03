@@ -100,7 +100,7 @@
 </div>
 
 <div id="modal-container" class="modal fade" tabindex="-1" aria-hidden="true">
-  <div class="modal-dialog modal-lg modal-dialog-centered modal-dialog-scrollable">
+  <div class="modal-dialog modal-xl modal-dialog-centered modal-dialog-scrollable">
     <div class="modal-content">
       <div class="container d-flex justify-content-center gap-2 mb-4 mt-4">
         <div class="spinner-grow" role="status"></div>
@@ -113,6 +113,7 @@
 {% endblock %}
 
 {% block script %}
+  {% include 'shopping_tab/includes/product_filter_script.html' %}
   <script>
     function copyToClipboard(text) {
       navigator.clipboard.writeText(text);

@@ -23,7 +23,7 @@ from django_tables2 import SingleTableView, RequestConfig, SingleTableMixin
 from django_filters.views import FilterView, FilterMixin
 from dal import autocomplete
 from django.http import HttpResponse, FileResponse, Http404
-from django_htmx.http import reswap, trigger_client_event
+from django_htmx.http import reswap, trigger_client_event, HttpResponseClientRefresh
 
 
 # Импорты моделей, функций, форм, таблиц
@@ -416,6 +416,11 @@ class CartItemDetailView(LoginRequiredMixin, DetailView):
         context['tab'] = self.object.shopping_tabs.filter(user=self.request.user).first()
         return context
 
+    def get_template_names(self):
+        if self.request.htmx:
+            return ['shopping_tab/partials/item_products_modal.html']
+        return [self.template_name]
+
 
 class CartItemQuickAddView(LoginRequiredMixin, View):
     """Добавление товара из главного прайса в заявку одной модалкой.
@@ -504,6 +509,8 @@ class CartItemConfirmProductView(LoginRequiredMixin, View):
             item.products.add(product)
         item.confirmed_product = product
         item.save(update_fields=['confirmed_product'])
+        if request.POST.get('modal'):
+            return HttpResponseClientRefresh()
         return render(request, self.template_name, {'item': item})
 
 
@@ -534,6 +541,10 @@ class CartItemRemoveProductView(LoginRequiredMixin, View):
         if item.confirmed_product_id == product.pk:
             item.confirmed_product = None
             item.save(update_fields=['confirmed_product'])
+        if request.POST.get('modal'):
+            tab = item.shopping_tabs.filter(user=request.user).first()
+            context = {'item': item, 'items': _get_shopping_tab_items(tab) if tab else None}
+            return render(request, 'shopping_tab/partials/item_products_modal_refresh.html', context)
         return render(request, self.template_name, {'item': item})
 
 
@@ -592,6 +603,7 @@ class CartItemProductSelectView(LoginRequiredMixin, SingleTableMixin, FilterView
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
         context['item'] = self.item
+        context['from_cart_modal'] = self.request.GET.get('modal') == '1'
         return context
 
 

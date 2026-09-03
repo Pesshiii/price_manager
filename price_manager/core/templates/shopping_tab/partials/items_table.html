@@ -5,7 +5,13 @@
   {% if items %}
     <div class="ci-cand-list">
       {% for item in items %}
-        <a href="{% url 'cart-item-detail' item.pk %}" class="ci-cand">
+        <a href="{% url 'cart-item-detail' item.pk %}"
+           class="ci-cand"
+           data-bs-toggle="modal"
+           data-bs-target="#modal-container"
+           hx-get="{% url 'cart-item-detail' item.pk %}"
+           hx-target="#modal-container .modal-content"
+           hx-swap="innerHTML">
           <div>
             <p class="ci-cand-name mb-1">{{ item.search_query }}</p>
             <p class="ci-cand-sub mb-0">
