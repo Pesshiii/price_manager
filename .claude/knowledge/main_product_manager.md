@@ -21,17 +21,36 @@ regardless of how the queryset was built.
 override by adding a rebuild call into it; that would turn every save in the
 codebase into a PIM call.
 
-## `transaction.atomic()` cannot span an HTTP call
+## PIM scans run with `atomic=False` — moving the write is not enough
 
-`execute_locked_task` wraps its runner in a transaction, so a task that calls
-PIM inside the runner holds a DB transaction open across the network. The
-established workaround: accumulate objects in the API loop, do the single
-`bulk_update` **after** it. Both sites are commented:
+`execute_locked_task` wraps its runner in a transaction *by default*, so a task
+that calls PIM inside the runner holds one open across the network.
 
-- `utils.py:523` (`create_pim_links`)
-- `utils.py:573` (`reindex_pim_ids_batch`)
+There used to be a comment at both scan sites claiming that hoisting the
+`bulk_update` out of the API loop kept the transaction from spanning the HTTP
+calls. **It does not.** `execute_locked_task` opens the transaction before
+calling the runner, so it stays open for the entire loop regardless of where
+the write lands. The real fix is `atomic=False` at the call site — see
+[[core]]:
 
-New PIM-touching code should follow that same shape.
+- `tasks.py` `create_pim_links_task` → `utils.py` `create_pim_links`
+- `tasks.py` `reindex_pim_ids_batch_task` → `utils.py` `reindex_pim_ids_batch`
+
+Both are safe without the transaction because the Redis lock (not the
+transaction) provides mutual exclusion, and both are idempotent re-scans:
+`create_pim_links` only fills `pim_id__isnull=True`, and `reindex_pim_ids_batch`
+only writes when the resolved id differs. A run that dies mid-loop leaves
+committed progress the next run continues from — which is what you want, since
+`_search_pim_id`'s `pim_no_match:` cache writes escape a rollback anyway.
+
+Do **not** wrap `push_missing_pim_products` in a transaction "to compensate":
+it is `_push_pim_products` underneath, which interleaves HTTP, `bulk_update`
+and `sleep` per chunk, so a wrap would reintroduce the same defect and would
+also break its documented promise that one failing chunk doesn't lose the
+others.
+
+New PIM-touching tasks should pass `atomic=False` rather than reshuffling
+writes.
 
 ## Why the search vector uses `Value()`, not field references
 
@@ -54,7 +73,7 @@ best-behaved one in the repo on that convention. Two of them take
 re-scan outruns any sane limit.
 
 The fan-out pattern is worth knowing: `reindex_pim_ids_task` uses
-`iter_pim_id_pk_batches()` (`utils.py:530`) to chunk pks, then queues one
+`iter_pim_id_pk_batches()` (`utils.py:533`) to chunk pks, then queues one
 `reindex_pim_ids_batch_task` per chunk so batches run in parallel across
 workers. `task_name` for those is uniquified per chunk
 (`f"...reindex_pim_ids_batch:{pks[0]}-{pks[-1]}"`, `tasks.py:182`) — otherwise

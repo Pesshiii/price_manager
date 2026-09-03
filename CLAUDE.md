@@ -70,7 +70,7 @@ Retirement status is otherwise clean: nothing in the legacy apps imports `produc
 
 ## Shared infrastructure
 
-**`core/task_runner.py` — `execute_locked_task()`**: Every Celery task should go through this. It provides Redis-based distributed locking (via `cache.add`), wraps the runner in `transaction.atomic()`, and writes a `TaskRunHistory` record with duration and updated-count for every run (success, error, or lock-skipped).
+**`core/task_runner.py` — `execute_locked_task()`**: Every Celery task should go through this. It provides Redis-based distributed locking (via `cache.add`), wraps the runner in `transaction.atomic()`, and writes a `TaskRunHistory` record with duration and updated-count for every run (success, error, or lock-skipped). Pass `atomic=False` to skip only the transaction — the lock and history still apply. That is for runners that make network calls or sleep between their DB writes (the PIM scans in `main_product_manager`), where an open transaction would idle for the whole scan; it requires the runner to be idempotent, since a partial run's writes stay committed.
 
 **Celery:** Worker runs as the `celery_worker` container, broker/backend via Redis. Tasks are `@shared_task` in each app's `tasks.py`.
 

@@ -157,6 +157,9 @@ def create_pim_links_task(delay: float = 0.5, batch_size: int = 1000) -> dict:
         task_name="main_product_manager.create_pim_links",
         lock_ttl=60 * 20,
         runner=lambda: create_pim_links(delay=delay, batch_size=batch_size),
+        # The runner spends most of its time in PIM HTTP calls and time.sleep;
+        # a transaction around it would idle open for the whole scan.
+        atomic=False,
     )
 
 
@@ -182,6 +185,9 @@ def reindex_pim_ids_batch_task(pks: list[int], delay: float = 0.5, batch_size: i
         task_name=f"main_product_manager.reindex_pim_ids_batch:{pks[0]}-{pks[-1]}",
         lock_ttl=60 * 30,
         runner=lambda: reindex_pim_ids_batch(pks, delay=delay, batch_size=batch_size),
+        # As in create_pim_links_task: the scan is HTTP-bound, so it must not
+        # hold a transaction open across the loop.
+        atomic=False,
     )
 
 

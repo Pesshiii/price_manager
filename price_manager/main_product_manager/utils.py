@@ -519,8 +519,11 @@ def create_pim_links(delay: float = 0.5, batch_size: int = 1000) -> tuple[int, i
                 created += push_missing_pim_products(missing, batch_size=batch_size, delay=delay)
                 missing = []
         time.sleep(delay)
-    # bulk_update is the only DB write; kept outside the API loop so
-    # execute_locked_task's transaction.atomic() doesn't span HTTP calls.
+    # Runs with no transaction held (create_pim_links_task passes atomic=False),
+    # so each write below commits on its own rather than idling a transaction
+    # open across the PIM calls above. Safe to resume after a partial run: this
+    # only ever fills pim_id__isnull=True, so committed rows are simply skipped
+    # next time.
     if result:
         MainProduct.objects.bulk_update(result, fields=['pim_id'])
     created += push_missing_pim_products(missing, batch_size=batch_size, delay=delay)
@@ -569,8 +572,11 @@ def reindex_pim_ids_batch(pks: list[int], delay: float = 0.5, batch_size: int = 
         elif product.pim_id is None:
             missing.append(product)
         time.sleep(delay)
-    # bulk_update is the only DB write; kept outside the API loop so
-    # execute_locked_task's transaction.atomic() doesn't span HTTP calls.
+    # Runs with no transaction held (reindex_pim_ids_batch_task passes
+    # atomic=False), so each write below commits on its own rather than idling
+    # a transaction open across the PIM calls above. Safe to resume after a
+    # partial run: re-searching is idempotent and only a changed pim_id is
+    # written back.
     if result:
         MainProduct.objects.bulk_update(result, fields=['pim_id'])
     created = push_missing_pim_products(missing, batch_size=batch_size, delay=delay)
