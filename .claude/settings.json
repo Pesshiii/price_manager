@@ -8,6 +8,43 @@
       "Bash(docker compose config *)",
       "Bash(docker info)",
       "Bash(docker info *)"
+    ],
+    "deny": [
+      "Read(.env)",
+      "Edit(.env)",
+      "Read(./.env)",
+      "Edit(./.env)",
+      "Read(**/.env)",
+      "Edit(**/.env)"
+    ]
+  },
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "if": "Bash(docker compose down *)",
+            "command": "python \"${CLAUDE_PROJECT_DIR:-$(git rev-parse --show-toplevel 2>/dev/null || pwd)}/.claude/hooks/guard_compose_down.py\"",
+            "statusMessage": "Checking for volume deletion...",
+            "timeout": 15
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "Edit|Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python \"${CLAUDE_PROJECT_DIR:-$(git rev-parse --show-toplevel 2>/dev/null || pwd)}/.claude/hooks/check_migrations.py\"",
+            "statusMessage": "Checking migration drift...",
+            "timeout": 150
+          }
+        ]
+      }
     ]
   }
 }
