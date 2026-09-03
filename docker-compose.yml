@@ -37,6 +37,7 @@ services:
       dockerfile: Dockerfile
     container_name: price_manager_web
     restart: unless-stopped
+    user: "1011:1011"
     depends_on:
       db:
         condition: service_healthy
@@ -44,7 +45,7 @@ services:
         condition: service_healthy
     environment:
       SECRET_KEY: ${SECRET_KEY:-django-insecure-dev-only-set-SECRET_KEY-in-.env}
-      DEBUG: true
+      DEBUG: ${DEBUG:-true}
       ALLOWED_HOSTS: localhost,127.0.0.1
       POSTGRES_DB: ${POSTGRES_DB:-price_manager_db}
       POSTGRES_USER: ${POSTGRES_USER:-priceuser}
@@ -77,10 +78,11 @@ services:
         condition: service_healthy
     volumes:
       - ./price_manager:/app
+    user: "1011:1011"
     environment:
       # Must match `web` — sessions and signed values are shared between them.
       SECRET_KEY: ${SECRET_KEY:-django-insecure-dev-only-set-SECRET_KEY-in-.env}
-      DEBUG: true
+      DEBUG: ${DEBUG:-true}
       ALLOWED_HOSTS: localhost,127.0.0.1
       POSTGRES_DB: ${POSTGRES_DB:-price_manager_db}
       POSTGRES_USER: ${POSTGRES_USER:-priceuser}
