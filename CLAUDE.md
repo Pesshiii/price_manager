@@ -83,6 +83,40 @@ There are **two HTMX response conventions**, both documented as skills under `.c
 - **`htmx-modal-crud`** — list + Bootstrap modal form, success returns `HttpResponseClientRefresh()` (full reload). The default for ordinary CRUD screens.
 - **`htmx-oob-fragments`** — one action updates several regions in place via `hx-swap-oob`, no reload. Used throughout `core/templates/shopping_tab/`. Reach for it when a reload would lose state the user cares about (scroll position, an open modal, a filled filter).
 
+## Per-app knowledge keepers
+
+Each significant app has a **keeper agent** and a knowledge file it owns:
+
+| App | Agent | File |
+|---|---|---|
+| `main_product_manager` | `main-product-keeper` | `.claude/knowledge/main_product_manager.md` |
+| `core` | `core-keeper` | `.claude/knowledge/core.md` |
+| `product` | `product-keeper` | `.claude/knowledge/product.md` |
+| `supplier_product_manager` | `supplier-product-keeper` | `.claude/knowledge/supplier_product_manager.md` |
+| `supplier_manager` | `supplier-manager-keeper` | `.claude/knowledge/supplier_manager.md` |
+| `product_price_manager` | `price-rules-keeper` | `.claude/knowledge/product_price_manager.md` |
+| `pricing` `supplier` `supplier_feed` `dataframe` | `retiring-stack-keeper` | `.claude/knowledge/retiring_stack.md` |
+
+**Consult the keeper before working in its app.** It reads its knowledge file,
+verifies the claims against current code, and answers with `file:line` refs.
+
+**Record back afterwards** with `/record-insight <app>` — a `Stop` hook
+(`.claude/hooks/suggest_record.py`) nudges when a session touched an app dir.
+Without that step the files freeze and rot; recording is what makes the system
+worth having.
+
+**The boundary — keep these three from drifting into each other:**
+
+- `CLAUDE.md` / `AGENTS.md` — repo-wide invariants, architecture, direction of
+  travel. The source of truth. **Keepers must not restate this.**
+- `.claude/knowledge/<app>.md` — app-local mechanism and traps found by working
+  in that app: surprising side effects, cache keys that don't cover what you'd
+  assume, deliberate convention exceptions. Cross-linked with `[[app_name]]`.
+- The user's memory dir — workflow preferences, not code facts.
+
+Apps with no keeper (`file_manager`, `api_auth`, `pim_api`, `blogapp`) are too
+small to justify one; anything important about them belongs in this file.
+
 ## Conventions
 
 - **UI strings are Russian.** Model `verbose_name`s, `Meta.verbose_name`, form labels, and template copy are all Russian — match that when adding models or screens. Code identifiers and comments are English.

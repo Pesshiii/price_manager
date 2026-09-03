@@ -80,3 +80,5 @@ venv/
 .claude/*.lock
 .claude/**/node_modules/
 .claude/**/driver_shots/
+# Stop-hook dedupe state for the knowledge-keeper nudge
+.claude/.record_nudge

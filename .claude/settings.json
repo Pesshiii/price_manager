@@ -45,6 +45,18 @@
           }
         ]
       }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python \"${CLAUDE_PROJECT_DIR:-$(git rev-parse --show-toplevel 2>/dev/null || pwd)}/.claude/hooks/suggest_record.py\"",
+            "statusMessage": "Checking for insights to record...",
+            "timeout": 20
+          }
+        ]
+      }
     ]
   }
 }

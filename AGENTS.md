@@ -24,4 +24,5 @@ They are still served at `/api/dataframe/`, `/api/supplier-feed/`, `/api/supplie
 - **UI strings are Russian** — `verbose_name`, `Meta.verbose_name`, form labels, template copy. Code identifiers and comments stay English.
 - **Routes are registered centrally** in `price_manager/price_manager/urls.py`. Only `main_product_manager` and `blogapp` are `include()`d.
 - **Always commit migrations.** They are tracked normally.
+- **Each app has a knowledge keeper.** Consult `<app>`'s keeper agent before working in it (e.g. `core-keeper`, `main-product-keeper`), and record what you learn back with `/record-insight <app>`. Files live in `.claude/knowledge/`; see CLAUDE.md for the full table.
 - **Most of the front end is in `core`** — 102 of 146 templates, and the whole shopping-tab/cart feature in `core/views.py`.
