@@ -36,7 +36,6 @@ services:
       context: .
       dockerfile: Dockerfile
     restart: unless-stopped
-    user: "1011:1011"
     depends_on:
       db:
         condition: service_healthy
@@ -56,13 +55,17 @@ services:
       CELERY_RESULT_BACKEND: ${CELERY_RESULT_BACKEND:-redis://redis:6379/0}
       PIM_TOKEN: ${PIM_TOKEN:-dummy-token}
       PIM_HOST: ${PIM_HOST:-http://pim.invalid}
+      CSRF_TRUSTED_ORIGINS: ${CSRF_TRUSTED_ORIGINS:-http://localhost,http://127.0.0.1}
     ports:
       - "${WEB_PORT:-8000}:8000"
     volumes:
       - ./price_manager:/app
+    # --no-control-socket: gunicorn >=25.1 opens a `gunicornc` control socket
+    # under $HOME/.gunicorn. Nothing here uses gunicornc, and the socket errors
+    # out whenever HOME is not writable, so turn it off.
     command: >
       sh -c "python manage.py migrate && python manage.py collectstatic --noinput &&
-             gunicorn --bind 0.0.0.0:8000 --workers 3 price_manager.wsgi:application"
+             gunicorn --bind 0.0.0.0:8000 --workers 3 --no-control-socket price_manager.wsgi:application"
 
   celery_worker:
     build:
@@ -76,7 +79,6 @@ services:
         condition: service_healthy
     volumes:
       - ./price_manager:/app
-    user: "1011:1011"
     environment:
       # Must match `web` — sessions and signed values are shared between them.
       SECRET_KEY: ${SECRET_KEY:-django-insecure-dev-only-set-SECRET_KEY-in-.env}
