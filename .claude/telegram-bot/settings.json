@@ -1,0 +1,55 @@
+{
+  "$comment": "Bot-session-only settings. Loaded via --settings on top of .claude/settings.json; never active in a normal dev session. Two jobs: (1) pre-approve the exact tools the bot needs, because a permission prompt raised while handling a GROUP message can only be answered from the operator's DM -- the plugin deliberately excludes groups from permission_request -- so an unapproved tool means the group just watches the typing indicator expire; (2) deny the handful of things no group member should ever be able to steer.",
+  "permissions": {
+    "allow": [
+      "Bash(python .claude/telegram-bot/capture.py:*)",
+      "Bash(gh issue list:*)",
+      "Bash(gh issue view:*)",
+      "Bash(gh issue create:*)",
+      "Bash(gh issue comment:*)",
+      "Bash(gh issue close:*)",
+      "Bash(gh issue reopen:*)",
+      "Bash(gh issue edit:*)",
+      "Bash(gh search issues:*)",
+      "Bash(gh label list:*)",
+      "mcp__telegram__reply",
+      "mcp__telegram__react",
+      "mcp__telegram__edit_message",
+      "Read(.claude/telegram-bot/**)"
+    ],
+    "deny": [
+      "Bash(gh issue delete:*)",
+      "Bash(gh api:*)",
+      "Bash(gh repo:*)",
+      "Bash(gh secret:*)",
+      "Bash(gh auth:*)",
+      "Bash(git push:*)",
+      "Bash(git commit:*)",
+      "Bash(git reset:*)",
+      "Bash(docker compose down:*)",
+      "Read(**/.env)",
+      "Edit(**/.env)",
+      "Write(**/.env)",
+      "Read(**/channels/telegram/**)",
+      "Edit(**/channels/telegram/**)",
+      "Write(**/channels/telegram/**)",
+      "Edit(.claude/settings.json)",
+      "Edit(.claude/settings.local.json)",
+      "Edit(.claude/telegram-bot/settings.json)"
+    ]
+  },
+  "hooks": {
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python \"${CLAUDE_PROJECT_DIR:-.}/.claude/telegram-bot/capture.py\" hook",
+            "statusMessage": "Capturing inbound message...",
+            "timeout": 10
+          }
+        ]
+      }
+    ]
+  }
+}

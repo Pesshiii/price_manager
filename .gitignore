@@ -82,3 +82,6 @@ venv/
 .claude/**/driver_shots/
 # Stop-hook dedupe state for the knowledge-keeper nudge
 .claude/.record_nudge
+
+# Telegram bot capture log (chat content, not source)
+.claude/telegram-bot/state/
