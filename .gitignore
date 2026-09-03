@@ -63,10 +63,6 @@ celerybeat.pid
 .vscode/
 *.code-workspace
 
-# Database migrations (except the migrations directory)
-*/migrations/*.py
-!*/migrations/__init__.py
-
 # Jupyter Notebook
 .ipynb_checkpoints/
 
@@ -76,9 +72,11 @@ celerybeat.pid
 # Virtual environment
 venv/
 
-# Claude
-.claude/
-
-#Dockerfiles
-
-*.yml
+# Claude Code
+# Skills, settings.json, agents and hooks under .claude/ are shared deliberately.
+# Only per-machine state and vendored dependencies are excluded.
+.claude/worktrees/
+.claude/settings.local.json
+.claude/*.lock
+.claude/**/node_modules/
+.claude/**/driver_shots/

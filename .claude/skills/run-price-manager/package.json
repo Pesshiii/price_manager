@@ -1,0 +1,10 @@
+{
+  "name": "run-price-manager-driver",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Playwright driver for driving the price_manager Django app in an agent session.",
+  "type": "module",
+  "dependencies": {
+    "playwright": "^1.62.1"
+  }
+}

@@ -1,0 +1,99 @@
+services:
+  db:
+    image: pgvector/pgvector:pg17
+    container_name: price_manager_db
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-price_manager_db}
+      POSTGRES_USER: ${POSTGRES_USER:-priceuser}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
+    ports:
+      - "${DB_PORT:-5432}:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U priceuser -d price_manager"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    container_name: price_manager_redis
+    restart: unless-stopped
+    ports:
+      - "${REDIS_PORT:-6379}:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  web:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: price_manager_web
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    environment:
+      SECRET_KEY: ${SECRET_KEY:-django-insecure-dev-only-set-SECRET_KEY-in-.env}
+      DEBUG: true
+      ALLOWED_HOSTS: localhost,127.0.0.1
+      POSTGRES_DB: ${POSTGRES_DB:-price_manager_db}
+      POSTGRES_USER: ${POSTGRES_USER:-priceuser}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
+      DB_HOST: db
+      DB_PORT: 5432
+      REDIS_URL: ${REDIS_URL:-redis://redis:6379/1}
+      CELERY_BROKER_URL: ${CELERY_BROKER_URL:-redis://redis:6379/0}
+      CELERY_RESULT_BACKEND: ${CELERY_RESULT_BACKEND:-redis://redis:6379/0}
+      PIM_TOKEN: ${PIM_TOKEN:-dummy-token}
+      PIM_HOST: ${PIM_HOST:-http://pim.invalid}
+    ports:
+      - "${WEB_PORT:-8000}:8000"
+    volumes:
+      - ./price_manager:/app
+    command: >
+      sh -c "python manage.py migrate && python manage.py collectstatic --noinput &&
+             gunicorn --bind 0.0.0.0:8000 --workers 3 price_manager.wsgi:application"
+
+  celery_worker:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: price_manager_celery_worker
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    volumes:
+      - ./price_manager:/app
+    environment:
+      # Must match `web` — sessions and signed values are shared between them.
+      SECRET_KEY: ${SECRET_KEY:-django-insecure-dev-only-set-SECRET_KEY-in-.env}
+      DEBUG: true
+      ALLOWED_HOSTS: localhost,127.0.0.1
+      POSTGRES_DB: ${POSTGRES_DB:-price_manager_db}
+      POSTGRES_USER: ${POSTGRES_USER:-priceuser}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
+      DB_HOST: db
+      DB_PORT: 5432
+      REDIS_URL: ${REDIS_URL:-redis://redis:6379/1}
+      CELERY_BROKER_URL: ${CELERY_BROKER_URL:-redis://redis:6379/0}
+      CELERY_RESULT_BACKEND: ${CELERY_RESULT_BACKEND:-redis://redis:6379/0}
+      PIM_TOKEN: ${PIM_TOKEN:-dummy-token}
+      PIM_HOST: ${PIM_HOST:-http://pim.invalid}
+    command: celery -A price_manager worker -l info
+
+volumes:
+  postgres_data:
+  redis_data:
