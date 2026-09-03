@@ -76,7 +76,12 @@ Retirement status is otherwise clean: nothing in the legacy apps imports `produc
 
 **REST API:** DRF, mounted at `/api/` via `api_urls.py`. Auth via `api_auth` (token-based). Only the retiring apps expose API routes.
 
-**Frontend:** Django templates + HTMX for partial updates, django-tables2 for tables, django-crispy-forms + Bootstrap (`CRISPY_TEMPLATE_PACK = 'bootstrap4'`), django-autocomplete-light for select widgets. The modal-CRUD convention is documented in the `htmx-modal-crud` skill.
+**Frontend:** Django templates + HTMX for partial updates, django-tables2 for tables, django-crispy-forms + Bootstrap (`CRISPY_TEMPLATE_PACK = 'bootstrap4'`), django-autocomplete-light for select widgets.
+
+There are **two HTMX response conventions**, both documented as skills under `.claude/skills/`:
+
+- **`htmx-modal-crud`** — list + Bootstrap modal form, success returns `HttpResponseClientRefresh()` (full reload). The default for ordinary CRUD screens.
+- **`htmx-oob-fragments`** — one action updates several regions in place via `hx-swap-oob`, no reload. Used throughout `core/templates/shopping_tab/`. Reach for it when a reload would lose state the user cares about (scroll position, an open modal, a filled filter).
 
 ## Conventions
 

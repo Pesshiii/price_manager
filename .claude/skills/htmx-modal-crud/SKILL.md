@@ -1,15 +1,25 @@
 ---
 name: htmx-modal-crud
-description: Scaffold a Django model with a list view (django-tables2) plus create/edit "modal" views wired up with HTMX + Bootstrap 5, matching this repo's legacy-app conventions (product_price_manager, main_product_manager, supplier_manager). Use when the user asks to add a new model/CRUD screen, "add a modal form", "add an edit modal", or a new manageable list to one of the legacy apps.
+description: Scaffold a Django model with a list view (django-tables2) plus create/edit "modal" views wired up with HTMX + Bootstrap 5 — this repo's standard CRUD pattern, used across core, product_price_manager, main_product_manager and supplier_manager. Use when the user asks to add a new model/CRUD screen, "add a modal form", "add an edit modal", or a new manageable list.
 ---
 
 # HTMX Modal CRUD
 
-Scaffolds the repo's standard pattern: a django-tables2 list where each row opens
-a Bootstrap modal via HTMX, backed by plain `CreateView`/`UpdateView`. There is
+Scaffolds the repo's standard CRUD pattern: a django-tables2 list where each row
+opens a Bootstrap modal via HTMX, backed by plain `CreateView`/`UpdateView`. There is
 **no shared Python mixin/base class for this** (`core/viewmixins.HtmxMixin` exists
 but is dead code — don't use it). Reusability lives entirely in the template
 convention below. See [REFERENCE.md](REFERENCE.md) for full copy-paste templates.
+
+**This is the live convention — build new screens this way.** The apps it names
+(`core`, `product_price_manager`, `main_product_manager`, `supplier_manager`,
+`supplier_product_manager`) are the system under active development; the
+API-driven apps are being retired. See CLAUDE.md, "Direction of travel".
+
+**Related:** this skill covers success-by-reload (`HttpResponseClientRefresh`).
+When one interaction must update *several regions in place* without a reload —
+a status chip, a summary panel and a list all at once — that's the out-of-band
+fragment convention instead; see the `htmx-oob-fragments` skill.
 
 ## The pattern, end to end
 
@@ -55,10 +65,10 @@ convention below. See [REFERENCE.md](REFERENCE.md) for full copy-paste templates
 - [ ] `templates/<app>/list.html` — extends `base.html`, declares `#modal-container`.
 - [ ] `templates/<app>/partials/{create,update}.html` — modal body partials.
 - [ ] `templates/<app>/partials/<name>_form.html` — the actual form fields, `{% include %}`d by both create/update partials so they stay in sync.
-- [ ] `urls.py` — most legacy apps register routes centrally in
+- [ ] `urls.py` — routes are registered centrally in
       `price_manager/price_manager/urls.py` rather than a per-app `urls.py`
-      (exception: `main_product_manager` has its own, `include()`d). Match
-      whatever the target app already does.
+      (exceptions: `main_product_manager` and `blogapp` have their own,
+      `include()`d). Match whatever the target app already does.
 
 Full field-by-field templates, both form-rendering styles, and real examples
 (with file paths) are in [REFERENCE.md](REFERENCE.md).
