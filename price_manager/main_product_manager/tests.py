@@ -103,3 +103,124 @@ class UpdateStocksNullSafeTests(TestCase):
         self.assertEqual(updated_count, 1)
         self.assertEqual(mp.stock, 0)
         self.assertTrue(MainProductLog.objects.filter(main_product=mp, stock=0).exists())
+
+
+from unittest.mock import Mock, patch
+
+from django.core.cache import cache
+from django.db import transaction
+from django.test import override_settings
+
+from core.task_runner import dispatch_after_commit
+from . import tasks as mp_tasks
+from .utils import _queue_pim_population
+
+# execute_locked_task's lock and _queue_pim_population's dedup flag both live in
+# the cache; keep them off the shared Redis the worker container points at.
+LOCMEM_CACHE = {
+    'default': {
+        'BACKEND': 'django.core.cache.backends.locmem.LocMemCache',
+        'LOCATION': 'dispatch-after-commit-tests',
+    }
+}
+
+
+@override_settings(CACHES=LOCMEM_CACHE)
+class DispatchAfterCommitTests(TestCase):
+    def setUp(self):
+        cache.clear()
+
+    def test_dispatch_is_held_until_the_transaction_commits(self):
+        task = Mock()
+
+        with self.captureOnCommitCallbacks(execute=True):
+            dispatch_after_commit(task, 42, keyword='v')
+            task.delay.assert_not_called()
+
+        task.delay.assert_called_once_with(42, keyword='v')
+
+    def test_rollback_discards_the_dispatch(self):
+        task = Mock()
+
+        with self.assertRaises(RuntimeError):
+            with transaction.atomic():
+                dispatch_after_commit(task)
+                raise RuntimeError('runner failed')
+
+        task.delay.assert_not_called()
+
+    def test_each_dispatch_in_a_loop_keeps_its_own_arguments(self):
+        # A hand-rolled `lambda: task.delay(pks=pks)` inside a loop would fire
+        # every callback with the last batch.
+        task = Mock()
+
+        with self.captureOnCommitCallbacks(execute=True):
+            for pks in ([1, 2], [3, 4]):
+                dispatch_after_commit(task, pks=pks)
+
+        self.assertEqual(
+            [call.kwargs['pks'] for call in task.delay.call_args_list],
+            [[1, 2], [3, 4]],
+        )
+
+
+@override_settings(CACHES=LOCMEM_CACHE)
+class ReindexPimIdsDispatchTests(TestCase):
+    def setUp(self):
+        cache.clear()
+        self.currency = Currency.objects.get_or_create(name='KZT', value=1)[0]
+        self.supplier = Supplier.objects.create(
+            name='Reindex supplier',
+            currency=self.currency,
+            price_update_rate='',
+            stock_update_rate='',
+            delivery_days_available=1,
+            delivery_days_navailable=2,
+        )
+        self.products = [
+            MainProduct.objects.create(
+                supplier=self.supplier, article=f'RX-{i}', name=f'Reindex {i}'
+            )
+            for i in range(3)
+        ]
+
+    def test_batches_dispatch_only_once_the_transaction_commits(self):
+        with patch.object(mp_tasks.reindex_pim_ids_batch_task, 'delay') as delay:
+            with self.captureOnCommitCallbacks(execute=True):
+                payload = mp_tasks.reindex_pim_ids_task(delay=0, batch_size=2)
+                delay.assert_not_called()
+
+            pks = [p.pk for p in self.products]
+            self.assertEqual(
+                [call.kwargs['pks'] for call in delay.call_args_list],
+                [pks[:2], pks[2:]],
+            )
+
+        self.assertEqual(payload['status'], 'success')
+        self.assertEqual(payload['updated_count'], 2)
+
+
+@override_settings(CACHES=LOCMEM_CACHE)
+class QueuePimPopulationDispatchTests(TestCase):
+    """_queue_pim_population is reached from inside execute_locked_task's
+    transaction via _build_searchvector -> _resolve_pim_id, which writes the
+    pim_id sync_pim_relations then looks products up by."""
+
+    def setUp(self):
+        cache.clear()
+
+    def test_population_task_is_held_until_the_pim_id_write_commits(self):
+        with patch.object(mp_tasks.populate_pim_relations_task, 'delay') as delay:
+            with self.captureOnCommitCallbacks(execute=True):
+                _queue_pim_population('pim-1')
+                delay.assert_not_called()
+
+            delay.assert_called_once_with('pim-1')
+
+    def test_dedup_flag_still_collapses_a_burst_of_cache_misses(self):
+        with patch.object(mp_tasks.populate_pim_relations_task, 'delay') as delay:
+            with self.captureOnCommitCallbacks(execute=True):
+                _queue_pim_population('pim-2')
+                _queue_pim_population('pim-2')
+
+            delay.assert_called_once_with('pim-2')

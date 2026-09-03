@@ -72,6 +72,8 @@ Retirement status is otherwise clean: nothing in the legacy apps imports `produc
 
 **`core/task_runner.py` — `execute_locked_task()`**: Every Celery task should go through this. It provides Redis-based distributed locking (via `cache.add`), wraps the runner in `transaction.atomic()`, and writes a `TaskRunHistory` record with duration and updated-count for every run (success, error, or lock-skipped).
 
+**Dispatching a subtask from inside a task — use `dispatch_after_commit()`, not `.delay()`.** Because `execute_locked_task()` wraps the runner in `transaction.atomic()`, a bare `.delay()` inside a runner hands the subtask to Redis while the enclosing transaction can still roll back, so the subtask can start against state that never committed. `core/task_runner.py` provides `dispatch_after_commit(task, *args, **kwargs)` (a `transaction.on_commit` wrapper) for this; outside a transaction it dispatches immediately, so it is safe from views too. Two `main_product_manager` call sites needed it, for different reasons: `_queue_pim_population` queued a task that looks products up by a `pim_id` the same transaction had not committed yet (a stale read, so the task silently populated nothing), while the `reindex_pim_ids` fan-out writes nothing itself but could leave already-dispatched batches running after the parent run rolled back and was recorded as failed.
+
 **Celery:** Worker runs as the `celery_worker` container, broker/backend via Redis. Tasks are `@shared_task` in each app's `tasks.py`.
 
 **REST API:** DRF, mounted at `/api/` via `api_urls.py`. Auth via `api_auth` (token-based). Only the retiring apps expose API routes.

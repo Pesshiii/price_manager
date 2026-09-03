@@ -1,7 +1,7 @@
 from celery import chain, shared_task
 
 from core.models import PersistentNotification
-from core.task_runner import execute_locked_task
+from core.task_runner import dispatch_after_commit, execute_locked_task
 from django.contrib.auth import get_user_model
 from supplier_manager.models import Category
 from product_price_manager.models import update_prices
@@ -163,9 +163,14 @@ def create_pim_links_task(delay: float = 0.5, batch_size: int = 1000) -> dict:
 @shared_task(name="main_product_manager.reindex_pim_ids", time_limit=None, soft_time_limit=None)
 def reindex_pim_ids_task(delay: float = 0.5, batch_size: int = 1000, skip_non_empty: bool = False) -> dict:
     def _runner():
+        # dispatch_after_commit, not .delay(): execute_locked_task runs this
+        # runner inside transaction.atomic(), and a batch handed straight to
+        # Redis can start before that transaction commits.
         dispatched = 0
         for pks in iter_pim_id_pk_batches(batch_size=batch_size, skip_non_empty=skip_non_empty):
-            reindex_pim_ids_batch_task.delay(pks=pks, delay=delay, batch_size=batch_size)
+            dispatch_after_commit(
+                reindex_pim_ids_batch_task, pks=pks, delay=delay, batch_size=batch_size
+            )
             dispatched += 1
         return dispatched
 
