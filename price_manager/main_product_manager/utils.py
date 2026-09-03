@@ -17,6 +17,7 @@ from .columns import AVAILABLE_COLUMN_MAP, DEFAULT_VISIBLE_COLUMNS
 
 from supplier_product_manager.models import SupplierProduct
 from supplier_manager.models import Category, Manufacturer
+from core.task_runner import dispatch_after_commit
 
 CACHE_TTL = 60 * 60 * 24 * 30  # 30 дней
 PIM_CACHE_TTL = 60 * 60 * 24  # 24 часа
@@ -88,12 +89,22 @@ def _queue_pim_population(pim_id: str) -> None:
 
     Deduped via a short-lived cache flag (cache.add is atomic) so a burst of cache
     misses for the same pim_id — e.g. rendering a product list — only fires one task.
+
+    Dispatched via dispatch_after_commit because a caller may still be inside
+    execute_locked_task's transaction: recalculate_vectors_missing_task reaches
+    here through _build_searchvector -> _resolve_pim_id, which writes the new
+    pim_id in that same transaction. sync_pim_relations looks products up by
+    pim_id, so a task queued before the commit would find none and silently
+    populate nothing.
     """
     queued_key = f"pim_populate_queued:{pim_id}"
+    # Flag set before the deferred dispatch on purpose: if the transaction rolls
+    # back, the pim_id write rolls back with it, so there is nothing left to
+    # populate and suppressing the retry for the TTL is the right outcome.
     if not cache.add(queued_key, True, _PIM_POPULATE_QUEUED_TTL):
         return
-    from .tasks import populate_pim_relations_task
-    populate_pim_relations_task.delay(pim_id)
+    from .tasks import populate_pim_relations_task  # local: tasks imports this module
+    dispatch_after_commit(populate_pim_relations_task, pim_id)
 
 
 _PIM_404_COUNT_PREFIX = "pim_404_count:"

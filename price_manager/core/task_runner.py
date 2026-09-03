@@ -21,6 +21,22 @@ def _normalize_updated_count(result: Any) -> int:
     return 0
 
 
+def dispatch_after_commit(task, *args, **kwargs) -> None:
+    """Enqueue a Celery task only once the surrounding transaction commits.
+
+    execute_locked_task() runs every runner inside transaction.atomic(), so a
+    bare .delay() from within one hands the subtask to Redis immediately while
+    the enclosing transaction can still roll back — the subtask then starts
+    against database state that never committed, and a failure part-way through
+    a fan-out leaves the already-dispatched subtasks running.
+
+    Outside a transaction on_commit() runs the callback straight away, so
+    callers that are not in one (views, request-cycle helpers) behave exactly
+    as a plain .delay().
+    """
+    transaction.on_commit(lambda: task.delay(*args, **kwargs))
+
+
 def execute_locked_task(
     *,
     task_name: str,
