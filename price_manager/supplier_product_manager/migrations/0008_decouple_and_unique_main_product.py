@@ -24,7 +24,17 @@ def decouple_shared_main_products(apps, schema_editor):
     MainProduct = apps.get_model('main_product_manager', 'MainProduct')
     SupplierProduct = apps.get_model('supplier_product_manager', 'SupplierProduct')
     CategoryThrough = MainProduct.categories.through
-
+    PriceTag = apps.get_model('product_price_manager', 'PriceTag')
+    PriceTag.objects.all().delete()
+    MainProduct.objects.all().update(
+        stock=0,
+        prime_cost=0, 
+        wholesale_price=0, 
+        basic_price=0, 
+        m_price=0, 
+        wholesale_price_extra=0, 
+        discount_price=0
+        )
     shared_mp_ids = (
         SupplierProduct.objects.filter(main_product__isnull=False)
         .values('main_product')
