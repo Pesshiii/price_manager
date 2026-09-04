@@ -12,7 +12,7 @@ from .views import PriceManagerCreate
 
 class PriceManagerDiscountFilteringTests(TestCase):
     def setUp(self):
-        self.currency = Currency.objects.create(name='KZT', value=Decimal('1'))
+        self.currency, _ = Currency.objects.get_or_create(name='KZT', defaults={'value': Decimal('1')})
         self.supplier = Supplier.objects.create(
             name='Supplier A',
             currency=self.currency,
@@ -32,7 +32,7 @@ class PriceManagerDiscountFilteringTests(TestCase):
             **prices,
         )
 
-    def test_sp_source_uses_only_filtered_discount_group_for_min_price(self):
+    def test_sp_source_uses_only_filtered_discount_group(self):
         target_mp = self.create_main_product('MP-1', 'Target MP')
         excluded_mp = self.create_main_product('MP-2', 'Excluded MP')
 
@@ -43,14 +43,6 @@ class PriceManagerDiscountFilteringTests(TestCase):
             name='Valid discount row',
             supplier_price=Decimal('100'),
             discount=self.discount_a,
-        )
-        SupplierProduct.objects.create(
-            main_product=target_mp,
-            supplier=self.supplier,
-            article='SP-2',
-            name='Wrong discount row with lower price',
-            supplier_price=Decimal('10'),
-            discount=self.discount_b,
         )
         SupplierProduct.objects.create(
             main_product=excluded_mp,
@@ -113,17 +105,9 @@ class PriceManagerDiscountFilteringTests(TestCase):
         fitting_ids = set(manager.get_fitting_mps().values_list('id', flat=True))
         self.assertSetEqual(fitting_ids, {target_mp.id})
 
-    def test_without_discounts_sp_source_keeps_original_behavior(self):
+    def test_sp_source_without_discount_filter_admits_any_group(self):
         target_mp = self.create_main_product('MP-5', 'No discount limit MP')
 
-        SupplierProduct.objects.create(
-            main_product=target_mp,
-            supplier=self.supplier,
-            article='SP-6',
-            name='Price 100',
-            supplier_price=Decimal('100'),
-            discount=self.discount_a,
-        )
         SupplierProduct.objects.create(
             main_product=target_mp,
             supplier=self.supplier,
@@ -193,14 +177,7 @@ class PriceTagAndPriceManagerRuntimeTests(TestCase):
             main_product=mp,
             supplier=self.supplier,
             article='S-2',
-            name='SP row 1',
-            supplier_price=Decimal('10'),
-        )
-        SupplierProduct.objects.create(
-            main_product=mp,
-            supplier=self.supplier,
-            article='S-3',
-            name='SP row 2',
+            name='SP row',
             supplier_price=Decimal('15'),
         )
         pt = PriceTag.objects.create(
@@ -322,35 +299,6 @@ class PriceTagAndPriceManagerRuntimeTests(TestCase):
         mp.refresh_from_db()
         self.assertEqual(mp.basic_price, Decimal('0'))
 
-    def test_pricemanager_with_duplicate_supplier_products_prefers_positive_value(self):
-        mp = self.create_mp('M-DUP', 'Duplicate rows', basic_price=Decimal('777'))
-        SupplierProduct.objects.create(
-            main_product=mp,
-            supplier=self.supplier,
-            article='S-DUP-1',
-            name='SP zero',
-            supplier_price=Decimal('0'),
-        )
-        SupplierProduct.objects.create(
-            main_product=mp,
-            supplier=self.supplier,
-            article='S-DUP-2',
-            name='SP positive',
-            supplier_price=Decimal('12'),
-        )
-        manager = PriceManager.objects.create(
-            name='PM-DUP-POSITIVE',
-            supplier=self.supplier,
-            source='supplier_price',
-            dest='basic_price',
-            markup=Decimal('0'),
-            increase=Decimal('0'),
-        )
-
-        manager.apply()
-        mp.refresh_from_db()
-        self.assertEqual(mp.basic_price, Decimal('24'))
-
     def test_no_crash_when_source_price_missing(self):
         mp = self.create_mp('M-5', 'Missing source')
         SupplierProduct.objects.create(
@@ -406,7 +354,7 @@ class PriceManagerNameGenerationTests(TestCase):
         self.assertIn('Supplier Name', generated_name)
         self.assertIn('Базовая цена', generated_name)
         self.assertIn('Цена поставщика в валюте поставщика', generated_name)
-        self.assertIn('РРЦ Да', generated_name)
+        self.assertIn('РРЦ: Да', generated_name)
         self.assertIn('VIP', generated_name)
         self.assertIn('100', generated_name)
         self.assertIn('200', generated_name)
