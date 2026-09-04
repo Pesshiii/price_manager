@@ -81,8 +81,12 @@ def sync_product_from_pim(pim_id: str, data: dict | None = None) -> Product:
         data = _fetch_pim_product(pim_id)
 
     product, _ = Product.objects.get_or_create(pim_id=pim_id)
-    product.number = data.get('number') or ''
-    product.name = data.get('name') or ''
+    # `or None`, not `or ''`: both fields are unique, and Postgres treats
+    # NULLs as distinct in a unique index but '' as equal. Coercing a
+    # missing value to '' lets the first product without a number/name
+    # save and makes every later one fail with an IntegrityError.
+    product.number = data.get('number') or None
+    product.name = data.get('name') or None
     product.raw_data = data
 
     category_ids = data.get('categoriesIds') or []

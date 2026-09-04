@@ -54,3 +54,21 @@ class ProductModelTests(TestCase):
         Product.objects.create(pim_id='p1', number='N1', name='A')
         with self.assertRaises(IntegrityError):
             Product.objects.create(pim_id='p2', number='N1', name='B')
+
+    def test_name_unique(self):
+        Product.objects.create(pim_id='p1', number='N1', name='A')
+        with self.assertRaises(IntegrityError):
+            Product.objects.create(pim_id='p2', number='N2', name='A')
+
+    def test_products_without_name_coexist(self):
+        # Postgres treats NULLs as distinct in a unique index but '' as equal,
+        # so a nameless product must store NULL. pim_sync used to coerce to ''
+        # here, which made the second one fail to save.
+        Product.objects.create(pim_id='p1', number='N1', name=None)
+        Product.objects.create(pim_id='p2', number='N2', name=None)
+        self.assertEqual(Product.objects.filter(name__isnull=True).count(), 2)
+
+    def test_products_without_number_coexist(self):
+        Product.objects.create(pim_id='p1', number=None, name='A')
+        Product.objects.create(pim_id='p2', number=None, name='B')
+        self.assertEqual(Product.objects.filter(number__isnull=True).count(), 2)
