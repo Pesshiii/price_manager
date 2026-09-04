@@ -27,7 +27,7 @@ from supplier_product_manager.tasks import copy_supplier_products_to_main_task
 
 class BasicLoadTests(TestCase):
     def setUp(self):
-        self.currency = Currency.objects.get(name="KZT")
+        self.currency, _ = Currency.objects.get_or_create(name="KZT", defaults={"value": Decimal("1")})
         self.supplier = Supplier.objects.create(
             name="Test supplier",
             currency=self.currency,
@@ -491,7 +491,7 @@ class GetSpsCacheTests(BasicLoadTests):
 
 class SupplierFileSelectionTests(TestCase):
     def setUp(self):
-        self.currency = Currency.objects.get(name="KZT")
+        self.currency, _ = Currency.objects.get_or_create(name="KZT", defaults={"value": Decimal("1")})
         self.supplier = Supplier.objects.create(
             name="Test supplier for latest file",
             currency=self.currency,
@@ -568,7 +568,7 @@ class AutoDetectLinkKeysTests(TestCase):
 
 class SupplierProductFilterTests(TestCase):
     def setUp(self):
-        self.currency = Currency.objects.get(name="KZT")
+        self.currency, _ = Currency.objects.get_or_create(name="KZT", defaults={"value": Decimal("1")})
         self.supplier = Supplier.objects.create(
             name="Filter supplier",
             currency=self.currency,
@@ -634,7 +634,7 @@ class CopySupplierProductsToMainTaskTests(TestCase):
     being matched/merged into an existing one via that triple."""
 
     def setUp(self):
-        self.currency = Currency.objects.get(name="KZT")
+        self.currency, _ = Currency.objects.get_or_create(name="KZT", defaults={"value": Decimal("1")})
         self.supplier = Supplier.objects.create(
             name="Copy task supplier",
             currency=self.currency,
@@ -712,7 +712,7 @@ class MainProductLinkUniquenessTests(TestCase):
     enforces: at most one SupplierProduct may claim a given MainProduct."""
 
     def setUp(self):
-        self.currency = Currency.objects.get(name="KZT")
+        self.currency, _ = Currency.objects.get_or_create(name="KZT", defaults={"value": Decimal("1")})
         self.supplier = Supplier.objects.create(
             name="Uniqueness supplier",
             currency=self.currency,
