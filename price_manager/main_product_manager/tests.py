@@ -82,6 +82,34 @@ class UpdateStocksNullSafeTests(TestCase):
         self.assertEqual(mp.stock, 0)
         self.assertTrue(MainProductLog.objects.filter(main_product=mp, stock=0).exists())
 
+    def test_second_run_is_a_no_op(self):
+        """Once a stock is synced, re-running must not re-count or re-log it.
+
+        The NULL -> 0 transition is picked up by an explicit stock__isnull
+        branch, so this guards that the branch stops matching after the first
+        run instead of firing on every run.
+        """
+        mp = MainProduct.objects.create(
+            supplier=self.supplier,
+            article='ST-3',
+            name='Null to zero once',
+            stock=None,
+        )
+        SupplierProduct.objects.create(
+            main_product=mp,
+            supplier=self.supplier,
+            article='SP-ST-3',
+            name='Stock row',
+            stock=None,
+        )
+
+        self.assertEqual(update_stocks(), 1)
+        logs_after_first_run = MainProductLog.objects.filter(main_product=mp).count()
+
+        self.assertEqual(update_stocks(), 0)
+        self.assertEqual(MainProductLog.objects.filter(main_product=mp).count(), logs_after_first_run)
+
+
     def test_updates_from_positive_to_zero(self):
         mp = MainProduct.objects.create(
             supplier=self.supplier,

@@ -383,6 +383,17 @@ def recalculate_search_vectors(mps):
 
 
 def update_stocks(logs: bool = True, batch_size: int = 10000) -> int:
+    """Sync MainProduct.stock from each product's most recently updated SupplierProduct.
+
+    A supplier row with no stock figure means "unknown", and an unknown stock
+    is not sellable, so new_stock coalesces it to 0. MainProduct.stock is
+    nullable for a different reason: NULL there means "never synced", which is
+    distinct from a synced 0. That is why the candidate filter tests
+    stock__isnull separately instead of coalescing the current value too —
+    coalescing both sides made NULL -> 0 compare equal, so those products were
+    never updated and never logged. The isnull branch stops matching after the
+    first run, since the row is left with a non-NULL stock.
+    """
     updated = 0
     for i in range(0, MainProduct.objects.count(), batch_size):
         stock_subq = (
@@ -393,8 +404,7 @@ def update_stocks(logs: bool = True, batch_size: int = 10000) -> int:
         )
         mps = MainProduct.objects.annotate(
             new_stock=Coalesce(Subquery(stock_subq, output_field=IntegerField()), Value(0), output_field=IntegerField()),
-            current_stock_safe=Coalesce('stock', Value(0), output_field=IntegerField()),
-        ).filter(~Q(current_stock_safe=F('new_stock')))
+        ).filter(Q(stock__isnull=True) | ~Q(stock=F('new_stock')))
         if logs:
             mpls = [MainProductLog(main_product=mp, stock=mp.new_stock) for mp in mps]
             MainProductLog.objects.bulk_create(mpls)
