@@ -64,7 +64,7 @@ Retirement status is otherwise clean: nothing in the legacy apps imports `produc
 - **102 of the repo's 146 templates** are under `core/templates/`, including templates owned by other apps' views (`supplier/`, `manufacturer/`, `currency/`, `category/`, `main/`, `upload/`, `registration/`).
 - `core/views.py` (~640 lines) owns the **shopping-tab / cart** feature — `ShoppingTab*` (list, detail, delete, export, import + preview/run) and `CartItem*` (detail, quick-add, product select, add, confirm/unconfirm, remove). Templates in `core/templates/shopping_tab/`.
 - `core/models.py` → `CartItem`, `ShoppingTab`, `ShoppingTabExport`, `PersistentNotification`, `TaskRunHistory`.
-- `core/middleware.py` → `LoginRequiredMiddleware` (global login gate, with HTMX-aware redirects) and `toaster_middleware`.
+- `core/middleware.py` → `LoginRequiredMiddleware` (global login gate; anonymous requests under `/api/` get 401 JSON instead of a redirect) and `toaster_middleware`.
 - `core/utils.py` → shopping-tab spreadsheet reading (pandas) and export helpers.
 - `core/viewmixins.py` → `HtmxMixin` is **dead code**; don't use it.
 
