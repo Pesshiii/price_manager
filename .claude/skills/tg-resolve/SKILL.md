@@ -1,6 +1,6 @@
 ---
 name: tg-resolve
-description: Close or reopen a GitHub issue in Pesshiii/price_manager on request from the Telegram group, leaving an audit comment saying who asked and why. Use when a group member says an issue is fixed, done, no longer relevant, or should be reopened — "закрой #129", "это уже починили", "неактуально", "открой обратно".
+description: Close or reopen a GitHub issue in Pesshiii/price_manager on request from the Telegram group, leaving an audit comment saying who asked and why. Use when a group member says an issue is fixed, done, no longer relevant, or should be reopened — "закрой #129", "это уже починили", "неактуально", "открой обратно". Followed by the tg-tracker subagent, or by hand in a dev session.
 ---
 
 # Закрытие и переоткрытие задач из Telegram
@@ -23,9 +23,10 @@ Then read it, so you close the right thing and can say what it was:
 gh issue view <N> --json number,title,state,labels,url
 ```
 
-**Ambiguity is a stop condition.** Two plausible matches, or none, means you ask
-in the group which one — you do not guess. Closing the wrong issue is cheap to
-undo but expensive in trust.
+**Ambiguity is a stop condition.** Two plausible matches, or none, means the
+question goes back to the group — put it in your `SEND:` block, close nothing,
+and let the bot ask. You do not guess. Closing the wrong issue is cheap to undo
+but expensive in trust.
 
 If the issue is already closed, say so and stop — do not re-close it, and do not
 post a second comment.
@@ -81,9 +82,16 @@ JSON
 Use `"action":"reopened"` for the reverse. This is the only place the *reason*
 is machine-readable, and `tg-summary` reads it.
 
-## 5. Answer in the group
+## 5. Hand back the answer
 
-> Закрыл #129 — «Импорт прайс-листа падает на 3-й колонке». Если рано — скажи, переоткрою.
+You do not post to Telegram — the bot session relays what you return. End your
+report with the block `tg-tracker` specifies:
+
+```
+CHAT: <chat_id>
+SEND:
+Закрыл #129 — «Импорт прайс-листа падает на 3-й колонке». Если рано — скажи, переоткрою.
+```
 
 That last clause is not politeness, it is the recovery path. Say it.
 

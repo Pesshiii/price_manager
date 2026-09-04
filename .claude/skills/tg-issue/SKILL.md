@@ -1,6 +1,6 @@
 ---
 name: tg-issue
-description: File a GitHub issue in Pesshiii/price_manager from a Telegram group request, after checking for duplicates. Use when a group member reports a bug, asks for a feature, or says something is broken and asks the bot to write it down — "заведи задачу", "это баг", "надо починить", "создай issue".
+description: File a GitHub issue in Pesshiii/price_manager from a Telegram group request, after checking for duplicates. Use when a group member reports a bug, asks for a feature, or says something is broken and asks the bot to write it down — "заведи задачу", "это баг", "надо починить", "создай issue". Followed by the tg-tracker subagent, or by hand in a dev session.
 ---
 
 # Создание задачи из Telegram
@@ -11,12 +11,15 @@ duplicate and without losing who asked for it.
 ## 1. Know what you are filing
 
 You need the requester's `user`/`user_id`, their `chat_id`/`message_id`, and the
-substance of the request. All of it is on the inbound `<channel>` block.
+substance of the request. Running as `tg-tracker`, all of it is in your spawn
+prompt; in a dev session it is on the inbound `<channel>` block.
 
 If the request is one line of frustration with no detail ("опять не работает"),
-**ask one clarifying question in the group first** — what exactly they did and
-what happened. One question, not an interview. If they don't answer, the message
-is still captured in the log; `tg-triage` can pick it up later.
+**ask instead of filing** — what exactly they did and what happened. One
+question, not an interview. You cannot hold a conversation from a subagent, so
+put that single question in your `SEND:` block, create nothing, and let the bot
+put it to the group. Nothing is lost by waiting: the message stays in the
+capture log and `tg-triage` picks it up if the answer never comes.
 
 ## 2. Check for a duplicate — always
 
@@ -96,15 +99,22 @@ python .claude/telegram-bot/capture.py mark-promoted "<chat_id>:<message_id>" --
 
 `mark-promoted` is what keeps `tg-triage` from offering the same message again.
 
-## 5. Answer in the group
+## 5. Hand back the answer
 
-Short, Russian, with the number and the link:
+You do not post to Telegram — the bot session owns the channel and relays what
+you return. End your report with the block `tg-tracker` specifies: short,
+Russian, with the number and the link.
 
-> Завёл #129 — «Импорт прайс-листа падает на 3-й колонке».
-> https://github.com/Pesshiii/price_manager/issues/129
+```
+CHAT: <chat_id>
+SEND:
+Завёл #129 — «Импорт прайс-листа падает на 3-й колонке».
+https://github.com/Pesshiii/price_manager/issues/129
+```
 
-A 👍 reaction on the original message via `mcp__telegram__react` is a nice touch
-when the group is busy, but the reply is what matters — reactions don't push.
+Never return an empty `SEND:`. If `gh` failed or you deliberately filed nothing,
+that is exactly when the group needs a sentence from you — a request that
+evaporates in silence is indistinguishable from being ignored.
 
 ## Guardrails
 

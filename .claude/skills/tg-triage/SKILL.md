@@ -42,7 +42,13 @@ survives it.
 
 ## 3. Confirm before writing
 
-Post the plan to the group and wait for a yes:
+Nothing is created until the group says yes. Running as `tg-digest` you cannot
+wait for that answer, so you **propose only**: return the plan in your `SEND:`
+block, the bot posts it, and on approval the bot spawns `tg-tracker` with the
+cluster list to do the creating. Hand the bot the message keys for each cluster
+in your notes so it does not have to re-derive them.
+
+The plan the group sees:
 
 > Разобрал фидбек за 2 недели — 14 сообщений.
 > Предлагаю завести 3 задачи:
@@ -58,8 +64,10 @@ In a dev session, ask the user the same way.
 
 ## 4. Promote
 
-For each confirmed cluster, follow `tg-issue` step 3 — same template, same
-`--body-file -` on stdin, same labels (`bug`/`enhancement` + `needs-triage`).
+This step runs as `tg-tracker`, after the group approved the plan (or directly,
+if a human is driving in a dev session). For each confirmed cluster, follow
+`tg-issue` step 3 — same template, same `--body-file -` on stdin, same labels
+(`bug`/`enhancement` + `needs-triage`).
 
 Two differences for clustered items. Cite every reporter:
 
@@ -97,7 +105,11 @@ python .claude/telegram-bot/capture.py action-json <<'JSON'
 JSON
 ```
 
-> Готово: #129, #130, #131. Двa сообщения добавил в #128, остальное закрыл как шум.
+```
+CHAT: <chat_id>
+SEND:
+Готово: #129, #130, #131. Два сообщения добавил в #128, остальное закрыл как шум.
+```
 
 ## Guardrails
 

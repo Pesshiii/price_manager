@@ -16,6 +16,7 @@ nothing for this to detect and will not be nudged.
 """
 import hashlib
 import json
+import os
 import subprocess
 import sys
 from pathlib import Path
@@ -95,6 +96,13 @@ def main() -> None:
         return
 
     if payload.get("stop_hook_active"):
+        return
+
+    # The Telegram bot session stops after every group message, including the
+    # silent capture-only turns that are most of a busy group. It never edits
+    # code, so this nudge can never fire usefully there -- and the two git
+    # subprocesses below would run per message. start-bot.ps1 sets the flag.
+    if os.environ.get("TG_BOT_SESSION"):
         return
 
     apps = touched_apps(changed_files())

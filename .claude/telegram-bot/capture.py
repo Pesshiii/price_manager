@@ -61,9 +61,15 @@ def _load_stdin():
     json.load(sys.stdin) picks up the locale encoding here (cp1251), which turns
     Russian input into lone surrogates that then blow up on write. Reading the
     raw buffer and decoding explicitly is the only stable route.
+
+    `utf-8-sig` rather than `utf-8` because PowerShell 5.1 prepends a UTF-8 BOM
+    to anything it pipes into a native command. A leading BOM makes json.loads
+    raise, and in hook mode that exception is swallowed by design -- so the
+    message would be dropped with no error anywhere. utf-8-sig strips a BOM if
+    there is one and is identical to utf-8 if there is not.
     """
     raw = sys.stdin.buffer.read()
-    return json.loads(raw.decode("utf-8"))
+    return json.loads(raw.decode("utf-8-sig"))
 
 
 def _key(entry):
@@ -238,10 +244,25 @@ def cmd_mark_summary(args):
 
 
 def cmd_stats(args):
+    """State overview. `by_via` is the one field worth reading regularly.
+
+    Capture runs on two legs -- the UserPromptSubmit hook and the instruction in
+    BOT.md -- and appends are idempotent, so the two counts are not symmetric.
+    The hook runs first, before the model turn, so on a healthy system it wins
+    every race: `{"hook": N}` with no `model` key at all is the *good* reading.
+    A nonzero `model` counts messages the hook missed and the second leg caught.
+    `model` alone, or nothing growing while the group is talking, means the hook
+    is dead and the redundancy is gone.
+    """
     feedback = _read_jsonl(FEEDBACK)
+    by_via = {}
+    for entry in feedback:
+        key = entry.get("via") or "unknown"
+        by_via[key] = by_via.get(key, 0) + 1
     print(json.dumps({
         "state_dir": str(STATE),
         "messages": len(feedback),
+        "by_via": by_via,
         "actions": len(_read_jsonl(ACTIONS)),
         "promoted": len(_read_jsonl(PROMOTED)),
         "first_ts": feedback[0].get("ts") if feedback else None,

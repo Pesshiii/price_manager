@@ -1,7 +1,16 @@
 {
-  "$comment": "Bot-session-only settings. Loaded via --settings on top of .claude/settings.json; never active in a normal dev session. Two jobs: (1) pre-approve the exact tools the bot needs, because a permission prompt raised while handling a GROUP message can only be answered from the operator's DM -- the plugin deliberately excludes groups from permission_request -- so an unapproved tool means the group just watches the typing indicator expire; (2) deny the handful of things no group member should ever be able to steer.",
+  "$comment": "Bot-session-only settings. Loaded via --settings on top of .claude/settings.json; never active in a normal dev session. Three jobs. (1) enabledPlugins turns the telegram plugin on for THIS session only. It is set to false in ~/.claude/settings.json on purpose: the plugin enabled globally means every Claude session -- the desktop app included -- spawns a getUpdates poller, Telegram allows exactly one consumer per token, and the bot silently receives nothing. Verified: disabled globally the channel is gone even with --channels; re-enabled here the tools come back. (2) Pre-approve every tool the bot AND its three subagents (tg-analyst, tg-tracker, tg-digest) use, because a permission prompt raised while handling a GROUP message can only be answered from the operator's DM -- the plugin deliberately excludes groups from permission_request -- so an unapproved call means the group just watches the typing indicator expire. The channel tools are mcp__plugin_telegram_telegram__* (verified by enumerating a live session's tools); the bare mcp__telegram__* spelling is kept as a fallback in case the namespacing changes. (3) Deny outright the things no group member should ever be able to steer, since deny wins over allow and over the permission mode.",
+  "enabledPlugins": {
+    "telegram@claude-plugins-official": true
+  },
   "permissions": {
     "allow": [
+      "Task",
+      "Agent",
+      "Read",
+      "Grep",
+      "Glob",
+      "TodoWrite",
       "Bash(python .claude/telegram-bot/capture.py:*)",
       "Bash(gh issue list:*)",
       "Bash(gh issue view:*)",
@@ -12,30 +21,35 @@
       "Bash(gh issue edit:*)",
       "Bash(gh search issues:*)",
       "Bash(gh label list:*)",
+      "mcp__plugin_telegram_telegram__reply",
+      "mcp__plugin_telegram_telegram__react",
+      "mcp__plugin_telegram_telegram__edit_message",
+      "mcp__plugin_telegram_telegram__download_attachment",
       "mcp__telegram__reply",
       "mcp__telegram__react",
       "mcp__telegram__edit_message",
-      "Read(.claude/telegram-bot/**)"
+      "mcp__telegram__download_attachment"
     ],
     "deny": [
+      "Edit",
+      "Write",
+      "NotebookEdit",
+      "WebFetch",
+      "WebSearch",
       "Bash(gh issue delete:*)",
       "Bash(gh api:*)",
       "Bash(gh repo:*)",
+      "Bash(gh pr:*)",
       "Bash(gh secret:*)",
       "Bash(gh auth:*)",
       "Bash(git push:*)",
       "Bash(git commit:*)",
       "Bash(git reset:*)",
+      "Bash(git checkout:*)",
+      "Bash(git clean:*)",
       "Bash(docker compose down:*)",
       "Read(**/.env)",
-      "Edit(**/.env)",
-      "Write(**/.env)",
-      "Read(**/channels/telegram/**)",
-      "Edit(**/channels/telegram/**)",
-      "Write(**/channels/telegram/**)",
-      "Edit(.claude/settings.json)",
-      "Edit(.claude/settings.local.json)",
-      "Edit(.claude/telegram-bot/settings.json)"
+      "Read(**/channels/telegram/**)"
     ]
   },
   "hooks": {
