@@ -1,0 +1,116 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+# A new push to the same branch supersedes the run in flight. Matters once an
+# agent loop is force-pushing fixups onto its own PR branch.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: Django test suite
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    services:
+      db:
+        # Same image as docker-compose. No migration calls CreateExtension, so
+        # plain postgres:17 would also work -- this keeps CI and prod identical.
+        image: pgvector/pgvector:pg17
+        env:
+          POSTGRES_DB: price_manager_db
+          POSTGRES_USER: priceuser
+          POSTGRES_PASSWORD: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U priceuser -d price_manager_db"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    env:
+      # DJANGO_SETTINGS_MODULE is set by manage.py itself
+      # (price_manager.settings.prod) -- do not set it here. The settings
+      # package's __init__.py is empty, so pointing at `price_manager.settings`
+      # would load no settings at all.
+
+      SECRET_KEY: ci-insecure-key-not-used-outside-github-actions
+
+      # Must stay true. base.py derives SECURE_SSL_REDIRECT = not DEBUG, so with
+      # DEBUG=false every Django test-client request 301s to https before it
+      # ever reaches a view. Do not "harden" this.
+      DEBUG: "true"
+
+      # `testserver` is the Host header the Django test client sends. Without it
+      # the first view test added returns 400 and looks like a test failure.
+      ALLOWED_HOSTS: localhost,127.0.0.1,testserver
+
+      POSTGRES_DB: price_manager_db
+      POSTGRES_USER: priceuser
+      POSTGRES_PASSWORD: postgres
+      DB_HOST: localhost
+      DB_PORT: "5432"
+
+      REDIS_URL: redis://localhost:6379/1
+      CELERY_BROKER_URL: redis://localhost:6379/0
+      CELERY_RESULT_BACKEND: redis://localhost:6379/0
+
+      # Required, not optional. main_product_manager/pim_client.py builds
+      # SiteAPI(token=settings.PIM_TOKEN, host=settings.PIM_HOST) at import
+      # time, and supplier_product_manager/admin.py imports it transitively.
+      # Unset -> the whole app fails to boot with a pydantic ValidationError,
+      # long before any test runs. The host is deliberately unroutable so a
+      # stray PIM call fails fast instead of hitting production.
+      PIM_TOKEN: dummy-token
+      PIM_HOST: http://pim.invalid
+
+    defaults:
+      run:
+        # Django root: manage.py, the apps, and requirements.txt all live here.
+        working-directory: price_manager
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          # Matches the Dockerfile.
+          python-version: "3.13"
+          cache: pip
+          cache-dependency-path: price_manager/requirements.txt
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Apply migrations
+        run: python manage.py migrate --noinput
+
+      # STORAGES['staticfiles'] is whitenoise CompressedManifestStaticFilesStorage,
+      # which raises on a missing manifest entry. Building it here means a view
+      # test that renders {% static %} fails on its own merits, not on setup.
+      - name: Collect static files
+        run: python manage.py collectstatic --noinput
+
+      - name: Run tests
+        # No --keepdb: that flag is for the local Docker loop, where reusing the
+        # database saves a slow rebuild. CI gets a fresh database every run.
+        run: python manage.py test --verbosity 2
