@@ -382,21 +382,24 @@ def recalculate_search_vectors(mps):
     return MainProduct.objects.bulk_update(mps, fields=['search_vector'])
 
 
-def update_stocks(logs: bool = True):
-    stock_subq = (
-        SupplierProduct.objects
-        .filter(main_product_id=OuterRef('pk'))
-        .order_by('-updated_at')
-        .values('stock')[:1]
-    )
-    mps = MainProduct.objects.annotate(
-        new_stock=Coalesce(Subquery(stock_subq, output_field=IntegerField()), Value(0), output_field=IntegerField()),
-        current_stock_safe=Coalesce('stock', Value(0), output_field=IntegerField()),
-    ).filter(~Q(current_stock_safe=F('new_stock')))
-    if logs:
-        mpls = [MainProductLog(main_product=mp, stock=mp.new_stock) for mp in mps]
-        MainProductLog.objects.bulk_create(mpls)
-    return mps.update(stock=F('new_stock'), stock_updated_at=timezone.now())
+def update_stocks(logs: bool = True, batch_size: int = 10000) -> int:
+    updated = 0
+    for i in range(0, MainProduct.objects.count(), batch_size):
+        stock_subq = (
+            SupplierProduct.objects
+            .filter(main_product_id=OuterRef('pk'))
+            .order_by('-updated_at')
+            .values('stock')[:1]
+        )
+        mps = MainProduct.objects.annotate(
+            new_stock=Coalesce(Subquery(stock_subq, output_field=IntegerField()), Value(0), output_field=IntegerField()),
+            current_stock_safe=Coalesce('stock', Value(0), output_field=IntegerField()),
+        ).filter(~Q(current_stock_safe=F('new_stock')))
+        if logs:
+            mpls = [MainProductLog(main_product=mp, stock=mp.new_stock) for mp in mps]
+            MainProductLog.objects.bulk_create(mpls)
+        updated += mps.update(stock=F('new_stock'), stock_updated_at=timezone.now())
+    return updated
 
 PIM_PRODUCT_ENTITY = 'PriceManagerProduct'
 
