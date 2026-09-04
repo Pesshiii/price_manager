@@ -72,7 +72,7 @@ AUTO_LINK_ALIASES = {
     "manufacturer": ("manufacturer", "brand", "бренд", "производитель"),
     "discount": ("discount", "скидка", "группа скидок"),
     "stock": ("stock", "остаток", "количество", "наличие", "qty"),
-    "supplier_price": ("supplierprice", "supplier_price", "цена поставщика", "закупочная цена", "price"),
+    "supplier_price": ("supplierprice", "supplier_price", "цена", "цена поставщика", "закупочная цена", "price"),
     "rrp": ("rrp", "ррц", "розничная цена"),
     "discount_price": ("discountprice", "discount_price", "цена со скидкой", "скидочная цена"),
 }
@@ -123,13 +123,19 @@ def auto_detect_link_keys(columns) -> list[str | None]:
   for idx, column_name in enumerate(normalized_columns):
     if detected_keys[idx] is not None or not column_name:
       continue
+    # Longest alias wins, not first declared: "цена" is a substring of
+    # "ценасоскидкой", so declaration order alone would let supplier_price
+    # claim a "Цена со скидкой, руб" column ahead of discount_price.
+    best_key, best_alias_length = None, 0
     for key, aliases in alias_map.items():
       if key in used_keys:
         continue
-      if any(alias and alias in column_name for alias in aliases):
-        detected_keys[idx] = key
-        used_keys.add(key)
-        break
+      longest = max((len(alias) for alias in aliases if alias and alias in column_name), default=0)
+      if longest > best_alias_length:
+        best_key, best_alias_length = key, longest
+    if best_key is not None:
+      detected_keys[idx] = best_key
+      used_keys.add(best_key)
 
   return detected_keys
 

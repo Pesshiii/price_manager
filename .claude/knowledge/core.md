@@ -60,9 +60,45 @@ Three consequences worth remembering:
   PIM scans in [[main_product_manager]] use it.
 - A runner that `.delay()`s subtasks inside the transaction queues them on
   Redis **immediately**, while its own DB writes can still roll back — the
-  subtask then runs against rows that never committed.
-  `main_product_manager/tasks.py` `reindex_pim_ids_task` does exactly this; it
-  is still `atomic=True` and still has the bug.
+  subtask then runs against rows that never committed. Use
+  `dispatch_after_commit()` (`task_runner.py:24`) instead; the
+  `reindex_pim_ids_task` fan-out in `main_product_manager/tasks.py:174` was
+  converted to it and is the worked example.
+
+## Trap: running `core` empties the DB for every later `--keepdb` run
+
+`ExecuteLockedTaskAtomicTests` (`core/tests.py:21`) **must** stay a
+`TransactionTestCase` — `django.test.TestCase` wraps each test in a transaction,
+which would make `connection.in_atomic_block` true inside the runner regardless
+of what `atomic=` did. Do not "simplify" it into a `TestCase`.
+
+The cost lands elsewhere. Django truncates **every table** at a
+`TransactionTestCase`'s teardown and only restores migration-seeded rows when
+`serialized_rollback = True`. So running `core` deletes the `KZT` `Currency` row
+that `supplier_manager/migrations/0001_initial.py` seeds. Since CLAUDE.md tells
+everyone to run with `--keepdb`, that deletion persists into every later run and
+surfaces in a *different* app — 22 `Currency.DoesNotExist` errors raised from
+`supplier_product_manager`'s `setUp`, with nothing wrong in the code under test.
+CI never reproduces it: it builds the database fresh each run.
+
+Symptom to recognise: an app's tests fail on `--keepdb` but pass without it, in
+fixtures rather than assertions. Nothing about `core` will look implicated.
+
+The fix belongs on the consuming side — **no fixture may read a
+migration-seeded row.** Use
+`Currency.objects.get_or_create(name="KZT", defaults={"value": Decimal("1")})`,
+as `supplier_product_manager/tests.py` (`:30`, `:494`, `:571`, `:637`, `:715`)
+and `product_price_manager/tests.py:15` now do. Prefer that `defaults=` form
+over the inline `get_or_create(name='KZT', value=1)` still at
+`main_product_manager/tests.py:53` and `:199`: inline kwargs are *lookups*, so a
+KZT row carrying any other value makes get_or_create attempt an INSERT and die
+on the unique `name`. `Currency` is the only static seed in the tree — the other
+`RunPython` migrations derive rows from existing data — so this list is
+currently complete.
+
+`serialized_rollback = True` on the `TransactionTestCase` is the alternative,
+and it was rejected: it re-serializes and re-inserts the database around the
+class on every run, and it papers over the coupling rather than removing it.
 
 ## Gotcha: `core/models/` is an empty directory
 

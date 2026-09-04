@@ -57,6 +57,36 @@ vocabulary. Adding a price field here means checking that app too.
 `SupplierFileStorageMissingError` (`:81`) subclasses `FileNotFoundError` — the
 file row outlived its storage object.
 
+## Two `load_setting`/`get_sps` contracts that look like bugs
+
+Both were established deliberately and both had a stale test asserting the
+opposite for months, so read them before "fixing" either.
+
+**A re-upload busts the sps cache, by design.** `_get_setting_signature`
+(`:290`) hashes the newest `SupplierFile`'s **id, name and size** alongside the
+setting and its links. So replacing the file — even with an identical-looking
+one — changes the signature and forces a fresh parse. Serving the cached rows
+after an upload would be the bug; the cache exists to skip repeated reads of an
+*unchanged* file, not to pin a snapshot.
+
+**Rows missing from the new file are zeroed, not nulled.** `load_setting`
+(`:484`–`:491`) runs `missing_sps.update(stock=0)` and, per mapped price
+column, `missing_sps.update(**{column: 0})`. It was `None` until commit
+`8774795`. The 0 is load-bearing downstream — [[product_price_manager]]'s
+`test_pricemanager_with_duplicate_supplier_products_prefers_positive_value`
+encodes the rule that a zero price loses to a positive one, which only has
+meaning because absent rows arrive as 0. Note the carve-out the test exercises:
+only columns the setting still **maps** get zeroed, so deleting a `Link` freezes
+that field at its last imported value rather than clearing it.
+
+**`auto_detect_link_keys` (`:92`) matches in two passes**, and only the second
+is order-sensitive: exact normalized-name match first across all columns, then a
+substring sweep for whatever is left, with each key claimable once. The
+substring pass picks the **longest** matching alias rather than the
+first-declared key — required once bare `"цена"` became a `supplier_price`
+alias, since it is a substring of `"ценасоскидкой"` and declaration order alone
+would let it steal a "Цена со скидкой, руб" column from `discount_price`.
+
 ## Tasks — the known convention exception
 
 All four `@shared_task`s in `tasks.py` do their work **inline**, not through

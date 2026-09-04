@@ -1,5 +1,6 @@
 from io import BytesIO
 from decimal import Decimal
+from unittest import mock
 
 import pandas as pd
 from django import forms
@@ -27,7 +28,7 @@ from supplier_product_manager.tasks import copy_supplier_products_to_main_task
 
 class BasicLoadTests(TestCase):
     def setUp(self):
-        self.currency = Currency.objects.get(name="KZT")
+        self.currency, _ = Currency.objects.get_or_create(name="KZT", defaults={"value": Decimal("1")})
         self.supplier = Supplier.objects.create(
             name="Test supplier",
             currency=self.currency,
@@ -391,7 +392,13 @@ class BasicLoadTests(TestCase):
         self.supplier.refresh_from_db()
         self.assertIsNotNone(self.supplier.stock_updated_at)
         self.assertIsNotNone(self.supplier.price_updated_at)
-    def test_setnull_for_missing(self):
+    def test_zeroes_mapped_prices_and_stock_for_missing_rows(self):
+        """A row absent from the new file keeps the fields the setting no longer
+        maps - supplier_price here, whose Link is deleted below - and is zeroed,
+        not nulled, for the price and stock columns still mapped. Downstream
+        pricing depends on that 0; see product_price_manager's
+        test_pricemanager_with_duplicate_supplier_products_prefers_positive_value.
+        """
         setting = Setting.objects.create(
             name="Загрузка артикул",
             supplier=self.supplier,
@@ -426,7 +433,7 @@ class BasicLoadTests(TestCase):
             )
         
         correct_values = [
-                {"article": "А-1", "name": "Товар 1", "supplier_price": 1, "rrp":None, "stock":None, "manufacturer": Manufacturer.objects.get_or_create(name="Производитель 1")[0]},
+                {"article": "А-1", "name": "Товар 1", "supplier_price": 1, "rrp":0, "stock":0, "manufacturer": Manufacturer.objects.get_or_create(name="Производитель 1")[0]},
             ]
         
 
@@ -474,12 +481,21 @@ class GetSpsCacheTests(BasicLoadTests):
         first_payload = get_sps(setting.pk)
         self.assertEqual(first_payload[0]["supplier_price"], 10.0)
 
+        # Nothing changed, so the second call is served from cache and must not
+        # re-read the spreadsheet.
+        with mock.patch(
+            "supplier_product_manager.functions.get_df",
+            side_effect=AssertionError("get_df must not run on a cache hit"),
+        ):
+            cached_payload = get_sps(setting.pk)
+        self.assertEqual(cached_payload, first_payload)
+
+        # A new upload changes the signature, so the stale rows must not survive.
         self._create_supplier_file(
             setting,
             pd.DataFrame([{"Артикул": "А-1", "Название": "Товар 1", "Цена": "50"}]),
         )
-        cached_payload = get_sps(setting.pk)
-        self.assertEqual(cached_payload[0]["supplier_price"], 10.0)
+        self.assertEqual(get_sps(setting.pk)[0]["supplier_price"], 50.0)
 
         price_link = Link.objects.get(setting=setting, key="supplier_price")
         price_link.value = None
@@ -491,7 +507,7 @@ class GetSpsCacheTests(BasicLoadTests):
 
 class SupplierFileSelectionTests(TestCase):
     def setUp(self):
-        self.currency = Currency.objects.get(name="KZT")
+        self.currency, _ = Currency.objects.get_or_create(name="KZT", defaults={"value": Decimal("1")})
         self.supplier = Supplier.objects.create(
             name="Test supplier for latest file",
             currency=self.currency,
@@ -568,7 +584,7 @@ class AutoDetectLinkKeysTests(TestCase):
 
 class SupplierProductFilterTests(TestCase):
     def setUp(self):
-        self.currency = Currency.objects.get(name="KZT")
+        self.currency, _ = Currency.objects.get_or_create(name="KZT", defaults={"value": Decimal("1")})
         self.supplier = Supplier.objects.create(
             name="Filter supplier",
             currency=self.currency,
@@ -581,8 +597,8 @@ class SupplierProductFilterTests(TestCase):
         self.category_b = Category.objects.create(name="Категория B")
         self.manufacturer_a = Manufacturer.objects.create(name="Производитель A")
         self.manufacturer_b = Manufacturer.objects.create(name="Производитель B")
-        self.discount_a = Discount.objects.create(name="Скидка A")
-        self.discount_b = Discount.objects.create(name="Скидка B")
+        self.discount_a = Discount.objects.create(name="Скидка A", supplier=self.supplier)
+        self.discount_b = Discount.objects.create(name="Скидка B", supplier=self.supplier)
 
         SupplierProduct.objects.create(
             supplier=self.supplier,
@@ -634,7 +650,7 @@ class CopySupplierProductsToMainTaskTests(TestCase):
     being matched/merged into an existing one via that triple."""
 
     def setUp(self):
-        self.currency = Currency.objects.get(name="KZT")
+        self.currency, _ = Currency.objects.get_or_create(name="KZT", defaults={"value": Decimal("1")})
         self.supplier = Supplier.objects.create(
             name="Copy task supplier",
             currency=self.currency,
@@ -712,7 +728,7 @@ class MainProductLinkUniquenessTests(TestCase):
     enforces: at most one SupplierProduct may claim a given MainProduct."""
 
     def setUp(self):
-        self.currency = Currency.objects.get(name="KZT")
+        self.currency, _ = Currency.objects.get_or_create(name="KZT", defaults={"value": Decimal("1")})
         self.supplier = Supplier.objects.create(
             name="Uniqueness supplier",
             currency=self.currency,
