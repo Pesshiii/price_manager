@@ -57,22 +57,10 @@ def _ensure_pim_category(pim_category_id: str) -> Category | None:
     return category
 
 
-def _compute_category_path(categories) -> str:
-    """Build category_path from the locally resolved Category rows' MPTT ancestry —
-    PIM's payload has no path string (only categoriesIds/categoriesNames), so the
-    path is built from the local tree, not parsed out of the raw response.
-    """
-    paths = [
-        ' > '.join(c.name for c in category.get_ancestors(include_self=True))
-        for category in categories
-    ]
-    return '; '.join(paths)
-
-
 def sync_product_from_pim(pim_id: str, data: dict | None = None) -> Product:
     """Fetch (unless `data` is already given) and persist one PIM Product as a
     local Product row: get_or_create by pim_id, set number/name/raw_data, resolve
-    categoriesIds -> M2M, recompute category_path. Returns the Product instance.
+    categoriesIds -> M2M. Returns the Product instance.
 
     Lets IntegrityError (a `number` collision under a different pim_id) and any
     PIM-fetch error propagate — it's the caller's job to decide how to surface them.
@@ -91,7 +79,6 @@ def sync_product_from_pim(pim_id: str, data: dict | None = None) -> Product:
 
     category_ids = data.get('categoriesIds') or []
     categories = [c for c in (_ensure_pim_category(cid) for cid in category_ids) if c]
-    product.category_path = _compute_category_path(categories)
     product.save()
     product.categories.set(categories)
     return product

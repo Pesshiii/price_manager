@@ -264,8 +264,8 @@ class SupplierFeedViewSet(viewsets.ModelViewSet):
         """Create/link a Product from a queued entry by syncing it from PIM.
 
         Request body: {pim_id: str}
-        Fetches the full record from PIM (number, name, categories,
-        category_path, raw_data all populated in one sync call), dedupes on
+        Fetches the full record from PIM (number, name, categories and
+        raw_data all populated in one sync call), dedupes on
         pim_id (already-synced -> reuses the existing row), links it to the
         entry and creates a SupplierLink.  Returns 201 with the updated entry.
         """
