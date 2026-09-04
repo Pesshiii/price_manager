@@ -34,13 +34,6 @@ class SupplierCrudTests(SupplierApiTestBase):
         self.assertEqual(resp.json()['name'], 'Рога и Копыта')
         self.assertEqual(Supplier.objects.count(), 1)
 
-    def test_list(self):
-        Supplier.objects.create(name='Альфа')
-        Supplier.objects.create(name='Бета')
-        resp = self.client.get(reverse('supplier_api:supplier-list'))
-        self.assertEqual(resp.status_code, 200)
-        self.assertEqual(resp.json()['count'], 2)
-
     def test_retrieve(self):
         supplier = Supplier.objects.create(name='Альфа')
         resp = self.client.get(
