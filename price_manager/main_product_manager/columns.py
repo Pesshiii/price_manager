@@ -30,6 +30,7 @@ AVAILABLE_COLUMN_GROUPS = [
       ('wholesale_price', 'Оптовая цена'),
       ('basic_price', 'Базовая цена'),
       ('m_price', 'Цена ИМ'),
+      ('kaspi_price', 'Цена Каспи'),
       ('wholesale_price_extra', 'Оптовая цена доп.'),
       ('discount_price', 'Цена со скидкой'),
       ('supplier_product_price', 'Цена поставщика'),

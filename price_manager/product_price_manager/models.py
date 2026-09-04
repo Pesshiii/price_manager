@@ -80,6 +80,7 @@ class PriceManager(models.Model):
                                   ('m_price', 'Цена ИМ'),
                                   ('wholesale_price', 'Оптовая цена'),
                                   ('wholesale_price_extra', 'Оптовая цена1'),
+                                  ('kaspi_price', 'Цена Каспи'),
                                   ('discount_price', 'Цена со скидкой'),])
   dest = models.CharField(verbose_name='Какую цену считать',
                                  choices=[
@@ -89,6 +90,7 @@ class PriceManager(models.Model):
                                   ('m_price', 'Цена ИМ'),
                                   ('wholesale_price', 'Оптовая цена'),
                                   ('wholesale_price_extra', 'Оптовая цена1'),
+                                  ('kaspi_price', 'Цена Каспи'),
                                   ('discount_price', 'Цена со скидкой'),],
                                   blank=False)
   price_from = models.DecimalField(
@@ -357,17 +359,19 @@ class PriceTag(models.Model):
                                   ('m_price', 'Цена ИМ'),
                                   ('wholesale_price', 'Оптовая цена'),
                                   ('wholesale_price_extra', 'Оптовая цена1'),
+                                  ('kaspi_price', 'Цена Каспи'),
                                   ('discount_price', 'Цена со скидкой'),],
                                   blank=True,
                                   null=True)
   dest = models.CharField(verbose_name='Какую цену считать',
                                  choices=[
-                                  ('basic_price', 'Базовая цена'),
-                                  ('prime_cost', 'Себестоимость'),
-                                  ('m_price', 'Цена ИМ'),
-                                  ('wholesale_price', 'Оптовая цена'),
-                                  ('wholesale_price_extra', 'Оптовая цена1'),
-                                  ('discount_price', 'Цена со скидкой'),],
+                                    ('basic_price', 'Базовая цена'),
+                                    ('prime_cost', 'Себестоимость'),
+                                    ('m_price', 'Цена ИМ'),
+                                    ('wholesale_price', 'Оптовая цена'),
+                                    ('wholesale_price_extra', 'Оптовая цена1'),
+                                    ('kaspi_price', 'Цена Каспи'),
+                                    ('discount_price', 'Цена со скидкой'),],
                                   blank=True,
                                   null=True)
   markup = models.DecimalField(

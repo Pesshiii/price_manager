@@ -11,19 +11,28 @@ from supplier_manager.models import Supplier, Category, Manufacturer
 from decimal import Decimal
    
 MP_TABLE_FIELDS = ['article', 'supplier', 'name', 'manufacturer','prime_cost', 'stock']
-MP_PRICES = ['prime_cost', 'wholesale_price', 'basic_price', 'm_price', 'wholesale_price_extra', 'discount_price']
+MP_PRICES = [
+    'prime_cost', 
+    'wholesale_price', 
+    'basic_price', 
+    'm_price', 
+    'wholesale_price_extra', 
+    'discount_price', 
+    'kaspi_price'
+]
 MP_IMPORTABLES = ['main_photo_url']
 PRICE_TYPES = {
-  None : 'Не указано',
-  'fixed_price': 'Фиксированная цена',
-  'rrp': 'РРЦ в валюте поставщика',
-  'supplier_price': 'Цена поставщика в валюте поставщика',
-  'basic_price': 'Базовая цена',
-  'prime_cost': 'Себестоимость',
-  'm_price': 'Цена ИМ',
-  'wholesale_price': 'Оптовая цена',
-  'wholesale_price_extra': 'Оптовая цена1',
-  'discount_price': 'Цена со скидкой',
+    None : 'Не указано',
+    'fixed_price': 'Фиксированная цена',
+    'rrp': 'РРЦ в валюте поставщика',
+    'supplier_price': 'Цена поставщика в валюте поставщика',
+    'basic_price': 'Базовая цена',
+    'prime_cost': 'Себестоимость',
+    'm_price': 'Цена ИМ',
+    'kaspi_price': 'Цена Каспи',
+    'wholesale_price': 'Оптовая цена',
+    'wholesale_price_extra': 'Оптовая цена1',
+    'discount_price': 'Цена со скидкой',
 }
 
 
@@ -95,6 +104,11 @@ class MainProduct(models.Model):
         decimal_places=2,
         max_digits=20,
         null=True)
+    kaspi_price = models.DecimalField(
+            verbose_name='Цена Каспи',
+            decimal_places=2,
+            max_digits=20,
+            null=True)
     discount_price = models.DecimalField(
         verbose_name='Цена со скидкой',
         decimal_places=2,
