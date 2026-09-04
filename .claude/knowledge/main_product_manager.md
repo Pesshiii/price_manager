@@ -100,3 +100,29 @@ Six of them on `MainProduct` (`models.py:73`–`:102`): `prime_cost`,
 [[product_price_manager]].
 
 `MainProductLog` (`models.py:167`) is the price/stock history row.
+
+## `update_stocks` — the two NULLs mean different things
+
+`utils.py:385`. Two nullable stock columns feed this, and they do not carry
+the same meaning:
+
+- `SupplierProduct.stock` NULL = the supplier told us nothing. Unknown is not
+  sellable, so `new_stock` coalesces it to `0`.
+- `MainProduct.stock` NULL = never synced. Distinct from a synced `0`.
+
+The candidate filter used to coalesce *both* sides to `0`
+(`current_stock_safe`), which made `NULL` and `0` compare equal — a product
+that had never been synced and whose supplier reported no stock was silently
+skipped forever: no write, no `MainProductLog`, not counted in the return
+value. Fixed by testing the current value's nullness explicitly:
+`filter(Q(stock__isnull=True) | ~Q(stock=F('new_stock')))`. The plain
+`~Q(stock=F('new_stock'))` alone is not enough — SQL's `NOT (NULL = 0)` is
+NULL, not true, so those rows drop out of the filter either way.
+
+That `isnull` branch is self-limiting: the first run leaves `stock` non-NULL,
+so the row stops matching. `test_second_run_is_a_no_op` guards it.
+
+The `for i in range(0, MainProduct.objects.count(), batch_size)` loop above it
+never slices anything — `mps` is the full queryset on every pass. It is
+harmless only because the update converges (pass two matches nothing), but it
+re-runs the whole subquery `ceil(count / 10000)` times.
