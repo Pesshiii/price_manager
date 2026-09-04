@@ -117,7 +117,7 @@ class PriceManager(models.Model):
       verbose_name='Накрутка',
       decimal_places=2,
       max_digits=5,
-      validators=[MinValueValidator(-100), MaxValueValidator(100)],
+      validators=[MinValueValidator(-100)],
       default=0)
   increase = models.DecimalField(
       verbose_name='Надбавка',
@@ -378,7 +378,7 @@ class PriceTag(models.Model):
       verbose_name='Накрутка',
       decimal_places=2,
       max_digits=5,
-      validators=[MinValueValidator(-100), MaxValueValidator(100)],
+      validators=[MinValueValidator(-100)],
       default=0)
   increase = models.DecimalField(
       verbose_name='Надбавка',
