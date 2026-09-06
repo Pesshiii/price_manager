@@ -1,0 +1,176 @@
+name: Auto-merge (narrow class)
+
+# Arms GitHub's native auto-merge on pull requests whose diff is provably in a
+# narrow, low-risk class: Markdown and tests, and nothing else.
+#
+# The division of labour matters:
+#
+#   * Ruleset 22286885 makes `Django test suite` a REQUIRED check on the default
+#     branch, with `bypass_actors: []` — not even an admin skips it. GitHub, not
+#     this workflow, enforces green. Once auto-merge is armed, GitHub holds the
+#     PR until the required check passes and merges it then.
+#   * This workflow only decides ELIGIBILITY. It never merges anything itself.
+#
+# So a bug here cannot merge a red PR. The worst it can do is arm a PR it should
+# not have — which is why the class check below is deliberately paranoid.
+#
+# ---------------------------------------------------------------------------
+# SECURITY INVARIANTS — do not relax these without thinking it through
+# ---------------------------------------------------------------------------
+#
+# 1. `pull_request`, NEVER `pull_request_target`. This repository is public.
+#    `pull_request_target` runs with a write token in the base-repo context, and
+#    combined with a checkout of PR head it is the classic token-exfiltration
+#    RCE. `pull_request` gives fork PRs a read-only token, which is exactly what
+#    we want.
+#
+# 2. NO CHECKOUT. This workflow never checks out the PR's code. It reads the
+#    changed-file list from the API. No checkout means no untrusted code runs
+#    here at all, so there is no surface to exploit.
+#
+# 3. THE LABEL IS A REQUEST, NOT AN AUTHORIZATION. `auto-merge-safe` only asks
+#    for consideration. This workflow independently re-derives the class from
+#    the actual diff and refuses if it does not hold. An agent that mislabels a
+#    PR does not get it merged.
+#
+# 4. THE GATE MUST NOT BE ABLE TO MERGE EDITS TO ITSELF. Any change under
+#    `.github/` or `.claude/`, or to `CLAUDE.md` / `AGENTS.md`, is refused
+#    unconditionally — even though those are mostly Markdown and would otherwise
+#    pass the allowlist. Those paths are the rules that govern agents and this
+#    gate; an agent able to auto-merge them could rewrite its own constraints.
+
+on:
+  pull_request:
+    types: [opened, reopened, synchronize, labeled, unlabeled]
+
+concurrency:
+  group: auto-merge-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+permissions:
+  # Enabling auto-merge, and disabling it again when a PR stops qualifying.
+  pull-requests: write
+  # The merge GitHub performs once checks pass runs under the identity that
+  # armed it. If the first real run shows this is not needed, narrow it.
+  contents: write
+
+jobs:
+  evaluate:
+    name: Evaluate merge class
+    runs-on: ubuntu-latest
+    # Cheap pre-filter. The authoritative checks are in the script below; this
+    # only avoids spinning a runner for the obvious no-ops.
+    if: github.event.pull_request.draft == false
+
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      REPO: ${{ github.repository }}
+      PR: ${{ github.event.pull_request.number }}
+      LABEL: auto-merge-safe
+
+    steps:
+      - name: Decide, and arm or disarm
+        run: |
+          set -euo pipefail
+
+          # Returns 0 and prints nothing when auto-merge is not currently armed.
+          disarm_if_armed() {
+            local armed
+            armed=$(gh api "repos/$REPO/pulls/$PR" --jq '.auto_merge != null')
+            if [ "$armed" = "true" ]; then
+              echo "Disarming auto-merge: this PR no longer qualifies."
+              gh pr merge "$PR" --repo "$REPO" --disable-auto
+            fi
+          }
+
+          refuse() {
+            echo "NOT ELIGIBLE: $1"
+            disarm_if_armed
+            exit 0
+          }
+
+          # --- Invariant 1: same-repo only -------------------------------------
+          # A fork PR gets a read-only token here anyway, so this is belt and
+          # braces — but it makes the intent explicit rather than incidental.
+          HEAD_REPO=$(gh api "repos/$REPO/pulls/$PR" --jq '.head.repo.full_name // ""')
+          if [ "$HEAD_REPO" != "$REPO" ]; then
+            echo "NOT ELIGIBLE: pull request originates from a fork ($HEAD_REPO). Never auto-merged."
+            exit 0
+          fi
+
+          # --- The label is a request ------------------------------------------
+          if ! gh pr view "$PR" --repo "$REPO" --json labels \
+               --jq '.labels[].name' | grep -qx "$LABEL"; then
+            refuse "the '$LABEL' label is not present"
+          fi
+
+          # --- Read the diff, and prove the list is complete --------------------
+          # `gh pr view --json files` truncates on large PRs, and a truncated
+          # list of .md files reads as docs-only. Page the REST endpoint and
+          # cross-check against the PR's own changed_files count; a mismatch
+          # means we cannot see the whole diff, so we refuse.
+          gh api "repos/$REPO/pulls/$PR/files" --paginate --jq '.[].filename' > /tmp/files.txt
+          # `grep -c ''` not `wc -l`: wc undercounts a final line with no
+          # trailing newline, which would make a complete list look truncated
+          # and refuse a PR that should qualify. `|| true` because grep exits 1
+          # on an empty file and `set -e` would kill the script before the
+          # zero-files check below can report it properly.
+          SEEN=$(grep -c '' /tmp/files.txt || true)
+          CLAIMED=$(gh api "repos/$REPO/pulls/$PR" --jq '.changed_files')
+
+          if [ "$SEEN" -ne "$CLAIMED" ]; then
+            refuse "file list incomplete — saw $SEEN of $CLAIMED changed files"
+          fi
+          if [ "$SEEN" -eq 0 ]; then
+            refuse "no changed files reported"
+          fi
+
+          echo "Changed files ($SEEN):"
+          sed 's/^/  /' /tmp/files.txt
+
+          # --- Invariant 4: the gate cannot merge edits to itself ---------------
+          # Checked FIRST and unconditionally. These paths are mostly Markdown
+          # and would sail through the allowlist below; that is precisely the
+          # hole this closes. PR #151 (two files, both .md, both under .claude/)
+          # is the worked example: an agent editing the instructions that govern
+          # its own merges.
+          while IFS= read -r f; do
+            case "$f" in
+              .github/*|.claude/*|CLAUDE.md|AGENTS.md)
+                refuse "'$f' governs agents or this gate — never auto-merged"
+                ;;
+            esac
+          done < /tmp/files.txt
+
+          # --- The allowlist ----------------------------------------------------
+          # Path-verifiable classes only. Note this is STRICTER than the
+          # `## Класс слияния` declaration in the PR body: a docstring-only
+          # change to a .py file outside tests is `docs-only` to a human reader
+          # but indistinguishable from a logic change by path, so it does not
+          # qualify here. See /implement-issue §10.
+          while IFS= read -r f; do
+            case "$f" in
+              *.md)                 ;;  # Markdown, excluding the paths refused above
+              */tests.py|tests.py)  ;;  # an app's test module
+              */tests/*|tests/*)    ;;  # an app's test package
+              *)
+                refuse "'$f' is outside the auto-merge class (Markdown and tests only)"
+                ;;
+            esac
+          done < /tmp/files.txt
+
+          # --- Is the gate armed at the repo level? -----------------------------
+          # Without this, `gh pr merge --auto` errors and every qualifying PR
+          # gets a red X that looks like a broken gate rather than a disarmed
+          # one. Exit clean and say so instead.
+          if [ "$(gh api "repos/$REPO" --jq '.allow_auto_merge')" != "true" ]; then
+            echo "ELIGIBLE — but repository setting allow_auto_merge is false, so nothing is armed."
+            echo "This PR qualifies and would auto-merge once a maintainer enables auto-merge on the repo."
+            exit 0
+          fi
+
+          # --- Arm it -----------------------------------------------------------
+          # GitHub takes it from here: it waits for the required `Django test
+          # suite` check and merges only when that check is green.
+          echo "ELIGIBLE — arming auto-merge."
+          gh pr merge "$PR" --repo "$REPO" --auto --merge

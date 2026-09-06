@@ -305,29 +305,58 @@ If nothing surprised you, say so and skip it — `/record-insight` itself says a
 empty record is better than a padded one. But decide that deliberately, once,
 rather than by omission.
 
-## 10. Declare the merge class — and stop there
+## 10. Declare the merge class, and label only what the gate can verify
 
-Classify the diff and put the verdict in the PR body:
+**Two different things share the word "class" here. Keep them apart.**
+
+### The declaration — for a human, in the PR body
+
+Classify the diff and put the verdict under `## Класс слияния`:
 
 - **`docs-only`** — `*.md`, docstrings, comments. No behaviour change.
 - **`tests-only`** — `tests.py` / `tests/` and nothing else.
 - **`code`** — anything touching views, models, migrations, tasks, templates,
   settings.
 
-The first two are the class the maintainer chose to auto-merge one day. **That
-day is not today**, and this skill must not pretend otherwise: the repo has
-`allow_auto_merge: false` and `main` carries no branch protection, so there is no
-mechanism to attach a label to and no required check to gate on. Wiring it up
-means enabling auto-merge on the repo, making `Django test suite` a required
-check, and adding the workflow — three things that do not exist.
+This is the broad, human-readable reading of the diff. Always state it.
 
-So: **state the class, do not apply a label.** A label nothing consumes is how
-this repo ended up with a dead `codex` label. The declaration in the PR body is
-useful to a human reading the queue today, and it is the thing an auto-merge
-workflow would read tomorrow.
+### The label — for the gate, and stricter
 
-**Never merge the PR yourself.** Merging is the maintainer's call, in every
-class.
+`.github/workflows/auto-merge.yml` arms GitHub's native auto-merge on PRs
+labelled **`auto-merge-safe`**. Apply that label when, and only when, **every
+changed path** is either:
+
+- `*.md`, or
+- `tests.py` / anything under a `tests/` directory,
+
+**and none of them** is under `.github/` or `.claude/`, or is `CLAUDE.md` or
+`AGENTS.md`. Those govern agents and the gate itself; a PR that could auto-merge
+them could rewrite its own constraints.
+
+The label is deliberately **narrower than `docs-only`**. A docstring-only change
+to a `.py` file outside tests is honestly `docs-only` to a reader, but the
+workflow sees paths, not hunks, and cannot tell it from a logic change — so it
+does not get the label. That is not a bug in either place; it is the difference
+between what a person can judge and what a gate can prove.
+
+**The label is a request, not an authorization.** The workflow re-derives the
+class from the actual diff and refuses if it does not hold, so mislabelling
+fails closed. Do not treat that refusal as the gate being broken.
+
+### What is actually wired up
+
+- `Django test suite` **is** a required check on `main` — via **ruleset
+  22286885**, with `bypass_actors: []`, so not even an admin merges around it.
+  (Earlier revisions of this section said `main` had no protection. That was
+  read from the legacy `branches/main/protection` endpoint, which 404s when
+  protection comes from a ruleset. It was wrong.)
+- GitHub, not the workflow, waits for green and performs the merge.
+- The one remaining switch is the repo setting **`allow_auto_merge`**. While it
+  is `false` the workflow still runs, still evaluates, and reports that a PR
+  qualifies without arming anything.
+
+**Never merge the PR yourself.** Merging is GitHub's, once the required check is
+green — or the maintainer's. It is never yours, in any class.
 
 ## Report back
 
