@@ -253,26 +253,34 @@ gh run watch <run-id> --exit-status
 `--exit-status` makes a red run a non-zero exit, so it cannot be mistaken for
 success.
 
-### Reading a red run
+### Reading a red run — hand it to `ci-failure-analyst`
 
-CI has failure modes that are **not** test failures. Tell them apart before
-touching a test — each has a different fix, and treating drift as a bug wastes a
-whole cycle.
+**Do not read the log yourself.** Spawn `ci-failure-analyst` with the run id and
+the branch name, and act on its verdict.
 
-| What you see | What it is | Fix |
-|---|---|---|
-| `Check for uncommitted migrations` fails | Model/migration drift. Your edit changed a model and the migration is not committed. | `docker compose exec web python manage.py makemigrations`, commit it. Not a test problem. |
-| `Collect static files` fails | Whitenoise's `CompressedManifestStaticFilesStorage` raises on a missing manifest entry — usually a `{% static %}` pointing at a file that is not there. | Fix the reference or add the asset. |
-| A view test returns **400** | `ALLOWED_HOSTS` is missing `testserver`, the Host header Django's test client sends. `ci.yml` sets it and warns this "looks like a test failure". | If this appears, the workflow env changed — do not "fix" it in a test. |
-| Every test-client request **301**s | `DEBUG` went false, so `base.py` derives `SECURE_SSL_REDIRECT = True` and redirects before any view runs. `ci.yml` pins `DEBUG: "true"` and says not to harden it. | Restore the env; do not touch the tests. |
+Reading it by hand is a trap with a specific shape: GitHub appends the postgres
+and redis service containers' stderr to the end of a failed job's log, so the
+tail of a red run is those containers shutting down, and a bare `grep ERROR:`
+returns benign `duplicate key value violates unique constraint` lines emitted by
+tests that were *passing*. The real Django lines are ~2000 lines up.
 
-A real test failure that reproduces locally is the ordinary case: fix, commit,
-push, and the concurrency group in `ci.yml` supersedes the run in flight — that
-group exists for this loop.
+The analyst also settles the question you cannot answer from the log alone:
+**whether the failure is yours.** `main` has no branch protection and CI is not a
+required check, so red commits land on it — run `33858890306` on `fix/138` failed
+in `product_price_manager` and `supplier_product_manager`, two apps that branch
+never touched. It returns one of four verdicts:
 
-**Three fixup pushes and still red: stop.** Comment on the issue with what you
-tried and what CI says, and hand it back. A loop that keeps pushing at a failure
-it does not understand burns CI minutes and buries the useful signal.
+| Verdict | What you do |
+|---|---|
+| `fixup` | Fix at the `file:line` it names, commit, push. The concurrency group in `ci.yml` supersedes the run in flight — that group exists for this loop. |
+| `pre-existing` | Not yours. Say so in the PR, naming the baseline run it compared against. Do not fix it here. |
+| `not-a-real-failure` | Migration drift, collectstatic, or a workflow-env change. Fix the named cause; **touch no test**. |
+| `escalate` | Stop. Report what it said and hand the issue back. |
+
+**Three fixup pushes and still red: stop**, whatever the verdict says. Comment on
+the issue with what you tried and what CI says, and hand it back. A loop that
+keeps pushing at a failure it does not understand burns CI minutes and buries the
+useful signal.
 
 ## 9. Record the insight — do not skip this
 
