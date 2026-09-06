@@ -81,6 +81,7 @@ For iterative/interactive use, wrap it in tmux and `send-keys` one command at a 
 | `nav <path-or-url>` | navigate (relative paths resolve against `BASE_URL`) |
 | `wait-for <css-sel>` / `wait-for text=<text>` | wait up to 10s for an element or visible text |
 | `screenshot [name]` | full-page PNG → `driver_shots/<name>.png` |
+| `viewport <w>x<h>` | resize the viewport, e.g. `viewport 375x812`. Does **not** re-render HTMX fragments already in the DOM — resize *before* you `nav`, not after |
 | `click <css-sel>` | click an element |
 | `fill <css-sel> <text...>` | fill an input (text is everything after the first space) |
 | `press <key>` | keyboard press, e.g. `Enter` |
@@ -94,7 +95,16 @@ For iterative/interactive use, wrap it in tmux and `send-keys` one command at a 
 
 ### Test account
 
-The app requires login for everything. A real superuser (`radch`) already exists in the dev database but its password is unknown to this skill — **don't try to reset it**. Instead a dedicated throwaway superuser was created for driving:
+The app requires login for everything, so driving it starts with an account.
+
+**Verified 2026-09-04: the `price_manager_postgres_data` volume on this machine is empty** — 0 users, 0 suppliers, 0 main products, 1 seeded currency. An earlier revision of this file said a superuser `radch` already existed and that the volume held real product data; neither is true of the volume now. Check before you rely on either:
+
+```bash
+docker compose exec -T web python manage.py shell -c "
+from django.contrib.auth import get_user_model; print('users:', get_user_model().objects.count())"
+```
+
+Create the throwaway superuser used for driving:
 
 ```bash
 docker compose exec -T web python manage.py shell -c "
@@ -105,7 +115,7 @@ u.set_password('agent-test-pass-123'); u.is_staff = True; u.is_superuser = True;
 "
 ```
 
-(Already run once against the current `postgres_data` volume — if you're on a fresh volume, re-run it.) The driver's `login` command uses these credentials by default.
+The driver's `login` command uses these credentials by default. Re-run the block whenever `login` reports it is still at `/accounts/login/` — that is what a missing account looks like, and every screenshot afterwards is silently the login page.
 
 ## Run (human path)
 
