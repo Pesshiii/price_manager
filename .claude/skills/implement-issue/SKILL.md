@@ -81,11 +81,14 @@ Two caveats on that gate, both real:
 - `product` is the exception — it is being actively **recreated** as a PIM-linked
   mirror. Fixes and reconnection work there are legitimate; new API surface is
   not. Ask `product-keeper` if the line is unclear.
-- **You are currently the only thing enforcing this.** `/agent-brief`
-  deliberately omits the boundary from every brief on the grounds that "the
-  retiring-stack boundary from `CLAUDE.md` is enforced by a hook, not restated in
-  every brief" — and that hook does not exist yet. Until it does, this gate is
-  not redundant with anything.
+- **A hook backs this up, but only partly.**
+  `.claude/hooks/guard_retiring_stack.py` turns an `Edit`/`Write` under
+  `pricing`, `supplier`, `supplier_feed` or `dataframe` into a permission
+  prompt, which is what `/agent-brief` is relying on when it omits the boundary
+  from every brief. It does **not** cover `product` (deliberately — that app is
+  being recreated), and it does not see a file rewritten through `Bash`. It also
+  fires one file at a time, so it catches the slip and not the plan. Deciding
+  *before* you start is still your job; the hook is the net, not the gate.
 
 ## 2. Ask the keeper — in ASK mode
 
@@ -277,13 +280,15 @@ it does not understand burns CI minutes and buries the useful signal.
 /record-insight <app>
 ```
 
-**This step is here because the hook cannot cover it.**
-`.claude/hooks/suggest_record.py` nudges at session end by reading
-`git diff --name-only HEAD` plus untracked files — its own docstring names the
-limitation: *"A session that commits everything before stopping leaves nothing
-for this to detect and will not be nudged."* This skill commits everything. So
-the automatic nudge is guaranteed **not** to fire on exactly the sessions that
-did the most work in an app.
+**Do it here; do not wait for the hook.**
+`.claude/hooks/suggest_record.py` now measures the session against the
+merge-base with `main`, so it does see the commits this skill makes — it used to
+diff against `HEAD` alone, which made a committing session look like it had
+changed nothing. But it fires once, at **session** stop, for the union of every
+app touched. One session that drains three issues gets a single nudge naming
+three apps, long after the details of the first one have gone. Recording per
+issue, while the surprise is still fresh, is the difference between a knowledge
+file entry worth reading and a vague one.
 
 Without this step the knowledge files freeze, which `CLAUDE.md` calls out as the
 failure the whole keeper system exists to prevent.

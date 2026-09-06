@@ -10,9 +10,17 @@ per (session, app-set) pair — the digest in .claude/.record_nudge folds in the
 session id, so one session is not nagged repeatedly, but a later session working
 in the same app still gets asked.
 
-Limitation: it reads `git diff --name-only HEAD` plus untracked files, so it only
-sees *uncommitted* work. A session that commits everything before stopping leaves
-nothing for this to detect and will not be nudged.
+It measures the session against the **merge-base with main**, not against `HEAD`,
+so committed branch work counts as well as uncommitted edits. `HEAD` alone was
+the original behaviour and it had the failure backwards: a session that commits
+looked like it had changed nothing, so the sessions that did the most work in an
+app — every unattended `/implement-issue` run, which commits everything — were
+exactly the ones never nudged.
+
+The cost of the wider base is that a long-lived branch also counts commits from
+earlier sessions on it. That is why the nudge is capped at once per
+(session, app-set): a stale app in the set costs one line of a message that is
+already being shown, and never a repeat.
 """
 import hashlib
 import json
@@ -40,23 +48,45 @@ KEEPERS = {
 }
 
 
+def git(*args: str) -> subprocess.CompletedProcess | None:
+    """Run git in the repo. None on any tooling failure, never an exception."""
+    try:
+        return subprocess.run(
+            ["git", *args],
+            cwd=REPO_ROOT,
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+    except (subprocess.TimeoutExpired, FileNotFoundError, OSError):
+        return None  # No git, or too slow: never hold up a stop over tooling.
+
+
+def diff_base() -> str:
+    """The commit this session's work should be measured from.
+
+    On a feature branch that is where the branch left main, so the whole branch
+    counts. On main itself the merge-base collapses to HEAD, which restores the
+    uncommitted-only behaviour without needing a special case. `origin/main` is
+    tried first so a stale local `main` cannot widen the base to weeks of work.
+    """
+    for ref in ("origin/main", "main"):
+        proc = git("merge-base", "HEAD", ref)
+        if proc is not None and proc.returncode == 0 and proc.stdout.strip():
+            return proc.stdout.strip()
+    return "HEAD"
+
+
 def changed_files() -> list[str]:
-    """Tracked edits plus untracked additions, relative to the repo root."""
+    """Branch commits plus uncommitted edits plus untracked additions."""
     out = []
     for args in (
-        ["diff", "--name-only", "HEAD"],
+        ["diff", "--name-only", diff_base()],
         ["ls-files", "--others", "--exclude-standard"],
     ):
-        try:
-            proc = subprocess.run(
-                ["git", *args],
-                cwd=REPO_ROOT,
-                capture_output=True,
-                text=True,
-                timeout=10,
-            )
-        except (subprocess.TimeoutExpired, FileNotFoundError, OSError):
-            return []  # No git, or too slow: never hold up a stop over tooling.
+        proc = git(*args)
+        if proc is None:
+            return []
         if proc.returncode == 0:
             out.extend(line for line in proc.stdout.splitlines() if line.strip())
     return out
@@ -100,7 +130,7 @@ def main() -> None:
 
     # The Telegram bot session stops after every group message, including the
     # silent capture-only turns that are most of a busy group. It never edits
-    # code, so this nudge can never fire usefully there -- and the two git
+    # code, so this nudge can never fire usefully there -- and the three git
     # subprocesses below would run per message. start-bot.ps1 sets the flag.
     if os.environ.get("TG_BOT_SESSION"):
         return

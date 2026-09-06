@@ -57,6 +57,8 @@ The API-first rewrite did not work out. `product` is currently being **recreated
 
 Retirement status is otherwise clean: nothing in the legacy apps imports `product`, `pricing`, `supplier`, `supplier_feed`, or `dataframe`. Those five reference only each other and are reachable only via `/api/`.
 
+A `PreToolUse` hook (`.claude/hooks/guard_retiring_stack.py`) turns an edit under `pricing`, `supplier`, `supplier_feed` or `dataframe` into a permission prompt — `supplier` and `supplier_manager` are one keystroke apart and that is the usual way code lands in a dead app. It is a net, not a gate: `product` is excluded on purpose (it is being recreated), and a file rewritten through `Bash` does not pass through it.
+
 ## Where the UI lives: `core`
 
 `core` is the largest and most active app, and holds most of the front end:
