@@ -31,6 +31,17 @@
             "timeout": 15
           }
         ]
+      },
+      {
+        "matcher": "Edit|Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python \"${CLAUDE_PROJECT_DIR:-$(git rev-parse --show-toplevel 2>/dev/null || pwd)}/.claude/hooks/guard_retiring_stack.py\"",
+            "statusMessage": "Checking retiring-stack boundary...",
+            "timeout": 15
+          }
+        ]
       }
     ],
     "PostToolUse": [
