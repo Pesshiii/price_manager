@@ -57,6 +57,19 @@ const COMMANDS = {
     console.log('screenshot:', f);
   },
 
+  // Responsive review: resize the viewport, then re-navigate. setViewportSize
+  // does not re-render HTMX-swapped fragments already in the DOM, so shoot in
+  // the order `viewport` -> `nav` -> `screenshot`, never `nav` -> `viewport`.
+  async viewport(arg) {
+    const p = requirePage();
+    const m = /^(\d+)\s*[x×]\s*(\d+)$/.exec((arg || '').trim());
+    if (!m) return console.log('usage: viewport <width>x<height>, e.g. viewport 375x812');
+    const width = parseInt(m[1], 10);
+    const height = parseInt(m[2], 10);
+    await p.setViewportSize({ width, height });
+    console.log('viewport', width + 'x' + height, '-> OK');
+  },
+
   async click(sel) {
     const p = requirePage();
     await p.click(sel, { timeout: 10_000 });

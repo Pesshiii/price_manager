@@ -78,7 +78,13 @@ Retirement status is otherwise clean: nothing in the legacy apps imports `produc
 
 **REST API:** DRF, mounted at `/api/` via `api_urls.py`. Auth via `api_auth` (token-based). Only the retiring apps expose API routes.
 
-**Frontend:** Django templates + HTMX for partial updates, django-tables2 for tables, django-crispy-forms + Bootstrap (`CRISPY_TEMPLATE_PACK = 'bootstrap4'`), django-autocomplete-light for select widgets.
+**Frontend:** Django templates + HTMX for partial updates, django-tables2 for tables, django-crispy-forms + Bootstrap, django-autocomplete-light for select widgets.
+
+**The Bootstrap version is split — know this before touching a form.** `settings/third_party.py:27-28` sets `CRISPY_TEMPLATE_PACK = 'bootstrap4'` (and pins `CRISPY_ALLOWED_TEMPLATE_PACKS` to the same), while `core/templates/base.html:12,62` loads Bootstrap **5.3.0** from jsdelivr. So the ~30 crispy-rendered templates emit BS4 markup into a BS5 stylesheet.
+
+This is less dramatic than it sounds, and the nuance is the useful part: BS5 dropped `form-group`, `form-row`, `custom-select` and `form-control-file`, but kept `form-control`. Inputs therefore stay styled and most forms look right — the «Новый товар» modal renders 8 dead `.form-group` wrappers alongside 10 live `.form-control`s and looks fine. Visible breakage is confined to the four dropped classes: an unstyled dropdown, a collapsed two-column row, a file input rendered as bare text. **Count them on the screen before blaming this mismatch for a layout bug** — `document.querySelectorAll('.custom-select, .form-row, .form-control-file').length`.
+
+Do not "fix" it by flipping the pack to `bootstrap5`: only `crispy-bootstrap4` is in `requirements.txt` and `INSTALLED_APPS`, so that is a dependency migration with markup churn across 30 templates, not a settings change.
 
 There are **two HTMX response conventions**, both documented as skills under `.claude/skills/`:
 
