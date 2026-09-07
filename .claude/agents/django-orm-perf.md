@@ -1,6 +1,6 @@
 ---
 name: django-orm-perf
-description: Finds N+1 queries and hot-path inefficiencies in Django views, django-tables2 columns, templates, and bulk import tasks — including saves that trigger MainProduct._build_searchvector's PIM network call once per row. Use when a list page is slow, before adding a table column that traverses a relation, or when touching bulk import or price-update code.
+description: Finds N+1 queries and hot-path inefficiencies in Django views, django-tables2 columns, templates, and bulk import tasks — including saves that trigger MainProduct._build_searchvector's PIM network call once per row. Use when a list page is slow, before adding a table column that traverses a relation, or when touching bulk import or price-update code. Reads code rather than query plans; points at the prod-snapshot skill when a finding needs real row counts to confirm.
 tools: Read, Grep, Glob
 model: sonnet
 ---
@@ -97,3 +97,9 @@ concrete fix in this repo's idiom. Rank by rows-affected × frequency. Say plain
 when you are inferring rather than measuring — you are reading code, not
 profiling. If a path is already correctly batched, note it briefly so the user
 knows it was checked.
+
+When a finding turns on real volume — whether the planner actually uses the GIN
+index, how many rows a loop really walks — say so and point at the `prod-snapshot`
+skill, which restores the production dump in `backups/` into a throwaway database
+(156k `MainProduct`, 168k `SupplierProduct`, 527k `PriceTag`). The dev database is
+empty, so an estimate you cannot check against it is not a measurement.
