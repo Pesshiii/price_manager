@@ -117,11 +117,17 @@ changed** — say so and stop. Do not let anyone "fix" a test to match.
 **This is the judgment the caller cannot make from the log alone, and the reason
 this agent exists.** Never report a failure as the branch's without checking.
 
-`main` has **no branch protection and CI is not a required check**, so red commits
-do land on it. It has happened: run `33840300451`, a deliberate
-`TEMP: baseline CI run on unmodified main`, came back `Ran 257 tests` /
-`FAILED (failures=8, errors=25)`. Every branch cut from that `main` inherited 33
-failures it did not cause.
+`main` is protected: `Django test suite` is a required check via ruleset
+22286885 with `bypass_actors: []`, so a red PR does not merge. That closed the
+main route to a red `main` on **2026-09-04, 16:59 UTC**. It did not close every
+route — the ruleset sets `strict_required_status_checks_policy: false`, so a PR
+green against a *stale* base can still redden `main` after merging, and anything
+older than that timestamp never passed the gate at all.
+
+Red commits did land, before the ruleset: run `33840300451` (2026-09-04, 05:23
+UTC), a deliberate `TEMP: baseline CI run on unmodified main`, came back
+`Ran 257 tests` / `FAILED (failures=8, errors=25)`. Every branch cut from that
+`main` inherited 33 failures it did not cause.
 
 The clearest case on record is run `33858890306` on `fix/138-update-stocks-null-to-zero`.
 Issue #138 is a `main_product_manager` bug. That run's real failures were in

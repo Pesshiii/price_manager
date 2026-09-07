@@ -8,9 +8,15 @@ on:
 
 # A new push to the same branch supersedes the run in flight. Matters once an
 # agent loop is force-pushing fixups onto its own PR branch.
+#
+# `main` is exempt. Its runs are the baselines `ci-failure-analyst` subtracts
+# against to tell a branch's own failures from ones it inherited, and a run
+# cancelled mid-flight leaves no failing-test list to compare with. Two merges
+# in quick succession would otherwise erase the baseline for the SHA between
+# them -- exactly the SHA a branch cut from it needs.
 concurrency:
   group: ci-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 
 jobs:
   test:
