@@ -29,6 +29,12 @@
             "command": "python \"${CLAUDE_PROJECT_DIR:-$(git rev-parse --show-toplevel 2>/dev/null || pwd)}/.claude/hooks/guard_compose_down.py\"",
             "statusMessage": "Checking for volume deletion...",
             "timeout": 15
+          },
+          {
+            "type": "command",
+            "command": "python \"${CLAUDE_PROJECT_DIR:-$(git rev-parse --show-toplevel 2>/dev/null || pwd)}/.claude/hooks/guard_prod_data.py\"",
+            "statusMessage": "Checking prod-dump target database...",
+            "timeout": 15
           }
         ]
       },

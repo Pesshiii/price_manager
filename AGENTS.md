@@ -26,3 +26,4 @@ They are still served at `/api/dataframe/`, `/api/supplier-feed/`, `/api/supplie
 - **Always commit migrations.** They are tracked normally.
 - **Each app has a knowledge keeper.** Consult `<app>`'s keeper agent before working in it (e.g. `core-keeper`, `main-product-keeper`), and record what you learn back with `/record-insight <app>`. Files live in `.claude/knowledge/`; see CLAUDE.md for the full table.
 - **Most of the front end is in `core`** — 102 of 146 templates, and the whole shopping-tab/cart feature in `core/views.py`.
+- **`backups/` holds production dumps.** Use the `prod-snapshot` skill; never restore over `price_manager_db`; never let a dump-derived value reach a commit, issue or Telegram message. They are for investigation, not for tests — `backups/` is gitignored, so CI cannot see them and a test that needs one fails there.

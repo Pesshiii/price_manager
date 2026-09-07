@@ -146,3 +146,13 @@ PostgreSQL 17 (`pgvector/pgvector:pg17` image). One full-text index type is in u
 - `GinIndex` on `MainProduct.search_vector` and `supplier_manager.Category.search_vector`, built with `config='russian'`.
 
 There is **no pgvector/HNSW/embedding usage anywhere in the Python code** — semantic search went away with the API rewrite. The image still ships the extension; nothing depends on it.
+
+## Production snapshots — `backups/`
+
+`backups/` holds pg_dump custom-format snapshots of the production database (`pricemanager_YYYYMMDD_HHMMSS.dump`). The dev database is empty, so these are the only real data on the machine: 156k `MainProduct`, 168k `SupplierProduct`, 527k `PriceTag`, 816 categories, 85 supplier column-mapping `Setting`s. **The `prod-snapshot` skill is the way in** — it carries the verified restore procedure and the traps (a bare `manage.py migrate` fails on the snapshot; migrating `supplier_product_manager` deletes every `PriceTag` and zeroes every price field).
+
+Three rules govern their use, and they are not the skill's to relax:
+
+- **Investigation only, never a test dependency.** `backups/` is gitignored and `.github/workflows/ci.yml` runs the suite against an empty pgvector service. A test that needs a snapshot passes locally and fails or silently skips in CI. Turn every finding into a committed fixture before it becomes a test.
+- **Never restore over `price_manager_db`.** Always a separate database — `pricemanager_snapshot`. `.claude/hooks/guard_prod_data.py` refuses the obvious ways to break this (`pg_restore -d price_manager_db`, `dropdb`/`DROP DATABASE` on it); it is a net, not a gate.
+- **Nothing derived from a snapshot leaves the machine.** No dump-derived values in commits, PR bodies, GitHub issues, or Telegram messages — `.claude/telegram-bot/` posts to a group chat and the `tg-*` skills file public issues. The dump holds `auth_user` (real accounts, emails and password hashes), `core_cartitem` and supplier pricing. Aggregates and row counts only.

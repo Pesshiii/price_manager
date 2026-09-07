@@ -17,6 +17,15 @@ media/
 backups/
 *~
 
+# Spreadsheet extracts. The rules above cover the dumps themselves, but a prod
+# extract written out as CSV/XLSX under the repo would otherwise commit cleanly.
+# Deliberate test fixtures live in an app's fixtures/ dir and stay tracked --
+# note the `**`, since apps sit at depth 3 (price_manager/<app>/fixtures/).
+*.csv
+*.xls
+*.xlsx
+!**/fixtures/**
+
 # IDE specific files
 .idea/
 .vscode/
