@@ -28,9 +28,14 @@ pre-existing failures"*.
 So: **local tests are the fast inner loop; CI is the verdict.** Never open a PR
 claiming green on the strength of a local run alone.
 
-Second-order, and worth knowing before you trust a green `main`: **`main` has no
-branch protection and CI is not a required check.** Nothing on GitHub's side
-stops a red PR from merging. The check in §8 is the only gate this repo has.
+Second-order, and worth knowing before you trust a green `main`: **`main` is
+protected.** `Django test suite` is a required check via ruleset 22286885 with
+`bypass_actors: []`, so a red PR does not merge and not even an admin merges
+around it. That is not the same as `main` being green by construction — the
+ruleset sets `strict_required_status_checks_policy: false`, so a PR green against
+a *stale* base can still redden `main` once merged, and commits that landed
+before the ruleset existed (2026-09-04, 16:59 UTC) never passed it at all. §8 is
+still where you learn about your own branch.
 
 ## 0. No issue number given
 
@@ -265,10 +270,12 @@ returns benign `duplicate key value violates unique constraint` lines emitted by
 tests that were *passing*. The real Django lines are ~2000 lines up.
 
 The analyst also settles the question you cannot answer from the log alone:
-**whether the failure is yours.** `main` has no branch protection and CI is not a
-required check, so red commits land on it — run `33858890306` on `fix/138` failed
-in `product_price_manager` and `supplier_product_manager`, two apps that branch
-never touched. It returns one of four verdicts:
+**whether the failure is yours.** The ruleset stops a red PR merging, but it does
+not make an inherited failure impossible: a branch cut from a `main` older than
+the gate, or from one reddened by a PR that was green against a stale base, still
+carries failures it did not cause. Run `33858890306` on `fix/138` is the worked
+example — it failed in `product_price_manager` and `supplier_product_manager`,
+two apps that branch never touched. It returns one of four verdicts:
 
 | Verdict | What you do |
 |---|---|
@@ -351,9 +358,11 @@ fails closed. Do not treat that refusal as the gate being broken.
   read from the legacy `branches/main/protection` endpoint, which 404s when
   protection comes from a ruleset. It was wrong.)
 - GitHub, not the workflow, waits for green and performs the merge.
-- The one remaining switch is the repo setting **`allow_auto_merge`**. While it
-  is `false` the workflow still runs, still evaluates, and reports that a PR
-  qualifies without arming anything.
+- The repo setting **`allow_auto_merge`** is **`true`**, so the gate is live: a
+  correctly labelled PR in the class really is armed, and GitHub merges it the
+  moment the required check goes green. (The workflow still handles the `false`
+  case — it runs, evaluates, and reports that a PR qualifies without arming
+  anything — but that is no longer the state of this repo.)
 
 **Never merge the PR yourself.** Merging is GitHub's, once the required check is
 green — or the maintainer's. It is never yours, in any class.
