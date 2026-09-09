@@ -67,47 +67,29 @@ Three consequences worth remembering:
 
 ## Trap: running `core` empties the DB for every later `--keepdb` run
 
-`ExecuteLockedTaskAtomicTests` (`core/tests.py:21`) **must** stay a
-`TransactionTestCase` — `django.test.TestCase` wraps each test in a transaction,
-which would make `connection.in_atomic_block` true inside the runner regardless
-of what `atomic=` did. Do not "simplify" it into a `TestCase`.
+`ExecuteLockedTaskAtomicTests` (`core/tests.py:21`) must stay a
+`TransactionTestCase` — `TestCase` wraps each test in a transaction, which
+would make `connection.in_atomic_block` true regardless of `atomic=`. Django
+truncates **every table** at a `TransactionTestCase`'s teardown and only
+restores migration-seeded rows when `serialized_rollback = True` (not set
+here, deliberately — re-serializing the whole DB on every run just papers
+over the coupling rather than removing it). So running `core`'s tests deletes
+the `KZT` `Currency` row seeded by `supplier_manager/migrations/0001_initial.py`;
+since CLAUDE.md says to run with `--keepdb`, that deletion persists into later
+runs and surfaces as 22 `Currency.DoesNotExist` errors from
+`supplier_product_manager`'s `setUp` — in a *different* app, with nothing
+wrong in the code under test. CI never reproduces it (fresh DB every run).
+Symptom to recognise: an app's tests fail on `--keepdb` but pass without it,
+in fixtures rather than assertions.
 
-The cost lands elsewhere. Django truncates **every table** at a
-`TransactionTestCase`'s teardown and only restores migration-seeded rows when
-`serialized_rollback = True`. So running `core` deletes the `KZT` `Currency` row
-that `supplier_manager/migrations/0001_initial.py` seeds. Since CLAUDE.md tells
-everyone to run with `--keepdb`, that deletion persists into every later run and
-surfaces in a *different* app — 22 `Currency.DoesNotExist` errors raised from
-`supplier_product_manager`'s `setUp`, with nothing wrong in the code under test.
-CI never reproduces it: it builds the database fresh each run.
-
-Symptom to recognise: an app's tests fail on `--keepdb` but pass without it, in
-fixtures rather than assertions. Nothing about `core` will look implicated.
-
-The fix belongs on the consuming side — **no fixture may read a
-migration-seeded row.** Use
-`Currency.objects.get_or_create(name="KZT", defaults={"value": Decimal("1")})`,
-as `supplier_product_manager/tests.py` (`:30`, `:494`, `:571`, `:637`, `:715`)
-and `product_price_manager/tests.py:15` now do. Prefer that `defaults=` form
-over the inline `get_or_create(name='KZT', value=1)` still at
-`main_product_manager/tests.py:53` and `:199`: inline kwargs are *lookups*, so a
-KZT row carrying any other value makes get_or_create attempt an INSERT and die
-on the unique `name`. `Currency` is the only static seed in the tree — the other
-`RunPython` migrations derive rows from existing data — so this list is
-currently complete.
-
-`serialized_rollback = True` on the `TransactionTestCase` is the alternative,
-and it was rejected: it re-serializes and re-inserts the database around the
-class on every run, and it papers over the coupling rather than removing it.
-
-## Gotcha: `core/models/` is an empty directory
-
-There is an empty `core/models/` dir sitting next to `core/models.py`. It has no
-`__init__.py` and no files. Python 3 resolves the regular module `models.py`
-ahead of a namespace package, so **`core/models.py` is what loads** — it is
-harmless today. Do not add files to `core/models/` expecting them to be picked
-up; either delete the dir or commit to converting `models.py` into the package
-properly. Right now it is just a tripwire.
+The fix is on the consuming side — no fixture may read a migration-seeded
+row. Use `Currency.objects.get_or_create(name="KZT", defaults={"value":
+Decimal("1")})`, as `supplier_product_manager/tests.py` (`:30`, `:494`,
+`:571`, `:637`, `:715`) and `product_price_manager/tests.py:15` do. The
+inline `get_or_create(name='KZT', value=1)` still at
+`main_product_manager/tests.py:53`/`:199` is fragile: inline kwargs are
+*lookups*, so a KZT row carrying any other value makes it attempt an INSERT
+and die on the unique `name`. `Currency` is the only static seed in the tree.
 
 ## Models (`core/models.py`)
 
@@ -119,6 +101,9 @@ properly. Right now it is just a tripwire.
   (`LevelChoices:93`), optional `link`/`link_text`.
 - `TaskRunHistory:131` — written by `execute_locked_task`, never by hand.
   `status` from `StatusChoices:126`.
+- Gotcha: `core/models/` (empty dir, no `__init__.py`) sits next to this
+  file; Python resolves the module first, so `core/models.py` loads — don't
+  add files there expecting them to be picked up.
 
 ## Middleware (`core/middleware.py`)
 
@@ -146,6 +131,94 @@ throughout, not the modal-CRUD one — one action refreshes a status chip, a
 summary panel and a list together without a reload. See the `htmx-oob-fragments`
 skill. `_shopping_tab_summary` (`:176`) and `_get_shopping_tab_items` (`:168`)
 are the helpers those fragments render from.
+
+**The shopping-tab stock badge cannot distinguish "out of stock" from "never
+synced".** `core/templates/shopping_tab/includes/stock_badge.html:2-8`
+branches on `{% if product.stock %}`, and Django template truthiness makes
+both `None` and `0` falsy, so a `MainProduct` whose stock has never been
+synchronised renders identically to one genuinely out of stock — it shows
+`product.supplier.msg_navailable` (default «Нет в наличии»,
+`supplier_manager/models.py:90`).
+
+This matters because [[main_product_manager]] treats `stock IS NULL` as a
+distinct third state and defends it deliberately on the write path:
+`update_stocks` filters on `Q(stock__isnull=True) | ~Q(stock=F('new_stock'))`
+(`main_product_manager/utils.py:407`) precisely so never-synced products are
+not permanently skipped, and the rule is pinned by
+`UpdateStocksNullSafeTests` (`main_product_manager/tests.py:51`). The
+distinction is enforced on the write path and dropped on every read path: the
+two equivalent renderers on the read side —
+`render_stock_msg` in `main_product_manager/tables.py:117-123` and
+`Supplier.get_delivery_days_for_stock` in `supplier_manager/models.py:97-100`
+— carry the same `if not record.stock` / `if stock and stock > 0`
+conflation the template comment gestures at when it says the texts are «те
+же, что в главном прайсе». Those two are being fixed under issue #155; **this
+badge is explicitly out of that issue's scope** and stays as-is. If the cart
+is ever revisited, it needs its own decision about what a null stock should
+say — it isn't inherited for free from whatever #155 lands on.
+
+## `core/templates/core/includes/table_htmx.html` — shared by five tables
+
+Not `core`-only: `core/tables.py:25`, `main_product_manager/tables.py:113` and
+`:206`, `product_price_manager/tables.py:18`, `supplier_product_manager/tables.py:75`
+all set `template_name = 'core/includes/table_htmx.html'`
+(`django-tables2==2.7.5`, `price_manager/requirements.txt:37`; verified
+against `venv/Lib/site-packages/django_tables2/`). A change here touches all five.
+
+**Infinite scroll dies on a hidden last row.** The next-page fetch is wired to
+the *last* `<tr>` of the page (`table_htmx.html:40-45`):
+`{% if forloop.last and table.page.has_next %}` with
+`hx-trigger="intersect once"`. An element with `display:none` has no box, so
+`IntersectionObserver` never fires on it. Any feature that hides rows
+conditionally (row grouping, collapse/expand, client-side filtering) will
+silently stall pagination the moment a page's last row happens to be one of
+the hidden ones — no error, no spinner, the list just appears to end. Check
+whether the last row of a page can ever be hidden before shipping row-hiding
+on any of the five tables — this is exactly the trap issue #155
+([[main_product_manager]], collapsing `MainProduct` rows by `pim_id`) has to
+navigate.
+
+**Next-page rows land adjacent to the last row, not appended to `<tbody>`.**
+`hx-target="this"` + `hx-swap="afterend"` (`table_htmx.html:43-44`) insert
+page N+1's rows directly after page N's last row, not at the table's end —
+useful for anything needing contiguity across a page boundary (e.g. a group
+split across pages): no DOM-reordering script needed, only re-applying
+per-row state to the newly arrived rows.
+
+**`Meta.row_attrs` is the per-row hook — reach for it before editing this
+template.** `{{ row.attrs.as_html }}` (`table_htmx.html:38`) is computed as
+`computed_values(self._table.row_attrs, kwargs=dict(table=self._table,
+record=self._record))` (`django_tables2/rows.py:111-113`) — the callable
+gets both `record` and `table`, and via `table` can reach
+`table.page.object_list` to know a record's page position (e.g. whether
+it's the last row, relevant to the trap above), without touching the shared
+template that all five tables depend on.
+
+**Column sorting flips the whole declared `order_by` tuple, tie-breakers
+included — unless the column defines an `order_FOO` escape hatch.** The `<th>`
+builds its sort link from `column.order_by_alias.next` (`table_htmx.html:18`);
+`BoundColumn.order_by` returns `order_by.opposite` when the alias is
+descending (`django_tables2/columns/base.py:575-580`), and
+`OrderByTuple.opposite` — `type(self)(o.opposite for o in self)`
+(`django_tables2/utils.py:284`) — negates **every** member, not just the
+first, whenever a column relies on the library's default tuple ordering.
+
+It doesn't have to: `BoundColumns.__init__` wires `bound_column.order =
+getattr(table, "order_" + name, column.order)`
+(`django_tables2/columns/base.py:736`). `TableQuerysetData.order_by` only
+calls that hook for the column(s) actually named in the current sort
+(`aliases`, `data.py:200-201,211`) — using its queryset directly, skipping
+the flip, whenever it returns `(queryset, True)` (`data.py:210-219`; default
+`Column.order`, `columns/base.py:388-399`, is a no-op). So `def
+order_pim_id(self, qs, desc): return qs.order_by(('-' if desc else '') +
+'pim_id', 'pk'), True` on the `Table` is a tie-break, but it only fires when
+the user sorts **by `pim_id` itself** — it does nothing while sorting by any
+other column. `modified_any` (`data.py:198,215,218`) is table-wide too: one
+hook returning `True` skips traditional ordering for every column in that
+sort, not just its own (moot here since this template only ever sorts by one
+column at a time). Sorting also re-renders the whole table (`hx-target=
+"closest div.table-container"`, `hx-swap="outerHTML"`, `table_htmx.html:21-22`)
+and always lands on page 1.
 
 ## Dead code
 
