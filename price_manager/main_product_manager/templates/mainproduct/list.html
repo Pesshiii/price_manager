@@ -238,6 +238,30 @@
       animation: none;
     }
   }
+
+  /* Схлопывание группы pim_id. Члены скрыты, кроме последней строки страницы:
+     у display:none нет бокса, и hx-trigger="intersect once" на ней не сработал
+     бы никогда — подгрузка молча встала бы. */
+  tr.mp-group-member {
+    display: none;
+  }
+
+  tr.mp-group-member.mp-group-open,
+  tr.mp-group-member[data-mp-pinned] {
+    display: table-row;
+  }
+
+  tr.mp-group-head > td {
+    background-color: #f8f9fa;
+  }
+
+  tr.mp-group-head .mp-group-toggle .bi {
+    transition: transform 0.15s ease-in-out;
+  }
+
+  tr.mp-group-head.mp-group-open .mp-group-toggle .bi {
+    transform: rotate(180deg);
+  }
 {% endblock %}
 
 {% block body %}
@@ -315,5 +339,64 @@
       panel.scrollTo({ top: 0, behavior: 'smooth' });
     }
   });
+
+  // Раскрытие групп pim_id. Целиком клиентское: строки-члены уже в DOM,
+  // запроса на сервер нет.
+  (function () {
+    function memberRows(head) {
+      var table = head.closest('table');
+      if (!table || !head.dataset.grpKey) return [];
+      // Область поиска — своя таблица: один и тот же pim_id может встретиться
+      // в таблицах разных категорий, это разные группы.
+      return table.querySelectorAll(
+        'tr.mp-group-member[data-grp-key="' + CSS.escape(head.dataset.grpKey) + '"]'
+      );
+    }
+
+    function setOpen(head, open) {
+      head.classList.toggle('mp-group-open', open);
+      var toggle = head.querySelector('.mp-group-toggle');
+      if (toggle) {
+        toggle.setAttribute('aria-expanded', open ? 'true' : 'false');
+        toggle.setAttribute('title', open ? 'Скрыть товары группы' : 'Показать товары группы');
+      }
+      Array.prototype.forEach.call(memberRows(head), function (row) {
+        row.classList.toggle('mp-group-open', open);
+      });
+    }
+
+    document.addEventListener('click', function (event) {
+      var toggle = event.target.closest('.mp-group-toggle');
+      if (!toggle) return;
+      event.preventDefault();
+      var head = toggle.closest('tr.mp-group-head');
+      if (head) setOpen(head, !head.classList.contains('mp-group-open'));
+    });
+
+    // Идемпотентно: отрабатывает и на первую отрисовку, и на каждый своп htmx.
+    function syncGroups() {
+      // Строка-сирота: последняя строка страницы рендерится раскрытой ради
+      // бокса под intersect-триггер. Появился следующий брат — значит хвост
+      // приехал и держать её раскрытой больше не нужно.
+      Array.prototype.forEach.call(
+        document.querySelectorAll('tr.mp-group-member[data-mp-pinned]'),
+        function (row) {
+          if (row.nextElementSibling) row.removeAttribute('data-mp-pinned');
+        }
+      );
+      // Хвост группы, приехавший со следующей страницей, наследует раскрытость
+      // — иначе видимые члены оказались бы над скрытыми.
+      Array.prototype.forEach.call(
+        document.querySelectorAll('tr.mp-group-head.mp-group-open'),
+        function (head) {
+          setOpen(head, true);
+        }
+      );
+    }
+
+    document.addEventListener('htmx:afterSwap', syncGroups);
+    document.addEventListener('DOMContentLoaded', syncGroups);
+    syncGroups();
+  })();
 </script>
 {% endblock %}

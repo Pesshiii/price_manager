@@ -1,0 +1,14 @@
+{% comment %}
+  Колонка «Действия» на строке-заголовке группы pim_id — только переключатель
+  раскрытия и число членов. Раскрытие клиентское, запроса на сервер нет.
+{% endcomment %}
+<div class="d-flex gap-1 align-items-center">
+  <button type="button"
+          class="btn btn-sm btn-outline-secondary mp-group-toggle"
+          title="Показать товары группы"
+          aria-expanded="false"
+          data-grp-key="{{ record.grp_key }}">
+    <i class="bi bi-chevron-down"></i>
+  </button>
+  <span class="badge text-bg-light" title="Товаров в группе">{{ record.grp_size }}</span>
+</div>

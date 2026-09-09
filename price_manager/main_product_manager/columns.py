@@ -89,3 +89,15 @@ ORDERED_COLUMNS = [
 ]
 AVAILABLE_COLUMN_CHOICES = ORDERED_COLUMNS + [item for _, options in AVAILABLE_COLUMN_GROUPS for item in options if not item in ORDERED_COLUMNS]
 AVAILABLE_COLUMN_MAP = dict(AVAILABLE_COLUMN_CHOICES)
+
+
+def normalize_selected_columns(selected_columns):
+  """Отбросить неизвестные колонки и подставить дефолт, если не осталось ничего.
+
+  MainProductTable делает ровно это у себя в __init__, но набор нужен ещё и
+  MainProductTableView — по нему решается, какие оконные аннотации навешивать
+  на queryset. Если два места разойдутся, заголовок группы попросит значение,
+  которого в queryset нет, и молча покажет «—».
+  """
+  normalized = [column for column in (selected_columns or []) if column in AVAILABLE_COLUMN_MAP]
+  return normalized or list(DEFAULT_VISIBLE_COLUMNS)

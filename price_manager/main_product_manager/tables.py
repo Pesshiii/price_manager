@@ -7,15 +7,26 @@ import django_tables2 as tables
 from .models import *
 from core.utils import *
 from .forms import *
+from django_tables2.rows import BoundRow
 from .columns import (
   DEFAULT_VISIBLE_COLUMNS,
   AVAILABLE_COLUMN_GROUPS,
   AVAILABLE_COLUMN_CHOICES,
   AVAILABLE_COLUMN_MAP,
+  normalize_selected_columns,
+)
+from .grouping import (
+  GROUPED_PRICE_COLUMNS,
+  NO_STOCK_DATA,
+  GroupHeadRecord,
+  is_group_head,
+  is_group_member,
+  order_by_group,
 )
 from .utils import get_file_url
 
 import pandas as pd
+from functools import partial
 
 class MainProductTable(tables.Table):
   '''Таблица Главного прайса отображаемая на главной странице'''
@@ -46,12 +57,7 @@ class MainProductTable(tables.Table):
     self.pim_map = kwargs.pop('pim_map', {})
     self.request = kwargs.pop('request')
     self.url = kwargs.pop('url', None)
-    selected_columns = kwargs.pop('selected_columns', None) or []
-    if not selected_columns:
-      selected_columns = DEFAULT_VISIBLE_COLUMNS
-    self.selected_columns = [column for column in selected_columns if column in AVAILABLE_COLUMN_MAP]
-    if not self.selected_columns:
-      self.selected_columns = DEFAULT_VISIBLE_COLUMNS
+    self.selected_columns = normalize_selected_columns(kwargs.pop('selected_columns', None))
 
     extra_columns = [
       (
@@ -70,6 +76,15 @@ class MainProductTable(tables.Table):
       self.url = self.request.path_info
     if 'data' in kwargs:
       kwargs['data'] = kwargs['data'].prefetch_related('supplier', 'categories', 'manufacturer')
+
+    # Хук order_<колонка> подхватывается в BoundColumns.__init__, то есть внутри
+    # super().__init__() — ставить его позже уже поздно. Хук нужен на каждой
+    # сортируемой колонке: django-tables2 зовёт его только для колонок текущей
+    # сортировки, а набор колонок выбирает пользователь, так что выписать их
+    # руками нельзя.
+    for column_key in AVAILABLE_COLUMN_MAP:
+      setattr(self, f'order_{column_key}', partial(self._order_grouped, column_key))
+
     super().__init__(*args, extra_columns=extra_columns, **kwargs)
 
     for column_key in AVAILABLE_COLUMN_MAP:
@@ -110,23 +125,92 @@ class MainProductTable(tables.Table):
       'delivery_days',
       'stock_msg',
     ]
-    template_name = 'core/includes/table_htmx.html'
+    template_name = 'mainproduct/includes/table_grouped.html'
     attrs = {
       'class': 'clickable-rows table table-auto table-stripped table-hover'
       }
+    # Свёрнутость члена группы вешается классом здесь, а не правкой общего
+    # core/includes/table_htmx.html: на него завязаны ещё четыре чужих экрана.
+    row_attrs = {
+      'class': lambda record: 'mp-group-member' if is_group_member(record) else '',
+      'data-grp-key': lambda record: getattr(record, 'grp_key', '') if is_group_member(record) else '',
+      }
+
+  # --- группировка по pim_id ---
+
+  def _order_grouped(self, column_key, queryset, is_descending):
+    """Сортировка колонки, забирающая упорядочивание у django-tables2 целиком.
+
+    Нужна потому, что при нисходящей сортировке BoundColumn.order_by
+    переворачивает ВЕСЬ объявленный кортёж order_by, включая групповые ключи, —
+    и заголовок уезжает под своих же членов. Хук вызывается до этого разворота.
+    """
+    accessor = str(self.columns[column_key].accessor) if column_key in self.columns else column_key
+    return order_by_group(queryset, accessor, is_descending)
+
+  def group_head_row(self, record):
+    """Строка-заголовок над `record`, либо None, если он не открывает группу.
+
+    Заголовок — отдельный <tr> сверх строк-членов: группа из N членов даёт N+1
+    строку. Сам `record` ниже рисуется ещё раз обычной строкой-членом, со
+    своими настоящими значениями.
+    """
+    if not is_group_head(record):
+      return None
+    return BoundRow(GroupHeadRecord(record, self.grouped_price_columns), table=self)
+
+  @property
+  def grouped_price_columns(self):
+    return [column for column in GROUPED_PRICE_COLUMNS if column in self.selected_columns]
+
   def render_stock_msg(self, record):
+    # NULL в stock — «ни разу не синхронизировался», а не ноль. На заголовке
+    # «Нет данных» значит, что остатка нет ни у одного члена группы: выбор
+    # остатка сквозной и падает на следующего по stock_priority.
+    if getattr(record, 'is_group_head', False):
+      if record.stock is None:
+        return NO_STOCK_DATA
+      message = record.grp_msg_available if record.stock > 0 else record.grp_msg_navailable
+      return message or ''
+    # Проверка остатка идёт ПЕРЕД проверкой поставщика намеренно: «Нет данных»
+    # — утверждение про остаток, а не про поставщика, и строка без поставщика с
+    # NULL в остатке про него тоже ничего не знает. render_delivery_days ниже
+    # ведёт себя иначе, и это не рассогласование: срок поставки физически
+    # берётся из полей поставщика, так что без него его неоткуда взять.
+    if record.stock is None:
+      return NO_STOCK_DATA
     if not record.supplier:
       return ''
-    if not record.stock or record.stock == 0:
+    if record.stock == 0:
       return record.supplier.msg_navailable
-    else:
-      return record.supplier.msg_available
+    return record.supplier.msg_available
 
   def render_delivery_days(self, record):
+    # Ветвится по тому же флагу: на заголовке срок считается от поставщика того
+    # члена, чей остаток победил, а не от поставщика носителя заголовка.
+    if getattr(record, 'is_group_head', False):
+      if record.stock is None or record.stock == 0:
+        days = record.grp_delivery_navailable
+      else:
+        days = record.grp_delivery_available
+      return '' if days is None else days
     if not record.supplier:
       return ''
     return record.supplier.get_delivery_days_for_stock(record.stock)
+
   def render_actions(self, record):
+        # На заголовке — только переключатель раскрытия. «Обновить»/детали/
+        # pricetags остаются на строках-членах: действие с заголовка молча
+        # редактировало бы одного конкретного поставщика, пока пользователь
+        # смотрит на строку, подписанную данными PIM.
+        if getattr(record, 'is_group_head', False):
+          return render_to_string(
+              'mainproduct/includes/group_toggle.html',
+              {
+                  'record': record,
+              },
+              request=self.request,
+          )
         return render_to_string(
             'main/product/actions.html',
             {

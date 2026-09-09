@@ -88,6 +88,18 @@ class Supplier(models.Model):
                                     default="Есть в наличии")
     msg_navailable = models.CharField(verbose_name="Сообщение при отсутствии",
                                         default="Нет в наличии")
+    price_priority = models.PositiveIntegerField(
+        verbose_name='Приоритет по цене',
+        help_text='Меньше — выше приоритет. Пусто — поставщик не проранжирован.',
+        null=True,
+        blank=True,
+    )
+    stock_priority = models.PositiveIntegerField(
+        verbose_name='Приоритет по остаткам',
+        help_text='Меньше — выше приоритет. Пусто — поставщик не проранжирован.',
+        null=True,
+        blank=True,
+    )
     class Meta:
         verbose_name = 'Поставщик'
         ordering = ['name']
@@ -95,7 +107,17 @@ class Supplier(models.Model):
         return self.name
     
     def get_delivery_days_for_stock(self, stock):
-        if stock and stock > 0:
+        """Срок поставки по остатку.
+
+        `stock is None` — «остаток ни разу не синхронизировался», а не ноль, и
+        это третье состояние, а не синоним отсутствия товара. Срок для него
+        всё равно нужно показать, поэтому берётся пессимистичная оценка (как
+        при нулевом остатке) — но ветка отдельная и явная, чтобы «не знаем» не
+        схлопнулось с «нет» при следующей правке.
+        """
+        if stock is None:
+            return self.delivery_days_navailable
+        if stock > 0:
             return self.delivery_days_available
         return self.delivery_days_navailable
   

@@ -17,6 +17,7 @@ from django.contrib.auth.mixins import LoginRequiredMixin
 from django.urls import reverse, reverse_lazy
 from typing import Optional, Any, Dict, Iterable
 from collections import defaultdict, OrderedDict
+from django.utils.functional import cached_property
 from django.db.models import Prefetch, Q, Value, Max, Subquery, OuterRef, IntegerField, ExpressionWrapper, Case, When
 from django.db import transaction
 from django.contrib.postgres.search import SearchVector
@@ -45,6 +46,8 @@ from .tables import *
 from .filters import *
 from .utils import *
 from .utils import get_pim_data_for_product, prefetch_pim_data, get_file_url, maybe_notify_pim_error
+from .columns import normalize_selected_columns
+from .grouping import annotate_groups, order_groups
 from .tasks import sync_main_products_task
 from supplier_product_manager.views import UploadSupplierFile
 
@@ -129,14 +132,16 @@ class MainProductTableView(SingleTableView):
       url = reverse('mainproduct-table-bycat',kwargs={'category_pk': self.category_pk})
     else:
       url = reverse('mainproduct-table-nocat')
-    selected_columns = load_user_columns(self.request.user)
     return super().get_table(
       **kwargs,
       request=self.request,
       url=url,
-      selected_columns=selected_columns,
+      selected_columns=self.selected_columns,
       prefix=f'{self.category_pk if self.category_pk else 0}-'
     )
+  @cached_property
+  def selected_columns(self):
+    return normalize_selected_columns(load_user_columns(self.request.user))
   def get_table_data(self):
     supplier_price_sq = SupplierProduct.objects.filter(
       main_product=OuterRef('pk')
@@ -148,14 +153,36 @@ class MainProductTableView(SingleTableView):
       main_product=OuterRef('pk')
     ).order_by('-updated_at').values('discount_price')[:1]
 
-    qs = MainProductFilter(self.request.GET).qs.prefetch_related('categories').annotate(
+    filtered = MainProductFilter(self.request.GET).qs
+    if self.category_pk:
+      filtered = filtered.filter(categories=Category.objects.get(pk=self.category_pk))
+    else:
+      filtered = filtered.filter(categories__isnull=True)
+
+    # Порядок слоёв здесь жёсткий: дедупликация → Subquery → оконные аннотации.
+    # categories — M2M, и её join дублирует строки (categories_method не зря
+    # заканчивается на .distinct(), а фильтр по категории выше добавляет второй
+    # join). Postgres считает оконные функции РАНЬШЕ DISTINCT, поэтому по
+    # недедуплицированному queryset Count(*) OVER посчитал бы дубли join и
+    # раздул размер группы. Голый order_by() снимает order_by('-rank') из
+    # search_method: он протекает в GROUP BY подзапроса, и только при непустом
+    # поиске — на пустом всё выглядело бы правильным.
+    qs = MainProduct.objects.filter(
+      pk__in=filtered.order_by().values('pk')
+    ).prefetch_related('categories').annotate(
       supplier_product_price=Subquery(supplier_price_sq),
       supplier_product_rrp=Subquery(rrp_sq),
       supplier_product_discount_price=Subquery(discount_price_sq),
     )
-    if not self.category_pk:
-      return qs.filter(categories__isnull=True)
-    return qs.filter(categories=Category.objects.get(pk=self.category_pk))
+
+    # rank не переживает пересборку queryset, а групповая сортировка по
+    # релевантности его требует — навешиваем заново тем же выражением.
+    rank = MainProductFilter.search_rank(self.request.GET.get('search', ''))
+    searching = rank is not None
+    if searching:
+      qs = qs.annotate(rank=rank)
+
+    return order_groups(annotate_groups(qs, self.selected_columns, searching), searching)
   def get_context_data(self, **kwargs) -> dict[str, Any]:
       context = super().get_context_data(**kwargs)
       if self.category_pk:

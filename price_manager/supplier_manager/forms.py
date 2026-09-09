@@ -18,6 +18,8 @@ class SupplierForm(forms.ModelForm):
       'stock_update_rate',
       'msg_available',
       'msg_navailable',
+      'price_priority',
+      'stock_priority',
     ]
   def __init__(self, *args, **kwargs):
     url = kwargs.pop('url', None)
@@ -72,6 +74,12 @@ class SupplierForm(forms.ModelForm):
         Div(
         Field('msg_navailable', css_class='form-control'),css_class="col-4"),
         css_class='row mb-4'
+      ),
+      HTML('<hr class="my-4 border-secondary col-8">'),
+      Div(
+        Div('price_priority', css_class='col-4'),
+        Div('stock_priority', css_class='col-4'),
+        css_class='row',
       ),
       HTML('<hr class="my-4 border-secondary col-8">'),
       Submit('action', 'Сохранить', title="Поиск", css_class='btn btn-primary col-5 mt-4 btn-lg')
