@@ -190,10 +190,6 @@ class PriceTagAndPriceManagerRuntimeTests(TestCase):
 
         self.assertEqual(pt.get_sprice(), Decimal('30'))
 
-    def test_pricetag_get_aggfunc_callable(self):
-        agg = PriceTag.get_aggfunc()
-        self.assertEqual(agg([Decimal('1'), Decimal('3')]), Decimal('3'))
-
     def test_pricetag_get_sprice_treats_null_source_as_fixed_price(self):
         mp = self.create_mp('M-FIX-NULL', 'Fixed source is null')
         pt = PriceTag.objects.create(

@@ -137,7 +137,9 @@ class PriceManager(models.Model):
     Возвращает продукты подходящие под данный менеджер наценок \\
     Возвращает querryset с аннотацией:\\
     - changed_price - цена после применения наценки\\
-      (при подсечете от цен поставщика берет минимальное значение)
+      (при подсчете от цен поставщика берет последнюю строку
+      SupplierProduct по updated_at; строка всегда ровно одна —
+      SupplierProduct.main_product объявлен unique=True)
     """
     def get_price_querry(price_from, price_to, price_prefix):
       # query = Q(**{f'{price_prefix}__isnull': False})
@@ -402,13 +404,6 @@ class PriceTag(models.Model):
     else:
       return f'{PRICE_TYPES[self.dest]}: {self.fixed_price}'
   
-  @staticmethod
-  def get_aggfunc():
-    '''
-    Функция для аггрегации цен поставщика
-    '''
-    return max
-
   def get_sprice(self):
     if self.source in ('fixed_price', None):
       return self.fixed_price
