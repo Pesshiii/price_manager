@@ -8,7 +8,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ```bash
 docker compose up --build
 ```
-App runs at `http://localhost:8000`. Everything behind `/` requires login (see `core.middleware.LoginRequiredMiddleware`).
+App runs at `http://localhost:8000` (or `$WEB_PORT`, if you are running a second stack — see below). Everything behind `/` requires login (see `core.middleware.LoginRequiredMiddleware`).
 
 **Run tests (local venv is broken — always use Docker):**
 ```bash
@@ -65,10 +65,18 @@ a migration from the other branch lands in the shared database. Nothing errors �
 that is what makes this the worse of the two. Run `docker compose ps` and ask
 before starting the stack or the test suite.
 
-The stack *is* parameterized (`PROJECT_NAME`, `WEB_PORT`, `DB_PORT`, `REDIS_PORT`),
-so per-worktree stacks are possible — but `run-price-manager` and `ui-review`
-hardcode `localhost:8000` and bare `docker compose exec`. Until those read
-`WEB_PORT`, serializing is the honest rule, not isolating.
+A second stack *is* workable: the compose file is parameterized (`PROJECT_NAME`,
+`WEB_PORT`, `DB_PORT`, `REDIS_PORT`), and `run-price-manager` and `ui-review`
+derive their polling and `BASE_URL` from `WEB_PORT` instead of hardcoding 8000.
+
+It is not automatic, and the trap is that the failure is silent. `.env` is
+gitignored, so a fresh worktree has none and every one of those vars falls back
+to the shared default — `docker compose up` there drives the main checkout's
+containers against your bind mount. Naming a stack is therefore a *per-command*
+act (`PROJECT_NAME=… WEB_PORT=… docker compose …`), since shell state does not
+survive between tool calls. Serializing stays the safe default; isolate when you
+genuinely need two stacks at once, and read "Which stack you are talking to" in
+`run-price-manager` first.
 
 ## Direction of travel — read this before adding code
 
