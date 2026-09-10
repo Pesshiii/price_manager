@@ -435,22 +435,37 @@ def update_stocks(logs: bool = True, batch_size: int = 10000) -> int:
     coalescing both sides made NULL -> 0 compare equal, so those products were
     never updated and never logged. The isnull branch stops matching after the
     first run, since the row is left with a non-NULL stock.
+
+    Walks the catalog in `batch_size` chunks of a pk snapshot taken up front,
+    so the MainProductLog list and its INSERT stay bounded instead of growing
+    with the number of changed products. The chunk bounds come from real pks
+    rather than offsets over count(), because a single gap in the id sequence
+    would make an offset-derived range stop short and silently skip the tail
+    of the catalog. Products created after the snapshot are picked up by the
+    next run. Every batch stamps the same stock_updated_at, so one run still
+    means one timestamp.
     """
     updated = 0
-    for i in range(0, MainProduct.objects.count(), batch_size):
-        stock_subq = (
-            SupplierProduct.objects
-            .filter(main_product_id=OuterRef('pk'))
-            .order_by('-updated_at')
-            .values('stock')[:1]
-        )
-        mps = MainProduct.objects.annotate(
+    now = timezone.now()
+    stock_subq = (
+        SupplierProduct.objects
+        .filter(main_product_id=OuterRef('pk'))
+        .order_by('-updated_at')
+        .values('stock')[:1]
+    )
+    pks = list(MainProduct.objects.order_by('pk').values_list('pk', flat=True))
+    for i in range(0, len(pks), batch_size):
+        chunk = pks[i:i + batch_size]
+        # chunk is a slice of every pk in pk order, so every existing product
+        # between its ends is inside it — the range bounds select exactly
+        # pk__in=chunk without shipping a batch_size-long IN list.
+        mps = MainProduct.objects.filter(pk__gte=chunk[0], pk__lte=chunk[-1]).annotate(
             new_stock=Coalesce(Subquery(stock_subq, output_field=IntegerField()), Value(0), output_field=IntegerField()),
         ).filter(Q(stock__isnull=True) | ~Q(stock=F('new_stock')))
         if logs:
             mpls = [MainProductLog(main_product=mp, stock=mp.new_stock) for mp in mps]
-            MainProductLog.objects.bulk_create(mpls)
-        updated += mps.update(stock=F('new_stock'), stock_updated_at=timezone.now())
+            MainProductLog.objects.bulk_create(mpls, batch_size=batch_size)
+        updated += mps.update(stock=F('new_stock'), stock_updated_at=now)
     return updated
 
 PIM_PRODUCT_ENTITY = 'PriceManagerProduct'

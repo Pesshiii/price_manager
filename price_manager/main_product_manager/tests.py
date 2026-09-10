@@ -133,6 +133,100 @@ class UpdateStocksNullSafeTests(TestCase):
         self.assertTrue(MainProductLog.objects.filter(main_product=mp, stock=0).exists())
 
 
+class UpdateStocksBatchingTests(TestCase):
+    """update_stocks walks the catalog in pk chunks of `batch_size`.
+
+    UpdateStocksNullSafeTests cannot cover that: each of those creates a single
+    MainProduct, so the loop runs exactly one iteration whether or not it
+    really batches. These pass a batch_size small enough to need several.
+    """
+
+    def setUp(self):
+        self.currency = Currency.objects.get_or_create(name='KZT', value=1)[0]
+        self.supplier = Supplier.objects.create(
+            name='Batch supplier',
+            currency=self.currency,
+            price_update_rate='',
+            stock_update_rate='',
+            delivery_days_available=1,
+            delivery_days_navailable=2,
+        )
+
+    def _product_with_stock(self, index, stock):
+        mp = MainProduct.objects.create(
+            supplier=self.supplier,
+            article=f'BT-{index}',
+            name=f'Batched {index}',
+            stock=None,
+        )
+        SupplierProduct.objects.create(
+            main_product=mp,
+            supplier=self.supplier,
+            article=f'SP-BT-{index}',
+            name='Stock row',
+            stock=stock,
+        )
+        return mp
+
+    def test_every_batch_is_updated_and_logged(self):
+        """Distinct stock per product, so a chunk-scoping slip shows up in the
+        logs rather than hiding behind matching counts."""
+        products = [self._product_with_stock(i, i) for i in range(1, 6)]
+
+        self.assertEqual(update_stocks(batch_size=2), 5)
+
+        for expected, mp in enumerate(products, start=1):
+            mp.refresh_from_db()
+            self.assertEqual(mp.stock, expected)
+            self.assertEqual(
+                list(MainProductLog.objects.filter(main_product=mp).values_list('stock', flat=True)),
+                [expected],
+            )
+        self.assertEqual(MainProductLog.objects.count(), 5)
+
+    def test_pk_gap_does_not_drop_the_tail(self):
+        """Chunk bounds come from real pks, not offsets over count().
+
+        A deleted product leaves count() < max(pk), which is exactly when
+        offset-derived pk ranges stop short and silently skip the highest pks.
+        """
+        products = [self._product_with_stock(i, i) for i in range(1, 6)]
+        products.pop(2).delete()
+
+        self.assertEqual(update_stocks(batch_size=2), 4)
+
+        for expected, mp in zip([1, 2, 4, 5], products):
+            mp.refresh_from_db()
+            self.assertEqual(mp.stock, expected)
+
+    def test_one_run_stamps_one_timestamp(self):
+        """timezone.now() is read once, above the loop — batching a run must
+        not spread it across several stock_updated_at values."""
+        for i in range(1, 6):
+            self._product_with_stock(i, i)
+
+        update_stocks(batch_size=2)
+
+        stamps = set(MainProduct.objects.values_list('stock_updated_at', flat=True))
+        self.assertEqual(len(stamps), 1)
+
+    def test_logs_false_updates_every_batch_without_logging(self):
+        """logs=False is the one branch the loop adds statements to without
+        bounding a log list, and no caller passes it — both update_stocks_task
+        definitions call runner=update_stocks bare, so nothing else covers it.
+        """
+        for i in range(1, 6):
+            self._product_with_stock(i, i)
+
+        self.assertEqual(update_stocks(logs=False, batch_size=2), 5)
+
+        self.assertEqual(MainProductLog.objects.count(), 0)
+        self.assertEqual(
+            sorted(MainProduct.objects.values_list('stock', flat=True)),
+            [1, 2, 3, 4, 5],
+        )
+
+
 from unittest.mock import Mock, patch
 
 from django.core.cache import cache
