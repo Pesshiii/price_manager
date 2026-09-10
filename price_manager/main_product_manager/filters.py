@@ -178,12 +178,25 @@ class MainProductFilter(FilterSet):
       query &= (Q(sku__icontains=term)|Q(name__icontains=term)|Q(article__icontains=term))
     return query
 
+  @staticmethod
+  def search_rank(value):
+    """Выражение релевантности для непустого поиска, иначе None.
+
+    Живёт отдельно от search_method, потому что MainProductTableView
+    пересобирает queryset через filter(pk__in=...) ради дедупликации и теряет
+    аннотацию rank — а групповая сортировка по релевантности её требует.
+    Определение обязано быть одно на оба места, иначе они разъедутся.
+    """
+    if not [term for term in (value or '').split() if term]:
+      return None
+    return SearchRank("search_vector", SearchQuery(value, config='russian'))
+
   def search_method(self, queryset, name, value):
     query = self._build_partial_query(value)
     if query is None:
       return queryset
     search_query = SearchQuery(value, config='russian')
-    rank = SearchRank("search_vector", search_query)
+    rank = self.search_rank(value)
     return queryset.annotate(rank=rank).filter(Q(search_vector=search_query)|query).order_by("-rank")
 
   def available_method(self, queryset, name, value):

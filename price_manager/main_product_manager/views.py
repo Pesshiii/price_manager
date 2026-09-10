@@ -17,8 +17,10 @@ from django.contrib.auth.mixins import LoginRequiredMixin
 from django.urls import reverse, reverse_lazy
 from typing import Optional, Any, Dict, Iterable
 from collections import defaultdict, OrderedDict
+from django.utils.functional import cached_property
 from django.db.models import Prefetch, Q, Value, Max, Subquery, OuterRef, IntegerField, ExpressionWrapper, Case, When
 from django.db import transaction
+from django.conf import settings
 from django.contrib.postgres.search import SearchVector
 # Импорты из сторонних приложений
 from django_tables2 import SingleTableView, RequestConfig, SingleTableMixin
@@ -45,6 +47,8 @@ from .tables import *
 from .filters import *
 from .utils import *
 from .utils import get_pim_data_for_product, prefetch_pim_data, get_file_url, maybe_notify_pim_error
+from .columns import normalize_selected_columns
+from .grouping import annotate_groups, order_groups
 from .tasks import sync_main_products_task
 from supplier_product_manager.views import UploadSupplierFile
 
@@ -129,14 +133,16 @@ class MainProductTableView(SingleTableView):
       url = reverse('mainproduct-table-bycat',kwargs={'category_pk': self.category_pk})
     else:
       url = reverse('mainproduct-table-nocat')
-    selected_columns = load_user_columns(self.request.user)
     return super().get_table(
       **kwargs,
       request=self.request,
       url=url,
-      selected_columns=selected_columns,
+      selected_columns=self.selected_columns,
       prefix=f'{self.category_pk if self.category_pk else 0}-'
     )
+  @cached_property
+  def selected_columns(self):
+    return normalize_selected_columns(load_user_columns(self.request.user))
   def get_table_data(self):
     supplier_price_sq = SupplierProduct.objects.filter(
       main_product=OuterRef('pk')
@@ -147,15 +153,64 @@ class MainProductTableView(SingleTableView):
     discount_price_sq = SupplierProduct.objects.filter(
       main_product=OuterRef('pk')
     ).order_by('-updated_at').values('discount_price')[:1]
+    subqueries = {
+      'supplier_product_price': Subquery(supplier_price_sq),
+      'supplier_product_rrp': Subquery(rrp_sq),
+      'supplier_product_discount_price': Subquery(discount_price_sq),
+    }
 
-    qs = MainProductFilter(self.request.GET).qs.prefetch_related('categories').annotate(
-      supplier_product_price=Subquery(supplier_price_sq),
-      supplier_product_rrp=Subquery(rrp_sq),
-      supplier_product_discount_price=Subquery(discount_price_sq),
-    )
-    if not self.category_pk:
-      return qs.filter(categories__isnull=True)
-    return qs.filter(categories=Category.objects.get(pk=self.category_pk))
+    filtered = MainProductFilter(self.request.GET).qs
+    if self.category_pk:
+      filtered = filtered.filter(categories=Category.objects.get(pk=self.category_pk))
+    else:
+      filtered = filtered.filter(categories__isnull=True)
+
+    # Слишком большая таблица группировку не переживает — отдаём её плоской.
+    #
+    # Отключать надо ОБА слоя, добавленных ради группировки, а не только окна:
+    # перевод на pk__in ниже стоит сам по себе +500 мс на странице и +300 мс на
+    # count() (замеры в #163), потому что нужен он был исключительно окнам. Гейт
+    # только на annotate_groups оставил бы 580 мс вместо 78 мс.
+    #
+    # Счёт со срезом до порога+1 отвечает на тот же вопрос «строк больше
+    # порога?», но позволяет Postgres остановиться на 5001-й строке: на корзине
+    # в 156 тыс. строк это 25 мс вместо 38.
+    #
+    # На поиске срез не помогает (замерено: 181 мс против 180 мс) — совпадений
+    # меньше порога, так что останавливаться не на чем, а платим мы за сам
+    # поисковый предикат, который здесь считается второй раз. Это неустранимая
+    # цена любого предварительного счёта, и она осознанная: страница поиска
+    # становится ~180 мс дороже, зато главная перестаёт стоить 3 секунды.
+    #
+    # Порог осознанно не привязан к «это корзина без категорий»: такая проверка
+    # бесплатна, но зашила бы сегодняшнюю патологию в код и перестала бы
+    # работать, когда категории у товаров появятся. Голый order_by() — по той же
+    # причине, что и ниже: order_by('-rank') из search_method иначе протекает в
+    # GROUP BY подзапроса счёта.
+    limit = settings.MAINPRODUCT_GROUPING_ROW_LIMIT
+    if filtered.order_by()[:limit + 1].count() > limit:
+      return filtered.prefetch_related('categories').annotate(**subqueries)
+
+    # Порядок слоёв здесь жёсткий: дедупликация → Subquery → оконные аннотации.
+    # categories — M2M, и её join дублирует строки (categories_method не зря
+    # заканчивается на .distinct(), а фильтр по категории выше добавляет второй
+    # join). Postgres считает оконные функции РАНЬШЕ DISTINCT, поэтому по
+    # недедуплицированному queryset Count(*) OVER посчитал бы дубли join и
+    # раздул размер группы. Голый order_by() снимает order_by('-rank') из
+    # search_method: он протекает в GROUP BY подзапроса, и только при непустом
+    # поиске — на пустом всё выглядело бы правильным.
+    qs = MainProduct.objects.filter(
+      pk__in=filtered.order_by().values('pk')
+    ).prefetch_related('categories').annotate(**subqueries)
+
+    # rank не переживает пересборку queryset, а групповая сортировка по
+    # релевантности его требует — навешиваем заново тем же выражением.
+    rank = MainProductFilter.search_rank(self.request.GET.get('search', ''))
+    searching = rank is not None
+    if searching:
+      qs = qs.annotate(rank=rank)
+
+    return order_groups(annotate_groups(qs, self.selected_columns, searching), searching)
   def get_context_data(self, **kwargs) -> dict[str, Any]:
       context = super().get_context_data(**kwargs)
       if self.category_pk:

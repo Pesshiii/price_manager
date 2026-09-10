@@ -1,0 +1,44 @@
+{% extends 'core/includes/table_htmx.html' %}
+{% comment %}
+  Таблица главной со схлопыванием MainProduct по общему pim_id.
+
+  Расширяет общий core/includes/table_htmx.html и переопределяет ровно один
+  блок — строку. Общий шаблон править нельзя: на нём висят ещё четыре таблицы
+  (core, product_price_manager, supplier_product_manager и MainProductResolveTable).
+
+  Группа из N членов даёт N+1 <tr>: заголовок плюс N членов. Члены скрыты
+  классом mp-group-member из Meta.row_attrs — КРОМЕ последней строки страницы:
+  у элемента с display:none нет бокса, и hx-trigger="intersect once" на нём не
+  сработает никогда, то есть бесконечная прокрутка молча встанет. Поэтому
+  последняя строка всегда рендерится раскрытой, а скрипт сворачивает её задним
+  числом, когда приехал хвост.
+{% endcomment %}
+{% load django_tables2 %}
+{% load l10n %}
+{% load mainproduct_tables %}
+
+{% block table.tbody.row %}
+  {% group_head_row table row as head_row %}
+  {% if head_row %}
+    <tr class="mp-group-head" data-grp-key="{{ head_row.record.grp_key }}">
+      {% for column, cell in head_row.items %}
+        <td {{ column.attrs.td.as_html }}>{% if column.localize == None %}{{ cell }}{% else %}{% if column.localize %}{{ cell|localize }}{% else %}{{ cell|unlocalize }}{% endif %}{% endif %}</td>
+      {% endfor %}
+    </tr>
+  {% endif %}
+  <tr
+  {{ row.attrs.as_html }}
+  {% if forloop.last %}data-mp-pinned="1"{% endif %}
+  {% comment %} Подгрузка следующей страницы если есть {% endcomment %}
+  {% if forloop.last and table.page.has_next %}
+    hx-get="{{table.url}}{% querystring table.prefixed_page_field=table.page.next_page_number %}"
+    hx-trigger="intersect once"
+    hx-target="this"
+    hx-swap="afterend"
+  {% endif %}
+  >
+      {% for column, cell in row.items %}
+          <td {{ column.attrs.td.as_html }}>{% if column.localize == None %}{{ cell }}{% else %}{% if column.localize %}{{ cell|localize }}{% else %}{{ cell|unlocalize }}{% endif %}{% endif %}</td>
+      {% endfor %}
+  </tr>
+{% endblock table.tbody.row %}

@@ -45,7 +45,8 @@ class MainProduct(models.Model):
         ]
     pim_id = models.CharField(verbose_name='Id для системы Pim',
                               null=True,
-                              blank=True)
+                              blank=True,
+                              db_index=True)
     sku = models.CharField(verbose_name='Артикул товара',
                          null=True,
                          blank=True,
