@@ -175,6 +175,8 @@ docker compose exec -T celery_worker python manage.py test product_price_manager
 
 Verified this command runs correctly end-to-end. Not every app has tests — `core`, for instance, reports "Found 0 test(s)" despite having a `tests.py`.
 
+**`--keepdb` reuses `test_price_manager_db`, and that database belongs to the stack, not to you.** Two agents running suites against one stack share it, so a run can drop a table out from under the other. Check `docker compose ps` before starting; if another agent has the stack, either wait or bring up your own — see "Which stack you are talking to" above, and prefix this `exec` with the same `PROJECT_NAME` you started it with.
+
 **Suite health is stale information — re-check before trusting it.** An earlier run of `product_price_manager` recorded 3 errors from a `supplier_manager_currency_name_key` duplicate-key IntegrityError in fixtures plus 1 assertion failure in `test_build_generated_name_includes_all_requested_parts`. That observation predates both a migration-ordering fix and `product` migrations 0002–0005, so it may no longer hold. Run the suite before reporting on its state; don't quote these numbers as current.
 
 ## Gotchas
