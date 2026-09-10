@@ -1,7 +1,6 @@
 # main_product_manager
 
-`MainProduct` — the canonical product record. Highest-churn app in the repo
-(171 of the last 200 commits touched it). Owns the PIM integration.
+`MainProduct` — the canonical product record. Owns the PIM integration.
 
 ## `.save()` deliberately doesn't rebuild the search vector
 
@@ -11,33 +10,19 @@ network call per row (CLAUDE.md's cross-app-dependencies note); adding it to
 `save()` would turn every save in the codebase into an HTTP request. Trace
 whether a loop over `MainProduct` reaches `rebuild_search_vector()`
 (`models.py:172`) regardless of how cheap the queryset looked — that's one
-round-trip per row. It builds `SearchVector(Value(supplier_name), ...)`
-rather than `SearchVector('supplier__name')` because `bulk_update()` /
-`.update()` don't allow joined fields in a SET expression (`:155-156`) —
-switch to field references and the update fails at the DB layer, not import
-time. `GinIndex` in `Meta.indexes` covers `search_vector`, `config='russian'`
-(`models.py:44`).
+round-trip per row.
 
 ## PIM scans run with `atomic=False` — moving the write is not enough
 
-`execute_locked_task` wraps its runner in a transaction *by default*.
-Hoisting `bulk_update` out of the API loop does **not** stop the transaction
-spanning the HTTP calls — it opens before the runner is called, so it stays
-open for the whole loop regardless of where the write lands. Fix is
-`atomic=False` at the call site — see [[core]]:
-
-- `tasks.py` `create_pim_links_task` → `utils.py` `create_pim_links`
-- `tasks.py` `reindex_pim_ids_batch_task` → `utils.py` `reindex_pim_ids_batch`
-
-Safe without the transaction because the Redis lock, not the transaction,
-provides mutual exclusion, and both are idempotent re-scans that resume
-cleanly from committed progress after a mid-loop failure (`_search_pim_id`'s
-no-match cache writes escape a rollback anyway). Do **not** wrap
-`push_missing_pim_products` (`_push_pim_products` underneath — HTTP,
-`bulk_update` and `sleep` interleaved per chunk) in a transaction "to
-compensate" — that breaks its promise that one failing chunk doesn't lose
-the others. New PIM-touching tasks: pass `atomic=False` rather than
-reshuffle writes.
+CLAUDE.md's "Shared infrastructure" section covers why these two runners pass
+`atomic=False` (`tasks.py` `create_pim_links_task`/`reindex_pim_ids_batch_task`).
+What it doesn't say: hoisting `bulk_update` out of the API loop does **not**
+help on its own — `execute_locked_task`'s transaction opens *before* the
+runner is called, so it stays open for the whole loop regardless of where the
+write lands. Do **not** wrap `push_missing_pim_products` (HTTP, `bulk_update`
+and `sleep` interleaved per chunk, underneath `_push_pim_products`) in a
+transaction "to compensate" — that breaks its promise that one failing chunk
+doesn't lose the others.
 
 ## The PIM cache's render-path cost — and why it bites tests too
 
@@ -45,58 +30,82 @@ reshuffle writes.
 population (`_queue_pim_population`, `utils.py:141`) and falls through, next
 line, to a synchronous `_fetch_pim_product(...)` (`utils.py:142`) — not an
 early return, so a cold cache blocks the request on a PIM HTTP round-trip.
-`get_file_url` (`utils.py:340`) has the same shape on a miss (`:349`), minus
-the queueing.
+`get_file_url` (`utils.py:370`) has the same shape on a miss (`:380-387`),
+minus the queueing.
 
 `prefetch_pim_data` (`utils.py:322`) loops products one at a time, and
-`MainProductTableView.get_context_data` (`views.py:186`) then calls
-`get_file_url` again per entry (`views.py:198`): up to **2N** PIM calls per
+`MainProductTableView.get_context_data` (`views.py:214`) then calls
+`get_file_url` again per entry (`views.py:226`): up to **2N** PIM calls per
 cold page (the main page paginates 5 categories at a time, `views.py:89`,
 each firing its own `hx-trigger="load"` fetch, `tables_bycat.html:53,82`).
 **But calls dedupe by `pim_id`/file id, not by row** — `get_pim_data` caches
 on `pim_product:{pim_id}` (`:136`), `get_file_url` on `pim_file:{file_id}`
-(`:344`) — so real cost is bounded by distinct `pim_id`s on the page.
+(`:378`) — so real cost is bounded by distinct `pim_id`s on the page.
 `MainProductTable._pim` still reads `pim_map` by `record.pk`
 (`tables.py:230-231`).
 
-**Rendering this table in a test makes live PIM HTTP calls unless patched.**
-Tests run under `settings.prod` with the placeholder `PIM_TOKEN`/`PIM_HOST`,
-so any test rendering `MainProductTable` with a `pim_id`-bearing product hits
-the network via the path above. Working recipe (`test_grouping.py:29-30`):
-patch `main_product_manager.views.prefetch_pim_data` and
-`.maybe_notify_pim_error`. Creating `MainProduct`s is safe — `save()` doesn't
-reach PIM — but a test needing a populated `search_vector` should set it
-directly with `SearchVector` over local fields (`test_grouping.py:64-68`)
-instead of calling `rebuild_search_vector()`.
+**Rendering this table in a test makes live PIM HTTP calls unless
+patched — and "live" can mean production.** `docker-compose.yml`'s
+placeholder `PIM_TOKEN`/`PIM_HOST` only applies when no `.env` is picked up;
+the repo-root `.env` (gitignored, absent from a fresh worktree per CLAUDE.md's
+"Running more than one agent") holds **real** PIM credentials, so a compose
+invocation that loads it — `--env-file <repo>/.env` included — runs the
+suite against the live production PIM, and an unpatched test then makes real
+calls to it. Working recipe (`test_grouping.py:29-30`): patch
+`main_product_manager.views.prefetch_pim_data` and `.maybe_notify_pim_error`.
+Creating `MainProduct`s is safe — `save()` doesn't reach PIM — but a test
+needing a populated `search_vector` should set it directly with
+`SearchVector` over local fields (`test_grouping.py:64-68`) instead of
+calling `rebuild_search_vector()`. `get_file_url` has its own direct-mock
+recipe instead (`GetFileUrlTests`, `tests.py:261`, patches
+`main_product_manager.utils.site`).
 
-## `get_file_url`'s return line has an operator-precedence bug (`utils.py:354`)
+## `get_file_url`'s PIM File payload — the precedence bug is fixed (#160/PR #169)
 
-`return "https://" + data.get(f'{size}ThumbnailUrl') or data.get('url') or
-data.get('downloadUrl')` — `+` binds tighter than `or`, parsing as
-`("https://" + X) or Y or Z`: the `url`/`downloadUrl` fallbacks are dead code,
-and a missing `{size}ThumbnailUrl` (`X is None`) raises an uncaught
-`TypeError` — the `try/except` (`utils.py:348-353`) closes before this line.
-Both call sites, `views.py:198` and `render_pim_photo`
-(`tables.py:233-244`), expect a clean `None`/URL — a missing thumbnail 500s
-the table instead of falling back to `—`. Bug, not yet fixed; not this
-keeper's fix to make.
+`get_file_url` (`utils.py:370`) now loops over `(f'{size}ThumbnailUrl',
+*_PIM_FILE_URL_KEYS)`, `_PIM_FILE_URL_KEYS = ('url', 'downloadUrl')`
+(`utils.py:340`), normalizing each candidate through `_absolute_pim_url`
+(`utils.py:343-367`). Old bug: the return was
+`"https://" + data.get(f'{size}ThumbnailUrl') or data.get('url') or
+data.get('downloadUrl')` — `+` binds tighter than `or`, so a missing
+`{size}ThumbnailUrl` raised an uncaught `TypeError` before either fallback
+ran, and the fallbacks were dead code besides.
+`views.py:226` and `render_pim_photo` (`tables.py:233-244`) now get a clean
+`None`/URL instead of a 500 on a missing thumbnail.
+
+**The lasting fact is the payload shape**, sampled read-only against the
+live PIM — both the `File` list endpoint and the single-record endpoint
+`get_file_url` actually calls, across every record returned:
+
+- `smallThumbnailUrl` / `mediumThumbnailUrl` / `largeThumbnailUrl` and `url`
+  — **do not exist** on the record at all.
+- `downloadUrl` — present on every record, always **scheme-less**
+  `host/path` (why `_absolute_pim_url` picks the scheme per-value instead of
+  prepending one unconditionally — a future PIM sending an absolute
+  `url`/thumbnail won't come out double-schemed).
+- The record does carry `path` and `thumbnailsPath` (plus `folderPath`,
+  `storageId`, `mimeType`, `extension`, `width`/`height`, `hash`) — none read
+  by `get_file_url`.
+
+So `size` currently selects a key that never exists —
+`'small'|'medium'|'large'` has **no observable effect today** — and
+`downloadUrl`, full-size
+rather than a thumbnail, is what every caller actually renders. Matters for
+the «PIM • Фото» column (`tables.py:47`, `render_pim_photo`): sized as a
+thumbnail, renders full-size. **`downloadUrl` also needs a PIM session** —
+an unauthenticated GET of the built URL returns `401`, so a browser without
+a PIM login still renders a broken image, just not a 500 anymore. Not filed
+as an issue yet.
 
 ## `MainProductFilter` — `.order_by()` bleeding into `GROUP BY`
 
-`search_method` (`filters.py:194-200`) ends on `.order_by("-rank")`. Django
-folds an explicit `order_by()` column into `GROUP BY` once something
-downstream calls `.values(...).annotate(...)` on the same queryset — no
-longer hypothetical: `MainProductTableView.get_table_data`
-(`views.py:170-171`) works around exactly this with a bare `.order_by()`
-before `.values('pk')`, naming `search_method` in its own comment.
-`MainProductFilter.search_rank` (`filters.py:181-192`) is a separate
-`@staticmethod` for the same reason — `get_table_data` rebuilds the queryset
-via `filter(pk__in=...)`, dropping `rank`, and re-applies `search_rank`
-afterward (`views.py:180-183`) so group ordering by relevance still works.
-Same family: `categories_method` (`filters.py:207-214`) ends on `.distinct()`
-for the same M2M-join-duplicates-rows reason; `CategoryFilter` mirrors it
-with `Count(F('mainproducts'), distinct=True)`
-(`supplier_manager/filters.py:20`) instead of a plain `Count`.
+`search_method`'s `.order_by("-rank")` (`filters.py:200`) folds into
+`GROUP BY` once something downstream does `.values(...).annotate(...)` on
+the same queryset — `get_table_data` (`views.py:194-201`) and
+`search_rank`'s own docstring (`filters.py:183-189`) both explain the
+workaround in place; the trap is real, not hypothetical, so don't drop
+either without re-deriving why `search_rank` lives as a separate
+`@staticmethod`.
 
 ## `_search_pim_id` docstring does not match its code
 
@@ -113,83 +122,50 @@ Consequence: `sku` is nullable (`models.py:50-53`), so a `MainProduct` with no
 explanation for stuck-NULL `pim_id`s than the backlog and the 4h no-match
 cache (`_PIM_NO_MATCH_TTL`, `utils.py:154`) alone.
 
-## The 11 Celery tasks
+## The 11 Celery tasks, and one that isn't
 
-All 11 `@shared_task`s in `tasks.py` go through `execute_locked_task` — the
-best-behaved app in the repo on that convention. `reindex_pim_ids` and
-`reindex_pim_ids_batch` (`tasks.py:166`, `:187`) set
-`time_limit=None, soft_time_limit=None`: a full catalog re-scan outruns any
-sane limit. Fan-out: `reindex_pim_ids_task` chunks pks via
-`iter_pim_id_pk_batches()` (`utils.py:558`) and queues one
-`reindex_pim_ids_batch_task` per chunk to run in parallel; `task_name` is
-uniquified per chunk (`tasks.py:190`) or they'd all contend on one Redis lock.
-`sync_main_products_task` (`tasks.py:143`) is a 12th function but not a task
-itself — no `@shared_task`, just `chain(...)`-ing the 11 into one
-`apply_async()` workflow (`tasks.py:144`); each link still goes through
-`execute_locked_task` on its own. Easy to confuse: `create_pim_links` only
-fills `pim_id__isnull=True`, while `reindex_pim_ids` re-searches PIM for
-**every** product (writing only the ones whose value changed), so
-`skip_non_empty=True` is what narrows it back to unlinked ones.
+`sync_main_products_task` (`tasks.py:143`) has no `@shared_task` — it's a
+plain function that `chain(...)`s the other 11 into one `apply_async()`
+workflow; each link still goes through `execute_locked_task` on its own.
+`reindex_pim_ids_task`'s fan-out uniquifies `task_name` per chunk
+(`tasks.py:190`, `f"...:{pks[0]}-{pks[-1]}"`) — without it every batch would
+contend on the same Redis lock.
 
-## Price fields and three columns that only look like fields
-
-Seven price fields on `MainProduct` (`models.py:83-117`), ordered tuple
-`MP_PRICES` (`models.py:14-22`); `price_list()` (`:142`) returns only the
-non-null ones. `kaspi_price` added by
-`migrations/0009_mainproduct_kaspi_price.py`. `product_price_manager` writes
-these — see [[product_price_manager]]. `MainProductLog` (`models.py:182`) is
-the price/stock history row.
+## Three columns that look like fields but aren't
 
 `supplier_product_price`, `supplier_product_rrp` and
-`supplier_product_discount_price` look like ordinary columns —
-`tables.Column` (`tables.py:39-41`), offered in `AVAILABLE_COLUMN_GROUPS`
-(`columns.py:36-38`) — but aren't model fields.
-`MainProductTableView.get_table_data` (`views.py:146-154`) builds each as a
-correlated `Subquery` on `SupplierProduct`, ordered `-updated_at`; that's
-ordering a singleton, since `SupplierProduct.main_product` is `unique=True`
-(`supplier_product_manager/models.py:24-30`). `grouping.GROUPED_PRICE_COLUMNS`
-(`grouping.py:32-40`) deliberately excludes these three — the group head
-shows `—` for them (`test_grouping.py:237-251`). `kaspi_price` is a genuine
-field but an orphan in the picker: offered at `columns.py:33`, absent from
-`MainProductTable.Meta.fields` (`tables.py:100-127`) — selecting it does
-nothing.
+`supplier_product_discount_price` are `tables.Column`s (`tables.py:39-41`)
+offered in `AVAILABLE_COLUMN_GROUPS` (`columns.py:36-38`), but they're not
+`MainProduct` fields — `MainProductTableView.get_table_data`
+(`views.py:146-154`) builds each as a correlated `Subquery` on
+`SupplierProduct`, ordered `-updated_at`. That's ordering a singleton, since
+`SupplierProduct.main_product` is `unique=True`
+(`supplier_product_manager/models.py:24-30`). `kaspi_price`, by contrast, is
+a genuine field but an orphan in the column picker: offered at
+`columns.py:33`, absent from `MainProductTable.Meta.fields`
+(`tables.py:100-127`) — selecting it does nothing.
 
-## `pim_id`: indexed since #155, but the index doesn't make grouping cheap
+## `pim_id` is indexed, but the index doesn't make grouping cheap
 
-`migrations/0004_mainproduct_pim_id.py:16` originally added `pim_id` with
-`unique=True`; `migrations/0005_mainproduct_categories_m2m.py:32-36` dropped
-it. `migrations/0010_alter_mainproduct_pim_id.py` (landed with #155/PR #162)
-added `db_index=True` back (`models.py:46-49`) — a plain lookup index,
-distinct from the `GinIndex` still only on `search_vector` (`models.py:44`).
-**Corrects this file's earlier claim of "no `db_index`" — no longer true.**
-
-Multiplicity — several `MainProduct`s from different suppliers legitimately
-share one `pim_id` (it names a verified/merged PIM `Product`, not a
-per-supplier `ContributorProduct`) — asserted in `sync_pim_relations`'s
-docstring (`utils.py:295-301`), relied on by its plural
-`filter(pim_id=...).update(...)` (`:308`) and `_note_pim_404`'s bulk
-`update(pim_id=None)` (`:126`), and now also what `grouping.py` collapses
-into one head row.
+`models.py:46-49` gives `pim_id` a plain `db_index=True` (added with #155),
+distinct from the `GinIndex` on `search_vector`. It isn't `unique` — several
+`MainProduct`s from different suppliers legitimately share one `pim_id`
+(`sync_pim_relations`'s docstring, `utils.py:296-301`), which is exactly
+what `grouping.py` collapses into one head row.
 
 **The index removes a lookup cost, not the grouping cost.**
-`MainProductTableView.get_table_data` (`views.py:145-185`) renders one table
-per category plus one for `categories__isnull=True` (the `else` branch at
-`views.py:160`; the main page decides whether to show that bucket at
-`views.py:91-92`), then computes `Window(partition_by=[F('grp_key')])`
-(`grouping.py:105-155`) over that filtered per-bucket queryset. The `pim_id`
-index can't serve this sort at all: `grp_key` is
+`MainProductTableView.get_table_data` (`views.py:145-185`) computes
+`Window(partition_by=[F('grp_key')])` (`grouping.py:105-155`) per
+category/uncategorised bucket, and `grp_key` is
 `Coalesce(NullIf(pim_id, ''), Cast('id', TextField()))` (`grouping.py:50-64`)
-— an expression, not the indexed column — so Postgres sorts every row in the
+— an expression, not the indexed column, so Postgres sorts every row in the
 bucket regardless. On a restored production snapshot: 156,016 of 156,481
-`MainProduct`s have no category, the largest real category holds 67 rows,
-and all 1,323 duplicated-`pim_id` groups sit in the uncategorised bucket
-(aggregates/counts only, per prod-snapshot rule 3). The window pass costs
-~+6ms on a ~67-row category table versus ~70ms -> ~3s on the ~156k-row
-uncategorised one (merge sort spilling ~107MB to disk); trimming to bare-id
-columns still floors ~1.6s — the partition sort over the whole bucket, not
-the `pim_id` lookup, is what's expensive. **Benchmark grouping changes
-against the uncategorised bucket** — it is effectively the whole catalog,
-and a category table always looks fast.
+`MainProduct`s have no category, so the uncategorised bucket is effectively
+the whole catalog while the largest real category holds 67 rows — the
+window pass costs ~+6ms there versus ~70ms→~3s on the uncategorised one
+(merge sort spilling ~107MB to disk; aggregates/counts only, per
+prod-snapshot rule 3). **Benchmark grouping changes against the
+uncategorised bucket** — a category table always looks fast.
 
 ## `render_<column>` is silently skipped when the cell value is empty
 
@@ -205,31 +181,19 @@ unset attribute, so an unhandled column falls through to `—` for free — only
 the three branching renderers needed an `is_group_head` branch when #155
 added the header row.
 
-## `update_stocks` — the two NULLs mean different things
+## `update_stocks` and `render_stock_msg` — NULL vs `0`, three copies of the check
 
-`utils.py:385`, docstring `:386-396`. Two nullable stock columns feed this
-and don't carry the same meaning:
+`update_stocks`'s docstring (`utils.py:428-438`) covers why the candidate
+filter tests `stock__isnull` separately rather than coalescing both sides —
+that bug silently skipped never-synced products forever.
+`UpdateStocksNullSafeTests` (`tests.py:51`) guards it.
 
-- `SupplierProduct.stock` NULL = supplier told us nothing; unknown isn't
-  sellable, so `new_stock` coalesces it to `0`.
-- `MainProduct.stock` NULL = never synced. Distinct from a synced `0`.
-
-The candidate filter used to coalesce *both* sides to `0`, making `NULL` and
-`0` compare equal and silently skipping a never-synced product forever — no
-write, no log, uncounted. Fixed by testing the current value's nullness
-explicitly: `filter(Q(stock__isnull=True) | ~Q(stock=F('new_stock')))`
-(`:407`) — `~Q(stock=F('new_stock'))` alone isn't enough, since SQL's
-`NOT (NULL = 0)` is NULL, not true. `UpdateStocksNullSafeTests` (`tests.py:51`)
-guards this write path.
-
-**The render-path conflation this used to describe is fixed for two of three
-copies.** `render_stock_msg` (`tables.py:166-186`) now branches on
-`record.stock is None` before zero/nonzero and returns `NO_STOCK_DATA`
-(`:170-172,180-181`); `StockSelectionTests` (`test_grouping.py:270-349`) now
-guards it — this file's old claim that no renderer had test coverage is
-stale, corrected here. `Supplier.get_delivery_days_for_stock`
+The render-path version of the same NULL is fixed in two of three places.
+`render_stock_msg` (`tables.py:166-186`) branches on `record.stock is None`
+before zero/nonzero and returns `NO_STOCK_DATA`; `StockSelectionTests`
+(`test_grouping.py:271-349`) guards it. `Supplier.get_delivery_days_for_stock`
 (`supplier_manager/models.py:109-122`) also branches on `stock is None`
-explicitly, though it still returns the same value as the zero case — now a
-documented, deliberate default, not a silent conflation. Unfixed:
+explicitly, though it still returns the zero-case value — a deliberate
+default, not a silent conflation. Unfixed:
 `core/templates/shopping_tab/includes/stock_badge.html:2,4` still tests
-truthy `product.stock` — see [[core]]; named here, not owned here.
+truthy `product.stock` — see [[core]], named here, not owned here.

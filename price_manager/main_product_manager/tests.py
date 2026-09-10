@@ -252,3 +252,133 @@ class QueuePimPopulationDispatchTests(TestCase):
                 _queue_pim_population('pim-2')
 
             delay.assert_called_once_with('pim-2')
+
+
+from .utils import get_file_url
+
+
+@override_settings(CACHES=LOCMEM_CACHE)
+class GetFileUrlTests(TestCase):
+    """get_file_url's fallback chain (#160).
+
+    Every case runs through the real cache path (pim_file:{id}), so LocMem +
+    clear() keeps those keys off the shared Redis the worker container points
+    at — a leaked key would otherwise answer the next test's lookup.
+    """
+
+    def setUp(self):
+        cache.clear()
+
+    def _url(self, payload, file_id='file-1', **kwargs):
+        with patch('main_product_manager.utils.site') as site:
+            site.get.return_value = payload
+            return get_file_url(file_id, **kwargs)
+
+    def test_thumbnail_key_is_preferred_and_gets_the_scheme(self):
+        url = self._url({'mediumThumbnailUrl': 'pim.test/thumbs/m/1.jpg',
+                         'url': 'pim.test/files/1.jpg'})
+
+        self.assertEqual(url, 'https://pim.test/thumbs/m/1.jpg')
+
+    def test_falls_back_to_url_when_thumbnail_key_is_absent(self):
+        url = self._url({'url': 'pim.test/files/1.jpg'})
+
+        self.assertEqual(url, 'https://pim.test/files/1.jpg')
+
+    def test_falls_back_to_download_url_as_the_last_key(self):
+        # This is the real production payload shape, not a corner case: PIM's
+        # File record carries neither a *ThumbnailUrl nor a `url` (checked
+        # against the live instance, list and single-record endpoints, every
+        # record sampled), so downloadUrl — scheme-less — is the only key that
+        # ever resolves and the fallback chain is the whole feature.
+        url = self._url({'downloadUrl': 'pim.test/?entryPoint=download&id=1'})
+
+        self.assertEqual(url, 'https://pim.test/?entryPoint=download&id=1')
+
+    def test_returns_none_when_no_key_matches(self):
+        self.assertIsNone(self._url({'name': '1.jpg'}))
+
+    def test_empty_thumbnail_is_not_a_url(self):
+        url = self._url({'mediumThumbnailUrl': ''})
+
+        self.assertIsNone(url)
+        self.assertNotEqual(url, 'https://')
+
+    def test_empty_thumbnail_falls_through_to_the_next_key(self):
+        url = self._url({'mediumThumbnailUrl': '', 'url': 'pim.test/files/1.jpg'})
+
+        self.assertEqual(url, 'https://pim.test/files/1.jpg')
+
+    def test_whitespace_only_value_counts_as_missing(self):
+        url = self._url({'mediumThumbnailUrl': '   ', 'url': 'pim.test/files/1.jpg'})
+
+        self.assertEqual(url, 'https://pim.test/files/1.jpg')
+
+    def test_absolute_value_is_not_prefixed_twice(self):
+        # Which of the three keys PIM sends with a scheme is unverified, so
+        # both shapes have to work: https:// stays, http:// is left alone.
+        self.assertEqual(
+            self._url({'mediumThumbnailUrl': 'https://pim.test/thumbs/m/1.jpg'}),
+            'https://pim.test/thumbs/m/1.jpg',
+        )
+        cache.clear()
+        self.assertEqual(
+            self._url({'mediumThumbnailUrl': 'http://pim.test/thumbs/m/1.jpg'}),
+            'http://pim.test/thumbs/m/1.jpg',
+        )
+
+    def test_protocol_relative_value_gets_only_the_scheme(self):
+        url = self._url({'mediumThumbnailUrl': '//pim.test/thumbs/m/1.jpg'})
+
+        self.assertEqual(url, 'https://pim.test/thumbs/m/1.jpg')
+
+    def test_root_relative_value_falls_through_instead_of_building_a_bad_url(self):
+        url = self._url({'mediumThumbnailUrl': '/upload/thumbs/1.jpg',
+                         'downloadUrl': 'https://pim.test/files/1.jpg'})
+
+        self.assertEqual(url, 'https://pim.test/files/1.jpg')
+
+    def test_root_relative_everywhere_degrades_to_none(self):
+        self.assertIsNone(self._url({'mediumThumbnailUrl': '/upload/thumbs/1.jpg',
+                                     'url': '/upload/1.jpg'}))
+
+    def test_size_argument_picks_the_matching_thumbnail_key(self):
+        payload = {'smallThumbnailUrl': 'pim.test/thumbs/s/1.jpg',
+                   'mediumThumbnailUrl': 'pim.test/thumbs/m/1.jpg',
+                   'largeThumbnailUrl': 'pim.test/thumbs/l/1.jpg'}
+
+        self.assertEqual(self._url(payload, size='small'), 'https://pim.test/thumbs/s/1.jpg')
+        cache.clear()
+        self.assertEqual(self._url(payload, size='large'), 'https://pim.test/thumbs/l/1.jpg')
+
+    def test_non_string_value_does_not_crash(self):
+        url = self._url({'mediumThumbnailUrl': False, 'url': 'pim.test/files/1.jpg'})
+
+        self.assertEqual(url, 'https://pim.test/files/1.jpg')
+
+    def test_null_body_returns_none(self):
+        self.assertIsNone(self._url(None))
+
+    def test_non_dict_body_returns_none(self):
+        self.assertIsNone(self._url([]))
+
+    def test_cached_non_dict_body_does_not_crash_on_the_next_call(self):
+        # The falsy body is cached by the miss branch, so the second call skips
+        # the refetch entirely and reaches the tail with a non-dict in hand.
+        self._url([])
+
+        with patch('main_product_manager.utils.site') as site:
+            self.assertIsNone(get_file_url('file-1'))
+            site.get.assert_not_called()
+
+    def test_missing_file_id_never_reaches_pim(self):
+        with patch('main_product_manager.utils.site') as site:
+            self.assertIsNone(get_file_url(None))
+            self.assertIsNone(get_file_url(''))
+            site.get.assert_not_called()
+
+    def test_pim_failure_still_degrades_to_none(self):
+        with patch('main_product_manager.utils.site') as site:
+            site.get.side_effect = RuntimeError('PIM down')
+
+            self.assertIsNone(get_file_url('file-1'))

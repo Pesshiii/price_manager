@@ -337,8 +337,42 @@ def prefetch_pim_data(products) -> dict:
     return result
 
 
+_PIM_FILE_URL_KEYS = ('url', 'downloadUrl')  # fallbacks, tried after {size}ThumbnailUrl
+
+
+def _absolute_pim_url(value) -> str | None:
+    """Turn one PIM File URL field into an absolute URL, or None if unusable.
+
+    Sampled against the live PIM (both the File list and the single-record
+    endpoint): only `downloadUrl` is ever present, always scheme-less
+    `host/path` — so `https://` is what actually gets prepended today, and
+    the `*ThumbnailUrl`/`url` branches are for a PIM that starts sending
+    them. Deciding the scheme per value rather than prepending it
+    unconditionally costs nothing and keeps that future from producing
+    "https://https://...". A root-relative path has no host to build on, so
+    it counts as unusable and lets the caller fall through to the next key
+    instead of emitting "https:///upload/...".
+    """
+    if not isinstance(value, str):
+        return None
+    value = value.strip()
+    if not value:
+        return None
+    if value.startswith(('http://', 'https://')):
+        return value
+    if value.startswith('//'):
+        return f'https:{value}'
+    if value.startswith('/'):
+        return None
+    return f'https://{value}'
+
+
 def get_file_url(file_id: str | None, size: str = 'medium') -> str | None:
-    """Return a thumbnail URL for a PIM File record. size: 'small', 'medium', 'large'."""
+    """Return an image URL for a PIM File record, or None if it has no usable one.
+
+    Tries `{size}ThumbnailUrl`, then `url`, then `downloadUrl` — in practice
+    only the last is populated. size: 'small', 'medium', 'large'.
+    """
     if not file_id:
         return None
     cache_key = f"pim_file:{file_id}"
@@ -351,8 +385,16 @@ def get_file_url(file_id: str | None, size: str = 'medium') -> str | None:
         except Exception as exc:
             _record_pim_error("get_file_url", exc, int((time.monotonic() - t0) * 1000))
             return None
-    return "https://" + data.get(f'{size}ThumbnailUrl') or data.get('url') or data.get('downloadUrl')
-
+    # isinstance, not `data is None`: site.get returns whatever PIM's body
+    # parses to, and a falsy non-None body (200 with `[]`) gets cached above,
+    # so every later call skips the refetch and lands here with a non-dict.
+    if not isinstance(data, dict):
+        return None
+    for key in (f'{size}ThumbnailUrl', *_PIM_FILE_URL_KEYS):
+        url = _absolute_pim_url(data.get(key))
+        if url:
+            return url
+    return None
 
 
 def _cache_key(user_id: int) -> str:
