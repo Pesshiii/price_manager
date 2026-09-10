@@ -13,7 +13,7 @@ from unittest.mock import patch
 
 from django.contrib.auth.models import User
 from django.contrib.postgres.search import SearchVector
-from django.test import TestCase
+from django.test import RequestFactory, TestCase, override_settings
 from django.urls import reverse
 
 from supplier_manager.models import Category, Currency, Supplier
@@ -22,6 +22,7 @@ from .columns import DEFAULT_VISIBLE_COLUMNS
 from .grouping import NO_STOCK_DATA
 from .models import MainProduct
 from .utils import save_user_columns
+from .views import MainProductTableView
 
 TR_RE = re.compile(r'<tr\b[^>]*>', re.IGNORECASE)
 
@@ -437,3 +438,118 @@ class GroupedSearchTests(GroupingTestCase):
         html = self.fetch(self.category, search='Дрель')
 
         self.assertRegex(html, r'title="Товаров в группе">\s*2\s*</span>')
+
+
+@override_settings(MAINPRODUCT_GROUPING_ROW_LIMIT=1)
+@patch('main_product_manager.views.maybe_notify_pim_error', lambda *args, **kwargs: None)
+@patch('main_product_manager.views.prefetch_pim_data', lambda records: {})
+class GroupingRowLimitTests(GroupingTestCase):
+    """Порог MAINPRODUCT_GROUPING_ROW_LIMIT: выше него таблица рисуется плоской (#163).
+
+    Порог живёт в настройках в том числе ради этих тестов: на проде он 5000, а
+    крупнейшая реальная категория — 67 товаров, так что фикстурой его не
+    перешагнуть и ветка деградации иначе непроверяема.
+    """
+
+    def pair_sharing_a_pim_id(self):
+        """Два товара под одним pim_id — при пороге 1 это уже «слишком большая» таблица."""
+        supplier_a = self.make_supplier('A', price_priority=1)
+        supplier_b = self.make_supplier('B', price_priority=2)
+        self.make_product('A-1', self.category, pim_id='PIM-1', supplier=supplier_a, prime_cost=10)
+        self.make_product('B-1', self.category, pim_id='PIM-1', supplier=supplier_b, prime_cost=20)
+
+    def table_data(self, category=None):
+        """Queryset из представления, без рендера — чтобы смотреть на аннотации."""
+        request = RequestFactory().get('/')
+        request.user = self.user
+        view = MainProductTableView()
+        view.request = request
+        view.kwargs = {}
+        view.category_pk = category.pk if category is not None else None
+        return view.get_table_data()
+
+    def test_above_the_limit_the_table_renders_flat(self):
+        self.pair_sharing_a_pim_id()
+
+        html = self.fetch(self.category)
+
+        self.assertEqual(self.head_rows(html), [])
+        self.assertNotIn('mp-group-member', html)
+        self.assertNotIn('mp-group-toggle', html)
+        # Обе записи на месте — просто каждая своей строкой, как до #155.
+        self.assertEqual(len(self.row_classes(html)), 2)
+
+    @override_settings(MAINPRODUCT_GROUPING_ROW_LIMIT=2)
+    def test_at_the_limit_the_table_still_groups(self):
+        """Сравнение строгое: ровно на пороге группировка ещё жива."""
+        self.pair_sharing_a_pim_id()
+
+        html = self.fetch(self.category)
+
+        self.assertEqual(len(self.head_rows(html)), 1)
+        self.assertEqual(html.count('mp-group-member'), 2)
+
+    def test_degraded_queryset_carries_no_group_annotations(self):
+        """Гейт обязан снимать оба слоя, а не только окна.
+
+        order_groups без annotate_groups не собирается вовсе — FieldError на
+        grp_min_id ещё на этапе компиляции запроса. Плюс сам перевод на pk__in
+        нужен был только окнам и стоит отдельных сотен миллисекунд (#163),
+        поэтому выше порога его тоже быть не должно.
+        """
+        self.pair_sharing_a_pim_id()
+
+        queryset = self.table_data(self.category)
+
+        self.assertNotIn('grp_key', queryset.query.annotations)
+        self.assertNotIn('grp_size', queryset.query.annotations)
+        self.assertNotIn('grp_min_id', queryset.query.annotations)
+        # Subquery-колонки поставщика при этом остаются — они не про группировку.
+        self.assertIn('supplier_product_price', queryset.query.annotations)
+        # И запрос действительно выполняется.
+        self.assertEqual(len(list(queryset)), 2)
+
+    def test_below_the_limit_queryset_still_carries_them(self):
+        with self.settings(MAINPRODUCT_GROUPING_ROW_LIMIT=2):
+            self.pair_sharing_a_pim_id()
+
+            queryset = self.table_data(self.category)
+
+            self.assertIn('grp_key', queryset.query.annotations)
+            self.assertIn('grp_size', queryset.query.annotations)
+
+    def test_column_sorting_still_works_above_the_limit(self):
+        """order_by_group рано выходит без grp_key и отдаёт сортировку django-tables2."""
+        self.pair_sharing_a_pim_id()
+        prefix = f'{self.category.pk}-'
+
+        for direction, expected in (('prime_cost', ['A-1', 'B-1']), ('-prime_cost', ['B-1', 'A-1'])):
+            with self.subTest(sort=direction):
+                body = self.fetch(self.category, **{f'{prefix}sort': direction}).split('<tbody', 1)[-1]
+                seen = list(dict.fromkeys(re.findall(r'A-1|B-1', body)))
+                self.assertEqual(seen, expected)
+
+    def test_search_above_the_limit_renders_flat(self):
+        """Поиск выше порога тоже не должен разваливаться.
+
+        order_by('-rank') из search_method протекает в GROUP BY подзапроса, в том
+        числе и в счёте, по которому берётся порог, — поэтому там голый order_by().
+        """
+        self.pair_sharing_a_pim_id()
+        self.index('Товар')
+
+        html = self.fetch(self.category, search='Товар')
+
+        self.assertEqual(self.head_rows(html), [])
+        self.assertEqual(len(self.row_classes(html)), 2)
+
+    def test_limit_applies_to_the_uncategorised_table_too(self):
+        """Гейт считает отфильтрованный набор, а не «это корзина без категорий»."""
+        supplier = self.make_supplier('A')
+        self.make_product('N-1', pim_id='PIM-9', supplier=supplier)
+        self.make_product('N-2', pim_id='PIM-9', supplier=supplier)
+
+        html = self.fetch()
+
+        self.assertEqual(self.head_rows(html), [])
+        self.assertNotIn('mp-group-member', html)

@@ -20,6 +20,7 @@ from collections import defaultdict, OrderedDict
 from django.utils.functional import cached_property
 from django.db.models import Prefetch, Q, Value, Max, Subquery, OuterRef, IntegerField, ExpressionWrapper, Case, When
 from django.db import transaction
+from django.conf import settings
 from django.contrib.postgres.search import SearchVector
 # Импорты из сторонних приложений
 from django_tables2 import SingleTableView, RequestConfig, SingleTableMixin
@@ -152,12 +153,33 @@ class MainProductTableView(SingleTableView):
     discount_price_sq = SupplierProduct.objects.filter(
       main_product=OuterRef('pk')
     ).order_by('-updated_at').values('discount_price')[:1]
+    subqueries = {
+      'supplier_product_price': Subquery(supplier_price_sq),
+      'supplier_product_rrp': Subquery(rrp_sq),
+      'supplier_product_discount_price': Subquery(discount_price_sq),
+    }
 
     filtered = MainProductFilter(self.request.GET).qs
     if self.category_pk:
       filtered = filtered.filter(categories=Category.objects.get(pk=self.category_pk))
     else:
       filtered = filtered.filter(categories__isnull=True)
+
+    # Слишком большая таблица группировку не переживает — отдаём её плоской.
+    #
+    # Отключать надо ОБА слоя, добавленных ради группировки, а не только окна:
+    # перевод на pk__in ниже стоит сам по себе +500 мс на странице и +300 мс на
+    # count() (замеры в #163), потому что нужен он был исключительно окнам. Гейт
+    # только на annotate_groups оставил бы 580 мс вместо 78 мс.
+    #
+    # Счёт идёт по filtered, то есть по до-группировочной форме queryset: там он
+    # стоит ~20 мс. Порог осознанно не привязан к «это корзина без категорий»:
+    # такая проверка бесплатна, но зашила бы сегодняшнюю патологию в код и
+    # перестала бы работать, когда категории у товаров появятся. Голый order_by()
+    # — по той же причине, что и ниже: order_by('-rank') из search_method иначе
+    # протекает в GROUP BY подзапроса счёта.
+    if filtered.order_by().count() > settings.MAINPRODUCT_GROUPING_ROW_LIMIT:
+      return filtered.prefetch_related('categories').annotate(**subqueries)
 
     # Порядок слоёв здесь жёсткий: дедупликация → Subquery → оконные аннотации.
     # categories — M2M, и её join дублирует строки (categories_method не зря
@@ -169,11 +191,7 @@ class MainProductTableView(SingleTableView):
     # поиске — на пустом всё выглядело бы правильным.
     qs = MainProduct.objects.filter(
       pk__in=filtered.order_by().values('pk')
-    ).prefetch_related('categories').annotate(
-      supplier_product_price=Subquery(supplier_price_sq),
-      supplier_product_rrp=Subquery(rrp_sq),
-      supplier_product_discount_price=Subquery(discount_price_sq),
-    )
+    ).prefetch_related('categories').annotate(**subqueries)
 
     # rank не переживает пересборку queryset, а групповая сортировка по
     # релевантности его требует — навешиваем заново тем же выражением.
