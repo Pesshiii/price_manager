@@ -392,12 +392,17 @@ class BasicLoadTests(TestCase):
         self.supplier.refresh_from_db()
         self.assertIsNotNone(self.supplier.stock_updated_at)
         self.assertIsNotNone(self.supplier.price_updated_at)
-    def test_zeroes_mapped_prices_and_stock_for_missing_rows(self):
-        """A row absent from the new file keeps the fields the setting no longer
-        maps - supplier_price here, whose Link is deleted below - and is zeroed,
-        not nulled, for the price and stock columns still mapped. Downstream
-        pricing depends on that 0; see product_price_manager's
-        test_pricemanager_with_duplicate_supplier_products_prefers_positive_value.
+    def test_nulls_mapped_prices_and_stock_for_missing_rows(self):
+        """A row absent from the new file is nulled, not zeroed, for the price
+        and stock columns the setting still maps: the supplier gave no figure,
+        and the raw layer records absence rather than inventing a synced 0.
+        Consumers resolve that absence themselves - update_stocks() coalesces a
+        NULL supplier stock to 0 because unknown stock is not sellable, and
+        PriceTag.get_sprice() reads a NULL price as 0.
+
+        The carve-out: fields the setting no longer maps are frozen at their
+        last imported value, not cleared. supplier_price stays 1 here because
+        its Link is deleted below.
         """
         setting = Setting.objects.create(
             name="Загрузка артикул",
@@ -433,7 +438,7 @@ class BasicLoadTests(TestCase):
             )
         
         correct_values = [
-                {"article": "А-1", "name": "Товар 1", "supplier_price": 1, "rrp":0, "stock":0, "manufacturer": Manufacturer.objects.get_or_create(name="Производитель 1")[0]},
+                {"article": "А-1", "name": "Товар 1", "supplier_price": 1, "rrp":None, "stock":None, "manufacturer": Manufacturer.objects.get_or_create(name="Производитель 1")[0]},
             ]
         
 
