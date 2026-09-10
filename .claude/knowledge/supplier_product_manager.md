@@ -69,15 +69,40 @@ one — changes the signature and forces a fresh parse. Serving the cached rows
 after an upload would be the bug; the cache exists to skip repeated reads of an
 *unchanged* file, not to pin a snapshot.
 
-**Rows missing from the new file are zeroed, not nulled.** `load_setting`
-(`:484`–`:491`) runs `missing_sps.update(stock=0)` and, per mapped price
-column, `missing_sps.update(**{column: 0})`. It was `None` until commit
-`8774795`. The 0 is load-bearing downstream — [[product_price_manager]]'s
-`test_pricemanager_with_duplicate_supplier_products_prefers_positive_value`
-encodes the rule that a zero price loses to a positive one, which only has
-meaning because absent rows arrive as 0. Note the carve-out the test exercises:
-only columns the setting still **maps** get zeroed, so deleting a `Link` freezes
-that field at its last imported value rather than clearing it.
+**Rows missing from the new file are nulled, not zeroed — absence lives on the
+raw layer and is resolved on the derived one.** `load_setting` (`:490`–`:503`)
+runs `missing_sps.update(stock=None)` and, per mapped price column,
+`missing_sps.update(**{column: None})`. A vanished row means the supplier gave
+no figure, so `SupplierProduct` records that absence; it never invents a synced
+`0`. Every consumer resolves it for itself: [[main_product_manager]]'s
+`update_stocks` coalesces a NULL supplier stock to `0` (unknown stock is not
+sellable) and [[product_price_manager]]'s `PriceTag.get_sprice`
+(`models.py:412`) reads a NULL price as `Decimal('0')`. Note the carve-out:
+only columns the setting still **maps** get cleared, so deleting a `Link`
+freezes that field at its last imported value.
+
+The history here has flipped twice and both flips left a trap, so do not
+re-derive it from either artifact:
+
+- `8774795` ("Handle NULL/0 sync…") switched the raw layer from `None` to `0`
+  **and** in the same commit made the derived layer NULL-safe
+  (`Max(Coalesce(source, 0))` in `PriceManager`, list normalisation in
+  `get_sprice`). The second half made the first half redundant.
+- `11da6e4` then kept the `0` and justified it with
+  [[product_price_manager]]'s
+  `test_pricemanager_with_duplicate_supplier_products_prefers_positive_value`.
+  **That test had been deleted 50 minutes earlier**, by `c819a63` — an
+  ancestor of `11da6e4` itself. And it was deleted for a reason that retires
+  the argument outright: migration `0009` made `SupplierProduct.main_product`
+  a `unique=True` FK, so one `MainProduct` can hold at most one
+  `SupplierProduct` and the duplicate-row choice that test covered can no
+  longer arise. #137 restored the NULL, matching the two-layer rule the
+  `update_stocks` docstring (`main_product_manager/utils.py:386`) already
+  states in code.
+
+Verify a cited test still exists before you trust it — `git log --all -S`
+distinguishes "never existed" from "deleted last hour", and here the two led
+to different conclusions.
 
 **`auto_detect_link_keys` (`:92`) matches in two passes**, and only the second
 is order-sensitive: exact normalized-name match first across all columns, then a

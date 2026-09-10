@@ -487,14 +487,20 @@ def load_setting(pk):
 
     missing_sps = SupplierProduct.objects.filter(supplier=setting.supplier).exclude(pk__in=map(lambda sp: sp.pk, sps))
 
+    # A row that vanished from the new file has no figure at all, so the raw
+    # layer stores NULL - "the supplier did not tell us" - and never a synced 0.
+    # Consumers resolve that absence themselves: update_stocks() coalesces it to
+    # 0 because unknown stock is not sellable, and PriceTag.get_sprice() reads a
+    # NULL price as 0. Only columns the setting still maps are cleared, so
+    # deleting a Link freezes its field at the last imported value.
     if 'stock' in df.columns:
         setting.supplier.stock_updated_at = timezone.now()
-        missing_sps.update(stock=0)
+        missing_sps.update(stock=None)
     if not set(SP_PRICES).intersection(set(df.columns)) == set():
         setting.supplier.price_updated_at = timezone.now()
         for column in df.columns:
            if column in SP_PRICES:
-              missing_sps.update(**{column:0})
+              missing_sps.update(**{column:None})
     setting.supplier.save()
     push_supplier_products_to_pim(sps)
     return sps
