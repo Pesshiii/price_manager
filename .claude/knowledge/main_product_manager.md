@@ -209,25 +209,27 @@ control it updated 0 of 5 products in `UpdateStocksBatchingTests`, not merely
 the tail. `MainProduct.pk` is a `BigAutoField` whose sequence is never reset,
 so live pks sit far above `count()` in any real or test DB, and a single
 deleted row (`count() < max(pk)`) is enough to trigger the same gap in
-production. `update_stocks` (`utils.py:414-422`) instead snapshots
+production. `update_stocks` (`utils.py:456-464`) instead snapshots
 `pks = list(MainProduct.objects.order_by('pk').values_list('pk', flat=True))`
 once, then `chunk = pks[i:i+batch_size]` bounds the query with
 `pk__gte=chunk[0], pk__lte=chunk[-1]` — equivalent to `pk__in=chunk` (chunk is
 a contiguous slice of every existing pk in order, so nothing sits strictly
 between its ends) without shipping a `batch_size`-long IN list. Same
-gap-safe idiom as `iter_pim_id_pk_batches` (`utils.py:573-588`), which feeds
-`reindex_pim_ids_batch`'s `pk__in=pks` (`utils.py:603`).
+gap-safe idiom as `iter_pim_id_pk_batches` (`utils.py:615-629`), which feeds
+`reindex_pim_ids_batch`'s `pk__in=pks` (`utils.py:645`).
 
-`timezone.now()` (`utils.py:407`) is read once, above the loop — read
+`timezone.now()` (`utils.py:449`) is read once, above the loop — read
 per-iteration it produces one distinct `stock_updated_at` per chunk instead
 of one per run; guarded by
 `UpdateStocksBatchingTests.test_one_run_stamps_one_timestamp`
 (`tests.py:202`).
 
-`UpdateStocksBatchingTests` (`tests.py:136-211`) is what actually exercises
+`UpdateStocksBatchingTests` (`tests.py:136-227`) is what actually exercises
 multi-batch behaviour: `batch_size=2` over 5 products with distinct stocks
 (so a chunk-scoping slip shows in the logs, not just the counts), a
-deleted-row pk gap not dropping the tail, and the timestamp guard above.
+deleted-row pk gap not dropping the tail, the timestamp guard above, and
+`logs=False` (`tests.py:213`) — the one branch the loop adds statements to
+without bounding a log list, and which no caller reaches.
 
 `batch_size` had no caller until this fix — `update_stocks_task`
 (`main_product_manager/tasks.py:66-72`, `product_price_manager/tasks.py:18-23`)
