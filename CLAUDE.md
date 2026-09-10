@@ -34,6 +34,42 @@ docker compose exec web python manage.py migrate
 - `prod.py` is the entry point: it star-imports `base`, `api`, `project`, `celery`, `databases`, `messages`, `storages`, `third_party`, then concatenates `INSTALLED_APPS` and `MIDDLEWARE`.
 - To change a setting, edit the *topic file* that owns it — `base.py` (core Django, `SECRET_KEY`), `databases.py`, `celery.py`, `storages.py` (S3), `third_party.py`, `messages.py`, `api.py` (DRF), `project.py` (`PROJECT_INSTALLED_APPS`, `PROJECT_MIDDLEWARE`, `PIM_TOKEN`/`PIM_HOST`).
 
+## Running more than one agent
+
+Two Claude sessions in one checkout are not two workers — they are one working
+tree with two writers. They have to be kept apart on two axes, and only one of
+them is the obvious one.
+
+**Files — a worktree per agent, including the first.** The main checkout is not
+the privileged tree that gets to keep branching; it is the *shared* one, and a
+`git checkout` there re-points every file under whoever else is working mid-edit.
+Use `EnterWorktree`, which branches from `origin/main` into
+`.claude/worktrees/<name>/`. Run it from the repo root: a worktree belongs at
+`<repo>/.claude/worktrees/`, and `EnterWorktree` invoked from the inner
+`price_manager/` Django directory nests one a level too deep, which is how
+`price_manager/price_manager/.claude/worktrees/lucid-kowalevski-a5c256` got there.
+`git worktree list` is the check; `git worktree remove` plus `prune` is the fix.
+
+`.claude/hooks/guard_branch_switch.py` asks before a branch switch or an
+unaddressed stash lands in shared state — deliberately making the shared tree the
+awkward one to work in. The stash stack is shared across every worktree too, so
+create with `git stash push -u -m "<tag>"` and restore with
+`git stash apply <sha>` — never a bare `pop`.
+
+**Containers — one agent owns the stack, and a worktree does not divide it.**
+`docker-compose.yml` defaults `PROJECT_NAME` to `price_manager`, so every worktree
+resolves to the *same* containers, the same `postgres_data` volume and the same
+`test_price_manager_db`. A second `docker compose up` recreates the containers
+against its own bind mount and silently re-points the first agent's running app;
+a migration from the other branch lands in the shared database. Nothing errors —
+that is what makes this the worse of the two. Run `docker compose ps` and ask
+before starting the stack or the test suite.
+
+The stack *is* parameterized (`PROJECT_NAME`, `WEB_PORT`, `DB_PORT`, `REDIS_PORT`),
+so per-worktree stacks are possible — but `run-price-manager` and `ui-review`
+hardcode `localhost:8000` and bare `docker compose exec`. Until those read
+`WEB_PORT`, serializing is the honest rule, not isolating.
+
 ## Direction of travel — read this before adding code
 
 There are two product catalogs in the tree. **They are not peers, and the newer one is not the future.**
