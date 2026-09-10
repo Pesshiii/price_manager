@@ -210,6 +210,22 @@ class UpdateStocksBatchingTests(TestCase):
         stamps = set(MainProduct.objects.values_list('stock_updated_at', flat=True))
         self.assertEqual(len(stamps), 1)
 
+    def test_logs_false_updates_every_batch_without_logging(self):
+        """logs=False is the one branch the loop adds statements to without
+        bounding a log list, and no caller passes it — both update_stocks_task
+        definitions call runner=update_stocks bare, so nothing else covers it.
+        """
+        for i in range(1, 6):
+            self._product_with_stock(i, i)
+
+        self.assertEqual(update_stocks(logs=False, batch_size=2), 5)
+
+        self.assertEqual(MainProductLog.objects.count(), 0)
+        self.assertEqual(
+            sorted(MainProduct.objects.values_list('stock', flat=True)),
+            [1, 2, 3, 4, 5],
+        )
+
 
 from unittest.mock import Mock, patch
 
