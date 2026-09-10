@@ -33,6 +33,43 @@ It used to be excluded by `.gitignore` (`*.yml`), so every clone carried its own
 
 **`SECRET_KEY` comes from `.env`.** Both `web` and `celery_worker` read `${SECRET_KEY:-django-insecure-dev-only-...}`, deliberately the same value — they share sessions and signed data, and previously ran on *different* keys. `.env` is gitignored; without it you get the insecure dev default, which is fine locally and must never be used in production.
 
+## Which stack you are talking to
+
+Compose resolves its target from the environment, so one shell talks to one stack:
+
+| var | default | what it picks |
+|---|---|---|
+| `PROJECT_NAME` | `price_manager` | which set of containers |
+| `WEB_PORT` | `8000` | the host port `web` binds |
+| `DB_PORT` / `REDIS_PORT` | `5432` / `6379` | host ports for `db` / `redis` |
+
+With nothing set you get the single shared stack, which is the right default and
+what every command below assumes.
+
+**A worktree does not get its own stack for free.** `.env` is gitignored, so a
+fresh `.claude/worktrees/<name>/` has none at all and every value above falls back
+to its default — meaning `docker compose up` there drives the *same* containers,
+the same `postgres_data` and the same `test_price_manager_db` as the main
+checkout, just against a different bind mount. Nothing errors. The other agent's
+app simply starts serving your branch. See "Running more than one agent" in
+CLAUDE.md.
+
+To run a genuine second stack, name it on each command. Shell state does not
+survive between tool calls, so this is per-invocation, not a one-time export:
+
+```bash
+PROJECT_NAME=pm-<worktree> WEB_PORT=8010 DB_PORT=5442 REDIS_PORT=6389 \
+  docker compose up --build -d
+```
+
+The same prefix has to go on every later `docker compose exec` in that tree, or
+compose looks for the default project and reports no such service. To read back
+what a running stack actually bound:
+
+```bash
+docker compose port web 8000     # -> 0.0.0.0:8010
+```
+
 ## Build
 
 ```bash
@@ -49,16 +86,19 @@ docker compose up -d
 Wait for the app to actually serve before driving it — gunicorn logs `Listening at: http://0.0.0.0:8000` but Django still runs `migrate`/`collectstatic` first, so poll instead of guessing:
 
 ```bash
-timeout 60 bash -c 'until curl -s -o /dev/null -w "%{http_code}" http://localhost:8000/admin/ 2>/dev/null | grep -qE "^[23]"; do sleep 2; done'
+timeout 60 bash -c 'until curl -s -o /dev/null -w "%{http_code}" "http://localhost:${WEB_PORT:-8000}/admin/" 2>/dev/null | grep -qE "^[23]"; do sleep 2; done'
 ```
+
+`bash -c` expands `${WEB_PORT:-8000}` itself out of the inherited environment, so
+this follows a non-default stack without editing the line.
 
 ## Run (agent path)
 
-Drive it with the Playwright REPL. It reads `BASE_URL` (default `http://localhost:8000`) and writes screenshots to `SCREENSHOT_DIR` (default `./driver_shots` relative to wherever you launch it from).
+Drive it with the Playwright REPL. It reads `BASE_URL` (default `http://localhost:8000`) and writes screenshots to `SCREENSHOT_DIR` (default `./driver_shots` relative to wherever you launch it from). Derive `BASE_URL` from `WEB_PORT` rather than typing a port — on the default stack the two are the same, and on any other one a hardcoded 8000 silently drives *the other agent's* app:
 
 ```bash
 cd .claude/skills/run-price-manager
-node driver.mjs <<'EOF'
+BASE_URL="http://localhost:${WEB_PORT:-8000}" node driver.mjs <<'EOF'
 launch
 nav /mainproduct/
 login
@@ -123,7 +163,7 @@ The driver's `login` command uses these credentials by default. Re-run the block
 docker compose up --build
 ```
 
-Then open `http://localhost:8000` in a browser. `Ctrl-C` to stop, or `docker compose down` from another terminal (add `-v` only if you intentionally want to wipe the DB/redis volumes — don't do this by default, there is real product/supplier data in `postgres_data`).
+Then open `http://localhost:8000` in a browser — or whatever `WEB_PORT` is set to; `docker compose port web 8000` says for certain. `Ctrl-C` to stop, or `docker compose down` from another terminal (add `-v` only if you intentionally want to wipe the DB/redis volumes — don't do this by default, there is real product/supplier data in `postgres_data`).
 
 ## Test
 
@@ -134,6 +174,8 @@ docker compose exec -T celery_worker python manage.py test product_price_manager
 ```
 
 Verified this command runs correctly end-to-end. Not every app has tests — `core`, for instance, reports "Found 0 test(s)" despite having a `tests.py`.
+
+**`--keepdb` reuses `test_price_manager_db`, and that database belongs to the stack, not to you.** Two agents running suites against one stack share it, so a run can drop a table out from under the other. Check `docker compose ps` before starting; if another agent has the stack, either wait or bring up your own — see "Which stack you are talking to" above, and prefix this `exec` with the same `PROJECT_NAME` you started it with.
 
 **Suite health is stale information — re-check before trusting it.** An earlier run of `product_price_manager` recorded 3 errors from a `supplier_manager_currency_name_key` duplicate-key IntegrityError in fixtures plus 1 assertion failure in `test_build_generated_name_includes_all_requested_parts`. That observation predates both a migration-ordering fix and `product` migrations 0002–0005, so it may no longer hold. Run the suite before reporting on its state; don't quote these numbers as current.
 

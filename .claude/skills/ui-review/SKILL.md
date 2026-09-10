@@ -27,8 +27,14 @@ four before capturing, and abort rather than reviewing bad pixels.
 before Django has finished `migrate`/`collectstatic`:
 
 ```bash
-timeout 60 bash -c 'until curl -s -o /dev/null -w "%{http_code}" http://localhost:8000/admin/ 2>/dev/null | grep -qE "^[23]"; do sleep 2; done'
+timeout 60 bash -c 'until curl -s -o /dev/null -w "%{http_code}" "http://localhost:${WEB_PORT:-8000}/admin/" 2>/dev/null | grep -qE "^[23]"; do sleep 2; done'
 ```
+
+If another agent is running a second stack, `WEB_PORT` and `PROJECT_NAME` decide
+which one you poll, screenshot and `exec` into — see "Which stack you are talking
+to" in `run-price-manager`. Reviewing the wrong stack is a fifth way to produce
+plausible, worthless screenshots: they render fine, they are just someone else's
+branch.
 
 **2. Login actually took.** `LoginRequiredMiddleware` gates everything behind
 `/`, so a failed login silently gives you five screenshots of the login form.
@@ -72,7 +78,8 @@ Launch the driver with screenshots going to the scratchpad, not the repo:
 
 ```bash
 cd .claude/skills/run-price-manager
-SCREENSHOT_DIR="<scratchpad>/ui-review-shots" node driver.mjs <<'EOF'
+SCREENSHOT_DIR="<scratchpad>/ui-review-shots" \
+  BASE_URL="http://localhost:${WEB_PORT:-8000}" node driver.mjs <<'EOF'
 launch
 nav /accounts/login/
 screenshot 06-login
