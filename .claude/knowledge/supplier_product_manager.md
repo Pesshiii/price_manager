@@ -89,11 +89,20 @@ re-derive it from either artifact:
   (`Max(Coalesce(source, 0))` in `PriceManager`, list normalisation in
   `get_sprice`). The second half made the first half redundant.
 - `11da6e4` then kept the `0` and justified it with
+  [[product_price_manager]]'s
   `test_pricemanager_with_duplicate_supplier_products_prefers_positive_value`.
-  **That test does not exist** — it is in no file in the repo, and was cited
-  here and in the test docstring for weeks. #137 restored the NULL, matching
-  the two-layer rule the `update_stocks` docstring
-  (`main_product_manager/utils.py:386`) already states in code.
+  **That test had been deleted 50 minutes earlier**, by `c819a63` — an
+  ancestor of `11da6e4` itself. And it was deleted for a reason that retires
+  the argument outright: migration `0009` made `SupplierProduct.main_product`
+  a `unique=True` FK, so one `MainProduct` can hold at most one
+  `SupplierProduct` and the duplicate-row choice that test covered can no
+  longer arise. #137 restored the NULL, matching the two-layer rule the
+  `update_stocks` docstring (`main_product_manager/utils.py:386`) already
+  states in code.
+
+Verify a cited test still exists before you trust it — `git log --all -S`
+distinguishes "never existed" from "deleted last hour", and here the two led
+to different conclusions.
 
 **`auto_detect_link_keys` (`:92`) matches in two passes**, and only the second
 is order-sensitive: exact normalized-name match first across all columns, then a
