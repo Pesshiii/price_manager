@@ -84,7 +84,12 @@ venv/
 # Claude Code
 # Skills, settings.json, agents and hooks under .claude/ are shared deliberately.
 # Only per-machine state and vendored dependencies are excluded.
-.claude/worktrees/
+# `**/` is load-bearing: a rule containing a slash is anchored to this file's
+# directory, so a bare `.claude/worktrees/` misses one created from the inner
+# price_manager/ directory, which lands at price_manager/.claude/worktrees/.
+# That happened; until now it was ignored only by an uncommitted
+# .git/info/exclude on one machine, so a fresh clone could commit a whole worktree.
+**/.claude/worktrees/
 .claude/settings.local.json
 .claude/*.lock
 .claude/**/node_modules/
