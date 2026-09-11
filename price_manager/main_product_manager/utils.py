@@ -1,3 +1,4 @@
+import logging
 import time
 
 import httpx
@@ -18,6 +19,8 @@ from .columns import AVAILABLE_COLUMN_MAP, DEFAULT_VISIBLE_COLUMNS
 from supplier_product_manager.models import SupplierProduct
 from supplier_manager.models import Category, Manufacturer
 from core.task_runner import dispatch_after_commit
+
+logger = logging.getLogger(__name__)
 
 CACHE_TTL = 60 * 60 * 24 * 30  # 30 дней
 PIM_CACHE_TTL = 60 * 60 * 24  # 24 часа
@@ -65,8 +68,8 @@ def maybe_notify_pim_error(user) -> None:
 def _fetch_pim_product(pim_id: str) -> tuple[dict | None, bool]:
     """Fetch a verified PIM `Product` (master record) by id straight from the API (no cache).
 
-    pim_id is the id of the verified/merged PIM `Product`, not a `ContributorProduct` —
-    see _search_pim_id for how it's resolved via ContributorProduct.masterRecordId.
+    pim_id is the id of the verified/merged PIM `Product`, not a `ContributorProduct`
+    — see _search_pim_id_result for how it's resolved from MainProduct.sku.
 
     Returns (data, not_found) — not_found is True only on an explicit 404,
     so callers can tell "PIM deleted/renumbered this id" apart from a
@@ -152,44 +155,95 @@ def get_pim_data(pim_id: str | None, refresh: bool = False) -> dict | None:
 
 
 _PIM_NO_MATCH_TTL = 60 * 60 * 4  # 4 hours — avoid hammering PIM for unlinked products
+_PIM_SEARCH_ERROR_TTL = 60 * 5  # 5 minutes — backoff after a search PIM never answered
 _PIM_POPULATE_QUEUED_TTL = 60 * 10  # throttle for the cache-miss population trigger
+
+# Outcomes of one _search_pim_id_result() call. The middle three double as the
+# values cached under pim_no_match:{pk}, so the cached shortcut still tells the
+# caller *why* the previous search came back empty.
+_SEARCH_FOUND = "found"
+_SEARCH_ABSENT = "absent"
+_SEARCH_AMBIGUOUS = "ambiguous"
+_SEARCH_ERROR = "error"
+_SEARCH_NO_SKU = "no_sku"
+
+
+class PimSearchError(RuntimeError):
+    """A catalog scan ended with PIM searches that never got an answer."""
+
+
+def _search_pim_id_result(product) -> tuple[str | None, str]:
+    """Resolve a MainProduct's pim_id in PIM — returns (pim_id, outcome).
+
+    The search is one `like` on the PIM `Product` attribute `number`, matched
+    against `product.sku`. `outcome` is one of the _SEARCH_* constants, and
+    callers must not collapse it back to "found or not": only _SEARCH_ABSENT
+    means PIM was reached and answered that it holds no such product. The other
+    three misses all mean "unknown", and treating one of them as an absence is
+    what makes push_missing_pim_products create a second PIM record for a
+    product that may already be in there:
+
+    - _SEARCH_ERROR — the request failed, so nothing was learned.
+    - _SEARCH_AMBIGUOUS — `like` matched several products, so no single one is
+      *the* match. Returning the first (as this used to) links the product to
+      whichever one PIM happened to list first.
+    - _SEARCH_NO_SKU — no sku to search by, so PIM is never asked. Where.get()
+      drops the value key when it is None (pim_api/__init__.py:24-25), so the
+      request would otherwise go out as an unconstrained `like` on `number`.
+
+    Misses are throttled through one cache key, pim_no_match:{pk}, holding the
+    outcome that wrote it: a confirmed absence and an ambiguous match are
+    conditions of the data and hold for _PIM_NO_MATCH_TTL, while an error holds
+    only for _PIM_SEARCH_ERROR_TTL — a PIM outage costs minutes of suppressed
+    retries, not hours. Does not persist the id — callers decide how/when to
+    save it.
+    """
+    cache_key = f"pim_no_match:{product.pk}"
+    cached = cache.get(cache_key)
+    if isinstance(cached, str):
+        return None, cached
+    if cached is not None:
+        # A bare True written by an older revision: it recorded no outcome, so
+        # drop it and search again rather than guess which one it meant.
+        cache.delete(cache_key)
+
+    if not product.sku:
+        return None, _SEARCH_NO_SKU
+
+    t0 = time.monotonic()
+    try:
+        result = site.get(EntityList(
+            name='Product',
+            select=['id'],
+            where=[Where(attribute='number', type='like', value=product.sku)],
+        ))
+    except Exception as exc:
+        _record_pim_error("_search_pim_id", exc, int((time.monotonic() - t0) * 1000))
+        cache.set(cache_key, _SEARCH_ERROR, _PIM_SEARCH_ERROR_TTL)
+        return None, _SEARCH_ERROR
+
+    pim_ids = [item.get('id') for item in result.get('list', []) if item.get('id')]
+    if len(pim_ids) == 1:
+        return pim_ids[0], _SEARCH_FOUND
+    if pim_ids:
+        logger.warning(
+            "PIM number=%s matched %s products (MainProduct pk=%s) — linking none",
+            product.sku, len(pim_ids), product.pk,
+        )
+        cache.set(cache_key, _SEARCH_AMBIGUOUS, _PIM_NO_MATCH_TTL)
+        return None, _SEARCH_AMBIGUOUS
+
+    cache.set(cache_key, _SEARCH_ABSENT, _PIM_NO_MATCH_TTL)
+    return None, _SEARCH_ABSENT
 
 
 def _search_pim_id(product) -> str | None:
-    """Resolve a MainProduct's pim_id: the verified PIM `Product` (master record) id.
+    """The resolved id alone, for callers with nothing to decide on a miss.
 
-    A product isn't directly linked to a `Product` — it's found by searching
-    `ContributorProduct` (by priceManagerId, then by sku/number) and reading its
-    `masterRecordId`, which points at the merged/verified `Product`. A
-    ContributorProduct without a masterRecordId yet (not verified in PIM) counts
-    as no match.
-
-    Throttled by a no-match cache (_PIM_NO_MATCH_TTL) so unmatched products
-    are only retried periodically instead of on every lookup/task run.
-    Does not persist the result — callers decide how/when to save it.
+    Anything that *writes* on a miss must call _search_pim_id_result and check
+    the outcome instead — see push_missing_pim_products.
     """
-    no_match_key = f"pim_no_match:{product.pk}"
-    if cache.get(no_match_key):
-        return None
-
-    searches = [Where(attribute='number', type='like', value=product.sku)]
-
-    for where in searches:
-        t0 = time.monotonic()
-        try:
-            result = site.get(
-                EntityList(name='Product', select=['id'], where=[where])
-            )
-            for item in result.get('list', []):
-                product_id = item.get('id')
-                if product_id:
-                    return product_id
-            # No match is normal — don't treat as error, just set no-match cache below
-        except Exception as exc:
-            _record_pim_error("_search_pim_id", exc, int((time.monotonic() - t0) * 1000))
-
-    cache.set(no_match_key, True, _PIM_NO_MATCH_TTL)
-    return None
+    return _search_pim_id_result(product)[0]
 
 
 def _resolve_pim_id(product) -> str | None:
@@ -206,8 +260,7 @@ def get_pim_data_for_product(product, refresh: bool = False) -> dict | None:
 
     If the stored pim_id 404s _PIM_404_THRESHOLD times in a row (deleted/
     renumbered in PIM), get_pim_data clears it from the DB — detected here via
-    refresh_from_db — and it's re-resolved by priceManagerId/sku before
-    retrying once.
+    refresh_from_db — and it's re-resolved from sku before retrying once.
     """
     if not product.pim_id:
         _resolve_pim_id(product)
@@ -515,10 +568,12 @@ def push_supplier_products_to_pim(supplier_products, batch_size: int = 1000, del
 def push_missing_pim_products(products, batch_size: int = 1000, delay: float = 0.5) -> int:
     """Bulk-create MainProducts with no PIM match as PriceManagerProduct records.
 
-    Callers must pass only products already confirmed absent from PIM
-    (pim_id is None and _search_pim_id just found nothing) — this doesn't
-    re-check, so a transient search miss on an already-linked product won't
-    silently create a duplicate PIM record for it.
+    Callers must pass only products already confirmed absent from PIM —
+    pim_id is None and _search_pim_id_result just came back _SEARCH_ABSENT.
+    This doesn't re-check, so every other empty outcome (a failed request, an
+    ambiguous `like`, a product with no sku to search by) must be filtered out
+    by the caller: PIM cannot confirm an absence it was never asked about, and
+    pushing on one creates a duplicate record for a product already in there.
     """
     return _push_pim_products(
         list(products),
@@ -529,29 +584,57 @@ def push_missing_pim_products(products, batch_size: int = 1000, delay: float = 0
 
 
 def create_pim_links(delay: float = 0.5, batch_size: int = 1000) -> tuple[int, int]:
-    products = list(MainProduct.objects.filter(pim_id__isnull=True)[:1000])
+    # The window is the first 1000 unlinked products in pk order (Meta.ordering
+    # = ['id']), so it is the same rows every run until they leave the unlinked
+    # set. A product with no sku never can: _search_pim_id_result returns
+    # _SEARCH_NO_SKU without asking PIM, and it must not be pushed either
+    # (_pim_product_payload would create a PIM record with number=''). Excluded
+    # here so it doesn't hold a slot — and a delay — against products the scan
+    # can still resolve. Drop the exclusion if a search that works without an
+    # sku is ever added back.
+    products = list(
+        MainProduct.objects
+        .filter(pim_id__isnull=True)
+        .exclude(sku__isnull=True)
+        .exclude(sku='')[:1000]
+    )
     result = []
     missing = []
     created = 0
+    unanswered = 0
     for product in products:
-        pim_id = _search_pim_id(product)
+        pim_id, outcome = _search_pim_id_result(product)
         if pim_id:
             product.pim_id = pim_id
             result.append(product)
-        else:
+        elif outcome == _SEARCH_ABSENT:
+            # Only a confirmed absence may be pushed as a new PIM record; an
+            # error or an ambiguous match leaves the product for a later run.
             missing.append(product)
             if len(missing) >= batch_size:
                 created += push_missing_pim_products(missing, batch_size=batch_size, delay=delay)
                 missing = []
+        elif outcome == _SEARCH_ERROR:
+            unanswered += 1
         time.sleep(delay)
     # Runs with no transaction held (create_pim_links_task passes atomic=False),
     # so each write below commits on its own rather than idling a transaction
     # open across the PIM calls above. Safe to resume after a partial run: this
     # only ever fills pim_id__isnull=True, so committed rows are simply skipped
-    # next time.
+    # next time, and a row skipped over a PIM error is retried once its
+    # _PIM_SEARCH_ERROR_TTL backoff expires.
     if result:
         MainProduct.objects.bulk_update(result, fields=['pim_id'])
     created += push_missing_pim_products(missing, batch_size=batch_size, delay=delay)
+    if unanswered:
+        # Raised after the writes, so the progress above stays committed. The
+        # run is recorded as an error instead of a success over a dead PIM:
+        # TaskRunHistory is the only durable signal, maybe_notify_pim_error
+        # being DEBUG-gated and prod running under settings.prod.
+        raise PimSearchError(
+            f'PIM не ответил на поиск по {unanswered} из {len(products)} товаров: '
+            f'связано {len(result)}, создано в PIM {created}'
+        )
     return len(result), created
 
 
@@ -588,23 +671,35 @@ def reindex_pim_ids_batch(pks: list[int], delay: float = 0.5, batch_size: int = 
     products = MainProduct.objects.filter(pk__in=pks).order_by('pk')
     result = []
     missing = []
+    unanswered = 0
     for product in products:
-        pim_id = _search_pim_id(product)
+        pim_id, outcome = _search_pim_id_result(product)
         if pim_id:
             if pim_id != product.pim_id:
                 product.pim_id = pim_id
                 result.append(product)
-        elif product.pim_id is None:
+        elif outcome == _SEARCH_ABSENT and product.pim_id is None:
+            # As in create_pim_links: only a confirmed absence gets pushed.
             missing.append(product)
+        elif outcome == _SEARCH_ERROR:
+            unanswered += 1
         time.sleep(delay)
     # Runs with no transaction held (reindex_pim_ids_batch_task passes
     # atomic=False), so each write below commits on its own rather than idling
     # a transaction open across the PIM calls above. Safe to resume after a
-    # partial run: re-searching is idempotent and only a changed pim_id is
-    # written back.
+    # partial run: re-searching is idempotent, only a changed pim_id is written
+    # back, and a row skipped over a PIM error is retried once its
+    # _PIM_SEARCH_ERROR_TTL backoff expires.
     if result:
         MainProduct.objects.bulk_update(result, fields=['pim_id'])
     created = push_missing_pim_products(missing, batch_size=batch_size, delay=delay)
+    if unanswered:
+        # See create_pim_links: raised after the writes so committed progress
+        # survives, and the batch is recorded as an error, not a success.
+        raise PimSearchError(
+            f'PIM не ответил на поиск по {unanswered} из {len(pks)} товаров партии: '
+            f'связано {len(result)}, создано в PIM {created}'
+        )
     return len(result), created
 
 
