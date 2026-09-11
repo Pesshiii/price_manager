@@ -114,6 +114,7 @@ class MainProductTable(tables.Table):
       'wholesale_price',
       'basic_price',
       'm_price',
+      'kaspi_price',
       'wholesale_price_extra',
       'discount_price',
       'supplier_product_price',

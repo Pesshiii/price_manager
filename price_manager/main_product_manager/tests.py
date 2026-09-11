@@ -133,6 +133,100 @@ class UpdateStocksNullSafeTests(TestCase):
         self.assertTrue(MainProductLog.objects.filter(main_product=mp, stock=0).exists())
 
 
+class UpdateStocksBatchingTests(TestCase):
+    """update_stocks walks the catalog in pk chunks of `batch_size`.
+
+    UpdateStocksNullSafeTests cannot cover that: each of those creates a single
+    MainProduct, so the loop runs exactly one iteration whether or not it
+    really batches. These pass a batch_size small enough to need several.
+    """
+
+    def setUp(self):
+        self.currency = Currency.objects.get_or_create(name='KZT', value=1)[0]
+        self.supplier = Supplier.objects.create(
+            name='Batch supplier',
+            currency=self.currency,
+            price_update_rate='',
+            stock_update_rate='',
+            delivery_days_available=1,
+            delivery_days_navailable=2,
+        )
+
+    def _product_with_stock(self, index, stock):
+        mp = MainProduct.objects.create(
+            supplier=self.supplier,
+            article=f'BT-{index}',
+            name=f'Batched {index}',
+            stock=None,
+        )
+        SupplierProduct.objects.create(
+            main_product=mp,
+            supplier=self.supplier,
+            article=f'SP-BT-{index}',
+            name='Stock row',
+            stock=stock,
+        )
+        return mp
+
+    def test_every_batch_is_updated_and_logged(self):
+        """Distinct stock per product, so a chunk-scoping slip shows up in the
+        logs rather than hiding behind matching counts."""
+        products = [self._product_with_stock(i, i) for i in range(1, 6)]
+
+        self.assertEqual(update_stocks(batch_size=2), 5)
+
+        for expected, mp in enumerate(products, start=1):
+            mp.refresh_from_db()
+            self.assertEqual(mp.stock, expected)
+            self.assertEqual(
+                list(MainProductLog.objects.filter(main_product=mp).values_list('stock', flat=True)),
+                [expected],
+            )
+        self.assertEqual(MainProductLog.objects.count(), 5)
+
+    def test_pk_gap_does_not_drop_the_tail(self):
+        """Chunk bounds come from real pks, not offsets over count().
+
+        A deleted product leaves count() < max(pk), which is exactly when
+        offset-derived pk ranges stop short and silently skip the highest pks.
+        """
+        products = [self._product_with_stock(i, i) for i in range(1, 6)]
+        products.pop(2).delete()
+
+        self.assertEqual(update_stocks(batch_size=2), 4)
+
+        for expected, mp in zip([1, 2, 4, 5], products):
+            mp.refresh_from_db()
+            self.assertEqual(mp.stock, expected)
+
+    def test_one_run_stamps_one_timestamp(self):
+        """timezone.now() is read once, above the loop — batching a run must
+        not spread it across several stock_updated_at values."""
+        for i in range(1, 6):
+            self._product_with_stock(i, i)
+
+        update_stocks(batch_size=2)
+
+        stamps = set(MainProduct.objects.values_list('stock_updated_at', flat=True))
+        self.assertEqual(len(stamps), 1)
+
+    def test_logs_false_updates_every_batch_without_logging(self):
+        """logs=False is the one branch the loop adds statements to without
+        bounding a log list, and no caller passes it — both update_stocks_task
+        definitions call runner=update_stocks bare, so nothing else covers it.
+        """
+        for i in range(1, 6):
+            self._product_with_stock(i, i)
+
+        self.assertEqual(update_stocks(logs=False, batch_size=2), 5)
+
+        self.assertEqual(MainProductLog.objects.count(), 0)
+        self.assertEqual(
+            sorted(MainProduct.objects.values_list('stock', flat=True)),
+            [1, 2, 3, 4, 5],
+        )
+
+
 from unittest.mock import Mock, patch
 
 from django.core.cache import cache
@@ -255,58 +349,131 @@ class QueuePimPopulationDispatchTests(TestCase):
             delay.assert_called_once_with('pim-2')
 
 
+from .utils import get_file_url
+
+
 @override_settings(CACHES=LOCMEM_CACHE)
-class GetPimDataQueuesPopulationTests(TestCase):
-    """get_pim_data writes pim_product:<id> for PIM_CACHE_TTL (24h) on every
-    successful fetch, so whichever call warms that key has to be the one that
-    queues population — otherwise it suppresses every later caller's trigger,
-    including prefetch_pim_data, for a day."""
+class GetFileUrlTests(TestCase):
+    """get_file_url's fallback chain (#160).
+
+    Every case runs through the real cache path (pim_file:{id}), so LocMem +
+    clear() keeps those keys off the shared Redis the worker container points
+    at — a leaked key would otherwise answer the next test's lookup.
+    """
 
     def setUp(self):
         cache.clear()
 
-    def _fetch(self, data, not_found=False):
-        return patch.object(
-            mp_utils, '_fetch_pim_product', return_value=(data, not_found)
+    def _url(self, payload, file_id='file-1', **kwargs):
+        with patch('main_product_manager.utils.site') as site:
+            site.get.return_value = payload
+            return get_file_url(file_id, **kwargs)
+
+    def test_thumbnail_key_is_preferred_and_gets_the_scheme(self):
+        url = self._url({'mediumThumbnailUrl': 'pim.test/thumbs/m/1.jpg',
+                         'url': 'pim.test/files/1.jpg'})
+
+        self.assertEqual(url, 'https://pim.test/thumbs/m/1.jpg')
+
+    def test_falls_back_to_url_when_thumbnail_key_is_absent(self):
+        url = self._url({'url': 'pim.test/files/1.jpg'})
+
+        self.assertEqual(url, 'https://pim.test/files/1.jpg')
+
+    def test_falls_back_to_download_url_as_the_last_key(self):
+        # This is the real production payload shape, not a corner case: PIM's
+        # File record carries neither a *ThumbnailUrl nor a `url` (checked
+        # against the live instance, list and single-record endpoints, every
+        # record sampled), so downloadUrl — scheme-less — is the only key that
+        # ever resolves and the fallback chain is the whole feature.
+        url = self._url({'downloadUrl': 'pim.test/?entryPoint=download&id=1'})
+
+        self.assertEqual(url, 'https://pim.test/?entryPoint=download&id=1')
+
+    def test_returns_none_when_no_key_matches(self):
+        self.assertIsNone(self._url({'name': '1.jpg'}))
+
+    def test_empty_thumbnail_is_not_a_url(self):
+        url = self._url({'mediumThumbnailUrl': ''})
+
+        self.assertIsNone(url)
+        self.assertNotEqual(url, 'https://')
+
+    def test_empty_thumbnail_falls_through_to_the_next_key(self):
+        url = self._url({'mediumThumbnailUrl': '', 'url': 'pim.test/files/1.jpg'})
+
+        self.assertEqual(url, 'https://pim.test/files/1.jpg')
+
+    def test_whitespace_only_value_counts_as_missing(self):
+        url = self._url({'mediumThumbnailUrl': '   ', 'url': 'pim.test/files/1.jpg'})
+
+        self.assertEqual(url, 'https://pim.test/files/1.jpg')
+
+    def test_absolute_value_is_not_prefixed_twice(self):
+        # Which of the three keys PIM sends with a scheme is unverified, so
+        # both shapes have to work: https:// stays, http:// is left alone.
+        self.assertEqual(
+            self._url({'mediumThumbnailUrl': 'https://pim.test/thumbs/m/1.jpg'}),
+            'https://pim.test/thumbs/m/1.jpg',
+        )
+        cache.clear()
+        self.assertEqual(
+            self._url({'mediumThumbnailUrl': 'http://pim.test/thumbs/m/1.jpg'}),
+            'http://pim.test/thumbs/m/1.jpg',
         )
 
-    def test_refresh_queues_population_instead_of_suppressing_it(self):
-        # The detail views (MainProductInfo/MainProductDetail) are the only
-        # refresh=True callers; a page view used to warm the cache and queue
-        # nothing, so nothing populated the product's categories for 24 hours.
-        with self._fetch({'brandId': 'b-1', 'categoriesIds': []}):
-            with patch.object(mp_tasks.populate_pim_relations_task, 'delay') as delay:
-                with self.captureOnCommitCallbacks(execute=True):
-                    mp_utils.get_pim_data('pim-refresh', refresh=True)
+    def test_protocol_relative_value_gets_only_the_scheme(self):
+        url = self._url({'mediumThumbnailUrl': '//pim.test/thumbs/m/1.jpg'})
 
-                delay.assert_called_once_with('pim-refresh')
+        self.assertEqual(url, 'https://pim.test/thumbs/m/1.jpg')
 
-    def test_cache_miss_without_refresh_still_queues_population(self):
-        with self._fetch({'brandId': 'b-2', 'categoriesIds': []}):
-            with patch.object(mp_tasks.populate_pim_relations_task, 'delay') as delay:
-                with self.captureOnCommitCallbacks(execute=True):
-                    mp_utils.get_pim_data('pim-miss')
+    def test_root_relative_value_falls_through_instead_of_building_a_bad_url(self):
+        url = self._url({'mediumThumbnailUrl': '/upload/thumbs/1.jpg',
+                         'downloadUrl': 'https://pim.test/files/1.jpg'})
 
-                delay.assert_called_once_with('pim-miss')
+        self.assertEqual(url, 'https://pim.test/files/1.jpg')
 
-    def test_a_refreshed_fetch_leaves_the_cache_warm_for_the_queued_task(self):
-        # populate_pim_relations_task calls get_pim_data itself, so queueing
-        # after cache.set keeps that call a hit rather than a second live fetch.
-        data = {'brandId': 'b-3', 'categoriesIds': []}
-        with self._fetch(data) as fetch:
-            with patch.object(mp_tasks.populate_pim_relations_task, 'delay'):
-                with self.captureOnCommitCallbacks(execute=True):
-                    mp_utils.get_pim_data('pim-warm', refresh=True)
+    def test_root_relative_everywhere_degrades_to_none(self):
+        self.assertIsNone(self._url({'mediumThumbnailUrl': '/upload/thumbs/1.jpg',
+                                     'url': '/upload/1.jpg'}))
 
-            self.assertEqual(cache.get('pim_product:pim-warm'), data)
-            self.assertEqual(fetch.call_count, 1)
+    def test_size_argument_picks_the_matching_thumbnail_key(self):
+        payload = {'smallThumbnailUrl': 'pim.test/thumbs/s/1.jpg',
+                   'mediumThumbnailUrl': 'pim.test/thumbs/m/1.jpg',
+                   'largeThumbnailUrl': 'pim.test/thumbs/l/1.jpg'}
 
-    def test_a_404_queues_nothing(self):
-        # Nothing to populate from, and _note_pim_404 may be clearing the
-        # pim_id outright — don't burn the dedup flag on a no-op task run.
-        with self._fetch(None, not_found=True):
-            with patch.object(mp_tasks.populate_pim_relations_task, 'delay') as delay:
-                with self.captureOnCommitCallbacks(execute=True):
-                    self.assertIsNone(mp_utils.get_pim_data('pim-gone', refresh=True))
+        self.assertEqual(self._url(payload, size='small'), 'https://pim.test/thumbs/s/1.jpg')
+        cache.clear()
+        self.assertEqual(self._url(payload, size='large'), 'https://pim.test/thumbs/l/1.jpg')
 
-                delay.assert_not_called()
+    def test_non_string_value_does_not_crash(self):
+        url = self._url({'mediumThumbnailUrl': False, 'url': 'pim.test/files/1.jpg'})
+
+        self.assertEqual(url, 'https://pim.test/files/1.jpg')
+
+    def test_null_body_returns_none(self):
+        self.assertIsNone(self._url(None))
+
+    def test_non_dict_body_returns_none(self):
+        self.assertIsNone(self._url([]))
+
+    def test_cached_non_dict_body_does_not_crash_on_the_next_call(self):
+        # The falsy body is cached by the miss branch, so the second call skips
+        # the refetch entirely and reaches the tail with a non-dict in hand.
+        self._url([])
+
+        with patch('main_product_manager.utils.site') as site:
+            self.assertIsNone(get_file_url('file-1'))
+            site.get.assert_not_called()
+
+    def test_missing_file_id_never_reaches_pim(self):
+        with patch('main_product_manager.utils.site') as site:
+            self.assertIsNone(get_file_url(None))
+            self.assertIsNone(get_file_url(''))
+            site.get.assert_not_called()
+
+    def test_pim_failure_still_degrades_to_none(self):
+        with patch('main_product_manager.utils.site') as site:
+            site.get.side_effect = RuntimeError('PIM down')
+
+            self.assertIsNone(get_file_url('file-1'))
