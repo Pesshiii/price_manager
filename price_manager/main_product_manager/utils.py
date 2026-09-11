@@ -87,10 +87,10 @@ def _fetch_pim_product(pim_id: str) -> tuple[dict | None, bool]:
 
 
 def _queue_pim_population(pim_id: str) -> None:
-    """Enqueue the background relation-sync task for a pim_id whose data isn't cached yet.
+    """Enqueue the background relation-sync task for a pim_id we just fetched from PIM.
 
-    Deduped via a short-lived cache flag (cache.add is atomic) so a burst of cache
-    misses for the same pim_id — e.g. rendering a product list — only fires one task.
+    Deduped via a short-lived cache flag (cache.add is atomic) so a burst of fetches
+    for the same pim_id — e.g. rendering a product list — only fires one task.
 
     Dispatched via dispatch_after_commit because a caller may still be inside
     execute_locked_task's transaction: recalculate_vectors_missing_task reaches
@@ -140,11 +140,18 @@ def get_pim_data(pim_id: str | None, refresh: bool = False) -> dict | None:
         cached = cache.get(cache_key)
         if cached is not None:
             return cached
-        _queue_pim_population(pim_id)
     data, not_found = _fetch_pim_product(pim_id)
     if data is not None:
         cache.set(cache_key, data, PIM_CACHE_TTL)
         _note_pim_success(pim_id)
+        # Queue on every successful fetch, refresh=True included: whoever warms
+        # this key owns the trigger, because it lasts PIM_CACHE_TTL and every
+        # other caller only queues on a miss. Queueing from the miss branch
+        # instead meant a refreshing caller — the detail views — suppressed
+        # population, here and in prefetch_pim_data, for the next 24 hours.
+        # After cache.set, so the task's own get_pim_data is a cache hit rather
+        # than a second live fetch inside its transaction.
+        _queue_pim_population(pim_id)
         return data
     if not_found:
         cache.delete(cache_key)
@@ -154,7 +161,7 @@ def get_pim_data(pim_id: str | None, refresh: bool = False) -> dict | None:
 
 
 _PIM_NO_MATCH_TTL = 60 * 60 * 4  # 4 hours — avoid hammering PIM for unlinked products
-_PIM_POPULATE_QUEUED_TTL = 60 * 10  # throttle for the cache-miss population trigger
+_PIM_POPULATE_QUEUED_TTL = 60 * 10  # throttle for the post-fetch population trigger
 
 
 def _search_pim_id(product) -> str | None:

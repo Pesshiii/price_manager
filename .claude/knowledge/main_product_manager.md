@@ -31,9 +31,8 @@ silently skips the rows the outage hit instead of retrying them.
 
 ## The PIM cache's render-path cost — and why it bites tests too
 
-`get_pim_data` (`utils.py:133`) on a cache miss does **both**: queues async
-population (`_queue_pim_population`, `utils.py:141`) and falls through, next
-line, to a synchronous `_fetch_pim_product(...)` (`utils.py:142`) — not an
+`get_pim_data` (`utils.py:133`) is synchronous on a cache miss or when
+`refresh=True` — `_fetch_pim_product(...)` (`utils.py:141`) runs in-line, no
 early return, so a cold cache blocks the request on a PIM HTTP round-trip.
 `get_file_url` (`utils.py:370`) has the same shape on a miss (`:380-387`),
 minus the queueing.
