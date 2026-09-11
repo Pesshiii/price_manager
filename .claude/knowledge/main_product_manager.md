@@ -24,10 +24,13 @@ and `sleep` interleaved per chunk, underneath `_push_pim_products`) in a
 transaction "to compensate" — that breaks its promise that one failing chunk
 doesn't lose the others.
 
-One caveat on "idempotent, resumes cleanly": `_search_pim_id`'s
-no-match cache conflates a PIM *error* with a genuine no-match (see its
-section below), so a re-scan restarted within the 4h window after an outage
-silently skips the rows the outage hit instead of retrying them.
+"Idempotent, resumes cleanly" is true now, and was not before: the
+no-match cache used to conflate a PIM *error* with a genuine no-match, so a
+re-scan restarted inside the 4h window after an outage silently skipped the
+rows the outage hit. The cache now records *which* it was and an error is held
+for minutes, not hours (see the section below) — and a run that hit one is
+recorded as an error instead of a success, so "it resumed" is checkable rather
+than assumed.
 
 ## The PIM cache's render-path cost — and why it bites tests too
 
@@ -112,64 +115,99 @@ workaround in place; the trap is real, not hypothetical, so don't drop
 either without re-deriving why `search_rank` lives as a separate
 `@staticmethod`.
 
-## `_search_pim_id`: one `like` on `number`, and three unchecked edges
+## `_search_pim_id_result`: one `like` on `number`, and why an empty answer has to say *why*
 
-`_search_pim_id` (`utils.py:158`) resolves `pim_id` with a single
-`Where(attribute='number', type='like', value=product.sku)` queried straight
-against `EntityList(name='Product', select=['id'])` — a direct `Product`
-search, one round-trip. No `ContributorProduct` step, no `masterRecordId`, no
-`priceManagerId` fallback.
+`_search_pim_id_result(product) -> tuple[str | None, str]` (`utils.py:177`) is
+the resolver; `_search_pim_id` (`utils.py:244`) is a thin id-only wrapper kept
+for `_resolve_pim_id`, which has nothing to decide on a miss. One round-trip:
+`Where(attribute='number', type='like', value=product.sku)` against
+`EntityList(name='Product', select=['id'])` — a direct `Product` search, no
+`ContributorProduct` step, no `masterRecordId`, no `priceManagerId` fallback.
 
-The docstrings on `_search_pim_id`, `_fetch_pim_product` and
-`get_pim_data_for_product` claimed that `ContributorProduct`/`masterRecordId`/
-priceManagerId path until it was corrected as a docs-only fix. It was once
-true: `86f3289` collapsed a two-element `searches` list (priceManagerId, then
-sku) to one and dropped its `if product.sku` guard, and `48c31f8` swapped the
-entity from `ContributorProduct`/`masterRecordId` to `Product`/`id`. Neither
-touched the prose, so the docstring outlived its code by two commits; it was
-reported as having been read as the real lookup path during #164's triage
-(not visible in that issue's body or comments — grepped). The vestigial
-one-element loop went with the docstring fix. (`_fetch_pim_product`'s
-companion point — a `pim_id` is a `Product` id, not a `ContributorProduct` id
-— is still true and is why one `pim_id` legitimately spans several
-`MainProduct`s; `sync_pim_relations:300` says so and is accurate.)
+The outcome is one of five (`utils.py:166-170`): `_SEARCH_FOUND`,
+`_SEARCH_ABSENT`, `_SEARCH_AMBIGUOUS`, `_SEARCH_ERROR`, `_SEARCH_NO_SKU`.
+**Only `_SEARCH_ABSENT` means PIM was asked and answered "no such product."**
+That distinction is load-bearing rather than tidy, because
+`push_missing_pim_products` (`utils.py:631`) *writes to PIM* — it creates a
+`PriceManagerProduct` — so anything else reaching it creates a duplicate
+record for a product that may already be there. `create_pim_links`
+(`utils.py:649`) and `reindex_pim_ids_batch` (`utils.py:721`) branch on the
+outcome, not on `pim_id is None`. A new caller that writes on a miss must do
+the same.
 
-Three things the search does not check. All are current behaviour, all are
-undocumented outside the docstring, and none has been fixed:
+**The three edges this closed.** Until then the search returned the first
+non-empty id with no count check; a no-sku product was not skipped but sent an
+*unconstrained* `like` (`Where.get()` omits the `value` key entirely when it is
+None, `pim_api/__init__.py:24-25`); and an API error fell through to the same
+`cache.set(no_match_key, True, ...)` as a genuine miss. The last one was the
+severe one, and not for the reason it looks: a PIM outage mid-scan did not just
+suppress retries for 4h, it fed every unlinked row it touched to
+`push_missing_pim_products`. Do not restore the older, tidier claim that a
+no-sku product "can never resolve" — that was an assumption the query-string
+construction contradicted.
 
-- **First match wins.** The loop returns the first non-empty id in the
-  response with no count or ambiguity check, so a `like` that matches several
-  Products links to whichever PIM returns first.
-- **`sku` is nullable** (`models.py:50-53`) — but a no-sku product is *not*
-  skipped. `Where.value` is `Optional[str]` and `Where.get()` omits the
-  `value` key from the query string entirely when it is None
-  (`pim_api/__init__.py:24-25`), so the request still goes out as an
-  unconstrained `like` on `number`. What PIM returns for a valueless filter
-  is not knowable from this repo — but if it returns anything, first-match-wins
-  above will link the product to an arbitrary `Product`. Do not repeat the
-  older, tidier claim that a no-sku product "can never resolve": that is an
-  assumption, and the query-string construction contradicts it.
-- **A PIM error is cached as a definitive miss.** The `try/except` sits
-  *inside* what used to be the loop, and `except` only calls
-  `_record_pim_error` — no `return`, no re-raise — so control falls through to
-  `cache.set(no_match_key, True, _PIM_NO_MATCH_TTL)` on a transient network or
-  API error exactly as on a genuine "not in PIM". An outage during a scan
-  writes a 4h no-match flag for every product it touched, and the early return
-  at the top then skips those rows with no network call until it expires.
-  Only `get_pim_data_for_product`'s 404-recovery path clears the flag early
-  (`cache.delete(f"pim_no_match:{product.pk}")`) — nothing else does.
+**How each is handled now**: several matches log a warning and link nothing
+(`_SEARCH_AMBIGUOUS`); no sku returns before any request (`_SEARCH_NO_SKU`,
+restoring the guard `86f3289` dropped — not the `priceManagerId` search it
+dropped alongside); a failed request returns `_SEARCH_ERROR`.
 
-The last two are why a `MainProduct` gets stuck with `pim_id = NULL`, and the
-first is why a non-NULL `pim_id` is not proof of a *correct* link — relevant
-to #164, where 156 359 products carry a `pim_id` but only 465 have categories.
+**One cache key, deliberately.** `pim_no_match:{pk}` holds the outcome string
+rather than a bare flag, so `get_pim_data_for_product`'s single `cache.delete`
+on the 404-recovery path stays correct and there is no second key to leave
+stale. TTLs differ by reason: `_PIM_SEARCH_ERROR_TTL` = 5 min for an error,
+`_PIM_NO_MATCH_TTL` = 4h for a confirmed absence or an ambiguous match, those
+being conditions of the data rather than of the network (`utils.py:159-160`).
+A legacy bare `True` matches no outcome, so it is dropped and re-searched
+instead of guessed at (`utils.py:205-210`).
 
-**Stale UI copy this produces, not yet fixed:**
+**Both scans raise `PimSearchError` (`utils.py:173`)** when a search went
+unanswered — *after* their writes, so committed progress survives. It is the
+only durable signal there is: `maybe_notify_pim_error` is DEBUG-gated
+(`utils.py:45`) and prod runs under `settings.prod`, so `_PIM_LAST_ERROR_KEY`
+is written and read by nobody there; `TaskRunHistory` (from
+`execute_locked_task`'s `except`, `core/task_runner.py:112-132`) is what
+records it. The return must stay a 2-tuple — `_normalize_updated_count`
+(`core/task_runner.py:14-21`) sums every numeric element, so a third "failed"
+element would silently inflate `updated_count`. Ambiguity does not raise.
+Consequence: `manage.py run_task` in sync mode calls the task function directly
+(`management/commands/run_task.py:81`), so its no-argument form now stops at
+the failing task instead of continuing down the loop.
+
+**The cost of that correctness, in `create_pim_links` only.** Its window is
+`filter(pim_id__isnull=True)[:1000]` under `Meta.ordering = ['id']` — the same
+lowest-1000 unlinked rows every run — and it used to drain because every
+product left the unlinked set: linked, or pushed to PIM and given the id
+`_push_pim_products` wrote back. An unsearchable product now does neither, so
+it would hold a slot and a `time.sleep(delay)` at the head of the window
+forever. No-sku rows are excluded from the queryset itself
+(`utils.py:650-663`); drop that exclusion if a search that works without an sku
+is ever added back. `_SEARCH_AMBIGUOUS` rows have no such containment by
+design — an ambiguous match is a data problem someone has to settle in PIM.
+
+**How it got this way.** `86f3289` collapsed a two-element `searches` list
+(priceManagerId, then sku) to one and dropped its `if product.sku` guard;
+`48c31f8` swapped the entity from `ContributorProduct`/`masterRecordId` to
+`Product`/`id`. Neither touched the prose, so three docstrings outlived their
+code by two commits and were reported as having been read as the real lookup
+path during #164's triage (not visible in that issue's body or comments —
+grepped). The docs-only fix (#172) corrected the prose and documented the three
+edges; this work closed them.
+
+**Testing.** `site` is bound into `utils`'s own namespace (`utils.py:16`), so
+tests patch `main_product_manager.utils.site`, **not** `pim_client.site`.
+`SearchPimIdOutcomeTests` and `PimScanPushGuardTests` (`tests.py:531`, `:657`)
+are the pattern, both under `@override_settings(CACHES=LOCMEM_CACHE)` — the
+outcome cache has to be visible to in-process assertions rather than the
+worker container's shared Redis.
+
+**Stale UI copy this produces, still not fixed:**
 `templates/mainproduct/partials/detail.html:78` tells the user, in Russian,
 "Проверьте соответствие priceManagerId/названия" — but the lookup matches
 `number`/sku only; neither `priceManagerId` nor the product name participates.
-Correct copy needs to name `sku`/`number` and cover the no-sku case. After the
-docstring fix this line is the last surviving `priceManagerId` reference in the
-repo outside `pim_api` itself (grepped, not assumed).
+Correct copy needs to name `sku`/`number` and cover the no-sku case, which is
+now an explicit early return rather than a stray unconstrained query. This line
+is the last surviving `priceManagerId` reference in the repo outside `pim_api`
+itself (grepped, not assumed).
 
 ## The 11 Celery tasks, and one that isn't
 

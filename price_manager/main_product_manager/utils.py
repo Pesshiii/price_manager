@@ -69,9 +69,9 @@ def _fetch_pim_product(pim_id: str) -> tuple[dict | None, bool]:
     """GET a PIM `Product` by id straight from the API (no cache).
 
     pim_id is a PIM `Product` id — either one already stored on the MainProduct,
-    or one _search_pim_id found by matching sku against `Product.number`. It is
-    not a `ContributorProduct` id, which is why a single pim_id legitimately
-    spans several MainProducts (see sync_pim_relations).
+    or one _search_pim_id_result found by matching sku against `Product.number`.
+    It is not a `ContributorProduct` id, which is why a single pim_id
+    legitimately spans several MainProducts (see sync_pim_relations).
 
     Returns (data, not_found) — not_found is True only on an explicit 404,
     so callers can tell "PIM deleted/renumbered this id" apart from a
@@ -209,38 +209,8 @@ def _search_pim_id_result(product) -> tuple[str | None, str]:
         # drop it and search again rather than guess which one it meant.
         cache.delete(cache_key)
 
-def _search_pim_id(product) -> str | None:
-    """Resolve a MainProduct's pim_id by matching its sku against PIM `Product.number`.
-
-    One request: a `like` search on `Product.number` for `product.sku`, taking
-    the first id in the response. The `Product` is queried directly — there is
-    no `ContributorProduct` lookup and no `masterRecordId` hop, and
-    `priceManagerId` is not consulted.
-
-    Three things the code does not check, all of them current behaviour:
-
-    - **First match wins.** `like` can match several Products; nothing counts
-      or disambiguates them, so an sku that is a prefix of others links to
-      whichever PIM happens to return first.
-    - **`sku` is nullable** (`models.py:50-53`), and `Where` omits `value` from
-      the query string entirely when it is None (`pim_api/__init__.py:24-25`).
-      A product with no sku is therefore not skipped — it sends an
-      *unconstrained* `like` filter on `number`. What PIM returns for that is
-      not knowable from this repo.
-    - **An API error is indistinguishable from a miss.** The `except` records
-      the error and falls through to the no-match cache below, so a PIM outage
-      suppresses retries for _PIM_NO_MATCH_TTL exactly as a genuine miss does.
-      A scan interrupted by an outage resumes by skipping the rows the outage
-      hit, without a network call, until the flag expires.
-
-    Throttled by that no-match cache (_PIM_NO_MATCH_TTL) so unmatched products
-    are only retried periodically instead of on every lookup/task run; only
-    get_pim_data_for_product's 404-recovery path clears the flag early.
-    Does not persist the result — callers decide how/when to save it.
-    """
-    no_match_key = f"pim_no_match:{product.pk}"
-    if cache.get(no_match_key):
-        return None
+    if not product.sku:
+        return None, _SEARCH_NO_SKU
 
     t0 = time.monotonic()
     try:
@@ -251,13 +221,28 @@ def _search_pim_id(product) -> str | None:
                 where=[Where(attribute='number', type='like', value=product.sku)],
             )
         )
-        for item in result.get('list', []):
-            product_id = item.get('id')
-            if product_id:
-                return product_id
-        # No match is normal — don't treat as error, just set no-match cache below
     except Exception as exc:
         _record_pim_error("_search_pim_id", exc, int((time.monotonic() - t0) * 1000))
+        cache.set(cache_key, _SEARCH_ERROR, _PIM_SEARCH_ERROR_TTL)
+        return None, _SEARCH_ERROR
+
+    pim_ids = [item.get('id') for item in result.get('list', []) if item.get('id')]
+    if len(pim_ids) == 1:
+        return pim_ids[0], _SEARCH_FOUND
+    if pim_ids:
+        logger.warning(
+            "PIM number=%s matched %s products (MainProduct pk=%s) — linking none",
+            product.sku, len(pim_ids), product.pk,
+        )
+        cache.set(cache_key, _SEARCH_AMBIGUOUS, _PIM_NO_MATCH_TTL)
+        return None, _SEARCH_AMBIGUOUS
+
+    cache.set(cache_key, _SEARCH_ABSENT, _PIM_NO_MATCH_TTL)
+    return None, _SEARCH_ABSENT
+
+
+def _search_pim_id(product) -> str | None:
+    """The resolved id alone, for callers with nothing to decide on a miss.
 
     Anything that *writes* on a miss must call _search_pim_id_result and check
     the outcome instead — see push_missing_pim_products.
@@ -280,8 +265,8 @@ def get_pim_data_for_product(product, refresh: bool = False) -> dict | None:
     If the stored pim_id 404s _PIM_404_THRESHOLD times in a row (deleted/
     renumbered in PIM), get_pim_data clears it from the DB — detected here via
     refresh_from_db — and it's re-resolved by sku before retrying once. The
-    no-match cache is dropped first; without that, _search_pim_id's 4h throttle
-    would short-circuit the re-resolve. This is the only place that clears it.
+    no-match cache is dropped first; without that, the cached outcome would
+    short-circuit the re-resolve. This is the only place that clears it.
     """
     if not product.pim_id:
         _resolve_pim_id(product)
