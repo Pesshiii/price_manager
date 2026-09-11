@@ -200,8 +200,9 @@ def reindex_pim_ids_batch_task(pks: list[int], delay: float = 0.5, batch_size: i
 def populate_pim_relations_task(pim_id: str) -> dict:
     """Populates MainProduct.manufacturer/categories from PIM once its data is cached.
 
-    Triggered by get_pim_data()/get_pim_data_for_product() on a cache miss for a
-    given pim_id (see utils._queue_pim_population), rather than run on a schedule.
+    Triggered by get_pim_data()/get_pim_data_for_product() after a successful PIM
+    fetch for a given pim_id (see utils._queue_pim_population), rather than run on
+    a schedule.
     """
     def _runner():
         data = get_pim_data(pim_id)

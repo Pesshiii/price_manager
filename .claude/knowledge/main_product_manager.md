@@ -20,10 +20,9 @@ time. `GinIndex` in `Meta.indexes` covers `search_vector`, `config='russian'`
 
 ## PIM scans run with `atomic=False` — moving the write is not enough
 
-`execute_locked_task` wraps its runner in a transaction *by default*.
-Hoisting `bulk_update` out of the API loop does **not** stop the transaction
-spanning the HTTP calls — it opens before the runner is called, so it stays
-open for the whole loop regardless of where the write lands. Fix is
+Hoisting `bulk_update` out of the API loop doesn't stop the transaction
+spanning the HTTP calls — `execute_locked_task`'s transaction opens before
+the runner is called regardless of where the write lands inside it. Fix is
 `atomic=False` at the call site — see [[core]]:
 
 - `tasks.py` `create_pim_links_task` → `utils.py` `create_pim_links`
@@ -41,41 +40,78 @@ reshuffle writes.
 
 ## The PIM cache's render-path cost — and why it bites tests too
 
-`get_pim_data` (`utils.py:133`) on a cache miss does **both**: queues async
-population (`_queue_pim_population`, `utils.py:141`) and falls through, next
-line, to a synchronous `_fetch_pim_product(...)` (`utils.py:142`) — not an
+`get_pim_data` (`utils.py:133`) is synchronous on a cache miss or when
+`refresh=True` — `_fetch_pim_product(...)` (`utils.py:141`) runs in-line, no
 early return, so a cold cache blocks the request on a PIM HTTP round-trip.
-`get_file_url` (`utils.py:340`) has the same shape on a miss (`:349`), minus
-the queueing.
+`get_file_url` (`utils.py:347`) has the same shape on a miss (`:353`) but has
+no queueing on either branch.
 
-`prefetch_pim_data` (`utils.py:322`) loops products one at a time, and
+`prefetch_pim_data` (`utils.py:329`) loops products one at a time, and
 `MainProductTableView.get_context_data` (`views.py:186`) then calls
 `get_file_url` again per entry (`views.py:198`): up to **2N** PIM calls per
 cold page (the main page paginates 5 categories at a time, `views.py:89`,
 each firing its own `hx-trigger="load"` fetch, `tables_bycat.html:53,82`).
 **But calls dedupe by `pim_id`/file id, not by row** — `get_pim_data` caches
 on `pim_product:{pim_id}` (`:136`), `get_file_url` on `pim_file:{file_id}`
-(`:344`) — so real cost is bounded by distinct `pim_id`s on the page.
-`MainProductTable._pim` still reads `pim_map` by `record.pk`
-(`tables.py:230-231`).
+(`:351`) — so real cost is bounded by distinct `pim_id`s on the page.
+`MainProductTable._pim` still reads `pim_map` by `record.pk` (`tables.py:231`).
 
 **Rendering this table in a test makes live PIM HTTP calls unless patched.**
 Tests run under `settings.prod` with the placeholder `PIM_TOKEN`/`PIM_HOST`,
-so any test rendering `MainProductTable` with a `pim_id`-bearing product hits
-the network via the path above. Working recipe (`test_grouping.py:29-30`):
-patch `main_product_manager.views.prefetch_pim_data` and
-`.maybe_notify_pim_error`. Creating `MainProduct`s is safe — `save()` doesn't
-reach PIM — but a test needing a populated `search_vector` should set it
-directly with `SearchVector` over local fields (`test_grouping.py:64-68`)
-instead of calling `rebuild_search_vector()`.
+so any test rendering `MainProductTable` with a `pim_id`-bearing product, or
+calling `get_pim_data`/`get_file_url` directly, hits the network via the path
+above unless patched — for the table,
+`main_product_manager.views.prefetch_pim_data` and `.maybe_notify_pim_error`
+(`test_grouping.py:29-30`); for `get_pim_data` itself, `_fetch_pim_product`
+with an explicit `return_value=(data, not_found)` (it's unpacked as a
+2-tuple). Creating `MainProduct`s is safe — `save()` doesn't reach PIM — but
+a test needing a populated `search_vector` should set it directly with
+`SearchVector` over local fields (`test_grouping.py:64-68`) instead of
+calling `rebuild_search_vector()`.
 
-## `get_file_url`'s return line has an operator-precedence bug (`utils.py:354`)
+**Fixed trap: the cache write and the population trigger must share a
+branch.** `_queue_pim_population` has exactly one call site in the app —
+`utils.py:152`, inside `get_pim_data`'s successful-fetch branch — and it's
+the only thing that ever queues `populate_pim_relations_task`, itself the
+only caller of `sync_pim_relations` (`utils.py:302`), itself the only code
+that writes `MainProduct.manufacturer`/`.categories` from PIM data. Until
+this fix, the call sat one level up, in the `if not refresh:` cache-miss
+branch (`utils.py:137-140`) — reached by non-refresh callers
+(`prefetch_pim_data`; `_build_searchvector` via `get_pim_data`,
+`models.py:154`) only on a miss, but never by the two `refresh=True` callers,
+`MainProductInfo`/`MainProductDetail` (`views.py:251,267`). Those views
+warmed `pim_product:<pim_id>` for the full 24h `PIM_CACHE_TTL` on every visit
+without ever queueing population — opening a product's detail page
+suppressed that product's own manufacturer/categories sync for a day (see
+issue #164's near-total absence of categories, cited in the `pim_id` section
+below). Fix: move the call into the successful-fetch branch, right after
+`cache.set`/`_note_pim_success` (`utils.py:143-152`), so it fires on every
+successful fetch regardless of `refresh`. Two side effects are deliberate:
+queueing *after* the write makes `populate_pim_relations_task`'s own
+`get_pim_data(pim_id)` call (`tasks.py:207`, non-refresh; that task runs
+`atomic=True` via `execute_locked_task`, the default — see [[core]]) a cache
+hit rather than a second live fetch inside the task's own transaction; and
+the 404 (`_note_pim_404`)/transient-error branches now queue nothing, rather
+than burn the 10-minute `_PIM_POPULATE_QUEUED_TTL` dedup flag on a task that
+would just find `data is None` and return 0. **Still open, not touched by
+this fix:** a non-refresh *cache hit* never queues population — pre-existing,
+but means an already-cached `pim_id` gets no trigger until the key expires.
+`populate_pim_relations_task`'s docstring (`tasks.py:203`) and the
+`_PIM_POPULATE_QUEUED_TTL` comment (`utils.py:162`) both still say "cache
+miss" — stale against this move, don't trust either when tracing the
+trigger. `GetPimDataQueuesPopulationTests` (`tests.py:259`) covers all four
+branches (miss, refresh success, warm-cache-for-the-task, 404), asserting
+the queue only inside `self.captureOnCommitCallbacks(execute=True)` — same
+pattern as `QueuePimPopulationDispatchTests` (`tests.py:233`): `LOCMEM_CACHE`
+override + `cache.clear()` in `setUp`.
+
+## `get_file_url`'s return line has an operator-precedence bug (`utils.py:361`)
 
 `return "https://" + data.get(f'{size}ThumbnailUrl') or data.get('url') or
 data.get('downloadUrl')` — `+` binds tighter than `or`, parsing as
 `("https://" + X) or Y or Z`: the `url`/`downloadUrl` fallbacks are dead code,
 and a missing `{size}ThumbnailUrl` (`X is None`) raises an uncaught
-`TypeError` — the `try/except` (`utils.py:348-353`) closes before this line.
+`TypeError` — the `try/except` (`utils.py:355-360`) closes before this line.
 Both call sites, `views.py:198` and `render_pim_photo`
 (`tables.py:233-244`), expect a clean `None`/URL — a missing thumbnail 500s
 the table instead of falling back to `—`. Bug, not yet fixed; not this
@@ -100,9 +136,9 @@ with `Count(F('mainproducts'), distinct=True)`
 
 ## `_search_pim_id` docstring does not match its code
 
-The docstring (`utils.py:159-170`) promises a search of `ContributorProduct`
+The docstring (`utils.py:166-177`) promises a search of `ContributorProduct`
 "by priceManagerId, then by sku/number", reading `masterRecordId` to reach the
-merged `Product`. The code (`utils.py:175-182`) does neither: a single-element
+merged `Product`. The code (`utils.py:182-189`) does neither: a single-element
 `searches` list — `Where(attribute='number', type='like', value=product.sku)`
 — queried straight against `EntityList(name='Product', ...)`. No
 `ContributorProduct` step, no `masterRecordId`, no `priceManagerId` fallback
@@ -111,7 +147,7 @@ merged `Product`. The code (`utils.py:175-182`) does neither: a single-element
 Consequence: `sku` is nullable (`models.py:50-53`), so a `MainProduct` with no
 `sku` can **never** resolve a `pim_id` through this path — a firmer
 explanation for stuck-NULL `pim_id`s than the backlog and the 4h no-match
-cache (`_PIM_NO_MATCH_TTL`, `utils.py:154`) alone.
+cache (`_PIM_NO_MATCH_TTL`, `utils.py:161`) alone.
 
 ## The 11 Celery tasks
 
@@ -120,7 +156,7 @@ best-behaved app in the repo on that convention. `reindex_pim_ids` and
 `reindex_pim_ids_batch` (`tasks.py:166`, `:187`) set
 `time_limit=None, soft_time_limit=None`: a full catalog re-scan outruns any
 sane limit. Fan-out: `reindex_pim_ids_task` chunks pks via
-`iter_pim_id_pk_batches()` (`utils.py:558`) and queues one
+`iter_pim_id_pk_batches()` (`utils.py:565`) and queues one
 `reindex_pim_ids_batch_task` per chunk to run in parallel; `task_name` is
 uniquified per chunk (`tasks.py:190`) or they'd all contend on one Redis lock.
 `sync_main_products_task` (`tasks.py:143`) is a 12th function but not a task
@@ -130,6 +166,10 @@ itself — no `@shared_task`, just `chain(...)`-ing the 11 into one
 fills `pim_id__isnull=True`, while `reindex_pim_ids` re-searches PIM for
 **every** product (writing only the ones whose value changed), so
 `skip_non_empty=True` is what narrows it back to unlinked ones.
+`populate_pim_relations_task` (`tasks.py:199-216`) differs from the other 11:
+it isn't scheduled or fanned out, it's queued per-`pim_id`, from exactly one
+place — `_queue_pim_population` inside `get_pim_data` (see the render-path
+section above).
 
 ## Price fields and three columns that only look like fields
 
@@ -166,30 +206,27 @@ distinct from the `GinIndex` still only on `search_vector` (`models.py:44`).
 Multiplicity — several `MainProduct`s from different suppliers legitimately
 share one `pim_id` (it names a verified/merged PIM `Product`, not a
 per-supplier `ContributorProduct`) — asserted in `sync_pim_relations`'s
-docstring (`utils.py:295-301`), relied on by its plural
-`filter(pim_id=...).update(...)` (`:308`) and `_note_pim_404`'s bulk
+docstring (`utils.py:302-308`), relied on by its plural
+`filter(pim_id=...).update(...)` (`:315`) and `_note_pim_404`'s bulk
 `update(pim_id=None)` (`:126`), and now also what `grouping.py` collapses
 into one head row.
 
 **The index removes a lookup cost, not the grouping cost.**
 `MainProductTableView.get_table_data` (`views.py:145-185`) renders one table
-per category plus one for `categories__isnull=True` (the `else` branch at
-`views.py:160`; the main page decides whether to show that bucket at
-`views.py:91-92`), then computes `Window(partition_by=[F('grp_key')])`
-(`grouping.py:105-155`) over that filtered per-bucket queryset. The `pim_id`
-index can't serve this sort at all: `grp_key` is
+per category plus one `categories__isnull=True` bucket (`views.py:160,91-92`),
+then computes `Window(partition_by=[F('grp_key')])` (`grouping.py:105-155`)
+over that filtered queryset. `grp_key` is
 `Coalesce(NullIf(pim_id, ''), Cast('id', TextField()))` (`grouping.py:50-64`)
-— an expression, not the indexed column — so Postgres sorts every row in the
-bucket regardless. On a restored production snapshot: 156,016 of 156,481
-`MainProduct`s have no category, the largest real category holds 67 rows,
-and all 1,323 duplicated-`pim_id` groups sit in the uncategorised bucket
-(aggregates/counts only, per prod-snapshot rule 3). The window pass costs
-~+6ms on a ~67-row category table versus ~70ms -> ~3s on the ~156k-row
-uncategorised one (merge sort spilling ~107MB to disk); trimming to bare-id
-columns still floors ~1.6s — the partition sort over the whole bucket, not
-the `pim_id` lookup, is what's expensive. **Benchmark grouping changes
-against the uncategorised bucket** — it is effectively the whole catalog,
-and a category table always looks fast.
+— an expression, not the indexed column — so the index can't serve this sort;
+Postgres sorts every row in the bucket regardless. On a restored production
+snapshot (issue #164): 156,016/156,481 `MainProduct`s have no category, the
+largest real category holds 67 rows, and all 1,323 duplicated-`pim_id`
+groups sit in the uncategorised bucket (aggregate only, per prod-snapshot
+rule 3) — the window pass there costs ~70ms -> ~3s (~107MB disk spill)
+versus ~+6ms on the 67-row category table; trimming to bare-id columns still
+floors ~1.6s. **Benchmark grouping changes against the uncategorised
+bucket** — it's effectively the whole catalog, and a category table always
+looks fast.
 
 ## `render_<column>` is silently skipped when the cell value is empty
 
@@ -207,7 +244,7 @@ added the header row.
 
 ## `update_stocks` — the two NULLs mean different things
 
-`utils.py:385`, docstring `:386-396`. Two nullable stock columns feed this
+`utils.py:392`, docstring `:393-403`. Two nullable stock columns feed this
 and don't carry the same meaning:
 
 - `SupplierProduct.stock` NULL = supplier told us nothing; unknown isn't
@@ -218,7 +255,7 @@ The candidate filter used to coalesce *both* sides to `0`, making `NULL` and
 `0` compare equal and silently skipping a never-synced product forever — no
 write, no log, uncounted. Fixed by testing the current value's nullness
 explicitly: `filter(Q(stock__isnull=True) | ~Q(stock=F('new_stock')))`
-(`:407`) — `~Q(stock=F('new_stock'))` alone isn't enough, since SQL's
+(`:414`) — `~Q(stock=F('new_stock'))` alone isn't enough, since SQL's
 `NOT (NULL = 0)` is NULL, not true. `UpdateStocksNullSafeTests` (`tests.py:51`)
 guards this write path.
 

@@ -141,6 +141,7 @@ from django.test import override_settings
 
 from core.task_runner import dispatch_after_commit
 from . import tasks as mp_tasks
+from . import utils as mp_utils
 from .utils import _queue_pim_population
 
 # execute_locked_task's lock and _queue_pim_population's dedup flag both live in
@@ -252,3 +253,60 @@ class QueuePimPopulationDispatchTests(TestCase):
                 _queue_pim_population('pim-2')
 
             delay.assert_called_once_with('pim-2')
+
+
+@override_settings(CACHES=LOCMEM_CACHE)
+class GetPimDataQueuesPopulationTests(TestCase):
+    """get_pim_data writes pim_product:<id> for PIM_CACHE_TTL (24h) on every
+    successful fetch, so whichever call warms that key has to be the one that
+    queues population — otherwise it suppresses every later caller's trigger,
+    including prefetch_pim_data, for a day."""
+
+    def setUp(self):
+        cache.clear()
+
+    def _fetch(self, data, not_found=False):
+        return patch.object(
+            mp_utils, '_fetch_pim_product', return_value=(data, not_found)
+        )
+
+    def test_refresh_queues_population_instead_of_suppressing_it(self):
+        # The detail views (MainProductInfo/MainProductDetail) are the only
+        # refresh=True callers; a page view used to warm the cache and queue
+        # nothing, so nothing populated the product's categories for 24 hours.
+        with self._fetch({'brandId': 'b-1', 'categoriesIds': []}):
+            with patch.object(mp_tasks.populate_pim_relations_task, 'delay') as delay:
+                with self.captureOnCommitCallbacks(execute=True):
+                    mp_utils.get_pim_data('pim-refresh', refresh=True)
+
+                delay.assert_called_once_with('pim-refresh')
+
+    def test_cache_miss_without_refresh_still_queues_population(self):
+        with self._fetch({'brandId': 'b-2', 'categoriesIds': []}):
+            with patch.object(mp_tasks.populate_pim_relations_task, 'delay') as delay:
+                with self.captureOnCommitCallbacks(execute=True):
+                    mp_utils.get_pim_data('pim-miss')
+
+                delay.assert_called_once_with('pim-miss')
+
+    def test_a_refreshed_fetch_leaves_the_cache_warm_for_the_queued_task(self):
+        # populate_pim_relations_task calls get_pim_data itself, so queueing
+        # after cache.set keeps that call a hit rather than a second live fetch.
+        data = {'brandId': 'b-3', 'categoriesIds': []}
+        with self._fetch(data) as fetch:
+            with patch.object(mp_tasks.populate_pim_relations_task, 'delay'):
+                with self.captureOnCommitCallbacks(execute=True):
+                    mp_utils.get_pim_data('pim-warm', refresh=True)
+
+            self.assertEqual(cache.get('pim_product:pim-warm'), data)
+            self.assertEqual(fetch.call_count, 1)
+
+    def test_a_404_queues_nothing(self):
+        # Nothing to populate from, and _note_pim_404 may be clearing the
+        # pim_id outright — don't burn the dedup flag on a no-op task run.
+        with self._fetch(None, not_found=True):
+            with patch.object(mp_tasks.populate_pim_relations_task, 'delay') as delay:
+                with self.captureOnCommitCallbacks(execute=True):
+                    self.assertIsNone(mp_utils.get_pim_data('pim-gone', refresh=True))
+
+                delay.assert_not_called()
