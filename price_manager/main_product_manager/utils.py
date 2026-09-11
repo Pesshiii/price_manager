@@ -7,7 +7,6 @@ from django.db.models import Value, OuterRef, Subquery, Q, F, Sum, IntegerField
 from django.utils import timezone
 from django.contrib.postgres.search import SearchVectorField, SearchVector
 from django.db.models.functions import Coalesce
-from django.conf import settings
 
 from pim_api import EntityList, Entity, Where, FileRecord, upsert_async as _upsert_async
 
@@ -38,9 +37,17 @@ def _record_pim_error(op: str, exc: Exception, elapsed_ms: int) -> None:
 
 
 def maybe_notify_pim_error(user) -> None:
-    """Create one throttled PersistentNotification per error window when PIM is failing."""
-    if not settings.DEBUG:
-        return
+    """Create one throttled PersistentNotification per error window when PIM is failing.
+
+    Deliberately *not* gated on settings.DEBUG. It used to be, which inverted the
+    intent: DEBUG defaults to false (settings/base.py), so the one environment
+    where a PIM outage actually costs something — production — was the one
+    environment that got no signal at all. Errors landed in the `pim_last_error`
+    cache key and nothing ever read it.
+
+    What keeps this from spamming is the per-user throttle below
+    (_PIM_NOTIF_THROTTLE_TTL), not the environment.
+    """
     if not user or not user.is_authenticated:
         return
     error_info = cache.get(_PIM_LAST_ERROR_KEY)
@@ -63,10 +70,10 @@ def maybe_notify_pim_error(user) -> None:
 
 
 def _fetch_pim_product(pim_id: str) -> tuple[dict | None, bool]:
-    """Fetch a verified PIM `Product` (master record) by id straight from the API (no cache).
+    """Fetch a PIM `Product` by id straight from the API (no cache).
 
-    pim_id is the id of the verified/merged PIM `Product`, not a `ContributorProduct` —
-    see _search_pim_id for how it's resolved via ContributorProduct.masterRecordId.
+    pim_id is a PIM `Product` id — see _search_pim_id, which resolves it by
+    matching the product's sku against the `Product.number` attribute.
 
     Returns (data, not_found) — not_found is True only on an explicit 404,
     so callers can tell "PIM deleted/renumbered this id" apart from a
@@ -154,47 +161,84 @@ def get_pim_data(pim_id: str | None, refresh: bool = False) -> dict | None:
 _PIM_NO_MATCH_TTL = 60 * 60 * 4  # 4 hours — avoid hammering PIM for unlinked products
 _PIM_POPULATE_QUEUED_TTL = 60 * 10  # throttle for the cache-miss population trigger
 
+# Backpressure for a *failing* PIM, deliberately separate from the per-product
+# no-match cache above. The two must not share a key: a no-match is a fact about
+# one product and is worth remembering for hours, while a failed call is a fact
+# about PIM as a whole and must expire quickly so recovery is picked up fast.
+# Conflating them is what made an outage look like "this product isn't in PIM"
+# for 4 hours. Global rather than per-product because when a search fails PIM is
+# down for every product, and _build_searchvector resolves one product at a time
+# — without this, a bulk re-index during an outage fires one HTTP call per row.
+#
+# Recovery is by expiry alone: the breaker is checked *before* the request, so a
+# success can never observe a set breaker and there is nothing for it to clear.
+# Keep the TTL short enough that waiting it out is cheap.
+_PIM_SEARCH_ERROR_KEY = "pim_search_failing"
+_PIM_SEARCH_ERROR_TTL = 60  # seconds
 
-def _search_pim_id(product) -> str | None:
-    """Resolve a MainProduct's pim_id: the verified PIM `Product` (master record) id.
 
-    A product isn't directly linked to a `Product` — it's found by searching
-    `ContributorProduct` (by priceManagerId, then by sku/number) and reading its
-    `masterRecordId`, which points at the merged/verified `Product`. A
-    ContributorProduct without a masterRecordId yet (not verified in PIM) counts
-    as no match.
+def _search_pim_id(product) -> tuple[str | None, bool]:
+    """Resolve a MainProduct's pim_id by searching PIM `Product` for its sku.
 
-    Throttled by a no-match cache (_PIM_NO_MATCH_TTL) so unmatched products
-    are only retried periodically instead of on every lookup/task run.
-    Does not persist the result — callers decide how/when to save it.
+    Matches on the PIM `number` attribute, which is the same value the push side
+    writes (see _pim_product_payload / compute_supplier_sku) — so a product this
+    app created in PIM is findable again by the same key.
+
+    Returns `(pim_id, searched)`. `searched` is False only when the PIM call
+    itself failed, letting callers tell "PIM answered, and has no such product"
+    apart from "PIM never answered". That distinction is load-bearing:
+    create_pim_links and reindex_pim_ids_batch turn a no-match into a *brand new*
+    PriceManagerProduct, so booking an API error as a no-match silently creates
+    duplicate PIM records for products that were already there.
+
+    Two independent throttles, and keeping them independent is the point:
+
+    - a per-product no-match cache (_PIM_NO_MATCH_TTL, hours) written only on a
+      genuine empty result, so unmatched products aren't retried on every
+      lookup/task run;
+    - a global failure breaker (_PIM_SEARCH_ERROR_TTL, seconds) for when PIM
+      itself is down, so an outage doesn't turn a per-row caller like
+      _build_searchvector into one HTTP call per product. It lapses by expiry,
+      so the cost of a false trip is bounded by that TTL.
+
+    An outage used to write the *first* cache, which both mislabelled the
+    product as absent from PIM and suppressed its retries for hours.
+
+    Does not persist the resolved id — callers decide how/when to save it.
     """
     no_match_key = f"pim_no_match:{product.pk}"
     if cache.get(no_match_key):
-        return None
+        return None, True
 
-    searches = [Where(attribute='number', type='like', value=product.sku)]
+    # PIM is failing right now — report "didn't search" without making the call.
+    if cache.get(_PIM_SEARCH_ERROR_KEY):
+        return None, False
 
-    for where in searches:
-        t0 = time.monotonic()
-        try:
-            result = site.get(
-                EntityList(name='Product', select=['id'], where=[where])
-            )
-            for item in result.get('list', []):
-                product_id = item.get('id')
-                if product_id:
-                    return product_id
-            # No match is normal — don't treat as error, just set no-match cache below
-        except Exception as exc:
-            _record_pim_error("_search_pim_id", exc, int((time.monotonic() - t0) * 1000))
+    t0 = time.monotonic()
+    try:
+        result = site.get(EntityList(
+            name='Product',
+            select=['id'],
+            where=[Where(attribute='number', type='like', value=product.sku)],
+        ))
+    except Exception as exc:
+        _record_pim_error("_search_pim_id", exc, int((time.monotonic() - t0) * 1000))
+        cache.set(_PIM_SEARCH_ERROR_KEY, True, _PIM_SEARCH_ERROR_TTL)
+        return None, False
 
+    for item in result.get('list', []):
+        product_id = item.get('id')
+        if product_id:
+            return product_id, True
+
+    # A genuine empty result — PIM answered and has nothing under this number.
     cache.set(no_match_key, True, _PIM_NO_MATCH_TTL)
-    return None
+    return None, True
 
 
 def _resolve_pim_id(product) -> str | None:
     """Look up pim_id in PIM and persist it on the product if found."""
-    pim_id = _search_pim_id(product)
+    pim_id, _ = _search_pim_id(product)
     if pim_id:
         MainProduct.objects.filter(pk=product.pk).update(pim_id=pim_id)
         product.pim_id = pim_id
@@ -206,8 +250,7 @@ def get_pim_data_for_product(product, refresh: bool = False) -> dict | None:
 
     If the stored pim_id 404s _PIM_404_THRESHOLD times in a row (deleted/
     renumbered in PIM), get_pim_data clears it from the DB — detected here via
-    refresh_from_db — and it's re-resolved by priceManagerId/sku before
-    retrying once.
+    refresh_from_db — and it's re-resolved by sku before retrying once.
     """
     if not product.pim_id:
         _resolve_pim_id(product)
@@ -295,9 +338,9 @@ def _ensure_pim_category(pim_category_id: str) -> Category | None:
 def sync_pim_relations(pim_id: str, data: dict) -> int:
     """Sync manufacturer + categories for every MainProduct linked to this PIM Product id.
 
-    Several MainProducts (from different suppliers) can share the same pim_id, since
-    it now points at a verified/merged PIM `Product` rather than a per-supplier
-    ContributorProduct — so this updates all of them in one go.
+    Several MainProducts (from different suppliers) can share the same pim_id,
+    since it points at a single PIM `Product` matched by number/sku rather than
+    at anything per-supplier — so this updates all of them in one go.
     """
     products = list(MainProduct.objects.filter(pim_id=pim_id))
     if not products:
@@ -572,10 +615,10 @@ def push_supplier_products_to_pim(supplier_products, batch_size: int = 1000, del
 def push_missing_pim_products(products, batch_size: int = 1000, delay: float = 0.5) -> int:
     """Bulk-create MainProducts with no PIM match as PriceManagerProduct records.
 
-    Callers must pass only products already confirmed absent from PIM
-    (pim_id is None and _search_pim_id just found nothing) — this doesn't
-    re-check, so a transient search miss on an already-linked product won't
-    silently create a duplicate PIM record for it.
+    Callers must pass only products already confirmed absent from PIM — pim_id
+    is None and _search_pim_id returned `searched=True` with no id. This doesn't
+    re-check, so passing a product whose search merely *failed* would silently
+    create a duplicate PIM record for it.
     """
     return _push_pim_products(
         list(products),
@@ -591,11 +634,14 @@ def create_pim_links(delay: float = 0.5, batch_size: int = 1000) -> tuple[int, i
     missing = []
     created = 0
     for product in products:
-        pim_id = _search_pim_id(product)
+        pim_id, searched = _search_pim_id(product)
         if pim_id:
             product.pim_id = pim_id
             result.append(product)
-        else:
+        elif searched:
+            # Only a completed search that found nothing justifies creating a new
+            # PIM record. A failed search means we don't know, and guessing "not
+            # there" would duplicate whatever is already in PIM.
             missing.append(product)
             if len(missing) >= batch_size:
                 created += push_missing_pim_products(missing, batch_size=batch_size, delay=delay)
@@ -646,12 +692,14 @@ def reindex_pim_ids_batch(pks: list[int], delay: float = 0.5, batch_size: int = 
     result = []
     missing = []
     for product in products:
-        pim_id = _search_pim_id(product)
+        pim_id, searched = _search_pim_id(product)
         if pim_id:
             if pim_id != product.pim_id:
                 product.pim_id = pim_id
                 result.append(product)
-        elif product.pim_id is None:
+        elif searched and product.pim_id is None:
+            # `searched` guards the same duplicate-creation hazard as in
+            # create_pim_links; an unanswered search leaves the product alone.
             missing.append(product)
         time.sleep(delay)
     # Runs with no transaction held (reindex_pim_ids_batch_task passes

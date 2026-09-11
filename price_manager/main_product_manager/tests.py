@@ -476,3 +476,166 @@ class GetFileUrlTests(TestCase):
             site.get.side_effect = RuntimeError('PIM down')
 
             self.assertIsNone(get_file_url('file-1'))
+
+
+from django.contrib.auth.models import User
+
+from core.models import PersistentNotification
+from .utils import (
+    _PIM_SEARCH_ERROR_KEY, _record_pim_error, _search_pim_id, create_pim_links,
+    maybe_notify_pim_error,
+)
+
+
+@override_settings(CACHES=LOCMEM_CACHE)
+class SearchPimIdErrorVsNoMatchTests(TestCase):
+    """_search_pim_id must not report a failed PIM call as "not in PIM".
+
+    create_pim_links and reindex_pim_ids_batch turn a no-match into a brand new
+    PriceManagerProduct, so conflating the two creates duplicate PIM records for
+    products that were already there. LocMem + clear() keeps the no-match keys
+    off the shared Redis the worker container points at.
+    """
+
+    def setUp(self):
+        cache.clear()
+        self.currency = Currency.objects.get_or_create(name='KZT', value=1)[0]
+        self.supplier = Supplier.objects.create(
+            name='Pim search supplier',
+            currency=self.currency,
+            price_update_rate='',
+            stock_update_rate='',
+            delivery_days_available=1,
+            delivery_days_navailable=2,
+        )
+        self.product = MainProduct.objects.create(
+            supplier=self.supplier, article='PS-1', sku='PS-1', name='Pim search 1'
+        )
+
+    def test_hit_returns_the_id_and_reports_a_completed_search(self):
+        with patch('main_product_manager.utils.site') as site:
+            site.get.return_value = {'list': [{'id': 'pim-42'}]}
+
+            self.assertEqual(_search_pim_id(self.product), ('pim-42', True))
+
+    def test_empty_result_is_a_real_no_match_and_is_cached(self):
+        with patch('main_product_manager.utils.site') as site:
+            site.get.return_value = {'list': []}
+
+            self.assertEqual(_search_pim_id(self.product), (None, True))
+
+        self.assertTrue(cache.get(f'pim_no_match:{self.product.pk}'))
+
+    def test_api_error_is_not_a_no_match_and_leaves_the_cache_clean(self):
+        with patch('main_product_manager.utils.site') as site:
+            site.get.side_effect = RuntimeError('PIM down')
+
+            self.assertEqual(_search_pim_id(self.product), (None, False))
+
+        # The cache-poisoning half of the bug: an outage used to suppress
+        # retries for _PIM_NO_MATCH_TTL on every product it touched, so the
+        # backlog stayed unsearched for hours after PIM came back.
+        self.assertIsNone(cache.get(f'pim_no_match:{self.product.pk}'))
+
+    def test_search_matches_the_number_attribute_against_sku(self):
+        with patch('main_product_manager.utils.site') as site:
+            site.get.return_value = {'list': []}
+            _search_pim_id(self.product)
+
+            entity_list = site.get.call_args.args[0]
+
+        self.assertEqual(entity_list.name, 'Product')
+        self.assertEqual(
+            [(w.attribute, w.value) for w in entity_list.where], [('number', 'PS-1')]
+        )
+
+    def test_a_failing_pim_is_only_probed_once_per_breaker_window(self):
+        """Without the breaker, dropping the failure cache would make every
+        _build_searchvector call fire its own HTTP request during an outage."""
+        other = MainProduct.objects.create(
+            supplier=self.supplier, article='PS-2', sku='PS-2', name='Pim search 2'
+        )
+        with patch('main_product_manager.utils.site') as site:
+            site.get.side_effect = RuntimeError('PIM down')
+
+            self.assertEqual(_search_pim_id(self.product), (None, False))
+            self.assertEqual(_search_pim_id(other), (None, False))
+
+            # Second product short-circuits on the global breaker, not a call.
+            self.assertEqual(site.get.call_count, 1)
+
+    def test_searching_resumes_once_the_breaker_lapses(self):
+        with patch('main_product_manager.utils.site') as site:
+            site.get.side_effect = RuntimeError('PIM down')
+            _search_pim_id(self.product)
+
+        self.assertTrue(cache.get(_PIM_SEARCH_ERROR_KEY))
+        cache.delete(_PIM_SEARCH_ERROR_KEY)  # stands in for the TTL expiring
+
+        with patch('main_product_manager.utils.site') as site:
+            site.get.return_value = {'list': [{'id': 'pim-7'}]}
+
+            self.assertEqual(_search_pim_id(self.product), ('pim-7', True))
+
+    def test_a_successful_search_does_not_write_the_breaker(self):
+        with patch('main_product_manager.utils.site') as site:
+            site.get.return_value = {'list': [{'id': 'pim-9'}]}
+            _search_pim_id(self.product)
+
+        self.assertIsNone(cache.get(_PIM_SEARCH_ERROR_KEY))
+
+    def test_failed_search_does_not_queue_the_product_for_creation(self):
+        with patch('main_product_manager.utils.site') as site, \
+             patch('main_product_manager.utils.push_missing_pim_products') as push:
+            site.get.side_effect = RuntimeError('PIM down')
+            push.return_value = 0
+
+            linked, created = create_pim_links(delay=0)
+
+        self.assertEqual((linked, created), (0, 0))
+        self.assertEqual(push.call_args.args[0], [])
+
+    def test_genuine_no_match_still_queues_the_product_for_creation(self):
+        with patch('main_product_manager.utils.site') as site, \
+             patch('main_product_manager.utils.push_missing_pim_products') as push:
+            site.get.return_value = {'list': []}
+            push.return_value = 0
+
+            create_pim_links(delay=0)
+
+        self.assertEqual(push.call_args.args[0], [self.product])
+
+
+@override_settings(CACHES=LOCMEM_CACHE, DEBUG=False)
+class PimErrorNotificationTests(TestCase):
+    """PIM-outage notifications used to be gated on settings.DEBUG, which meant
+    production — where DEBUG defaults to false, and where an outage actually
+    costs something — was the one environment that stayed silent.
+    """
+
+    def setUp(self):
+        cache.clear()
+        self.user = User.objects.create_user(username='pim-watcher', password='pw')
+
+    def _notification_count(self):
+        return PersistentNotification.objects.filter(user=self.user).count()
+
+    def test_notifies_even_though_debug_is_false(self):
+        _record_pim_error('get_pim_data', RuntimeError('PIM down'), 12)
+
+        maybe_notify_pim_error(self.user)
+
+        self.assertEqual(self._notification_count(), 1)
+
+    def test_repeat_calls_are_throttled_per_user(self):
+        _record_pim_error('get_pim_data', RuntimeError('PIM down'), 12)
+
+        maybe_notify_pim_error(self.user)
+        maybe_notify_pim_error(self.user)
+
+        self.assertEqual(self._notification_count(), 1)
+
+    def test_no_recorded_error_means_no_notification(self):
+        maybe_notify_pim_error(self.user)
+
+        self.assertEqual(self._notification_count(), 0)
