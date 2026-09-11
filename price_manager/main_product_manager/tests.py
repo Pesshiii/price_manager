@@ -252,3 +252,82 @@ class QueuePimPopulationDispatchTests(TestCase):
                 _queue_pim_population('pim-2')
 
             delay.assert_called_once_with('pim-2')
+
+
+from datetime import timedelta
+
+from django.utils import timezone
+
+from .utils import delete_outdated_logs
+
+
+class DeleteOutdatedLogsTests(TestCase):
+    """delete_outdated_logs must keep the newest `keep` rows and drop the rest.
+
+    MainProductLog.Meta.ordering is ['-update_time'], so a bare `.all()[:keep]`
+    resolves to ORDER BY update_time DESC LIMIT keep — the *newest* rows. The
+    prune used exactly that and deleted the newest logs while keeping the
+    oldest. These tests pin the retention direction, so the fix cannot be
+    undone by dropping the explicit order_by and leaning on Meta.ordering.
+    """
+
+    def setUp(self):
+        self.currency = Currency.objects.get_or_create(name='KZT', value=1)[0]
+        self.supplier = Supplier.objects.create(
+            name='Log prune supplier',
+            currency=self.currency,
+            price_update_rate='',
+            stock_update_rate='',
+            delivery_days_available=1,
+            delivery_days_navailable=2,
+        )
+        self.mp = MainProduct.objects.create(
+            supplier=self.supplier,
+            article='LP-1',
+            name='Log prune product',
+        )
+
+    def _log_at(self, days_ago: int) -> MainProductLog:
+        """Create a log row stamped `days_ago` days in the past.
+
+        update_time is auto_now_add, so it is ignored by create() and has to be
+        overwritten afterwards with .update(), which bypasses save()/pre_save.
+        """
+        log = MainProductLog.objects.create(main_product=self.mp, stock=days_ago)
+        stamp = timezone.now() - timedelta(days=days_ago)
+        MainProductLog.objects.filter(pk=log.pk).update(update_time=stamp)
+        return log
+
+    def test_prunes_the_oldest_rows_and_keeps_the_newest(self):
+        # days_ago 0 is the newest row, 4 the oldest.
+        logs = {days_ago: self._log_at(days_ago) for days_ago in range(5)}
+
+        deleted = delete_outdated_logs(keep=3)
+
+        self.assertEqual(deleted, 2)
+        survivors = set(MainProductLog.objects.values_list('pk', flat=True))
+        self.assertEqual(survivors, {logs[0].pk, logs[1].pk, logs[2].pk})
+
+    def test_does_nothing_while_under_the_cap(self):
+        for days_ago in range(3):
+            self._log_at(days_ago)
+
+        self.assertEqual(delete_outdated_logs(keep=3), 0)
+        self.assertEqual(MainProductLog.objects.count(), 3)
+
+    def test_ties_on_update_time_are_broken_deterministically(self):
+        """A bulk_create batch shares one update_time, so ties are the norm.
+
+        Meta.ordering has no secondary key, so without an explicit tiebreaker
+        the cut between kept and deleted rows falls arbitrarily inside the
+        tied batch. Highest id — the most recently inserted — must win.
+        """
+        logs = [MainProductLog.objects.create(main_product=self.mp, stock=n) for n in range(5)]
+        stamp = timezone.now() - timedelta(days=1)
+        MainProductLog.objects.filter(pk__in=[log.pk for log in logs]).update(update_time=stamp)
+
+        deleted = delete_outdated_logs(keep=3)
+
+        self.assertEqual(deleted, 2)
+        newest_ids = {log.pk for log in sorted(logs, key=lambda log: log.pk)[-3:]}
+        self.assertEqual(set(MainProductLog.objects.values_list('pk', flat=True)), newest_ids)
