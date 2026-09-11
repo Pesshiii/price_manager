@@ -727,3 +727,25 @@ def update_logs():
   mpls = MainProductLog.objects.bulk_create(mpls)
   updated_logs += len(mpls)
   return updated_logs
+
+
+def delete_outdated_logs(keep: int = 100_000) -> int:
+    """Trim the log table down to its newest `keep` rows, returning how many went.
+
+    The order_by is explicit on purpose. MainProductLog.Meta.ordering is
+    ['-update_time'], so a bare `.all()[keep:]` would happen to work here —
+    but relying on Meta.ordering is what produced the original bug, where
+    `.all()[:keep]` resolved to ORDER BY update_time DESC LIMIT keep and
+    deleted the newest rows while keeping the oldest.
+
+    '-id' is a tiebreaker, not decoration: update_logs and PriceManager.apply
+    bulk_create whole batches at one wall-clock instant, so update_time ties
+    are routine and Meta.ordering has no secondary key. Without it the cut
+    between kept and deleted rows falls arbitrarily inside a tied batch.
+    """
+    if MainProductLog.objects.count() > keep:
+        outdated = MainProductLog.objects.order_by('-update_time', '-id')[keep:]
+        return MainProductLog.objects.filter(
+            id__in=outdated.values_list('id', flat=True)
+        ).delete()[0]
+    return 0

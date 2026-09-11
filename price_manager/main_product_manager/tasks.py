@@ -6,8 +6,8 @@ from django.contrib.auth import get_user_model
 from supplier_manager.models import Category
 from product_price_manager.models import update_prices
 
-from .utils import recalculate_search_vectors, update_logs, update_stocks, create_pim_links, iter_pim_id_pk_batches, reindex_pim_ids_batch, get_pim_data, sync_pim_relations
-from .models import MainProduct, MainProductLog
+from .utils import delete_outdated_logs, recalculate_search_vectors, update_logs, update_stocks, create_pim_links, iter_pim_id_pk_batches, reindex_pim_ids_batch, get_pim_data, sync_pim_relations
+from .models import MainProduct
 
 
 def _build_step_result(payload: dict | None) -> dict:
@@ -82,15 +82,10 @@ def update_logs_task() -> dict:
 
 @shared_task(name="main_product_manager.delete_outdated_logs")
 def delete_outdated_logs_task(stats: dict | None = None) -> dict:
-    def delete_logs():
-        if MainProductLog.objects.count() > 100000:
-            return MainProductLog.objects.filter(id__in=MainProductLog.objects.all()[:100000].values_list('id', flat=True)).delete()[0]
-        return 0
-
     payload  = execute_locked_task(
         task_name="main_product_manager.delete_outdated_logs",
         lock_ttl=60 * 20,
-        runner=delete_logs,
+        runner=delete_outdated_logs,
     )
     return _append_step(stats, "delete_outdated_logs", payload)
 

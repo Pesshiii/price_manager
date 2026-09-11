@@ -181,6 +181,19 @@ contend on the same Redis lock.
 
 ## Three columns that look like fields but aren't
 
+**Three writers feed `MainProductLog`, and the dominant one is not the
+name-obvious one.** `utils.update_logs()` (`utils.py:611`) reads like the
+writer, but [[product_price_manager]]'s `PriceManager.apply(logs=True)`
+(`product_price_manager/models.py:302-308`) and `PriceTag.get_mp()`
+(`:426-434`) also insert rows, reached via module-level `update_prices()`
+(`:455`) — which has its own beat entry and is a step in the
+`sync_main_products_task` chain above. `get_mp()` is reached unconditionally
+every run: `update_prices()`'s `get_updated_mps()` helper calls it for every
+`PriceTag` with `p_manager__isnull=True` (three separate calls, `:488,493,498`
+— manual/orphan tags, as opposed to the `PriceManager.apply()` path for
+rule-driven ones). Any change to `MainProductLog` has to account for all
+three call sites, not just the one named after the model.
+
 `supplier_product_price`, `supplier_product_rrp` and
 `supplier_product_discount_price` are `tables.Column`s (`tables.py:39-41`)
 offered in `AVAILABLE_COLUMN_GROUPS` (`columns.py:36-38`), but they're not
