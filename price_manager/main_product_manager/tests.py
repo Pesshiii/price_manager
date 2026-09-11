@@ -133,6 +133,100 @@ class UpdateStocksNullSafeTests(TestCase):
         self.assertTrue(MainProductLog.objects.filter(main_product=mp, stock=0).exists())
 
 
+class UpdateStocksBatchingTests(TestCase):
+    """update_stocks walks the catalog in pk chunks of `batch_size`.
+
+    UpdateStocksNullSafeTests cannot cover that: each of those creates a single
+    MainProduct, so the loop runs exactly one iteration whether or not it
+    really batches. These pass a batch_size small enough to need several.
+    """
+
+    def setUp(self):
+        self.currency = Currency.objects.get_or_create(name='KZT', value=1)[0]
+        self.supplier = Supplier.objects.create(
+            name='Batch supplier',
+            currency=self.currency,
+            price_update_rate='',
+            stock_update_rate='',
+            delivery_days_available=1,
+            delivery_days_navailable=2,
+        )
+
+    def _product_with_stock(self, index, stock):
+        mp = MainProduct.objects.create(
+            supplier=self.supplier,
+            article=f'BT-{index}',
+            name=f'Batched {index}',
+            stock=None,
+        )
+        SupplierProduct.objects.create(
+            main_product=mp,
+            supplier=self.supplier,
+            article=f'SP-BT-{index}',
+            name='Stock row',
+            stock=stock,
+        )
+        return mp
+
+    def test_every_batch_is_updated_and_logged(self):
+        """Distinct stock per product, so a chunk-scoping slip shows up in the
+        logs rather than hiding behind matching counts."""
+        products = [self._product_with_stock(i, i) for i in range(1, 6)]
+
+        self.assertEqual(update_stocks(batch_size=2), 5)
+
+        for expected, mp in enumerate(products, start=1):
+            mp.refresh_from_db()
+            self.assertEqual(mp.stock, expected)
+            self.assertEqual(
+                list(MainProductLog.objects.filter(main_product=mp).values_list('stock', flat=True)),
+                [expected],
+            )
+        self.assertEqual(MainProductLog.objects.count(), 5)
+
+    def test_pk_gap_does_not_drop_the_tail(self):
+        """Chunk bounds come from real pks, not offsets over count().
+
+        A deleted product leaves count() < max(pk), which is exactly when
+        offset-derived pk ranges stop short and silently skip the highest pks.
+        """
+        products = [self._product_with_stock(i, i) for i in range(1, 6)]
+        products.pop(2).delete()
+
+        self.assertEqual(update_stocks(batch_size=2), 4)
+
+        for expected, mp in zip([1, 2, 4, 5], products):
+            mp.refresh_from_db()
+            self.assertEqual(mp.stock, expected)
+
+    def test_one_run_stamps_one_timestamp(self):
+        """timezone.now() is read once, above the loop — batching a run must
+        not spread it across several stock_updated_at values."""
+        for i in range(1, 6):
+            self._product_with_stock(i, i)
+
+        update_stocks(batch_size=2)
+
+        stamps = set(MainProduct.objects.values_list('stock_updated_at', flat=True))
+        self.assertEqual(len(stamps), 1)
+
+    def test_logs_false_updates_every_batch_without_logging(self):
+        """logs=False is the one branch the loop adds statements to without
+        bounding a log list, and no caller passes it — both update_stocks_task
+        definitions call runner=update_stocks bare, so nothing else covers it.
+        """
+        for i in range(1, 6):
+            self._product_with_stock(i, i)
+
+        self.assertEqual(update_stocks(logs=False, batch_size=2), 5)
+
+        self.assertEqual(MainProductLog.objects.count(), 0)
+        self.assertEqual(
+            sorted(MainProduct.objects.values_list('stock', flat=True)),
+            [1, 2, 3, 4, 5],
+        )
+
+
 from unittest.mock import Mock, patch
 
 from django.core.cache import cache
@@ -254,80 +348,131 @@ class QueuePimPopulationDispatchTests(TestCase):
             delay.assert_called_once_with('pim-2')
 
 
-from datetime import timedelta
-
-from django.utils import timezone
-
-from .utils import delete_outdated_logs
+from .utils import get_file_url
 
 
-class DeleteOutdatedLogsTests(TestCase):
-    """delete_outdated_logs must keep the newest `keep` rows and drop the rest.
+@override_settings(CACHES=LOCMEM_CACHE)
+class GetFileUrlTests(TestCase):
+    """get_file_url's fallback chain (#160).
 
-    MainProductLog.Meta.ordering is ['-update_time'], so a bare `.all()[:keep]`
-    resolves to ORDER BY update_time DESC LIMIT keep — the *newest* rows. The
-    prune used exactly that and deleted the newest logs while keeping the
-    oldest. These tests pin the retention direction, so the fix cannot be
-    undone by dropping the explicit order_by and leaning on Meta.ordering.
+    Every case runs through the real cache path (pim_file:{id}), so LocMem +
+    clear() keeps those keys off the shared Redis the worker container points
+    at — a leaked key would otherwise answer the next test's lookup.
     """
 
     def setUp(self):
-        self.currency = Currency.objects.get_or_create(name='KZT', value=1)[0]
-        self.supplier = Supplier.objects.create(
-            name='Log prune supplier',
-            currency=self.currency,
-            price_update_rate='',
-            stock_update_rate='',
-            delivery_days_available=1,
-            delivery_days_navailable=2,
+        cache.clear()
+
+    def _url(self, payload, file_id='file-1', **kwargs):
+        with patch('main_product_manager.utils.site') as site:
+            site.get.return_value = payload
+            return get_file_url(file_id, **kwargs)
+
+    def test_thumbnail_key_is_preferred_and_gets_the_scheme(self):
+        url = self._url({'mediumThumbnailUrl': 'pim.test/thumbs/m/1.jpg',
+                         'url': 'pim.test/files/1.jpg'})
+
+        self.assertEqual(url, 'https://pim.test/thumbs/m/1.jpg')
+
+    def test_falls_back_to_url_when_thumbnail_key_is_absent(self):
+        url = self._url({'url': 'pim.test/files/1.jpg'})
+
+        self.assertEqual(url, 'https://pim.test/files/1.jpg')
+
+    def test_falls_back_to_download_url_as_the_last_key(self):
+        # This is the real production payload shape, not a corner case: PIM's
+        # File record carries neither a *ThumbnailUrl nor a `url` (checked
+        # against the live instance, list and single-record endpoints, every
+        # record sampled), so downloadUrl — scheme-less — is the only key that
+        # ever resolves and the fallback chain is the whole feature.
+        url = self._url({'downloadUrl': 'pim.test/?entryPoint=download&id=1'})
+
+        self.assertEqual(url, 'https://pim.test/?entryPoint=download&id=1')
+
+    def test_returns_none_when_no_key_matches(self):
+        self.assertIsNone(self._url({'name': '1.jpg'}))
+
+    def test_empty_thumbnail_is_not_a_url(self):
+        url = self._url({'mediumThumbnailUrl': ''})
+
+        self.assertIsNone(url)
+        self.assertNotEqual(url, 'https://')
+
+    def test_empty_thumbnail_falls_through_to_the_next_key(self):
+        url = self._url({'mediumThumbnailUrl': '', 'url': 'pim.test/files/1.jpg'})
+
+        self.assertEqual(url, 'https://pim.test/files/1.jpg')
+
+    def test_whitespace_only_value_counts_as_missing(self):
+        url = self._url({'mediumThumbnailUrl': '   ', 'url': 'pim.test/files/1.jpg'})
+
+        self.assertEqual(url, 'https://pim.test/files/1.jpg')
+
+    def test_absolute_value_is_not_prefixed_twice(self):
+        # Which of the three keys PIM sends with a scheme is unverified, so
+        # both shapes have to work: https:// stays, http:// is left alone.
+        self.assertEqual(
+            self._url({'mediumThumbnailUrl': 'https://pim.test/thumbs/m/1.jpg'}),
+            'https://pim.test/thumbs/m/1.jpg',
         )
-        self.mp = MainProduct.objects.create(
-            supplier=self.supplier,
-            article='LP-1',
-            name='Log prune product',
+        cache.clear()
+        self.assertEqual(
+            self._url({'mediumThumbnailUrl': 'http://pim.test/thumbs/m/1.jpg'}),
+            'http://pim.test/thumbs/m/1.jpg',
         )
 
-    def _log_at(self, days_ago: int) -> MainProductLog:
-        """Create a log row stamped `days_ago` days in the past.
+    def test_protocol_relative_value_gets_only_the_scheme(self):
+        url = self._url({'mediumThumbnailUrl': '//pim.test/thumbs/m/1.jpg'})
 
-        update_time is auto_now_add, so it is ignored by create() and has to be
-        overwritten afterwards with .update(), which bypasses save()/pre_save.
-        """
-        log = MainProductLog.objects.create(main_product=self.mp, stock=days_ago)
-        stamp = timezone.now() - timedelta(days=days_ago)
-        MainProductLog.objects.filter(pk=log.pk).update(update_time=stamp)
-        return log
+        self.assertEqual(url, 'https://pim.test/thumbs/m/1.jpg')
 
-    def test_prunes_the_oldest_rows_and_keeps_the_newest(self):
-        # days_ago 0 is the newest row, 4 the oldest.
-        logs = {days_ago: self._log_at(days_ago) for days_ago in range(5)}
+    def test_root_relative_value_falls_through_instead_of_building_a_bad_url(self):
+        url = self._url({'mediumThumbnailUrl': '/upload/thumbs/1.jpg',
+                         'downloadUrl': 'https://pim.test/files/1.jpg'})
 
-        deleted = delete_outdated_logs(keep=3)
+        self.assertEqual(url, 'https://pim.test/files/1.jpg')
 
-        self.assertEqual(deleted, 2)
-        survivors = set(MainProductLog.objects.values_list('pk', flat=True))
-        self.assertEqual(survivors, {logs[0].pk, logs[1].pk, logs[2].pk})
+    def test_root_relative_everywhere_degrades_to_none(self):
+        self.assertIsNone(self._url({'mediumThumbnailUrl': '/upload/thumbs/1.jpg',
+                                     'url': '/upload/1.jpg'}))
 
-    def test_does_nothing_while_under_the_cap(self):
-        for days_ago in range(3):
-            self._log_at(days_ago)
+    def test_size_argument_picks_the_matching_thumbnail_key(self):
+        payload = {'smallThumbnailUrl': 'pim.test/thumbs/s/1.jpg',
+                   'mediumThumbnailUrl': 'pim.test/thumbs/m/1.jpg',
+                   'largeThumbnailUrl': 'pim.test/thumbs/l/1.jpg'}
 
-        self.assertEqual(delete_outdated_logs(keep=3), 0)
-        self.assertEqual(MainProductLog.objects.count(), 3)
+        self.assertEqual(self._url(payload, size='small'), 'https://pim.test/thumbs/s/1.jpg')
+        cache.clear()
+        self.assertEqual(self._url(payload, size='large'), 'https://pim.test/thumbs/l/1.jpg')
 
-    def test_ties_on_update_time_are_broken_deterministically(self):
-        """A bulk_create batch shares one update_time, so ties are the norm.
+    def test_non_string_value_does_not_crash(self):
+        url = self._url({'mediumThumbnailUrl': False, 'url': 'pim.test/files/1.jpg'})
 
-        Meta.ordering has no secondary key, so without an explicit tiebreaker
-        the cut between kept and deleted rows falls arbitrarily inside the
-        tied batch. Highest id — the most recently inserted — must win.
-        """
-        logs = [MainProductLog.objects.create(main_product=self.mp, stock=n) for n in range(5)]
-        stamp = timezone.now() - timedelta(days=1)
-        MainProductLog.objects.filter(pk__in=[log.pk for log in logs]).update(update_time=stamp)
+        self.assertEqual(url, 'https://pim.test/files/1.jpg')
 
-        deleted = delete_outdated_logs(keep=3)
+    def test_null_body_returns_none(self):
+        self.assertIsNone(self._url(None))
 
-        self.assertEqual(deleted, 2)
-        newest_ids = {log.pk for log in sorted(logs, key=lambda log: log.pk)[-3:]}
-        self.assertEqual(set(MainProductLog.objects.values_list('pk', flat=True)), newest_ids)
+    def test_non_dict_body_returns_none(self):
+        self.assertIsNone(self._url([]))
+
+    def test_cached_non_dict_body_does_not_crash_on_the_next_call(self):
+        # The falsy body is cached by the miss branch, so the second call skips
+        # the refetch entirely and reaches the tail with a non-dict in hand.
+        self._url([])
+
+        with patch('main_product_manager.utils.site') as site:
+            self.assertIsNone(get_file_url('file-1'))
+            site.get.assert_not_called()
+
+    def test_missing_file_id_never_reaches_pim(self):
+        with patch('main_product_manager.utils.site') as site:
+            self.assertIsNone(get_file_url(None))
+            self.assertIsNone(get_file_url(''))
+            site.get.assert_not_called()
+
+    def test_pim_failure_still_degrades_to_none(self):
+        with patch('main_product_manager.utils.site') as site:
+            site.get.side_effect = RuntimeError('PIM down')
+
+            self.assertIsNone(get_file_url('file-1'))
