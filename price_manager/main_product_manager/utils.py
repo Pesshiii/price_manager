@@ -66,10 +66,12 @@ def maybe_notify_pim_error(user) -> None:
 
 
 def _fetch_pim_product(pim_id: str) -> tuple[dict | None, bool]:
-    """Fetch a verified PIM `Product` (master record) by id straight from the API (no cache).
+    """GET a PIM `Product` by id straight from the API (no cache).
 
-    pim_id is the id of the verified/merged PIM `Product`, not a `ContributorProduct`
-    — see _search_pim_id_result for how it's resolved from MainProduct.sku.
+    pim_id is a PIM `Product` id — either one already stored on the MainProduct,
+    or one _search_pim_id found by matching sku against `Product.number`. It is
+    not a `ContributorProduct` id, which is why a single pim_id legitimately
+    spans several MainProducts (see sync_pim_relations).
 
     Returns (data, not_found) — not_found is True only on an explicit 404,
     so callers can tell "PIM deleted/renumbered this id" apart from a
@@ -207,38 +209,55 @@ def _search_pim_id_result(product) -> tuple[str | None, str]:
         # drop it and search again rather than guess which one it meant.
         cache.delete(cache_key)
 
-    if not product.sku:
-        return None, _SEARCH_NO_SKU
+def _search_pim_id(product) -> str | None:
+    """Resolve a MainProduct's pim_id by matching its sku against PIM `Product.number`.
+
+    One request: a `like` search on `Product.number` for `product.sku`, taking
+    the first id in the response. The `Product` is queried directly — there is
+    no `ContributorProduct` lookup and no `masterRecordId` hop, and
+    `priceManagerId` is not consulted.
+
+    Three things the code does not check, all of them current behaviour:
+
+    - **First match wins.** `like` can match several Products; nothing counts
+      or disambiguates them, so an sku that is a prefix of others links to
+      whichever PIM happens to return first.
+    - **`sku` is nullable** (`models.py:50-53`), and `Where` omits `value` from
+      the query string entirely when it is None (`pim_api/__init__.py:24-25`).
+      A product with no sku is therefore not skipped — it sends an
+      *unconstrained* `like` filter on `number`. What PIM returns for that is
+      not knowable from this repo.
+    - **An API error is indistinguishable from a miss.** The `except` records
+      the error and falls through to the no-match cache below, so a PIM outage
+      suppresses retries for _PIM_NO_MATCH_TTL exactly as a genuine miss does.
+      A scan interrupted by an outage resumes by skipping the rows the outage
+      hit, without a network call, until the flag expires.
+
+    Throttled by that no-match cache (_PIM_NO_MATCH_TTL) so unmatched products
+    are only retried periodically instead of on every lookup/task run; only
+    get_pim_data_for_product's 404-recovery path clears the flag early.
+    Does not persist the result — callers decide how/when to save it.
+    """
+    no_match_key = f"pim_no_match:{product.pk}"
+    if cache.get(no_match_key):
+        return None
 
     t0 = time.monotonic()
     try:
-        result = site.get(EntityList(
-            name='Product',
-            select=['id'],
-            where=[Where(attribute='number', type='like', value=product.sku)],
-        ))
+        result = site.get(
+            EntityList(
+                name='Product',
+                select=['id'],
+                where=[Where(attribute='number', type='like', value=product.sku)],
+            )
+        )
+        for item in result.get('list', []):
+            product_id = item.get('id')
+            if product_id:
+                return product_id
+        # No match is normal — don't treat as error, just set no-match cache below
     except Exception as exc:
         _record_pim_error("_search_pim_id", exc, int((time.monotonic() - t0) * 1000))
-        cache.set(cache_key, _SEARCH_ERROR, _PIM_SEARCH_ERROR_TTL)
-        return None, _SEARCH_ERROR
-
-    pim_ids = [item.get('id') for item in result.get('list', []) if item.get('id')]
-    if len(pim_ids) == 1:
-        return pim_ids[0], _SEARCH_FOUND
-    if pim_ids:
-        logger.warning(
-            "PIM number=%s matched %s products (MainProduct pk=%s) — linking none",
-            product.sku, len(pim_ids), product.pk,
-        )
-        cache.set(cache_key, _SEARCH_AMBIGUOUS, _PIM_NO_MATCH_TTL)
-        return None, _SEARCH_AMBIGUOUS
-
-    cache.set(cache_key, _SEARCH_ABSENT, _PIM_NO_MATCH_TTL)
-    return None, _SEARCH_ABSENT
-
-
-def _search_pim_id(product) -> str | None:
-    """The resolved id alone, for callers with nothing to decide on a miss.
 
     Anything that *writes* on a miss must call _search_pim_id_result and check
     the outcome instead — see push_missing_pim_products.
@@ -260,7 +279,9 @@ def get_pim_data_for_product(product, refresh: bool = False) -> dict | None:
 
     If the stored pim_id 404s _PIM_404_THRESHOLD times in a row (deleted/
     renumbered in PIM), get_pim_data clears it from the DB — detected here via
-    refresh_from_db — and it's re-resolved from sku before retrying once.
+    refresh_from_db — and it's re-resolved by sku before retrying once. The
+    no-match cache is dropped first; without that, _search_pim_id's 4h throttle
+    would short-circuit the re-resolve. This is the only place that clears it.
     """
     if not product.pim_id:
         _resolve_pim_id(product)
@@ -390,8 +411,42 @@ def prefetch_pim_data(products) -> dict:
     return result
 
 
+_PIM_FILE_URL_KEYS = ('url', 'downloadUrl')  # fallbacks, tried after {size}ThumbnailUrl
+
+
+def _absolute_pim_url(value) -> str | None:
+    """Turn one PIM File URL field into an absolute URL, or None if unusable.
+
+    Sampled against the live PIM (both the File list and the single-record
+    endpoint): only `downloadUrl` is ever present, always scheme-less
+    `host/path` — so `https://` is what actually gets prepended today, and
+    the `*ThumbnailUrl`/`url` branches are for a PIM that starts sending
+    them. Deciding the scheme per value rather than prepending it
+    unconditionally costs nothing and keeps that future from producing
+    "https://https://...". A root-relative path has no host to build on, so
+    it counts as unusable and lets the caller fall through to the next key
+    instead of emitting "https:///upload/...".
+    """
+    if not isinstance(value, str):
+        return None
+    value = value.strip()
+    if not value:
+        return None
+    if value.startswith(('http://', 'https://')):
+        return value
+    if value.startswith('//'):
+        return f'https:{value}'
+    if value.startswith('/'):
+        return None
+    return f'https://{value}'
+
+
 def get_file_url(file_id: str | None, size: str = 'medium') -> str | None:
-    """Return a thumbnail URL for a PIM File record. size: 'small', 'medium', 'large'."""
+    """Return an image URL for a PIM File record, or None if it has no usable one.
+
+    Tries `{size}ThumbnailUrl`, then `url`, then `downloadUrl` — in practice
+    only the last is populated. size: 'small', 'medium', 'large'.
+    """
     if not file_id:
         return None
     cache_key = f"pim_file:{file_id}"
@@ -404,8 +459,16 @@ def get_file_url(file_id: str | None, size: str = 'medium') -> str | None:
         except Exception as exc:
             _record_pim_error("get_file_url", exc, int((time.monotonic() - t0) * 1000))
             return None
-    return "https://" + data.get(f'{size}ThumbnailUrl') or data.get('url') or data.get('downloadUrl')
-
+    # isinstance, not `data is None`: site.get returns whatever PIM's body
+    # parses to, and a falsy non-None body (200 with `[]`) gets cached above,
+    # so every later call skips the refetch and lands here with a non-dict.
+    if not isinstance(data, dict):
+        return None
+    for key in (f'{size}ThumbnailUrl', *_PIM_FILE_URL_KEYS):
+        url = _absolute_pim_url(data.get(key))
+        if url:
+            return url
+    return None
 
 
 def _cache_key(user_id: int) -> str:
@@ -446,22 +509,37 @@ def update_stocks(logs: bool = True, batch_size: int = 10000) -> int:
     coalescing both sides made NULL -> 0 compare equal, so those products were
     never updated and never logged. The isnull branch stops matching after the
     first run, since the row is left with a non-NULL stock.
+
+    Walks the catalog in `batch_size` chunks of a pk snapshot taken up front,
+    so the MainProductLog list and its INSERT stay bounded instead of growing
+    with the number of changed products. The chunk bounds come from real pks
+    rather than offsets over count(), because a single gap in the id sequence
+    would make an offset-derived range stop short and silently skip the tail
+    of the catalog. Products created after the snapshot are picked up by the
+    next run. Every batch stamps the same stock_updated_at, so one run still
+    means one timestamp.
     """
     updated = 0
-    for i in range(0, MainProduct.objects.count(), batch_size):
-        stock_subq = (
-            SupplierProduct.objects
-            .filter(main_product_id=OuterRef('pk'))
-            .order_by('-updated_at')
-            .values('stock')[:1]
-        )
-        mps = MainProduct.objects.annotate(
+    now = timezone.now()
+    stock_subq = (
+        SupplierProduct.objects
+        .filter(main_product_id=OuterRef('pk'))
+        .order_by('-updated_at')
+        .values('stock')[:1]
+    )
+    pks = list(MainProduct.objects.order_by('pk').values_list('pk', flat=True))
+    for i in range(0, len(pks), batch_size):
+        chunk = pks[i:i + batch_size]
+        # chunk is a slice of every pk in pk order, so every existing product
+        # between its ends is inside it — the range bounds select exactly
+        # pk__in=chunk without shipping a batch_size-long IN list.
+        mps = MainProduct.objects.filter(pk__gte=chunk[0], pk__lte=chunk[-1]).annotate(
             new_stock=Coalesce(Subquery(stock_subq, output_field=IntegerField()), Value(0), output_field=IntegerField()),
         ).filter(Q(stock__isnull=True) | ~Q(stock=F('new_stock')))
         if logs:
             mpls = [MainProductLog(main_product=mp, stock=mp.new_stock) for mp in mps]
-            MainProductLog.objects.bulk_create(mpls)
-        updated += mps.update(stock=F('new_stock'), stock_updated_at=timezone.now())
+            MainProductLog.objects.bulk_create(mpls, batch_size=batch_size)
+        updated += mps.update(stock=F('new_stock'), stock_updated_at=now)
     return updated
 
 PIM_PRODUCT_ENTITY = 'PriceManagerProduct'
