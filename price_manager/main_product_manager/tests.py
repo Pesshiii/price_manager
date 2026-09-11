@@ -235,6 +235,7 @@ from django.test import override_settings
 
 from core.task_runner import dispatch_after_commit
 from . import tasks as mp_tasks
+from . import utils as mp_utils
 from .utils import _queue_pim_population
 
 # execute_locked_task's lock and _queue_pim_population's dedup flag both live in

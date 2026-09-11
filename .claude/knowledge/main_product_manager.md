@@ -34,14 +34,13 @@ than assumed.
 
 ## The PIM cache's render-path cost — and why it bites tests too
 
-`get_pim_data` (`utils.py:136`) on a cache miss does **both**: queues async
-population (`_queue_pim_population`, `utils.py:144`) and falls through, next
-line, to a synchronous `_fetch_pim_product(...)` (`utils.py:145`) — not an
+`get_pim_data` (`utils.py:138`) is synchronous on a cache miss or when
+`refresh=True` — `_fetch_pim_product(...)` (`utils.py:146`) runs in-line, no
 early return, so a cold cache blocks the request on a PIM HTTP round-trip.
-`get_file_url` (`utils.py:370`) has the same shape on a miss (`:380-387`),
+`get_file_url` (`utils.py:436`) has the same shape on a miss (`:446-453`),
 minus the queueing.
 
-`prefetch_pim_data` (`utils.py:322`) loops products one at a time, and
+`prefetch_pim_data` (`utils.py:388`) loops products one at a time, and
 `MainProductTableView.get_context_data` (`views.py:214`) then calls
 `get_file_url` again per entry (`views.py:226`): up to **2N** PIM calls per
 cold page (the main page paginates 5 categories at a time, `views.py:89`,
@@ -65,15 +64,15 @@ Creating `MainProduct`s is safe — `save()` doesn't reach PIM — but a test
 needing a populated `search_vector` should set it directly with
 `SearchVector` over local fields (`test_grouping.py:64-68`) instead of
 calling `rebuild_search_vector()`. `get_file_url` has its own direct-mock
-recipe instead (`GetFileUrlTests`, `tests.py:261`, patches
+recipe instead (`GetFileUrlTests`, `tests.py:356`, patches
 `main_product_manager.utils.site`).
 
 ## `get_file_url`'s PIM File payload — the precedence bug is fixed (#160/PR #169)
 
-`get_file_url` (`utils.py:370`) now loops over `(f'{size}ThumbnailUrl',
+`get_file_url` (`utils.py:436`) now loops over `(f'{size}ThumbnailUrl',
 *_PIM_FILE_URL_KEYS)`, `_PIM_FILE_URL_KEYS = ('url', 'downloadUrl')`
-(`utils.py:340`), normalizing each candidate through `_absolute_pim_url`
-(`utils.py:343-367`). Old bug: the return was
+(`utils.py:406`), normalizing each candidate through `_absolute_pim_url`
+(`utils.py:409-433`). Old bug: the return was
 `"https://" + data.get(f'{size}ThumbnailUrl') or data.get('url') or
 data.get('downloadUrl')` — `+` binds tighter than `or`, so a missing
 `{size}ThumbnailUrl` raised an uncaught `TypeError` before either fallback
@@ -117,21 +116,21 @@ either without re-deriving why `search_rank` lives as a separate
 
 ## `_search_pim_id_result`: one `like` on `number`, and why an empty answer has to say *why*
 
-`_search_pim_id_result(product) -> tuple[str | None, str]` (`utils.py:177`) is
-the resolver; `_search_pim_id` (`utils.py:244`) is a thin id-only wrapper kept
+`_search_pim_id_result(product) -> tuple[str | None, str]` (`utils.py:184`) is
+the resolver; `_search_pim_id` (`utils.py:251`) is a thin id-only wrapper kept
 for `_resolve_pim_id`, which has nothing to decide on a miss. One round-trip:
 `Where(attribute='number', type='like', value=product.sku)` against
 `EntityList(name='Product', select=['id'])` — a direct `Product` search, no
 `ContributorProduct` step, no `masterRecordId`, no `priceManagerId` fallback.
 
-The outcome is one of five (`utils.py:166-170`): `_SEARCH_FOUND`,
+The outcome is one of five (`utils.py:173-177`): `_SEARCH_FOUND`,
 `_SEARCH_ABSENT`, `_SEARCH_AMBIGUOUS`, `_SEARCH_ERROR`, `_SEARCH_NO_SKU`.
 **Only `_SEARCH_ABSENT` means PIM was asked and answered "no such product."**
 That distinction is load-bearing rather than tidy, because
-`push_missing_pim_products` (`utils.py:631`) *writes to PIM* — it creates a
+`push_missing_pim_products` (`utils.py:638`) *writes to PIM* — it creates a
 `PriceManagerProduct` — so anything else reaching it creates a duplicate
 record for a product that may already be there. `create_pim_links`
-(`utils.py:649`) and `reindex_pim_ids_batch` (`utils.py:721`) branch on the
+(`utils.py:656`) and `reindex_pim_ids_batch` (`utils.py:728`) branch on the
 outcome, not on `pim_id is None`. A new caller that writes on a miss must do
 the same.
 
@@ -156,11 +155,11 @@ rather than a bare flag, so `get_pim_data_for_product`'s single `cache.delete`
 on the 404-recovery path stays correct and there is no second key to leave
 stale. TTLs differ by reason: `_PIM_SEARCH_ERROR_TTL` = 5 min for an error,
 `_PIM_NO_MATCH_TTL` = 4h for a confirmed absence or an ambiguous match, those
-being conditions of the data rather than of the network (`utils.py:159-160`).
+being conditions of the data rather than of the network (`utils.py:166-167`).
 A legacy bare `True` matches no outcome, so it is dropped and re-searched
-instead of guessed at (`utils.py:205-210`).
+instead of guessed at (`utils.py:212-217`).
 
-**Both scans raise `PimSearchError` (`utils.py:173`)** when a search went
+**Both scans raise `PimSearchError` (`utils.py:180`)** when a search went
 unanswered — *after* their writes, so committed progress survives. It is the
 only durable signal there is: `maybe_notify_pim_error` is DEBUG-gated
 (`utils.py:45`) and prod runs under `settings.prod`, so `_PIM_LAST_ERROR_KEY`
@@ -180,7 +179,7 @@ product left the unlinked set: linked, or pushed to PIM and given the id
 `_push_pim_products` wrote back. An unsearchable product now does neither, so
 it would hold a slot and a `time.sleep(delay)` at the head of the window
 forever. No-sku rows are excluded from the queryset itself
-(`utils.py:650-663`); drop that exclusion if a search that works without an sku
+(`utils.py:657-670`); drop that exclusion if a search that works without an sku
 is ever added back. `_SEARCH_AMBIGUOUS` rows have no such containment by
 design — an ambiguous match is a data problem someone has to settle in PIM.
 
@@ -195,7 +194,7 @@ edges; this work closed them.
 
 **Testing.** `site` is bound into `utils`'s own namespace (`utils.py:16`), so
 tests patch `main_product_manager.utils.site`, **not** `pim_client.site`.
-`SearchPimIdOutcomeTests` and `PimScanPushGuardTests` (`tests.py:531`, `:657`)
+`SearchPimIdOutcomeTests` and `PimScanPushGuardTests` (`tests.py:532`, `:658`)
 are the pattern, both under `@override_settings(CACHES=LOCMEM_CACHE)` — the
 outcome cache has to be visible to in-process assertions rather than the
 worker container's shared Redis.
@@ -220,6 +219,19 @@ contend on the same Redis lock.
 
 ## Three columns that look like fields but aren't
 
+**Three writers feed `MainProductLog`, and the dominant one is not the
+name-obvious one.** `utils.update_logs()` (`utils.py:776`) reads like the
+writer, but [[product_price_manager]]'s `PriceManager.apply(logs=True)`
+(`product_price_manager/models.py:302-308`) and `PriceTag.get_mp()`
+(`:426-434`) also insert rows, reached via module-level `update_prices()`
+(`:455`) — which has its own beat entry and is a step in the
+`sync_main_products_task` chain above. `get_mp()` is reached unconditionally
+every run: `update_prices()`'s `get_updated_mps()` helper calls it for every
+`PriceTag` with `p_manager__isnull=True` (three separate calls, `:488,493,498`
+— manual/orphan tags, as opposed to the `PriceManager.apply()` path for
+rule-driven ones). Any change to `MainProductLog` has to account for all
+three call sites, not just the one named after the model.
+
 `supplier_product_price`, `supplier_product_rrp` and
 `supplier_product_discount_price` are `tables.Column`s (`tables.py:39-41`)
 offered in `AVAILABLE_COLUMN_GROUPS` (`columns.py:36-38`), but they're not
@@ -237,7 +249,7 @@ a genuine field but an orphan in the column picker: offered at
 `models.py:46-49` gives `pim_id` a plain `db_index=True` (added with #155),
 distinct from the `GinIndex` on `search_vector`. It isn't `unique` — several
 `MainProduct`s from different suppliers legitimately share one `pim_id`
-(`sync_pim_relations`'s docstring, `utils.py:296-301`), which is exactly
+(`sync_pim_relations`'s docstring, `utils.py:362-367`), which is exactly
 what `grouping.py` collapses into one head row.
 
 **The index removes a lookup cost, not the grouping cost.**
@@ -270,7 +282,7 @@ added the header row.
 
 ## `update_stocks` and `render_stock_msg` — NULL vs `0`, three copies of the check
 
-`update_stocks`'s docstring (`utils.py:428-447`) covers why the candidate
+`update_stocks`'s docstring (`utils.py:494-513`) covers why the candidate
 filter tests `stock__isnull` separately rather than coalescing both sides —
 that bug silently skipped never-synced products forever.
 `UpdateStocksNullSafeTests` (`tests.py:51`) guards it; each of its tests
@@ -296,16 +308,16 @@ control it updated 0 of 5 products in `UpdateStocksBatchingTests`, not merely
 the tail. `MainProduct.pk` is a `BigAutoField` whose sequence is never reset,
 so live pks sit far above `count()` in any real or test DB, and a single
 deleted row (`count() < max(pk)`) is enough to trigger the same gap in
-production. `update_stocks` (`utils.py:456-464`) instead snapshots
+production. `update_stocks` (`utils.py:522-528`) instead snapshots
 `pks = list(MainProduct.objects.order_by('pk').values_list('pk', flat=True))`
 once, then `chunk = pks[i:i+batch_size]` bounds the query with
 `pk__gte=chunk[0], pk__lte=chunk[-1]` — equivalent to `pk__in=chunk` (chunk is
 a contiguous slice of every existing pk in order, so nothing sits strictly
 between its ends) without shipping a `batch_size`-long IN list. Same
-gap-safe idiom as `iter_pim_id_pk_batches` (`utils.py:615-629`), which feeds
-`reindex_pim_ids_batch`'s `pk__in=pks` (`utils.py:645`).
+gap-safe idiom as `iter_pim_id_pk_batches` (`utils.py:711-725`), which feeds
+`reindex_pim_ids_batch`'s `pk__in=pks` (`utils.py:741`).
 
-`timezone.now()` (`utils.py:449`) is read once, above the loop — read
+`timezone.now()` (`utils.py:515`) is read once, above the loop — read
 per-iteration it produces one distinct `stock_updated_at` per chunk instead
 of one per run; guarded by
 `UpdateStocksBatchingTests.test_one_run_stamps_one_timestamp`
