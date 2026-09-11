@@ -49,15 +49,14 @@ early return, so a cold cache blocks the request on a PIM HTTP round-trip.
 the queueing.
 
 `prefetch_pim_data` (`utils.py:322`) loops products one at a time, and
-`MainProductTableView.get_context_data` (`views.py:186`) then calls
-`get_file_url` again per entry (`views.py:198`): up to **2N** PIM calls per
-cold page (the main page paginates 5 categories at a time, `views.py:89`,
-each firing its own `hx-trigger="load"` fetch, `tables_bycat.html:53,82`).
-**But calls dedupe by `pim_id`/file id, not by row** — `get_pim_data` caches
-on `pim_product:{pim_id}` (`:136`), `get_file_url` on `pim_file:{file_id}`
-(`:344`) — so real cost is bounded by distinct `pim_id`s on the page.
-`MainProductTable._pim` still reads `pim_map` by `record.pk`
-(`tables.py:230-231`).
+`MainProductTableView.get_context_data` (`views.py:186`) calls `get_file_url`
+again per entry (`views.py:198`). **Calls dedupe by `pim_id`/file id, not by
+row** — `get_pim_data` caches on `pim_product:{pim_id}` (`:136`),
+`get_file_url` on `pim_file:{file_id}` (`:344`) — so real cost per cold page
+is bounded by distinct `pim_id`s on the page, not row count (the main page
+paginates 5 categories at a time, `views.py:89`, each firing its own
+`hx-trigger="load"` fetch, `tables_bycat.html:53,82`). `MainProductTable._pim`
+still reads `pim_map` by `record.pk` (`tables.py:230-231`).
 
 **Rendering this table in a test makes live PIM HTTP calls unless patched.**
 Tests run under `settings.prod` with the placeholder `PIM_TOKEN`/`PIM_HOST`,
@@ -123,13 +122,43 @@ sane limit. Fan-out: `reindex_pim_ids_task` chunks pks via
 `iter_pim_id_pk_batches()` (`utils.py:558`) and queues one
 `reindex_pim_ids_batch_task` per chunk to run in parallel; `task_name` is
 uniquified per chunk (`tasks.py:190`) or they'd all contend on one Redis lock.
-`sync_main_products_task` (`tasks.py:143`) is a 12th function but not a task
-itself — no `@shared_task`, just `chain(...)`-ing the 11 into one
-`apply_async()` workflow (`tasks.py:144`); each link still goes through
-`execute_locked_task` on its own. Easy to confuse: `create_pim_links` only
+`sync_main_products_task` (`tasks.py:138`) is a 12th function but not a task
+itself — no `@shared_task`, just a `chain()` of six of the eleven
+(`rebuild_categories_task` → `recalculate_vectors_missing_task` →
+`update_prices_task` → `update_stocks_task` → `delete_outdated_logs_task` →
+`notify_sync_main_products_task`, `tasks.py:139-146`) run via
+`apply_async()` (`:147`); each link still goes through `execute_locked_task`
+on its own, and log pruning lands as the second-to-last step of every sync,
+not just off the beat schedule. Easy to confuse: `create_pim_links` only
 fills `pim_id__isnull=True`, while `reindex_pim_ids` re-searches PIM for
 **every** product (writing only the ones whose value changed), so
 `skip_non_empty=True` is what narrows it back to unlinked ones.
+
+## The beat schedule silently drops one task, and `lock_ttl` isn't a rate limiter
+
+`price_manager/price_manager/settings/celery.py:38-45`'s `CELERY_BEAT_SCHEDULE`
+dict has two entries under the identical key `'update-logs'` — the later one
+wins, so `main_product_manager.update_logs` is never scheduled, and the
+surviving entry gives `delete_outdated_logs` a bare `schedule: 60` where
+every sibling uses `*_MINUTES * 60`. Flagged, not fixed here —
+deliberately, since it's currently latent: `docker-compose.yml`'s
+`celery_worker` runs `celery -A price_manager worker -l info` with no `-B`,
+so `CELERY_BEAT_SCHEDULE` is never consulted anywhere in this repo's compose
+stack.
+
+**Check before re-fixing:** a fix already exists, unmerged, on
+`claude/zealous-jemison-a8c03e` (commit `e6a8440`) — a distinct
+`'delete-outdated-logs'` key plus two regression tests in `core/tests.py`.
+One reads the source with `ast` rather than `settings.CELERY_BEAT_SCHEDULE`,
+because by import time the duplicate is already gone: the dict just has one
+fewer entry and every surviving key is unique, so the loss is invisible at
+runtime. The other asserts every schedule entry names a registered Celery
+task, catching a misspelled name — the second way a task goes quietly idle.
+
+Don't assume `execute_locked_task`'s `lock_ttl` throttles a task's
+*frequency* either — see [[core]]: `core/task_runner.py:133-134` deletes the
+lock key in a `finally` right after each run, so it's only a crash-recovery
+ceiling, not a rate limit.
 
 ## Price fields and three columns that only look like fields
 
@@ -139,6 +168,19 @@ non-null ones. `kaspi_price` added by
 `migrations/0009_mainproduct_kaspi_price.py`. `product_price_manager` writes
 these — see [[product_price_manager]]. `MainProductLog` (`models.py:182`) is
 the price/stock history row.
+
+**Three writers feed `MainProductLog`, and the dominant one is not the
+name-obvious one.** `utils.update_logs()` (`utils.py:611`) reads like the
+writer, but [[product_price_manager]]'s `PriceManager.apply(logs=True)`
+(`product_price_manager/models.py:302-308`) and `PriceTag.get_mp()`
+(`:426-434`) also insert rows, reached via module-level `update_prices()`
+(`:455`) — which has its own beat entry and is a step in the
+`sync_main_products_task` chain above. `get_mp()` is reached unconditionally
+every run: `update_prices()`'s `get_updated_mps()` helper calls it for every
+`PriceTag` with `p_manager__isnull=True` (three separate calls, `:488,493,498`
+— manual/orphan tags, as opposed to the `PriceManager.apply()` path for
+rule-driven ones). Any change to `MainProductLog` has to account for all
+three call sites, not just the one named after the model.
 
 `supplier_product_price`, `supplier_product_rrp` and
 `supplier_product_discount_price` look like ordinary columns —
@@ -153,6 +195,64 @@ shows `—` for them (`test_grouping.py:237-251`). `kaspi_price` is a genuine
 field but an orphan in the picker: offered at `columns.py:33`, absent from
 `MainProductTable.Meta.fields` (`tables.py:100-127`) — selecting it does
 nothing.
+
+## `MainProductLog` pruning: the slice-direction trap (fixed) and its testing traps
+
+`MainProductLog.Meta.ordering = ['-update_time']` (`models.py:208`), and it
+has no secondary key. **General lesson: on this model a bare slice inherits
+that DESC order** — `[:n]` means newest-`n`, `[n:]` means
+everything-but-the-newest-`n`. `delete_outdated_logs_task` used to prune with
+`MainProductLog.objects.all()[:100000]`, which resolves to
+`ORDER BY update_time DESC LIMIT 100000` — it deleted the **newest** 100k rows
+and kept the oldest, inverting the task's purpose. Caught by printing
+`str(qs.query)`, not by reading the code. The runner is now
+`utils.delete_outdated_logs(keep=100_000)` (`utils.py:648`), which spells the
+order out — `order_by('-update_time', '-id')[keep:]` (`utils.py:663`), an
+*offset* slice — retention-cap semantics: keep the newest `keep`, delete the
+tail. Writing `order_by` explicitly, rather than trusting `Meta.ordering`, is
+the convention here now.
+
+**Why a retention cap, not "delete the oldest 100k".** The obvious-looking
+alternative, `order_by('update_time')[:100000]`, is wrong here: the guard
+threshold and the slice bound are the same number, so a table sitting at
+100,001 rows would collapse to a single surviving row, deleting logs written
+seconds earlier. That threshold-equals-bound shape is itself the evidence a
+retention cap was intended, not an oldest-purge.
+
+**A user-facing reader confirms which end matters.** `MainProductLogList`
+(`views.py:321`), routed `<int:pk>/logs` (`urls.py:23`,
+`mainproductlog-list`), renders one product's full history via
+`MainProductLogTable` (`tables.py:313-326`, `paginate=False`) — pruning
+direction is also this page's data, not just table housekeeping.
+
+**Testing trap — backdating `auto_now_add`.** `update_time` is
+`auto_now_add=True`, not nullable, with no `default=`. Both `Model.save()`
+and `QuerySet.bulk_create()` re-stamp it to `timezone.now()` on insert —
+confirmed by the model's own writers, not by reading Django internals:
+`utils.update_logs()` (`utils.py:642-643`) and `PriceManager.apply()`
+(`product_price_manager/models.py:306-307`) both `bulk_create()`
+`MainProductLog` rows without ever setting `update_time`, into a `NOT NULL`
+column with no column default — an insert that would fail if `bulk_create()`
+skipped the re-stamp. So `create(update_time=...)` and
+`bulk_create([MainProductLog(update_time=...)])` both silently discard an
+explicit value the same way; only `QuerySet.update()` doesn't re-stamp
+(`auto_now_add` fires only on insert). Backdate via
+`MainProductLog.objects.filter(pk=...).update(update_time=stamp)`. No other
+backdating helper exists in the repo, and `freezegun` isn't in
+`requirements.txt` (both grepped). Pattern: `tests.py::DeleteOutdatedLogsTests`
+(`tests.py:264-333`).
+
+**Testing trap — a shared `update_time` makes the tie-break untested by
+default.** `Meta.ordering` has no secondary key, so if two rows share an
+`update_time`, which is "newest" is undefined without `-id`.
+`test_ties_on_update_time_are_broken_deterministically` (`tests.py:318-333`)
+manufactures exactly that — five rows via `.create()`, then one
+`.filter(pk__in=...).update(update_time=stamp)` forcing an identical
+timestamp — and asserts the highest `id` (most recently inserted) survives a
+`keep=3` prune. Verified empirically: dropping `'-id'` from
+`delete_outdated_logs`'s `order_by` makes this test fail. A test backdating
+rows individually must give each a distinct `update_time`, or it collapses
+into this same tie by accident.
 
 ## `pim_id`: indexed since #155, but the index doesn't make grouping cheap
 
@@ -180,16 +280,14 @@ per category plus one for `categories__isnull=True` (the `else` branch at
 index can't serve this sort at all: `grp_key` is
 `Coalesce(NullIf(pim_id, ''), Cast('id', TextField()))` (`grouping.py:50-64`)
 — an expression, not the indexed column — so Postgres sorts every row in the
-bucket regardless. On a restored production snapshot: 156,016 of 156,481
-`MainProduct`s have no category, the largest real category holds 67 rows,
-and all 1,323 duplicated-`pim_id` groups sit in the uncategorised bucket
-(aggregates/counts only, per prod-snapshot rule 3). The window pass costs
-~+6ms on a ~67-row category table versus ~70ms -> ~3s on the ~156k-row
-uncategorised one (merge sort spilling ~107MB to disk); trimming to bare-id
-columns still floors ~1.6s — the partition sort over the whole bucket, not
-the `pim_id` lookup, is what's expensive. **Benchmark grouping changes
-against the uncategorised bucket** — it is effectively the whole catalog,
-and a category table always looks fast.
+bucket regardless. On a restored production snapshot (aggregates only, per
+prod-snapshot rule 3): 156,016 of 156,481 `MainProduct`s have no category,
+and all 1,323 duplicated-`pim_id` groups sit in that uncategorised bucket —
+the window pass costs single-digit milliseconds on a small category table
+but seconds on the ~156k-row uncategorised one, a merge sort spilling
+~107MB to disk (`work_mem`, not CPU, is the bottleneck). **Benchmark
+grouping changes against the uncategorised bucket** — it is effectively the
+whole catalog, and a category table always looks fast.
 
 ## `render_<column>` is silently skipped when the cell value is empty
 
@@ -229,7 +327,7 @@ copies.** `render_stock_msg` (`tables.py:166-186`) now branches on
 guards it — this file's old claim that no renderer had test coverage is
 stale, corrected here. `Supplier.get_delivery_days_for_stock`
 (`supplier_manager/models.py:109-122`) also branches on `stock is None`
-explicitly, though it still returns the same value as the zero case — now a
+explicitly, though it still returns the same value as the zero case — a
 documented, deliberate default, not a silent conflation. Unfixed:
 `core/templates/shopping_tab/includes/stock_badge.html:2,4` still tests
 truthy `product.stock` — see [[core]]; named here, not owned here.
