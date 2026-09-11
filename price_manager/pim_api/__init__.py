@@ -67,6 +67,19 @@ class Job(BaseModel):
         return httpx.get(url=prefix + 'Job/' + self.id, headers=headers, timeout=timeout)
 
 class ContributorProduct(BaseModel):
+    """Unreachable against the current PIM — kept pending confirmation.
+
+    Probed 2026-09-11: both /api/ContributorProduct and
+    /api/ContributorProduct/{id} return 404, identical to a deliberately
+    nonexistent entity, while Product/PriceManagerProduct/Category/File/Job all
+    return 401. The whole family went at once — Contributor, ContributorCategory,
+    ContributorBrand, Supplier and ProductFamily also 404 — which is what a
+    disabled *module* looks like from outside, and is indistinguishable from the
+    entities having been removed without a working API token to check metadata.
+
+    Nothing in this repo calls this class. Confirm in the PIM admin UI which of
+    the two it is before deleting it.
+    """
     id: str
     def get(self, prefix: str, headers: Dict[str, str], timeout: float = 5.0) -> httpx.Response:
         return httpx.get(url=prefix + 'ContributorProduct/' + self.id, headers=headers, timeout=timeout)

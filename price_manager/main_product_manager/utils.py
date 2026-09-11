@@ -8,7 +8,6 @@ from django.db.models import Value, OuterRef, Subquery, Q, F, Sum, IntegerField
 from django.utils import timezone
 from django.contrib.postgres.search import SearchVectorField, SearchVector
 from django.db.models.functions import Coalesce
-from django.conf import settings
 
 from pim_api import EntityList, Entity, Where, FileRecord, upsert_async as _upsert_async
 
@@ -41,9 +40,17 @@ def _record_pim_error(op: str, exc: Exception, elapsed_ms: int) -> None:
 
 
 def maybe_notify_pim_error(user) -> None:
-    """Create one throttled PersistentNotification per error window when PIM is failing."""
-    if not settings.DEBUG:
-        return
+    """Create one throttled PersistentNotification per error window when PIM is failing.
+
+    Deliberately *not* gated on settings.DEBUG. It used to be, which inverted the
+    intent: DEBUG defaults to false (settings/base.py), so the one environment
+    where a PIM outage actually costs something — production — was the one
+    environment that got no signal at all. Errors landed in the `pim_last_error`
+    cache key and nothing ever read it.
+
+    What keeps this from spamming is the per-user throttle below
+    (_PIM_NOTIF_THROTTLE_TTL), not the environment.
+    """
     if not user or not user.is_authenticated:
         return
     error_info = cache.get(_PIM_LAST_ERROR_KEY)
@@ -361,9 +368,9 @@ def _ensure_pim_category(pim_category_id: str) -> Category | None:
 def sync_pim_relations(pim_id: str, data: dict) -> int:
     """Sync manufacturer + categories for every MainProduct linked to this PIM Product id.
 
-    Several MainProducts (from different suppliers) can share the same pim_id, since
-    it now points at a verified/merged PIM `Product` rather than a per-supplier
-    ContributorProduct — so this updates all of them in one go.
+    Several MainProducts (from different suppliers) can share the same pim_id,
+    since it points at a single PIM `Product` matched by number/sku rather than
+    at anything per-supplier — so this updates all of them in one go.
     """
     products = list(MainProduct.objects.filter(pim_id=pim_id))
     if not products:
@@ -699,8 +706,10 @@ def create_pim_links(delay: float = 0.5, batch_size: int = 1000) -> tuple[int, i
     if unanswered:
         # Raised after the writes, so the progress above stays committed. The
         # run is recorded as an error instead of a success over a dead PIM:
-        # TaskRunHistory is the only durable signal, maybe_notify_pim_error
-        # being DEBUG-gated and prod running under settings.prod.
+        # TaskRunHistory is the durable signal. maybe_notify_pim_error now fires
+        # in prod too, but it is per-user and throttled, so it only reaches
+        # whoever happens to open the list — it does not record that this run
+        # went out over a PIM that never answered.
         raise PimSearchError(
             f'PIM не ответил на поиск по {unanswered} из {len(products)} товаров: '
             f'связано {len(result)}, создано в PIM {created}'
