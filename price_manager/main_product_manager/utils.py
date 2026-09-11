@@ -266,7 +266,7 @@ def _search_pim_id(product) -> str | None:
 
 def _resolve_pim_id(product) -> str | None:
     """Look up pim_id in PIM and persist it on the product if found."""
-    pim_id, _ = _search_pim_id(product)
+    pim_id = _search_pim_id(product)
     if pim_id:
         MainProduct.objects.filter(pk=product.pk).update(pim_id=pim_id)
         product.pim_id = pim_id
@@ -706,8 +706,10 @@ def create_pim_links(delay: float = 0.5, batch_size: int = 1000) -> tuple[int, i
     if unanswered:
         # Raised after the writes, so the progress above stays committed. The
         # run is recorded as an error instead of a success over a dead PIM:
-        # TaskRunHistory is the only durable signal, maybe_notify_pim_error
-        # being DEBUG-gated and prod running under settings.prod.
+        # TaskRunHistory is the durable signal. maybe_notify_pim_error now fires
+        # in prod too, but it is per-user and throttled, so it only reaches
+        # whoever happens to open the list — it does not record that this run
+        # went out over a PIM that never answered.
         raise PimSearchError(
             f'PIM не ответил на поиск по {unanswered} из {len(products)} товаров: '
             f'связано {len(result)}, создано в PIM {created}'

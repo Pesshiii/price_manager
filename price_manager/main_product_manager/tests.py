@@ -758,3 +758,47 @@ class PimScanPushGuardTests(_PimSearchTestCase):
         self.assertEqual(linked.pim_id, 'pim-new')
         self.assertEqual(errored.pim_id, 'pim-keep')
         self.assertEqual(push.call_args.args[0], [])
+
+
+from django.contrib.auth.models import User
+
+from core.models import PersistentNotification
+from .utils import _record_pim_error, maybe_notify_pim_error
+
+
+@override_settings(CACHES=LOCMEM_CACHE, DEBUG=False)
+class PimErrorNotificationTests(TestCase):
+    """maybe_notify_pim_error used to return early unless settings.DEBUG.
+
+    That inverted the intent: DEBUG defaults to false (settings/base.py), so
+    production — where a PIM outage actually costs something — was the one
+    environment that got no signal. DEBUG=False here is the point of the class,
+    not incidental. The throttle lives in the cache, hence locmem.
+    """
+
+    def setUp(self):
+        cache.clear()
+        self.user = User.objects.create_user(username='pim-watcher', password='pw')
+
+    def _notification_count(self):
+        return PersistentNotification.objects.filter(user=self.user).count()
+
+    def test_notifies_even_though_debug_is_false(self):
+        _record_pim_error('get_pim_data', RuntimeError('PIM down'), 12)
+
+        maybe_notify_pim_error(self.user)
+
+        self.assertEqual(self._notification_count(), 1)
+
+    def test_repeat_calls_are_throttled_per_user(self):
+        _record_pim_error('get_pim_data', RuntimeError('PIM down'), 12)
+
+        maybe_notify_pim_error(self.user)
+        maybe_notify_pim_error(self.user)
+
+        self.assertEqual(self._notification_count(), 1)
+
+    def test_no_recorded_error_means_no_notification(self):
+        maybe_notify_pim_error(self.user)
+
+        self.assertEqual(self._notification_count(), 0)
