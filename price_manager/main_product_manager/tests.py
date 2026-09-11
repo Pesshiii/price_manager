@@ -235,6 +235,7 @@ from django.test import override_settings
 
 from core.task_runner import dispatch_after_commit
 from . import tasks as mp_tasks
+from . import utils as mp_utils
 from .utils import _queue_pim_population
 
 # execute_locked_task's lock and _queue_pim_population's dedup flag both live in
@@ -478,164 +479,282 @@ class GetFileUrlTests(TestCase):
             self.assertIsNone(get_file_url('file-1'))
 
 
-from django.contrib.auth.models import User
-
-from core.models import PersistentNotification
+from . import utils as mp_utils
 from .utils import (
-    _PIM_SEARCH_ERROR_KEY, _record_pim_error, _search_pim_id, create_pim_links,
-    maybe_notify_pim_error,
+    PimSearchError,
+    _PIM_NO_MATCH_TTL,
+    _PIM_SEARCH_ERROR_TTL,
+    _SEARCH_ABSENT,
+    _SEARCH_AMBIGUOUS,
+    _SEARCH_ERROR,
+    _SEARCH_FOUND,
+    _SEARCH_NO_SKU,
+    _search_pim_id_result,
+    create_pim_links,
+    reindex_pim_ids_batch,
 )
 
 
-@override_settings(CACHES=LOCMEM_CACHE)
-class SearchPimIdErrorVsNoMatchTests(TestCase):
-    """_search_pim_id must not report a failed PIM call as "not in PIM".
+def _pim_list(*ids):
+    return {'list': [{'id': pim_id} for pim_id in ids]}
 
-    create_pim_links and reindex_pim_ids_batch turn a no-match into a brand new
-    PriceManagerProduct, so conflating the two creates duplicate PIM records for
-    products that were already there. LocMem + clear() keeps the no-match keys
-    off the shared Redis the worker container points at.
+
+class _PimSearchTestCase(TestCase):
+    """Shared fixture for the pim_id search: a supplier plus MainProduct factory.
+
+    _search_pim_id_result caches under pim_no_match:{pk}, so every test here
+    needs the locmem cache rather than the worker container's shared Redis.
     """
 
     def setUp(self):
         cache.clear()
         self.currency = Currency.objects.get_or_create(name='KZT', value=1)[0]
         self.supplier = Supplier.objects.create(
-            name='Pim search supplier',
+            name='PIM search supplier',
             currency=self.currency,
             price_update_rate='',
             stock_update_rate='',
             delivery_days_available=1,
             delivery_days_navailable=2,
         )
-        self.product = MainProduct.objects.create(
-            supplier=self.supplier, article='PS-1', sku='PS-1', name='Pim search 1'
+
+    def product(self, sku='SKU-1', **kwargs):
+        return MainProduct.objects.create(
+            supplier=self.supplier,
+            article=kwargs.pop('article', f'ART-{sku}'),
+            name=kwargs.pop('name', f'Product {sku}'),
+            sku=sku,
+            **kwargs,
         )
 
-    def test_hit_returns_the_id_and_reports_a_completed_search(self):
-        with patch('main_product_manager.utils.site') as site:
-            site.get.return_value = {'list': [{'id': 'pim-42'}]}
 
-            self.assertEqual(_search_pim_id(self.product), ('pim-42', True))
+@override_settings(CACHES=LOCMEM_CACHE)
+class SearchPimIdOutcomeTests(_PimSearchTestCase):
+    """An empty result from _search_pim_id_result has to say *why* it is empty.
 
-    def test_empty_result_is_a_real_no_match_and_is_cached(self):
-        with patch('main_product_manager.utils.site') as site:
-            site.get.return_value = {'list': []}
-
-            self.assertEqual(_search_pim_id(self.product), (None, True))
-
-        self.assertTrue(cache.get(f'pim_no_match:{self.product.pk}'))
-
-    def test_api_error_is_not_a_no_match_and_leaves_the_cache_clean(self):
-        with patch('main_product_manager.utils.site') as site:
-            site.get.side_effect = RuntimeError('PIM down')
-
-            self.assertEqual(_search_pim_id(self.product), (None, False))
-
-        # The cache-poisoning half of the bug: an outage used to suppress
-        # retries for _PIM_NO_MATCH_TTL on every product it touched, so the
-        # backlog stayed unsearched for hours after PIM came back.
-        self.assertIsNone(cache.get(f'pim_no_match:{self.product.pk}'))
-
-    def test_search_matches_the_number_attribute_against_sku(self):
-        with patch('main_product_manager.utils.site') as site:
-            site.get.return_value = {'list': []}
-            _search_pim_id(self.product)
-
-            entity_list = site.get.call_args.args[0]
-
-        self.assertEqual(entity_list.name, 'Product')
-        self.assertEqual(
-            [(w.attribute, w.value) for w in entity_list.where], [('number', 'PS-1')]
-        )
-
-    def test_a_failing_pim_is_only_probed_once_per_breaker_window(self):
-        """Without the breaker, dropping the failure cache would make every
-        _build_searchvector call fire its own HTTP request during an outage."""
-        other = MainProduct.objects.create(
-            supplier=self.supplier, article='PS-2', sku='PS-2', name='Pim search 2'
-        )
-        with patch('main_product_manager.utils.site') as site:
-            site.get.side_effect = RuntimeError('PIM down')
-
-            self.assertEqual(_search_pim_id(self.product), (None, False))
-            self.assertEqual(_search_pim_id(other), (None, False))
-
-            # Second product short-circuits on the global breaker, not a call.
-            self.assertEqual(site.get.call_count, 1)
-
-    def test_searching_resumes_once_the_breaker_lapses(self):
-        with patch('main_product_manager.utils.site') as site:
-            site.get.side_effect = RuntimeError('PIM down')
-            _search_pim_id(self.product)
-
-        self.assertTrue(cache.get(_PIM_SEARCH_ERROR_KEY))
-        cache.delete(_PIM_SEARCH_ERROR_KEY)  # stands in for the TTL expiring
-
-        with patch('main_product_manager.utils.site') as site:
-            site.get.return_value = {'list': [{'id': 'pim-7'}]}
-
-            self.assertEqual(_search_pim_id(self.product), ('pim-7', True))
-
-    def test_a_successful_search_does_not_write_the_breaker(self):
-        with patch('main_product_manager.utils.site') as site:
-            site.get.return_value = {'list': [{'id': 'pim-9'}]}
-            _search_pim_id(self.product)
-
-        self.assertIsNone(cache.get(_PIM_SEARCH_ERROR_KEY))
-
-    def test_failed_search_does_not_queue_the_product_for_creation(self):
-        with patch('main_product_manager.utils.site') as site, \
-             patch('main_product_manager.utils.push_missing_pim_products') as push:
-            site.get.side_effect = RuntimeError('PIM down')
-            push.return_value = 0
-
-            linked, created = create_pim_links(delay=0)
-
-        self.assertEqual((linked, created), (0, 0))
-        self.assertEqual(push.call_args.args[0], [])
-
-    def test_genuine_no_match_still_queues_the_product_for_creation(self):
-        with patch('main_product_manager.utils.site') as site, \
-             patch('main_product_manager.utils.push_missing_pim_products') as push:
-            site.get.return_value = {'list': []}
-            push.return_value = 0
-
-            create_pim_links(delay=0)
-
-        self.assertEqual(push.call_args.args[0], [self.product])
-
-
-@override_settings(CACHES=LOCMEM_CACHE, DEBUG=False)
-class PimErrorNotificationTests(TestCase):
-    """PIM-outage notifications used to be gated on settings.DEBUG, which meant
-    production — where DEBUG defaults to false, and where an outage actually
-    costs something — was the one environment that stayed silent.
+    Only _SEARCH_ABSENT means PIM answered; everything else is "unknown" and
+    must not reach push_missing_pim_products.
     """
 
-    def setUp(self):
-        cache.clear()
-        self.user = User.objects.create_user(username='pim-watcher', password='pw')
+    def test_single_match_returns_the_id(self):
+        product = self.product()
 
-    def _notification_count(self):
-        return PersistentNotification.objects.filter(user=self.user).count()
+        with patch.object(mp_utils, 'site') as site:
+            site.get.return_value = _pim_list('pim-42')
+            pim_id, outcome = _search_pim_id_result(product)
 
-    def test_notifies_even_though_debug_is_false(self):
-        _record_pim_error('get_pim_data', RuntimeError('PIM down'), 12)
+        self.assertEqual((pim_id, outcome), ('pim-42', _SEARCH_FOUND))
+        self.assertIsNone(cache.get(f'pim_no_match:{product.pk}'))
 
-        maybe_notify_pim_error(self.user)
+    def test_empty_result_is_a_confirmed_absence(self):
+        product = self.product()
 
-        self.assertEqual(self._notification_count(), 1)
+        with patch.object(mp_utils, 'site') as site:
+            site.get.return_value = _pim_list()
+            pim_id, outcome = _search_pim_id_result(product)
 
-    def test_repeat_calls_are_throttled_per_user(self):
-        _record_pim_error('get_pim_data', RuntimeError('PIM down'), 12)
+        self.assertIsNone(pim_id)
+        self.assertEqual(outcome, _SEARCH_ABSENT)
+        self.assertEqual(cache.get(f'pim_no_match:{product.pk}'), _SEARCH_ABSENT)
 
-        maybe_notify_pim_error(self.user)
-        maybe_notify_pim_error(self.user)
+    def test_pim_error_is_not_recorded_as_a_confirmed_absence(self):
+        product = self.product()
 
-        self.assertEqual(self._notification_count(), 1)
+        with patch.object(mp_utils, 'site') as site:
+            site.get.side_effect = RuntimeError('PIM down')
+            pim_id, outcome = _search_pim_id_result(product)
 
-    def test_no_recorded_error_means_no_notification(self):
-        maybe_notify_pim_error(self.user)
+        self.assertIsNone(pim_id)
+        self.assertEqual(outcome, _SEARCH_ERROR)
+        self.assertEqual(cache.get(f'pim_no_match:{product.pk}'), _SEARCH_ERROR)
 
-        self.assertEqual(self._notification_count(), 0)
+    def test_error_backoff_is_far_shorter_than_the_no_match_ttl(self):
+        # The whole point of defect 1: a PIM outage must cost minutes of
+        # suppressed retries, not the 4 hours a genuine absence gets.
+        product = self.product()
+        self.assertLess(_PIM_SEARCH_ERROR_TTL, _PIM_NO_MATCH_TTL)
+
+        with patch.object(mp_utils, 'site') as site, patch.object(mp_utils, 'cache') as cache_mock:
+            cache_mock.get.return_value = None
+            site.get.side_effect = RuntimeError('PIM down')
+            _search_pim_id_result(product)
+
+        # _record_pim_error writes _PIM_LAST_ERROR_KEY through the same cache,
+        # so assert on this call rather than on the only call.
+        cache_mock.set.assert_any_call(
+            f'pim_no_match:{product.pk}', _SEARCH_ERROR, _PIM_SEARCH_ERROR_TTL
+        )
+
+        with patch.object(mp_utils, 'site') as site, patch.object(mp_utils, 'cache') as cache_mock:
+            cache_mock.get.return_value = None
+            site.get.return_value = _pim_list()
+            _search_pim_id_result(product)
+
+        cache_mock.set.assert_called_once_with(
+            f'pim_no_match:{product.pk}', _SEARCH_ABSENT, _PIM_NO_MATCH_TTL
+        )
+
+    def test_cached_error_does_not_become_an_absence_on_the_next_call(self):
+        product = self.product()
+        cache.set(f'pim_no_match:{product.pk}', _SEARCH_ERROR, _PIM_SEARCH_ERROR_TTL)
+
+        with patch.object(mp_utils, 'site') as site:
+            pim_id, outcome = _search_pim_id_result(product)
+
+        site.get.assert_not_called()
+        self.assertIsNone(pim_id)
+        self.assertEqual(outcome, _SEARCH_ERROR)
+
+    def test_cached_absence_is_still_an_absence_on_the_next_call(self):
+        # The complement of the test above: caching the outcome must not cost
+        # the scans their one legitimate reason to push a product to PIM.
+        product = self.product()
+        cache.set(f'pim_no_match:{product.pk}', _SEARCH_ABSENT, _PIM_NO_MATCH_TTL)
+
+        with patch.object(mp_utils, 'site') as site:
+            pim_id, outcome = _search_pim_id_result(product)
+
+        site.get.assert_not_called()
+        self.assertIsNone(pim_id)
+        self.assertEqual(outcome, _SEARCH_ABSENT)
+
+    def test_a_bare_true_from_an_older_revision_triggers_a_fresh_search(self):
+        product = self.product()
+        cache.set(f'pim_no_match:{product.pk}', True, _PIM_NO_MATCH_TTL)
+
+        with patch.object(mp_utils, 'site') as site:
+            site.get.return_value = _pim_list('pim-7')
+            pim_id, outcome = _search_pim_id_result(product)
+
+        self.assertEqual((pim_id, outcome), ('pim-7', _SEARCH_FOUND))
+
+    def test_ambiguous_like_links_nothing(self):
+        # `like` on number: an sku that is a prefix of other product numbers
+        # matches several. Returning the first would link an arbitrary one.
+        product = self.product(sku='AB-1')
+
+        with patch.object(mp_utils, 'site') as site:
+            site.get.return_value = _pim_list('pim-1', 'pim-2')
+            pim_id, outcome = _search_pim_id_result(product)
+
+        self.assertIsNone(pim_id)
+        self.assertEqual(outcome, _SEARCH_AMBIGUOUS)
+        self.assertEqual(cache.get(f'pim_no_match:{product.pk}'), _SEARCH_AMBIGUOUS)
+
+    def test_product_without_sku_is_never_searched(self):
+        # Where.get() omits the value key when it is None, so the request would
+        # go out as an unconstrained `like` on number and match everything.
+        product = self.product(sku=None, article='NO-SKU')
+
+        with patch.object(mp_utils, 'site') as site:
+            pim_id, outcome = _search_pim_id_result(product)
+
+        site.get.assert_not_called()
+        self.assertIsNone(pim_id)
+        self.assertEqual(outcome, _SEARCH_NO_SKU)
+
+
+@override_settings(CACHES=LOCMEM_CACHE)
+class PimScanPushGuardTests(_PimSearchTestCase):
+    """The scans may only push products PIM actually confirmed it doesn't have.
+
+    push_missing_pim_products creates a new PriceManagerProduct, so pushing on
+    an unanswered search duplicates a product that may already be in PIM.
+    """
+
+    def _site_by_sku(self, responses):
+        """site.get double: maps the `number` filter value to a response/exception."""
+        def get(entity):
+            answer = responses[entity.where[0].value]
+            if isinstance(answer, Exception):
+                raise answer
+            return answer
+        return get
+
+    def test_create_pim_links_pushes_the_absence_but_not_the_failed_search(self):
+        absent = self.product(sku='ABSENT')
+        errored = self.product(sku='ERRORED')
+
+        with patch.object(mp_utils, 'site') as site, \
+                patch.object(mp_utils, 'push_missing_pim_products', return_value=0) as push:
+            site.get.side_effect = self._site_by_sku({
+                'ABSENT': _pim_list(),
+                'ERRORED': RuntimeError('PIM down'),
+            })
+            with self.assertRaises(PimSearchError):
+                create_pim_links(delay=0)
+
+        pushed = [p.pk for call in push.call_args_list for p in call.args[0]]
+        self.assertEqual(pushed, [absent.pk])
+        self.assertNotIn(errored.pk, pushed)
+
+    def test_create_pim_links_keeps_the_links_it_resolved_before_raising(self):
+        linked = self.product(sku='LINKED')
+        errored = self.product(sku='ERRORED')
+
+        with patch.object(mp_utils, 'site') as site, \
+                patch.object(mp_utils, 'push_missing_pim_products', return_value=0):
+            site.get.side_effect = self._site_by_sku({
+                'LINKED': _pim_list('pim-99'),
+                'ERRORED': RuntimeError('PIM down'),
+            })
+            with self.assertRaises(PimSearchError):
+                create_pim_links(delay=0)
+
+        linked.refresh_from_db()
+        errored.refresh_from_db()
+        self.assertEqual(linked.pim_id, 'pim-99')
+        self.assertIsNone(errored.pim_id)
+
+    def test_create_pim_links_succeeds_when_every_search_was_answered(self):
+        self.product(sku='LINKED')
+        self.product(sku='ABSENT')
+
+        with patch.object(mp_utils, 'site') as site, \
+                patch.object(mp_utils, 'push_missing_pim_products', return_value=1) as push:
+            site.get.side_effect = self._site_by_sku({
+                'LINKED': _pim_list('pim-1'),
+                'ABSENT': _pim_list(),
+            })
+            linked, created = create_pim_links(delay=0)
+
+        self.assertEqual((linked, created), (1, 1))
+        self.assertEqual(len(push.call_args_list[-1].args[0]), 1)
+
+    def test_create_pim_links_skips_products_with_no_sku_entirely(self):
+        # They cannot be searched and must not be pushed (the PIM record would
+        # carry number=''), so they must not consume a slot in the 1000-row
+        # window either.
+        searchable = self.product(sku='SEARCHABLE')
+        self.product(sku=None, article='NO-SKU')
+
+        with patch.object(mp_utils, 'site') as site, \
+                patch.object(mp_utils, 'push_missing_pim_products', return_value=0) as push:
+            site.get.side_effect = self._site_by_sku({'SEARCHABLE': _pim_list('pim-5')})
+            linked, created = create_pim_links(delay=0)
+
+        searchable.refresh_from_db()
+        self.assertEqual((linked, created), (1, 0))
+        self.assertEqual(searchable.pim_id, 'pim-5')
+        self.assertEqual(push.call_args.args[0], [])
+
+    def test_reindex_batch_raises_and_leaves_the_errored_product_alone(self):
+        linked = self.product(sku='LINKED', pim_id='pim-old')
+        errored = self.product(sku='ERRORED', pim_id='pim-keep')
+        unlinked = self.product(sku='ERRORED-NEW')
+
+        with patch.object(mp_utils, 'site') as site, \
+                patch.object(mp_utils, 'push_missing_pim_products', return_value=0) as push:
+            site.get.side_effect = self._site_by_sku({
+                'LINKED': _pim_list('pim-new'),
+                'ERRORED': RuntimeError('PIM down'),
+                'ERRORED-NEW': RuntimeError('PIM down'),
+            })
+            with self.assertRaises(PimSearchError):
+                reindex_pim_ids_batch([linked.pk, errored.pk, unlinked.pk], delay=0)
+
+        linked.refresh_from_db()
+        errored.refresh_from_db()
+        self.assertEqual(linked.pim_id, 'pim-new')
+        self.assertEqual(errored.pim_id, 'pim-keep')
+        self.assertEqual(push.call_args.args[0], [])

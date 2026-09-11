@@ -1,7 +1,14 @@
+import ast
+from pathlib import Path
+
+from django.conf import settings
 from django.core.cache import cache
 from django.db import connection
-from django.test import TransactionTestCase
+from django.test import SimpleTestCase, TransactionTestCase
 from django.utils import timezone
+
+from price_manager.celery import app as celery_app
+from price_manager.settings import celery as celery_settings
 
 from .models import TaskRunHistory
 from .task_runner import execute_locked_task
@@ -105,3 +112,40 @@ class ExecuteLockedTaskAtomicTests(TransactionTestCase):
         # The error-path history row is written outside the runner's transaction,
         # so it survives the rollback.
         self.assertTrue(TaskRunHistory.objects.filter(task_name="test.rollback", status="error").exists())
+
+
+class CeleryBeatScheduleTests(SimpleTestCase):
+    """The two ways a CELERY_BEAT_SCHEDULE entry silently stops running.
+
+    Neither raises anywhere: beat just schedules less than the file appears to
+    say, and the only symptom is a task that quietly stops showing up in
+    TaskRunHistory. Commit e0a5070 hit the first one -- it added a
+    delete_outdated_logs entry under the key 'update-logs' that was already
+    taken, so main_product_manager.update_logs stopped being scheduled while
+    the file still listed it.
+    """
+
+    def test_no_entry_is_overwritten_by_a_duplicate_key(self):
+        # Has to read the source, not settings.CELERY_BEAT_SCHEDULE. By the time
+        # the module is imported the duplicate is already gone: the dict just
+        # holds one fewer entry, every remaining key is distinct, and nothing
+        # runtime-visible says a task went missing.
+        tree = ast.parse(Path(celery_settings.__file__).read_text(encoding='utf-8'))
+        literal = next(
+            node.value
+            for node in ast.walk(tree)
+            if isinstance(node, ast.Assign)
+            and any(getattr(t, 'id', None) == 'CELERY_BEAT_SCHEDULE' for t in node.targets)
+        )
+        keys = [key.value for key in literal.keys]
+        duplicates = sorted({key for key in keys if keys.count(key) > 1})
+        self.assertEqual(duplicates, [], f'CELERY_BEAT_SCHEDULE keys repeated: {duplicates}')
+        self.assertEqual(len(keys), len(settings.CELERY_BEAT_SCHEDULE))
+
+    def test_every_scheduled_task_is_registered(self):
+        # autodiscover_tasks() is lazy; nothing has forced the app tasks modules
+        # to import in a test process.
+        celery_app.loader.import_default_modules()
+        for key, entry in settings.CELERY_BEAT_SCHEDULE.items():
+            with self.subTest(entry=key):
+                self.assertIn(entry['task'], celery_app.tasks)
