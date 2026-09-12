@@ -49,16 +49,26 @@ def link_products_to_pim_mirror(apps, schema_editor):
     # Один коррелированный UPDATE, а не запрос на каждый pim_id: строк здесь
     # порядка 156k. Для pim_id, которого нет в зеркале (слишком длинный),
     # подзапрос вернёт NULL — товар просто остаётся непривязанным.
-    updated = linkable.update(
+    touched = linkable.update(
         product_id=Subquery(
             Product.objects.filter(pim_id=OuterRef('pim_id')).values('id')[:1]
         )
     )
-    print(f'  0011: привязано MainProduct: {updated}')
+    # Считаем именно связанные, а не то, что вернул update(): тот отдаёт число
+    # строк, попавших под фильтр, включая те, которым подзапрос проставил NULL.
+    linked = MainProduct.objects.filter(product__isnull=False).count()
+    print(f'  0011: привязано MainProduct: {linked} (из {touched} со заполненным pim_id)')
 
 
 def unlink_products_from_pim_mirror(apps, schema_editor):
-    """Обратный ход: вернуть строковый pim_id из связанного Product."""
+    """Обратный ход: вернуть строковый pim_id из связанного Product.
+
+    Восстанавливает всё, что вообще представимо в FK. Не восстанавливаются
+    два случая, которых в связи физически нет: пустая строка возвращается как
+    NULL (FK не различает '' и NULL), и pim_id длиннее 64 символов — их
+    прямой ход пропустил, связи для них не было. Оба и так не привязывались
+    ни к чему, так что на поведении приложения это не сказывается.
+    """
     MainProduct = apps.get_model('main_product_manager', 'MainProduct')
     Product = apps.get_model('product', 'Product')
     MainProduct.objects.filter(product__isnull=False).update(

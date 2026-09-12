@@ -61,10 +61,20 @@ def group_key():
     дают одинаковый ключ — непривязанный товар молча уезжает в чужую группу.
     Старая версия жила без префикса только потому, что pim_id — строка, не
     похожая на маленькое целое.
+
+    Case/When, а не Coalesce поверх Concat: postgres-овый CONCAT() считает
+    NULL пустой строкой (в отличие от оператора ||), поэтому
+    Concat('pim-', NULL) даёт 'pim-', а не NULL — Coalesce никогда не
+    доходил бы до второй ветки, и ВСЕ непривязанные товары склеивались бы в
+    одну группу с ключом 'pim-'. Ровно та фальшивая группа, от которой этот
+    ключ и должен защищать.
     """
-    return Coalesce(
-        Concat(Value('pim-'), Cast('product_id', TextField()), output_field=TextField()),
-        Concat(Value('mp-'), Cast('id', TextField()), output_field=TextField()),
+    return Case(
+        When(
+            product__isnull=True,
+            then=Concat(Value('mp-'), Cast('id', TextField()), output_field=TextField()),
+        ),
+        default=Concat(Value('pim-'), Cast('product_id', TextField()), output_field=TextField()),
         output_field=TextField(),
     )
 
