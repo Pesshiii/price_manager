@@ -136,6 +136,12 @@ ever re-checking it. Switching costs nothing — bare `like` never did substring
 matching either (a genuine prefix returns no rows), so `equals` only removes
 the wildcard surface.
 
+Sampled alongside: 2400 consecutive `Product.number` values, **no duplicates**.
+So `_SEARCH_AMBIGUOUS` may be unreachable under `equals` in practice. It is
+kept anyway — the sample is not the whole 36k catalog, nothing checked
+guarantees uniqueness, and the guard costs one `len()`. Don't read a passing
+`test_ambiguous_match_links_nothing` as evidence PIM returns duplicates.
+
 The outcome is one of five (`utils.py:173-177`): `_SEARCH_FOUND`,
 `_SEARCH_ABSENT`, `_SEARCH_AMBIGUOUS`, `_SEARCH_ERROR`, `_SEARCH_NO_SKU`.
 **Only `_SEARCH_ABSENT` means PIM was asked and answered "no such product."**

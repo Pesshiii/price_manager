@@ -629,9 +629,10 @@ class SearchPimIdOutcomeTests(_PimSearchTestCase):
         self.assertEqual((pim_id, outcome), ('pim-7', _SEARCH_FOUND))
 
     def test_ambiguous_match_links_nothing(self):
-        # Nothing guarantees PIM `number` is unique, so a search can still come
-        # back with several products. Returning the first would link an
-        # arbitrary one.
+        # Kept under `equals`, though it may now be unreachable in practice: a
+        # sample of 2400 consecutive PIM numbers held no duplicates. Nothing
+        # checked *guarantees* `number` is unique, though, and the guard costs
+        # one len() — returning the first of several would link an arbitrary one.
         product = self.product(sku='AB-1')
 
         with patch.object(mp_utils, 'site') as site:
