@@ -78,6 +78,24 @@ survive between tool calls. Serializing stays the safe default; isolate when you
 genuinely need two stacks at once, and read "Which stack you are talking to" in
 `run-price-manager` first.
 
+`media/` is gitignored on the same principle, and that one costs more because it
+looks like a regression. A fresh worktree gets its own empty `media/`, and it
+does not inherit the main checkout's mode — inside the container it is 0755
+where the shared tree's is 0777, and the worker runs as uid 1011. Every
+`supplier_product_manager` test that creates a `SupplierFile` then dies with
+`PermissionError: [Errno 13] ... '/app/media/setting_<pk>'`: 16 errors in an
+otherwise-green suite, belonging to neither the branch nor the code under test.
+Once per worktree:
+
+```bash
+docker compose run --rm --no-deps --user root -T celery_worker sh -c 'mkdir -p /app/media && chmod -R 777 /app/media'
+```
+
+`chmod` from Git Bash on the host does not change the mode the container sees —
+that only works from inside a container. And it has to be `run --no-deps` (so it
+does not start the shared `db`/`redis`), not `exec`: `exec` attaches to the
+running container, whose `/app` is whichever tree last ran `up`.
+
 ## Direction of travel — read this before adding code
 
 There are two product catalogs in the tree. **They are not peers, and the newer one is not the future.**
