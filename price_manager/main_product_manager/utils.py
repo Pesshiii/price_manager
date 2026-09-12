@@ -771,6 +771,10 @@ def create_pim_links(delay: float = 0.5, batch_size: int = 1000) -> tuple[int, i
     # here so it doesn't hold a slot — and a delay — against products the scan
     # can still resolve. Drop the exclusion if a search that works without an
     # sku is ever added back.
+    # Без select_related('product') намеренно, в отличие от
+    # reindex_pim_ids_batch: выборка — ровно непривязанные товары, и цикл ниже
+    # связь только пишет, ни разу не зовя _pim_id_of. Если сюда добавится
+    # чтение текущей связи — select_related станет обязателен.
     products = list(
         MainProduct.objects
         .filter(product__isnull=True)
