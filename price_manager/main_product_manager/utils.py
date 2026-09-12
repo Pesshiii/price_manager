@@ -191,21 +191,30 @@ class PimSearchError(RuntimeError):
 def _search_pim_id_result(product) -> tuple[str | None, str]:
     """Resolve a MainProduct's pim_id in PIM — returns (pim_id, outcome).
 
-    The search is one `like` on the PIM `Product` attribute `number`, matched
-    against `product.sku`. `outcome` is one of the _SEARCH_* constants, and
-    callers must not collapse it back to "found or not": only _SEARCH_ABSENT
-    means PIM was reached and answered that it holds no such product. The other
-    three misses all mean "unknown", and treating one of them as an absence is
-    what makes push_missing_pim_products create a second PIM record for a
-    product that may already be in there:
+    The search is one `equals` on the PIM `Product` attribute `number`, matched
+    against `product.sku`. It must not be `like`: AtroPIM passes that value
+    straight into a SQL LIKE, so `_` matches any single character and `%`
+    matches anything. Verified against the live API — `like '2001_-04_z01'`
+    returns the product numbered `20015-04_z01`, and `like '%'` returns the
+    whole catalog — and PIM numbers routinely contain `_` (`20015-04_z01`,
+    `20110-8_z02`) while sku is supplier-supplied. `equals` matches both
+    characters literally and costs nothing: bare `like` never did substring
+    matching anyway (a genuine prefix returns no rows).
+
+    `outcome` is one of the _SEARCH_* constants, and callers must not collapse
+    it back to "found or not": only _SEARCH_ABSENT means PIM was reached and
+    answered that it holds no such product. The other three misses all mean
+    "unknown", and treating one of them as an absence is what makes
+    push_missing_pim_products create a second PIM record for a product that may
+    already be in there:
 
     - _SEARCH_ERROR — the request failed, so nothing was learned.
-    - _SEARCH_AMBIGUOUS — `like` matched several products, so no single one is
-      *the* match. Returning the first (as this used to) links the product to
+    - _SEARCH_AMBIGUOUS — the search matched several products, so no single one
+      is *the* match. Returning the first (as this used to) links the product to
       whichever one PIM happened to list first.
     - _SEARCH_NO_SKU — no sku to search by, so PIM is never asked. Where.get()
       drops the value key when it is None (pim_api/__init__.py:24-25), so the
-      request would otherwise go out as an unconstrained `like` on `number`.
+      request would otherwise go out as an unconstrained match on `number`.
 
     Misses are throttled through one cache key, pim_no_match:{pk}, holding the
     outcome that wrote it: a confirmed absence and an ambiguous match are
@@ -232,7 +241,7 @@ def _search_pim_id_result(product) -> tuple[str | None, str]:
             EntityList(
                 name='Product',
                 select=['id'],
-                where=[Where(attribute='number', type='like', value=product.sku)],
+                where=[Where(attribute='number', type='equals', value=product.sku)],
             )
         )
     except Exception as exc:
@@ -648,7 +657,7 @@ def push_missing_pim_products(products, batch_size: int = 1000, delay: float = 0
     Callers must pass only products already confirmed absent from PIM —
     pim_id is None and _search_pim_id_result just came back _SEARCH_ABSENT.
     This doesn't re-check, so every other empty outcome (a failed request, an
-    ambiguous `like`, a product with no sku to search by) must be filtered out
+    ambiguous match, a product with no sku to search by) must be filtered out
     by the caller: PIM cannot confirm an absence it was never asked about, and
     pushing on one creates a duplicate record for a product already in there.
     """

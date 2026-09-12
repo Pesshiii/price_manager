@@ -114,14 +114,33 @@ workaround in place; the trap is real, not hypothetical, so don't drop
 either without re-deriving why `search_rank` lives as a separate
 `@staticmethod`.
 
-## `_search_pim_id_result`: one `like` on `number`, and why an empty answer has to say *why*
+## `_search_pim_id_result`: one `equals` on `number`, and why an empty answer has to say *why*
 
 `_search_pim_id_result(product) -> tuple[str | None, str]` (`utils.py:184`) is
 the resolver; `_search_pim_id` (`utils.py:251`) is a thin id-only wrapper kept
 for `_resolve_pim_id`, which has nothing to decide on a miss. One round-trip:
-`Where(attribute='number', type='like', value=product.sku)` against
+`Where(attribute='number', type='equals', value=product.sku)` against
 `EntityList(name='Product', select=['id'])` — a direct `Product` search, no
 `ContributorProduct` step, no `masterRecordId`, no `priceManagerId` fallback.
+
+**It must stay `equals`, and this was measured, not reasoned.** AtroPIM passes
+a `like` value straight into a SQL LIKE: against the live API
+`like '2001_-04_z01'` returns the product numbered `20015-04_z01` (so `_` is a
+single-character wildcard) and `like '%'` returns all 36k rows. PIM numbers
+routinely carry `_` — `20015-04_z01`, `20110-8_z02` — and sku is
+supplier-supplied, so under `like` a sku can match a *different* product.
+The `_SEARCH_AMBIGUOUS` guard does not save you there: it only fires on >1
+match, and the dangerous case is exactly one wrong match, which returns
+`_SEARCH_FOUND` and gets written to the DB by `_resolve_pim_id` with nothing
+ever re-checking it. Switching costs nothing — bare `like` never did substring
+matching either (a genuine prefix returns no rows), so `equals` only removes
+the wildcard surface.
+
+Sampled alongside: 2400 consecutive `Product.number` values, **no duplicates**.
+So `_SEARCH_AMBIGUOUS` may be unreachable under `equals` in practice. It is
+kept anyway — the sample is not the whole 36k catalog, nothing checked
+guarantees uniqueness, and the guard costs one `len()`. Don't read a passing
+`test_ambiguous_match_links_nothing` as evidence PIM returns duplicates.
 
 The outcome is one of five (`utils.py:173-177`): `_SEARCH_FOUND`,
 `_SEARCH_ABSENT`, `_SEARCH_AMBIGUOUS`, `_SEARCH_ERROR`, `_SEARCH_NO_SKU`.
@@ -136,7 +155,7 @@ the same.
 
 **The three edges this closed.** Until then the search returned the first
 non-empty id with no count check; a no-sku product was not skipped but sent an
-*unconstrained* `like` (`Where.get()` omits the `value` key entirely when it is
+*unconstrained* match (`Where.get()` omits the `value` key entirely when it is
 None, `pim_api/__init__.py:24-25`); and an API error fell through to the same
 `cache.set(no_match_key, True, ...)` as a genuine miss. The last one was the
 severe one, and not for the reason it looks: a PIM outage mid-scan did not just
