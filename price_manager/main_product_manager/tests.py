@@ -44,6 +44,7 @@ class ManufacturerWidgetTests(TestCase):
 
 from supplier_manager.models import Currency, Supplier
 from supplier_product_manager.models import SupplierProduct
+from product.models import Product as PimProduct
 from .models import MainProduct, MainProductLog
 from .utils import update_stocks
 
@@ -519,6 +520,10 @@ class _PimSearchTestCase(TestCase):
         )
 
     def product(self, sku='SKU-1', **kwargs):
+        # pim_id= — удобство фабрики: связь теперь FK на product.Product.
+        pim_id = kwargs.pop('pim_id', None)
+        if pim_id:
+            kwargs['product'] = PimProduct.objects.get_or_create(pim_id=pim_id)[0]
         return MainProduct.objects.create(
             supplier=self.supplier,
             article=kwargs.pop('article', f'ART-{sku}'),
@@ -730,8 +735,8 @@ class PimScanPushGuardTests(_PimSearchTestCase):
 
         linked.refresh_from_db()
         errored.refresh_from_db()
-        self.assertEqual(linked.pim_id, 'pim-99')
-        self.assertIsNone(errored.pim_id)
+        self.assertEqual(linked.product.pim_id, 'pim-99')
+        self.assertIsNone(errored.product)
 
     def test_create_pim_links_succeeds_when_every_search_was_answered(self):
         self.product(sku='LINKED')
@@ -762,7 +767,7 @@ class PimScanPushGuardTests(_PimSearchTestCase):
 
         searchable.refresh_from_db()
         self.assertEqual((linked, created), (1, 0))
-        self.assertEqual(searchable.pim_id, 'pim-5')
+        self.assertEqual(searchable.product.pim_id, 'pim-5')
         self.assertEqual(push.call_args.args[0], [])
 
     def test_reindex_batch_raises_and_leaves_the_errored_product_alone(self):
@@ -782,8 +787,8 @@ class PimScanPushGuardTests(_PimSearchTestCase):
 
         linked.refresh_from_db()
         errored.refresh_from_db()
-        self.assertEqual(linked.pim_id, 'pim-new')
-        self.assertEqual(errored.pim_id, 'pim-keep')
+        self.assertEqual(linked.product.pim_id, 'pim-new')
+        self.assertEqual(errored.product.pim_id, 'pim-keep')
         self.assertEqual(push.call_args.args[0], [])
 
 

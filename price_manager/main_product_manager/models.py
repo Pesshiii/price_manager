@@ -43,10 +43,12 @@ class MainProduct(models.Model):
         indexes = [
           GinIndex(fields=['search_vector']),
         ]
-    pim_id = models.CharField(verbose_name='Id для системы Pim',
+    product = models.ForeignKey('product.Product',
+                              verbose_name='Товар PIM',
+                              related_name='main_products',
+                              on_delete=models.SET_NULL,
                               null=True,
-                              blank=True,
-                              db_index=True)
+                              blank=True)
     sku = models.CharField(verbose_name='Артикул товара',
                          null=True,
                          blank=True,
@@ -148,10 +150,10 @@ class MainProduct(models.Model):
         ]
     def _build_searchvector(self) -> SearchVector:
         """Собираем строку для поиска без join-ов."""
-        from main_product_manager.utils import _resolve_pim_id, get_pim_data
-        if self.pim_id is None:
+        from main_product_manager.utils import _pim_id_of, _resolve_pim_id, get_pim_data
+        if self.product_id is None:
             _resolve_pim_id(self)
-        pim_product = get_pim_data(self.pim_id) or {}
+        pim_product = get_pim_data(_pim_id_of(self)) or {}
         # Значения, а не field references ("supplier__name") - bulk_update()/update()
         # не допускают joined-полей в выражении SET.
         supplier_name = self.supplier.name if self.supplier_id else ''

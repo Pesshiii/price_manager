@@ -15,7 +15,7 @@ PIM-запросы заглушены в GroupingTestCase.setUp, поэтому 
 /api/Product/PIM-1. Рабочие PIM-креды из корневого .env отвечают на
 несуществующий id честным 404 (раньше токен отвергался, и 401 за 404 не
 считался), а на третий такой ответ — _PIM_404_THRESHOLD — _note_pim_404
-выполняет MainProduct.objects.filter(pim_id='PIM-1').update(pim_id=None),
+выполняет MainProduct.objects.filter(product__pim_id='PIM-1').update(product=None),
 обнуляя фикстуры прямо посреди прогона. Счётчик 404 лежит в общем Redis и
 копится через все тесты, поэтому поодиночке тесты проходили, а на полном
 прогоне падал test_head_stays_first_on_descending_sort: схлопывать стало
@@ -30,6 +30,7 @@ from django.contrib.postgres.search import SearchVector
 from django.test import RequestFactory, TestCase, override_settings
 from django.urls import reverse
 
+from product.models import Product as PimProduct
 from supplier_manager.models import Category, Currency, Supplier
 
 from .columns import DEFAULT_VISIBLE_COLUMNS
@@ -100,6 +101,12 @@ class GroupingTestCase(TestCase):
         )
 
     def make_product(self, article, category=None, **kwargs):
+        # pim_id= оставлен как удобство фабрики: связь теперь FK на
+        # product.Product, но тесты группировки рассуждают именно в терминах
+        # «эти товары — один товар PIM». Пустой/None — товар без привязки.
+        pim_id = kwargs.pop('pim_id', None)
+        if pim_id:
+            kwargs['product'] = PimProduct.objects.get_or_create(pim_id=pim_id)[0]
         product = MainProduct.objects.create(
             article=article,
             name=kwargs.pop('name', f'Товар {article}'),
@@ -180,18 +187,44 @@ class GroupFormationTests(GroupingTestCase):
         self.assertEqual(self.head_rows(html), [])
         self.assertNotIn('mp-group-member', html)
 
-    def test_null_and_blank_pim_id_never_group(self):
-        """PARTITION BY по голому pim_id склеил бы их всех в одну фальшивую группу."""
+    def test_unlinked_products_never_group(self):
+        """PARTITION BY по голому product_id склеил бы их всех в одну фальшивую группу.
+
+        В SQL все NULL в PARTITION BY равны друг другу. Ветка пустой строки из
+        старого теста ушла вместе с колонкой: FK бывает только числом или NULL.
+        """
         supplier = self.make_supplier('A')
         self.make_product('N-1', self.category, pim_id=None, supplier=supplier)
         self.make_product('N-2', self.category, pim_id=None, supplier=supplier)
-        self.make_product('E-1', self.category, pim_id='', supplier=supplier)
-        self.make_product('E-2', self.category, pim_id='', supplier=supplier)
+        self.make_product('N-3', self.category, pim_id=None, supplier=supplier)
 
         html = self.fetch(self.category)
 
         self.assertEqual(self.head_rows(html), [])
         self.assertNotIn('mp-group-member', html)
+
+    def test_unlinked_product_does_not_join_group_with_matching_product_id(self):
+        """Ключ партиции мешает два независимых пространства целочисленных PK.
+
+        product_id и MainProduct.id считаются своими счётчиками, поэтому без
+        префикса в group_key() непривязанный товар с id = N молча уезжает в
+        группу товаров, привязанных к Product с id = N. Со строковым pim_id
+        этого не могло случиться — он не похож на маленькое целое, — а с FK
+        может, и только на проде, где номера успели разойтись.
+        """
+        supplier_a = self.make_supplier('A')
+        supplier_b = self.make_supplier('B')
+        unlinked = self.make_product('C-1', self.category, supplier=supplier_a)
+        # id задан явно: нужен Product ровно с номером непривязанного товара.
+        pim_product = PimProduct.objects.create(id=unlinked.pk, pim_id='PIM-COLLIDE')
+        self.make_product('A-1', self.category, supplier=supplier_a, product=pim_product)
+        self.make_product('A-2', self.category, supplier=supplier_b, product=pim_product)
+
+        html = self.fetch(self.category)
+
+        # Группа ровно одна и ровно из двух членов: C-1 в неё не затесался.
+        self.assertEqual(len(self.head_rows(html)), 1)
+        self.assertEqual(html.count('mp-group-member'), 2)
 
     def test_filter_breaking_a_pair_returns_it_to_a_flat_row(self):
         """Группа считается по отфильтрованному queryset, а не по всему каталогу."""

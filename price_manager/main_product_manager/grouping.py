@@ -1,6 +1,6 @@
-"""Схлопывание MainProduct с общим pim_id в строку-представитель на главной.
+"""Схлопывание MainProduct с общим товаром PIM в строку-представитель на главной.
 
-Несколько MainProduct законно делят один pim_id — это всегда записи разных
+Несколько MainProduct законно делят один product — это всегда записи разных
 поставщиков (см. docstring sync_pim_relations в utils.py). На главной такие
 записи показываются одной строкой-заголовком, а сами становятся скрытыми
 строками-членами под ней.
@@ -23,7 +23,7 @@ from django.db.models import (
     When,
     Window,
 )
-from django.db.models.functions import Cast, Coalesce, FirstValue, NullIf, RowNumber
+from django.db.models.functions import Cast, Coalesce, Concat, FirstValue, RowNumber
 
 # Ценовые колонки, участвующие в поколоночном сквозном выборе по price_priority.
 # Три колонки supplier_product_* сюда НЕ входят: это коррелированные Subquery из
@@ -48,18 +48,23 @@ NO_STOCK_DATA = 'Нет данных'
 
 
 def group_key():
-    """Ключ партиции.
+    """Ключ партиции — по FK на product.Product, а не по join к его pim_id.
 
-    В SQL все NULL в PARTITION BY равны друг другу, поэтому голый pim_id собрал
-    бы все непроиндексированные товары в одну фальшивую группу. Пустая строка
-    приезжает из CSV-импорта (MainProductPimImportResource кладёт колонку ID
-    голым fields.Field, без виджета и clean), так что её надо гасить наравне с
-    NULL. Одно выражение закрывает оба случая: такая строка попадает в партицию
-    из самой себя, grp_size = 1, заголовок не рисуется.
+    В SQL все NULL в PARTITION BY равны друг другу, поэтому голый product_id
+    собрал бы все непривязанные товары в одну фальшивую группу. Непривязанная
+    строка падает на собственный id и попадает в партицию из самой себя,
+    grp_size = 1, заголовок не рисуется. Случая пустой строки больше нет: FK
+    бывает только числом или NULL.
+
+    Обе ветки ОБЯЗАНЫ быть с префиксом. Это два разных пространства
+    целочисленных PK, и без префикса product_id = 42 и MainProduct.id = 42
+    дают одинаковый ключ — непривязанный товар молча уезжает в чужую группу.
+    Старая версия жила без префикса только потому, что pim_id — строка, не
+    похожая на маленькое целое.
     """
     return Coalesce(
-        NullIf(F('pim_id'), Value('')),
-        Cast('id', TextField()),
+        Concat(Value('pim-'), Cast('product_id', TextField()), output_field=TextField()),
+        Concat(Value('mp-'), Cast('id', TextField()), output_field=TextField()),
         output_field=TextField(),
     )
 
@@ -125,6 +130,11 @@ def annotate_groups(queryset, selected_columns, searching=False):
     seq_order = [F('rank').desc(), *_member_order('price')] if searching else _member_order('price')
 
     annotations = {
+        # Не оконная — просто join к product.Product: внутри партиции
+        # product_id постоянен, значит и pim_id тоже. Нужен только заголовку
+        # (GroupHeadRecord.__str__); FK-join «многие к одному» строк не
+        # дублирует, так что на оконные функции ниже он не влияет.
+        'grp_pim_id': F('product__pim_id'),
         'grp_size': Window(Count('id'), partition_by=[F('grp_key')]),
         'grp_seq': Window(RowNumber(), partition_by=[F('grp_key')], order_by=seq_order),
         'grp_min_id': Window(Min('id'), partition_by=[F('grp_key')]),
@@ -222,7 +232,7 @@ class GroupHeadRecord:
     def __init__(self, record, price_columns=GROUPED_PRICE_COLUMNS):
         self.pk = record.pk
         self.id = record.pk
-        self.pim_id = record.pim_id
+        self.pim_id = getattr(record, 'grp_pim_id', None)
         self.grp_key = record.grp_key
         self.grp_size = record.grp_size
         # Остаток и всё, что от него считается, — от победителя по stock_priority.
