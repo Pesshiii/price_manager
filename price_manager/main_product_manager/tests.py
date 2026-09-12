@@ -628,9 +628,10 @@ class SearchPimIdOutcomeTests(_PimSearchTestCase):
 
         self.assertEqual((pim_id, outcome), ('pim-7', _SEARCH_FOUND))
 
-    def test_ambiguous_like_links_nothing(self):
-        # `like` on number: an sku that is a prefix of other product numbers
-        # matches several. Returning the first would link an arbitrary one.
+    def test_ambiguous_match_links_nothing(self):
+        # Nothing guarantees PIM `number` is unique, so a search can still come
+        # back with several products. Returning the first would link an
+        # arbitrary one.
         product = self.product(sku='AB-1')
 
         with patch.object(mp_utils, 'site') as site:
@@ -641,9 +642,34 @@ class SearchPimIdOutcomeTests(_PimSearchTestCase):
         self.assertEqual(outcome, _SEARCH_AMBIGUOUS)
         self.assertEqual(cache.get(f'pim_no_match:{product.pk}'), _SEARCH_AMBIGUOUS)
 
+    def test_search_uses_equals_so_sku_wildcards_stay_literal(self):
+        """AtroPIM feeds a `like` value straight into SQL LIKE.
+
+        Measured against the live API: `like '2001_-04_z01'` returns the
+        product numbered `20015-04_z01` (so `_` is a single-char wildcard) and
+        `like '%'` returns the whole catalog. PIM numbers routinely carry `_`
+        and sku is supplier-supplied, so under `like` a sku can match a
+        *different* product. When exactly one such match comes back the
+        ambiguity guard never fires and _resolve_pim_id writes the wrong
+        pim_id — silently. `equals` keeps both characters literal.
+        """
+        product = self.product(sku='2001_-04_z01')
+
+        with patch.object(mp_utils, 'site') as site:
+            site.get.return_value = _pim_list('pim-1')
+            _search_pim_id_result(product)
+
+            entity_list = site.get.call_args.args[0]
+
+        self.assertEqual(entity_list.name, 'Product')
+        self.assertEqual(
+            [(w.attribute, w.type, w.value) for w in entity_list.where],
+            [('number', 'equals', '2001_-04_z01')],
+        )
+
     def test_product_without_sku_is_never_searched(self):
         # Where.get() omits the value key when it is None, so the request would
-        # go out as an unconstrained `like` on number and match everything.
+        # go out as an unconstrained match on number and return everything.
         product = self.product(sku=None, article='NO-SKU')
 
         with patch.object(mp_utils, 'site') as site:
