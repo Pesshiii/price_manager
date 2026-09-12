@@ -189,7 +189,7 @@ class MainProductTableView(SingleTableView):
     # GROUP BY подзапроса счёта.
     limit = settings.MAINPRODUCT_GROUPING_ROW_LIMIT
     if filtered.order_by()[:limit + 1].count() > limit:
-      return filtered.prefetch_related('categories').annotate(**subqueries)
+      return filtered.select_related('product').prefetch_related('categories').annotate(**subqueries)
 
     # Порядок слоёв здесь жёсткий: дедупликация → Subquery → оконные аннотации.
     # categories — M2M, и её join дублирует строки (categories_method не зря
@@ -201,7 +201,7 @@ class MainProductTableView(SingleTableView):
     # поиске — на пустом всё выглядело бы правильным.
     qs = MainProduct.objects.filter(
       pk__in=filtered.order_by().values('pk')
-    ).prefetch_related('categories').annotate(**subqueries)
+    ).select_related('product').prefetch_related('categories').annotate(**subqueries)
 
     # rank не переживает пересборку queryset, а групповая сортировка по
     # релевантности его требует — навешиваем заново тем же выражением.

@@ -18,7 +18,7 @@ def _detect_format(file_name: str):
 
 class Command(BaseCommand):
     help = (
-        "Импортирует pim_id и категорию в MainProduct из PIM-выгрузки. "
+        "Импортирует привязку к товару PIM и категорию в MainProduct из PIM-выгрузки. "
         "Ожидаемые колонки: PriceManagerId, ID, Categories."
     )
 
