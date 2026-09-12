@@ -58,11 +58,35 @@ the repo-root `.env` (gitignored, absent from a fresh worktree per CLAUDE.md's
 "Running more than one agent") holds **real** PIM credentials, so a compose
 invocation that loads it — `--env-file <repo>/.env` included — runs the
 suite against the live production PIM, and an unpatched test then makes real
-calls to it. Working recipe (`test_grouping.py:29-30`): patch
-`main_product_manager.views.prefetch_pim_data` and `.maybe_notify_pim_error`.
-Creating `MainProduct`s is safe — `save()` doesn't reach PIM — but a test
-needing a populated `search_vector` should set it directly with
-`SearchVector` over local fields (`test_grouping.py:64-68`) instead of
+calls to it. Working recipe — **in the shared base's `setUp`, never a class
+decorator** (`test_grouping.py:72-82`): patch
+`main_product_manager.views.prefetch_pim_data`, `.maybe_notify_pim_error` and
+`main_product_manager.utils.site`. As a *class* decorator `@patch` wraps only
+the `test_` methods visible when it is applied, and a shared base has none of
+its own — so the decorators that used to sit on `GroupingTestCase` protected
+nobody, and five of its seven subclasses called the live PIM. `setUp` runs per
+test method for every subclass, so the stub cannot be forgotten. Measured
+before the fix: **42 live `GET /api/Product/PIM-1` in one full suite**, and
+those real 404s tripped `_note_pim_404` (`utils.py:123-133`) at
+`_PIM_404_THRESHOLD` = 3 — `update(pim_id=None)` over the grouping fixtures
+mid-run, which is why `test_head_stays_first_on_descending_sort` failed in a
+full run and passed in isolation.
+
+Creating `MainProduct`s is safe — `save()` doesn't reach PIM — but that is
+narrower than it reads, and two paths out of `supplier_product_manager`'s own
+tests do reach it: `copy_supplier_products_to_main_task` →
+`recalculate_search_vectors` → `_build_searchvector` → `get_pim_data` (GET),
+and the import, `load_setting` → `push_supplier_products_to_pim`
+(`supplier_product_manager/functions.py:505`) → `_upsert_async`, which
+**POSTs test fixtures to the live PIM**. Both are stubbed from
+`BasicLoadTests.setUp` and `CopySupplierProductsToMainTaskTests.setUp`
+(`supplier_product_manager/tests.py:48-57`, `:685`) by patching
+`main_product_manager.utils.site` — the client, not the function under test;
+`_push_pim_products` (`utils.py:587`) and `_fetch_pim_product` both swallow
+the resulting exception and carry on, so nothing the tests assert changes.
+
+A test needing a populated `search_vector` should set it directly with
+`SearchVector` over local fields (`test_grouping.py:112-117`) instead of
 calling `rebuild_search_vector()`. `get_file_url` has its own direct-mock
 recipe instead (`GetFileUrlTests`, `tests.py:356`, patches
 `main_product_manager.utils.site`).
@@ -311,7 +335,7 @@ next section.
 The render-path version of the same NULL is fixed in two of three places.
 `render_stock_msg` (`tables.py:166-186`) branches on `record.stock is None`
 before zero/nonzero and returns `NO_STOCK_DATA`; `StockSelectionTests`
-(`test_grouping.py:271-349`) guards it. `Supplier.get_delivery_days_for_stock`
+(`test_grouping.py:318-397`) guards it. `Supplier.get_delivery_days_for_stock`
 (`supplier_manager/models.py:109-122`) also branches on `stock is None`
 explicitly, though it still returns the zero-case value — a deliberate
 default, not a silent conflation. Unfixed:

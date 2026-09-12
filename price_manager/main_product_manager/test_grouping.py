@@ -3,9 +3,23 @@
 До этого у MainPage и MainProductTableView не было ни одного теста, поэтому
 здесь же проверяется и то, что таблица вообще рендерится.
 
-PIM-запросы замоканы во всех тестах: MainProductTableView.get_context_data
-зовёт prefetch_pim_data, а тот при промахе кэша ходит в сеть — под настройками
-prod с плейсхолдерными PIM_TOKEN/PIM_HOST это живой HTTP из теста.
+PIM-запросы заглушены в GroupingTestCase.setUp, поэтому достаются всем
+наследникам — и здешним, и KaspiPriceColumnTests из test_tables.py. Класс-
+декоратор @patch для этого не годится: он оборачивает только те test_-методы,
+которые видны в момент декорирования, а своих test_-методов у обвязки нет. То
+есть @patch на самой обвязке не защищал никого: заглушены были только два
+класса, повесившие декораторы на себя, а пять остальных ходили в живой PIM.
+
+Почему это не просто «медленные тесты». MainProductTableView.get_context_data
+зовёт prefetch_pim_data, тот при промахе кэша делает живой GET
+/api/Product/PIM-1. Рабочие PIM-креды из корневого .env отвечают на
+несуществующий id честным 404 (раньше токен отвергался, и 401 за 404 не
+считался), а на третий такой ответ — _PIM_404_THRESHOLD — _note_pim_404
+выполняет MainProduct.objects.filter(pim_id='PIM-1').update(pim_id=None),
+обнуляя фикстуры прямо посреди прогона. Счётчик 404 лежит в общем Redis и
+копится через все тесты, поэтому поодиночке тесты проходили, а на полном
+прогоне падал test_head_stays_first_on_descending_sort: схлопывать стало
+нечего.
 """
 
 import re
@@ -27,12 +41,45 @@ from .views import MainProductTableView
 TR_RE = re.compile(r'<tr\b[^>]*>', re.IGNORECASE)
 
 
-@patch('main_product_manager.views.maybe_notify_pim_error', lambda *args, **kwargs: None)
-@patch('main_product_manager.views.prefetch_pim_data', lambda records: {})
+class _PimUnreachable:
+    """Заглушка для utils.site: любое обращение к PIM из теста — ошибка.
+
+    Намеренно не MagicMock. Тот вернул бы из site.get() объект, который
+    get_pim_data положит в кэш и по которому дёрнет _queue_pim_population, —
+    «работающий» мок молча засорял бы общий Redis и очередь задач. Исключение
+    инертно: _fetch_pim_product ловит Exception и отдаёт (None, False), то
+    есть даже за 404 это не считается и счётчик _note_pim_404 не растёт.
+    """
+
+    def __getattr__(self, name):
+        raise AssertionError(
+            f'тест обратился к PIM: site.{name} — сеть в тестах запрещена'
+        )
+
+
 class GroupingTestCase(TestCase):
-    """Общая обвязка: пользователь, категория, поставщики с приоритетами."""
+    """Общая обвязка: пользователь, категория, поставщики с приоритетами.
+
+    Наследоваться нужно ещё и ради setUp: он ставит заглушки на PIM, и — в
+    отличие от класс-декоратора @patch — это работает для методов наследников,
+    потому что setUp зовётся на каждый test_-метод. Забыть заглушку нельзя.
+    """
+
+    #: Что подменяем на время каждого теста. views.prefetch_pim_data — тот самый
+    #: путь отрисовки таблицы; utils.site — страховка на всё остальное, что
+    #: могло бы уйти в сеть. site связан в пространстве имён utils (utils.py:16),
+    #: поэтому патчится main_product_manager.utils.site, а не pim_client.site.
+    PIM_PATCHES = (
+        ('main_product_manager.views.prefetch_pim_data', lambda records: {}),
+        ('main_product_manager.views.maybe_notify_pim_error', lambda *args, **kwargs: None),
+        ('main_product_manager.utils.site', _PimUnreachable()),
+    )
 
     def setUp(self):
+        for target, replacement in self.PIM_PATCHES:
+            patcher = patch(target, replacement)
+            patcher.start()
+            self.addCleanup(patcher.stop)
         self.user = User.objects.create_user('grouptester', password='pw')
         self.client.force_login(self.user)
         save_user_columns(self.user, list(DEFAULT_VISIBLE_COLUMNS))
@@ -441,8 +488,6 @@ class GroupedSearchTests(GroupingTestCase):
 
 
 @override_settings(MAINPRODUCT_GROUPING_ROW_LIMIT=1)
-@patch('main_product_manager.views.maybe_notify_pim_error', lambda *args, **kwargs: None)
-@patch('main_product_manager.views.prefetch_pim_data', lambda records: {})
 class GroupingRowLimitTests(GroupingTestCase):
     """Порог MAINPRODUCT_GROUPING_ROW_LIMIT: выше него таблица рисуется плоской (#163).
 
