@@ -548,7 +548,10 @@ def load_user_columns(user):
 
 def recalculate_search_vectors(mps):
     if not mps: return None
-    mps = mps.select_related('supplier', 'manufacturer')
+    # 'product' обязателен: _build_searchvector зовёт _pim_id_of, а тот ходит
+    # по FK. Без него каждый уже привязанный товар — лишний запрос; раньше
+    # pim_id лежал в самой строке и доставался даром.
+    mps = mps.select_related('supplier', 'manufacturer', 'product')
     def build_searchvector(mp):
       mp.search_vector = mp._build_searchvector()
       return mp

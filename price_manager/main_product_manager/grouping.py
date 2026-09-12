@@ -130,11 +130,6 @@ def annotate_groups(queryset, selected_columns, searching=False):
     seq_order = [F('rank').desc(), *_member_order('price')] if searching else _member_order('price')
 
     annotations = {
-        # Не оконная — просто join к product.Product: внутри партиции
-        # product_id постоянен, значит и pim_id тоже. Нужен только заголовку
-        # (GroupHeadRecord.__str__); FK-join «многие к одному» строк не
-        # дублирует, так что на оконные функции ниже он не влияет.
-        'grp_pim_id': F('product__pim_id'),
         'grp_size': Window(Count('id'), partition_by=[F('grp_key')]),
         'grp_seq': Window(RowNumber(), partition_by=[F('grp_key')], order_by=seq_order),
         'grp_min_id': Window(Min('id'), partition_by=[F('grp_key')]),
@@ -232,7 +227,11 @@ class GroupHeadRecord:
     def __init__(self, record, price_columns=GROUPED_PRICE_COLUMNS):
         self.pk = record.pk
         self.id = record.pk
-        self.pim_id = getattr(record, 'grp_pim_id', None)
+        # Локальный id зеркала, а не pim_id из PIM: последний потребовал бы
+        # join к product.Product в каждом запросе главной (78 мс против 580 —
+        # см. комментарий в MainProductTableView.get_table_data) ради строки,
+        # которую ни один шаблон не рисует. __str__ — отладочный.
+        self.product_id = record.product_id
         self.grp_key = record.grp_key
         self.grp_size = record.grp_size
         # Остаток и всё, что от него считается, — от победителя по stock_priority.
@@ -251,4 +250,4 @@ class GroupHeadRecord:
         return None
 
     def __str__(self):
-        return f'Группа PIM {self.pim_id}'
+        return f'Группа PIM {self.product_id}'
