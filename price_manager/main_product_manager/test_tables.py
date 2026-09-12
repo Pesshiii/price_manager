@@ -4,17 +4,19 @@
 здесь — что выбранная пользователем колонка вообще доезжает до таблицы.
 Обвязка нужна та же самая, поэтому GroupingTestCase импортируется как есть.
 
-Декораторы @patch приходится повторять на каждом классе-наследнике, а не
-ставить один раз на обвязку: как декоратор класса patch оборачивает только те
-test_-методы, которые видны в момент декорирования. У GroupingTestCase своих
-test_-методов нет, а методы наследников она уже не увидит — то есть @patch на
-ней самой не защищает никого. Без этого MainProductTableView.get_context_data
-зовёт prefetch_pim_data, а тот при промахе кэша ходит в сеть.
+Заглушек PIM здесь больше нет: их ставит GroupingTestCase.setUp, и они
+достаются наследникам сами. Повторять @patch на каждом классе пришлось
+потому, что как декоратор класса patch оборачивает только те test_-методы,
+которые видны в момент декорирования: у GroupingTestCase своих test_-методов
+нет, а методы наследников она уже не увидит, так что @patch на самой обвязке
+не защищал никого. Требование «не забудь продублировать декоратор» ровно так и
+не выполнялось — в test_grouping.py его забыли на пяти классах из семи, и те
+ходили в живой PIM. setUp же зовётся на каждый test_-метод любого наследника.
+Что этим ломалось — в модульном docstring test_grouping.py.
 """
 
 import re
 from decimal import Decimal
-from unittest.mock import patch
 
 from django.test import TestCase
 from django.urls import reverse
@@ -48,8 +50,6 @@ class PriceColumnDeclarationTests(TestCase):
         self.assertEqual(missing, [], 'цена есть в MP_PRICES, но её нельзя выбрать в настройке колонок')
 
 
-@patch('main_product_manager.views.maybe_notify_pim_error', lambda *args, **kwargs: None)
-@patch('main_product_manager.views.prefetch_pim_data', lambda records: {})
 class KaspiPriceColumnTests(GroupingTestCase):
     """«Цена Каспи», выбранная в настройке колонок, доходит до отрисовки.
 

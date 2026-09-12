@@ -26,8 +26,35 @@ from supplier_product_manager.models import Link, Setting, SupplierFile, Supplie
 from supplier_product_manager.tasks import copy_supplier_products_to_main_task
 
 
+class _PimUnreachable:
+    """Заглушка для main_product_manager.utils.site: сеть в тестах запрещена.
+
+    Импорт прайса и задача копирования доходят до PIM двумя разными путями:
+    load_setting зовёт push_supplier_products_to_pim (functions.py:505), а
+    copy_supplier_products_to_main_task — recalculate_search_vectors, тот
+    _build_searchvector, а тот get_pim_data. Оба пути ловят Exception
+    (_push_pim_products и _fetch_pim_product соответственно) и продолжают,
+    поэтому исключение отсюда ничего не ломает, но и в сеть не пускает.
+    Полный разбор, почему заглушка ставится в setUp, а не декоратором класса,
+    — в модульном docstring main_product_manager/test_grouping.py.
+    """
+
+    def __getattr__(self, name):
+        raise AssertionError(
+            f'тест обратился к PIM: site.{name} — сеть в тестах запрещена'
+        )
+
+
+def _block_pim(testcase):
+    """Отвязать тест от живого PIM на время одного test_-метода."""
+    patcher = mock.patch('main_product_manager.utils.site', _PimUnreachable())
+    patcher.start()
+    testcase.addCleanup(patcher.stop)
+
+
 class BasicLoadTests(TestCase):
     def setUp(self):
+        _block_pim(self)
         self.currency, _ = Currency.objects.get_or_create(name="KZT", defaults={"value": Decimal("1")})
         self.supplier = Supplier.objects.create(
             name="Test supplier",
@@ -655,6 +682,7 @@ class CopySupplierProductsToMainTaskTests(TestCase):
     being matched/merged into an existing one via that triple."""
 
     def setUp(self):
+        _block_pim(self)
         self.currency, _ = Currency.objects.get_or_create(name="KZT", defaults={"value": Decimal("1")})
         self.supplier = Supplier.objects.create(
             name="Copy task supplier",
