@@ -66,7 +66,7 @@ services:
     # under $HOME/.gunicorn. Nothing here uses gunicornc, and the socket errors
     # out whenever HOME is not writable, so turn it off.
     command: >
-      sh -c "python manage.py migrate && python manage.py collectstatic --noinput &&
+      sh -c "python manage.py collectstatic --noinput &&
              gunicorn --bind 0.0.0.0:8000 --workers 3 --no-control-socket price_manager.wsgi:application"
 
   celery_worker:
