@@ -150,9 +150,9 @@ class MainProduct(models.Model):
         ]
     def _build_searchvector(self) -> SearchVector:
         """Собираем строку для поиска без join-ов."""
-        from main_product_manager.utils import _pim_id_of, _resolve_pim_id, get_pim_data
+        from main_product_manager.utils import _link_to_local_product, _pim_id_of, get_pim_data
         if self.product_id is None:
-            _resolve_pim_id(self)
+            _link_to_local_product(self)
         pim_product = get_pim_data(_pim_id_of(self)) or {}
         # Значения, а не field references ("supplier__name") - bulk_update()/update()
         # не допускают joined-полей в выражении SET.

@@ -18,8 +18,8 @@ def _detect_format(file_name: str):
 
 class Command(BaseCommand):
     help = (
-        "Импортирует привязку к товару PIM и категорию в MainProduct из PIM-выгрузки. "
-        "Ожидаемые колонки: PriceManagerId, ID, Categories."
+        "Импортирует категории в MainProduct из PIM-выгрузки. "
+        "Ожидаемые колонки: PriceManagerId, Categories."
     )
 
     def add_arguments(self, parser):

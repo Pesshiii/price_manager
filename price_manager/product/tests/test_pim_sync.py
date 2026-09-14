@@ -4,9 +4,15 @@ from django.test import TestCase
 from pim_api import Entity, SiteAPI
 
 from product.models import Category, Product
-from product.services.pim_sync import _fetch_pim_category, _fetch_pim_product, sync_product_from_pim
+from product.services.pim_sync import (
+    _fetch_pim_category,
+    _fetch_pim_link,
+    _fetch_pim_product,
+    sync_product_from_pim,
+)
 
 
+LINK_PATCH = 'product.services.pim_sync._fetch_pim_link'
 PRODUCT_PATCH = 'product.services.pim_sync._fetch_pim_product'
 CATEGORY_PATCH = 'product.services.pim_sync._fetch_pim_category'
 
@@ -16,6 +22,15 @@ class PimClientWiringTests(TestCase):
     Entity and hand it to pim_client.site.get — the two-line layer every
     other test in this module mocks past.
     """
+
+    def test_fetch_pim_link_calls_site_with_price_manager_product_entity(self):
+        with patch.object(SiteAPI, 'get', return_value={'number': 'N1'}) as mock_get:
+            _fetch_pim_link('pmp123')
+
+        method = mock_get.call_args[0][0]
+        self.assertIsInstance(method, Entity)
+        self.assertEqual(method.name, 'PriceManagerProduct')
+        self.assertEqual(method.id, 'pmp123')
 
     def test_fetch_pim_product_calls_site_with_product_entity(self):
         with patch.object(SiteAPI, 'get', return_value={'number': 'N1'}) as mock_get:
@@ -37,34 +52,71 @@ class PimClientWiringTests(TestCase):
 
 
 class SyncProductFromPimTests(TestCase):
-    """Every assertion below re-reads the row with `Product.objects.get(pk=...)`
+    """sync_product_from_pim takes a PriceManagerProduct id and reads the PIM
+    Product through its productId.
+
+    Every assertion below re-reads the row with `Product.objects.get(pk=...)`
     instead of inspecting the instance `sync_product_from_pim` returned. A fresh
     instance carries only real columns, so assigning to an attribute that is not
     a field — as this module did with `category_path`, which `save()` silently
     discarded — can no longer make a test pass.
     """
 
-    def test_create_with_no_categories(self):
-        payload = {'number': 'N1', 'name': 'Товар 1', 'categoriesIds': []}
-        with patch(PRODUCT_PATCH, return_value=payload):
-            product = sync_product_from_pim('pim-1')
+    def _sync(self, product_payload, link=None, pim_id='pmp-1'):
+        link = link if link is not None else {'id': pim_id, 'number': 'N1', 'productId': 'prod-1'}
+        with patch(LINK_PATCH, return_value=link), \
+                patch(PRODUCT_PATCH, return_value=product_payload) as fetch_product:
+            product = sync_product_from_pim(pim_id)
+        return Product.objects.get(pk=product.pk), fetch_product
 
-        saved = Product.objects.get(pk=product.pk)
-        self.assertEqual(saved.pim_id, 'pim-1')
+    def test_creates_the_product_from_the_link_and_its_pim_product(self):
+        payload = {'number': 'PIM-NUMBER', 'name': 'Товар 1', 'categoriesIds': []}
+
+        saved, fetch_product = self._sync(payload)
+
+        fetch_product.assert_called_once_with('prod-1')
+        self.assertEqual(saved.pim_id, 'pmp-1')
         self.assertEqual(saved.number, 'N1')
         self.assertEqual(saved.name, 'Товар 1')
         self.assertEqual(saved.raw_data, payload)
         self.assertEqual(saved.categories.count(), 0)
 
-    def test_resync_updates_existing_row_not_duplicate(self):
-        with patch(PRODUCT_PATCH, return_value={'number': 'N1', 'name': 'Old', 'categoriesIds': []}):
-            sync_product_from_pim('pim-1')
+    def test_resync_updates_existing_row_and_never_touches_number(self):
+        existing = Product.objects.create(pim_id='pmp-1', number='LOCAL-SKU', name='Old')
 
-        with patch(PRODUCT_PATCH, return_value={'number': 'N1', 'name': 'New', 'categoriesIds': []}):
-            product = sync_product_from_pim('pim-1')
+        with patch(LINK_PATCH) as fetch_link:
+            sync_product_from_pim('pmp-1', data={'number': 'OTHER', 'name': 'New', 'categoriesIds': []})
+            fetch_link.assert_not_called()
 
-        self.assertEqual(Product.objects.filter(pim_id='pim-1').count(), 1)
-        self.assertEqual(Product.objects.get(pk=product.pk).name, 'New')
+        self.assertEqual(Product.objects.filter(pim_id='pmp-1').count(), 1)
+        saved = Product.objects.get(pk=existing.pk)
+        self.assertEqual(saved.name, 'New')
+        self.assertEqual(saved.number, 'LOCAL-SKU')
+
+    def test_unlinked_product_with_the_links_number_adopts_it(self):
+        waiting = Product.objects.create(number='N1')
+
+        saved, _ = self._sync({'name': 'Товар', 'categoriesIds': []})
+
+        self.assertEqual(saved.pk, waiting.pk)
+        self.assertEqual(saved.pim_id, 'pmp-1')
+        self.assertEqual(Product.objects.count(), 1)
+
+    def test_link_without_product_id_saves_the_link_only(self):
+        with patch(LINK_PATCH, return_value={'id': 'pmp-1', 'number': 'N1', 'productId': None}), \
+                patch(PRODUCT_PATCH) as fetch_product:
+            product = sync_product_from_pim('pmp-1')
+
+        fetch_product.assert_not_called()
+        saved = Product.objects.get(pk=product.pk)
+        self.assertEqual((saved.pim_id, saved.number, saved.name), ('pmp-1', 'N1', None))
+
+    def test_failed_link_fetch_leaves_no_row(self):
+        with patch(LINK_PATCH, side_effect=RuntimeError('pim down')):
+            with self.assertRaises(RuntimeError):
+                sync_product_from_pim('pmp-1')
+
+        self.assertEqual(Product.objects.count(), 0)
 
     def test_resolves_single_category_with_parent_walk(self):
         product_payload = {'number': 'N1', 'name': 'Товар', 'categoriesIds': ['cat-child']}
@@ -76,11 +128,9 @@ class SyncProductFromPimTests(TestCase):
                 return {'name': 'Электроника', 'parentsIds': []}
             raise AssertionError(f'unexpected category id {pim_category_id}')
 
-        with patch(PRODUCT_PATCH, return_value=product_payload), \
-                patch(CATEGORY_PATCH, side_effect=fake_category):
-            product = sync_product_from_pim('pim-1')
+        with patch(CATEGORY_PATCH, side_effect=fake_category):
+            saved, _ = self._sync(product_payload)
 
-        saved = Product.objects.get(pk=product.pk)
         self.assertEqual(saved.categories.count(), 1)
         category = saved.categories.get()
         self.assertEqual(category.pim_id, 'cat-child')
@@ -102,11 +152,9 @@ class SyncProductFromPimTests(TestCase):
         def fake_category(pim_category_id):
             return {'name': f'Категория {pim_category_id.upper()}', 'parentsIds': []}
 
-        with patch(PRODUCT_PATCH, return_value=product_payload), \
-                patch(CATEGORY_PATCH, side_effect=fake_category):
-            product = sync_product_from_pim('pim-1')
+        with patch(CATEGORY_PATCH, side_effect=fake_category):
+            saved, _ = self._sync(product_payload)
 
-        saved = Product.objects.get(pk=product.pk)
         self.assertEqual(
             sorted(saved.categories.values_list('name', flat=True)),
             ['Категория A', 'Категория B'],
@@ -115,18 +163,9 @@ class SyncProductFromPimTests(TestCase):
     def test_unresolvable_category_is_skipped_not_fatal(self):
         product_payload = {'number': 'N1', 'name': 'Товар', 'categoriesIds': ['bad-id']}
 
-        with patch(PRODUCT_PATCH, return_value=product_payload), \
-                patch(CATEGORY_PATCH, side_effect=RuntimeError('pim down')):
-            product = sync_product_from_pim('pim-1')
+        with patch(CATEGORY_PATCH, side_effect=RuntimeError('pim down')):
+            saved, _ = self._sync(product_payload)
 
-        saved = Product.objects.get(pk=product.pk)
         self.assertEqual(saved.categories.count(), 0)
         # The product itself still persisted — one bad id doesn't abort the sync.
         self.assertEqual(saved.name, 'Товар')
-
-    def test_accepts_prefetched_data_without_calling_fetch(self):
-        payload = {'number': 'N1', 'name': 'Товар', 'categoriesIds': []}
-        with patch(PRODUCT_PATCH) as mock_fetch:
-            product = sync_product_from_pim('pim-1', data=payload)
-            mock_fetch.assert_not_called()
-        self.assertEqual(Product.objects.get(pk=product.pk).number, 'N1')

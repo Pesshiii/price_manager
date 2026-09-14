@@ -9,7 +9,6 @@ TASKS = {
     'update_stocks': tasks.update_stocks_task,
     'update_logs': tasks.update_logs_task,
     'delete_outdated_logs': tasks.delete_outdated_logs_task,
-    'create_pim_links': tasks.create_pim_links_task,
     'reindex_pim_ids': tasks.reindex_pim_ids_task,
     'sync_categories': sm_tasks.sync_categories_task,
 }
@@ -36,20 +35,14 @@ class Command(BaseCommand):
             type=int,
             default=None,
             dest='batch_size',
-            help='Размер батча upsertAsync для create_pim_links/reindex_pim_ids.',
+            help='Размер партии (товаров на задачу и на upsertAsync) для reindex_pim_ids.',
         )
         parser.add_argument(
             '--delay',
             type=float,
             default=None,
             dest='delay',
-            help='Задержка (сек) между запросами к PIM для create_pim_links/reindex_pim_ids.',
-        )
-        parser.add_argument(
-            '--skip-non-empty',
-            action='store_true',
-            dest='skip_non_empty',
-            help='Пропускать продукты с уже заполненным pim_id для reindex_pim_ids.',
+            help='Задержка (сек) между запросами к PIM для reindex_pim_ids.',
         )
 
     def handle(self, *args, **options):
@@ -57,23 +50,19 @@ class Command(BaseCommand):
         async_mode = options['async_mode']
         batch_size = options['batch_size']
         delay = options['delay']
-        skip_non_empty = options['skip_non_empty']
 
         to_run = {task_name: TASKS[task_name]} if task_name else TASKS
 
         for name, task in to_run.items():
             self.stdout.write(f'Запуск: {name} ...')
             kwargs = {}
-            if name in ('create_pim_links', 'reindex_pim_ids'):
+            if name == 'reindex_pim_ids':
                 if batch_size is not None:
                     kwargs['batch_size'] = batch_size
                     self.stdout.write(self.style.SUCCESS(f'Размер батча: {batch_size}'))
                 if delay is not None:
                     kwargs['delay'] = delay
                     self.stdout.write(self.style.SUCCESS(f'Delay: {delay}'))
-            if name == 'reindex_pim_ids' and skip_non_empty:
-                kwargs['skip_non_empty'] = True
-                self.stdout.write(self.style.SUCCESS('Пропуск продуктов с заполненным pim_id: включен'))
             if async_mode:
                 task.delay(**kwargs)
                 self.stdout.write(self.style.SUCCESS(f'  → Отправлено в Celery'))

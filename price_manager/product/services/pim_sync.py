@@ -10,9 +10,14 @@ from ..models import Category, Product
 logger = logging.getLogger(__name__)
 
 
-def _fetch_pim_product(pim_id: str) -> dict:
-    """Raw GET Product/{pim_id}. Raises on failure — callers decide how to handle it."""
-    return pim_client.site.get(Entity(name='Product', id=pim_id))
+def _fetch_pim_link(pim_id: str) -> dict:
+    """Raw GET PriceManagerProduct/{pim_id}. Raises on failure — callers decide how to handle it."""
+    return pim_client.site.get(Entity(name='PriceManagerProduct', id=pim_id))
+
+
+def _fetch_pim_product(product_id: str) -> dict:
+    """Raw GET Product/{product_id}. Raises on failure — callers decide how to handle it."""
+    return pim_client.site.get(Entity(name='Product', id=product_id))
 
 
 def _fetch_pim_category(pim_category_id: str) -> dict:
@@ -58,22 +63,44 @@ def _ensure_pim_category(pim_category_id: str) -> Category | None:
 
 
 def sync_product_from_pim(pim_id: str, data: dict | None = None) -> Product:
-    """Fetch (unless `data` is already given) and persist one PIM Product as a
-    local Product row: get_or_create by pim_id, set number/name/raw_data, resolve
-    categoriesIds -> M2M. Returns the Product instance.
+    """Persist PIM data onto the local Product whose PriceManagerProduct is `pim_id`.
 
-    Lets IntegrityError (a `number` collision under a different pim_id) and any
-    PIM-fetch error propagate — it's the caller's job to decide how to surface them.
+    pim_id is a PriceManagerProduct id. The local Product is the one already
+    holding it; failing that, the Product whose number is the PMP's number
+    and which has no pim_id yet adopts it; failing that, a new Product is
+    created with both.
+
+    `data` is the PIM Product that PMP points at, fetched through the PMP's
+    productId unless given. It supplies name, raw_data and categoriesIds ->
+    M2M. number is never taken from it: number is the local sku match key,
+    and PIM staff may link the PMP to a Product numbered differently. A PMP
+    not linked to a PIM Product yet leaves name/raw_data/categories as they are.
+
+    Lets IntegrityError (a new Product whose number another Product already
+    holds under a different pim_id) and any PIM-fetch error propagate — it's
+    the caller's job to decide how to surface them. Fetches happen before the
+    first write, so a failed fetch leaves no half-made row behind.
     """
+    link = None
+    product = Product.objects.filter(pim_id=pim_id).first()
+    if product is None:
+        link = _fetch_pim_link(pim_id)
+        # `or None`, not `or ''`: number is unique, and Postgres treats NULLs
+        # as distinct in a unique index but '' as equal.
+        number = link.get('number') or None
+        product = (
+            Product.objects.filter(number=number, pim_id__isnull=True).first() if number else None
+        ) or Product(number=number)
+        product.pim_id = pim_id
     if data is None:
-        data = _fetch_pim_product(pim_id)
+        if link is None:
+            link = _fetch_pim_link(pim_id)
+        product_id = link.get('productId')
+        data = _fetch_pim_product(product_id) if product_id else None
+    if data is None:
+        product.save()
+        return product
 
-    product, _ = Product.objects.get_or_create(pim_id=pim_id)
-    # `or None`, not `or ''`: both fields are unique, and Postgres treats
-    # NULLs as distinct in a unique index but '' as equal. Coercing a
-    # missing value to '' lets the first product without a number/name
-    # save and makes every later one fail with an IntegrityError.
-    product.number = data.get('number') or None
     product.name = data.get('name') or None
     product.raw_data = data
 

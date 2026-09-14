@@ -230,6 +230,8 @@ class UpdateStocksBatchingTests(TestCase):
 
 from unittest.mock import Mock, patch
 
+import httpx
+
 from django.core.cache import cache
 from django.db import transaction
 from django.test import override_settings
@@ -303,32 +305,52 @@ class ReindexPimIdsDispatchTests(TestCase):
         )
         self.products = [
             MainProduct.objects.create(
-                supplier=self.supplier, article=f'RX-{i}', name=f'Reindex {i}'
+                supplier=self.supplier, article=f'RX-{i}', name=f'Reindex {i}', sku=f'RX-SKU-{i}'
             )
             for i in range(3)
         ]
 
     def test_batches_dispatch_only_once_the_transaction_commits(self):
+        # The batches select Products the task's own transaction just created,
+        # so a batch dispatched before the commit would find none of them.
         with patch.object(mp_tasks.reindex_pim_ids_batch_task, 'delay') as delay:
             with self.captureOnCommitCallbacks(execute=True):
                 payload = mp_tasks.reindex_pim_ids_task(delay=0, batch_size=2)
                 delay.assert_not_called()
 
-            pks = [p.pk for p in self.products]
+            pks = sorted(PimProduct.objects.values_list('pk', flat=True))
+            self.assertEqual(len(pks), 3)
             self.assertEqual(
                 [call.kwargs['pks'] for call in delay.call_args_list],
                 [pks[:2], pks[2:]],
             )
 
         self.assertEqual(payload['status'], 'success')
-        self.assertEqual(payload['updated_count'], 2)
+        # updated_count sums (numbered, linked): nothing to number, 3 linked.
+        self.assertEqual(payload['updated_count'], 3)
+
+    def test_placeholder_claims_its_sku_before_unlinked_products_are_linked(self):
+        placeholder = PimProduct.objects.create()
+        MainProduct.objects.filter(pk=self.products[0].pk).update(product=placeholder)
+        unlinked = MainProduct.objects.create(
+            supplier=self.supplier, article='RX-TWIN', name='Twin', sku='RX-SKU-0'
+        )
+
+        with patch.object(mp_tasks.reindex_pim_ids_batch_task, 'delay'):
+            with self.captureOnCommitCallbacks(execute=True):
+                mp_tasks.reindex_pim_ids_task(delay=0)
+
+        unlinked.refresh_from_db()
+        placeholder.refresh_from_db()
+        self.assertEqual(placeholder.number, 'RX-SKU-0')
+        self.assertEqual(unlinked.product_id, placeholder.pk)
 
 
 @override_settings(CACHES=LOCMEM_CACHE)
 class QueuePimPopulationDispatchTests(TestCase):
     """_queue_pim_population is reached from inside execute_locked_task's
-    transaction via _build_searchvector -> _resolve_pim_id, which writes the
-    pim_id sync_pim_relations then looks products up by."""
+    transaction via _build_searchvector -> _link_to_local_product, which writes
+    the link sync_pim_relations then looks products up by."""
 
     def setUp(self):
         cache.clear()
@@ -482,17 +504,18 @@ class GetFileUrlTests(TestCase):
 
 from . import utils as mp_utils
 from .utils import (
-    PimSearchError,
-    _PIM_NO_MATCH_TTL,
-    _PIM_SEARCH_ERROR_TTL,
+    PimScanError,
     _SEARCH_ABSENT,
     _SEARCH_AMBIGUOUS,
     _SEARCH_ERROR,
     _SEARCH_FOUND,
-    _SEARCH_NO_SKU,
-    _search_pim_id_result,
-    create_pim_links,
-    reindex_pim_ids_batch,
+    _link_to_local_product,
+    _search_pim_product_id,
+    backfill_product_numbers,
+    get_pim_data,
+    iter_unpushed_product_pk_batches,
+    link_unlinked_main_products,
+    push_pim_links,
 )
 
 
@@ -500,12 +523,22 @@ def _pim_list(*ids):
     return {'list': [{'id': pim_id} for pim_id in ids]}
 
 
-class _PimSearchTestCase(TestCase):
-    """Shared fixture for the pim_id search: a supplier plus MainProduct factory.
+def _created(pim_id):
+    return {'status': 'Created', 'stored': True, 'entity': 'PriceManagerProduct', 'id': pim_id}
 
-    _search_pim_id_result caches under pim_no_match:{pk}, so every test here
-    needs the locmem cache rather than the worker container's shared Redis.
-    """
+
+# Shape of a real rejection: the job ends as Success, the item does not.
+_UNIQUE_VIOLATION = {
+    'status': 'Failed',
+    'stored': False,
+    'code': 400,
+    'message': 'The record cannot be created due to database constraints: '
+               'duplicate key value violates unique constraint',
+}
+
+
+class _PimSearchTestCase(TestCase):
+    """Shared fixture for the PIM link code: a supplier plus MainProduct factory."""
 
     def setUp(self):
         cache.clear()
@@ -520,7 +553,7 @@ class _PimSearchTestCase(TestCase):
         )
 
     def product(self, sku='SKU-1', **kwargs):
-        # pim_id= — удобство фабрики: связь теперь FK на product.Product.
+        # pim_id= — удобство фабрики: связь идёт через FK на product.Product.
         pim_id = kwargs.pop('pim_id', None)
         if pim_id:
             kwargs['product'] = PimProduct.objects.get_or_create(pim_id=pim_id)[0]
@@ -534,137 +567,41 @@ class _PimSearchTestCase(TestCase):
 
 
 @override_settings(CACHES=LOCMEM_CACHE)
-class SearchPimIdOutcomeTests(_PimSearchTestCase):
-    """An empty result from _search_pim_id_result has to say *why* it is empty.
-
-    Only _SEARCH_ABSENT means PIM answered; everything else is "unknown" and
-    must not reach push_missing_pim_products.
-    """
+class SearchPimProductIdTests(_PimSearchTestCase):
+    """The number search tells an unanswered request apart from every answer."""
 
     def test_single_match_returns_the_id(self):
-        product = self.product()
-
         with patch.object(mp_utils, 'site') as site:
             site.get.return_value = _pim_list('pim-42')
-            pim_id, outcome = _search_pim_id_result(product)
+            self.assertEqual(_search_pim_product_id('N-1'), ('pim-42', _SEARCH_FOUND))
 
-        self.assertEqual((pim_id, outcome), ('pim-42', _SEARCH_FOUND))
-        self.assertIsNone(cache.get(f'pim_no_match:{product.pk}'))
-
-    def test_empty_result_is_a_confirmed_absence(self):
-        product = self.product()
-
+    def test_empty_result_is_an_absence(self):
         with patch.object(mp_utils, 'site') as site:
             site.get.return_value = _pim_list()
-            pim_id, outcome = _search_pim_id_result(product)
+            self.assertEqual(_search_pim_product_id('N-1'), (None, _SEARCH_ABSENT))
 
-        self.assertIsNone(pim_id)
-        self.assertEqual(outcome, _SEARCH_ABSENT)
-        self.assertEqual(cache.get(f'pim_no_match:{product.pk}'), _SEARCH_ABSENT)
-
-    def test_pim_error_is_not_recorded_as_a_confirmed_absence(self):
-        product = self.product()
-
-        with patch.object(mp_utils, 'site') as site:
-            site.get.side_effect = RuntimeError('PIM down')
-            pim_id, outcome = _search_pim_id_result(product)
-
-        self.assertIsNone(pim_id)
-        self.assertEqual(outcome, _SEARCH_ERROR)
-        self.assertEqual(cache.get(f'pim_no_match:{product.pk}'), _SEARCH_ERROR)
-
-    def test_error_backoff_is_far_shorter_than_the_no_match_ttl(self):
-        # The whole point of defect 1: a PIM outage must cost minutes of
-        # suppressed retries, not the 4 hours a genuine absence gets.
-        product = self.product()
-        self.assertLess(_PIM_SEARCH_ERROR_TTL, _PIM_NO_MATCH_TTL)
-
-        with patch.object(mp_utils, 'site') as site, patch.object(mp_utils, 'cache') as cache_mock:
-            cache_mock.get.return_value = None
-            site.get.side_effect = RuntimeError('PIM down')
-            _search_pim_id_result(product)
-
-        # _record_pim_error writes _PIM_LAST_ERROR_KEY through the same cache,
-        # so assert on this call rather than on the only call.
-        cache_mock.set.assert_any_call(
-            f'pim_no_match:{product.pk}', _SEARCH_ERROR, _PIM_SEARCH_ERROR_TTL
-        )
-
-        with patch.object(mp_utils, 'site') as site, patch.object(mp_utils, 'cache') as cache_mock:
-            cache_mock.get.return_value = None
-            site.get.return_value = _pim_list()
-            _search_pim_id_result(product)
-
-        cache_mock.set.assert_called_once_with(
-            f'pim_no_match:{product.pk}', _SEARCH_ABSENT, _PIM_NO_MATCH_TTL
-        )
-
-    def test_cached_error_does_not_become_an_absence_on_the_next_call(self):
-        product = self.product()
-        cache.set(f'pim_no_match:{product.pk}', _SEARCH_ERROR, _PIM_SEARCH_ERROR_TTL)
-
-        with patch.object(mp_utils, 'site') as site:
-            pim_id, outcome = _search_pim_id_result(product)
-
-        site.get.assert_not_called()
-        self.assertIsNone(pim_id)
-        self.assertEqual(outcome, _SEARCH_ERROR)
-
-    def test_cached_absence_is_still_an_absence_on_the_next_call(self):
-        # The complement of the test above: caching the outcome must not cost
-        # the scans their one legitimate reason to push a product to PIM.
-        product = self.product()
-        cache.set(f'pim_no_match:{product.pk}', _SEARCH_ABSENT, _PIM_NO_MATCH_TTL)
-
-        with patch.object(mp_utils, 'site') as site:
-            pim_id, outcome = _search_pim_id_result(product)
-
-        site.get.assert_not_called()
-        self.assertIsNone(pim_id)
-        self.assertEqual(outcome, _SEARCH_ABSENT)
-
-    def test_a_bare_true_from_an_older_revision_triggers_a_fresh_search(self):
-        product = self.product()
-        cache.set(f'pim_no_match:{product.pk}', True, _PIM_NO_MATCH_TTL)
-
-        with patch.object(mp_utils, 'site') as site:
-            site.get.return_value = _pim_list('pim-7')
-            pim_id, outcome = _search_pim_id_result(product)
-
-        self.assertEqual((pim_id, outcome), ('pim-7', _SEARCH_FOUND))
-
-    def test_ambiguous_match_links_nothing(self):
-        # Kept under `equals`, though it may now be unreachable in practice: a
-        # sample of 2400 consecutive PIM numbers held no duplicates. Nothing
-        # checked *guarantees* `number` is unique, though, and the guard costs
-        # one len() — returning the first of several would link an arbitrary one.
-        product = self.product(sku='AB-1')
-
+    def test_several_matches_link_none(self):
         with patch.object(mp_utils, 'site') as site:
             site.get.return_value = _pim_list('pim-1', 'pim-2')
-            pim_id, outcome = _search_pim_id_result(product)
+            self.assertEqual(_search_pim_product_id('AB-1'), (None, _SEARCH_AMBIGUOUS))
 
-        self.assertIsNone(pim_id)
-        self.assertEqual(outcome, _SEARCH_AMBIGUOUS)
-        self.assertEqual(cache.get(f'pim_no_match:{product.pk}'), _SEARCH_AMBIGUOUS)
+    def test_pim_error_is_not_an_answer(self):
+        with patch.object(mp_utils, 'site') as site:
+            site.get.side_effect = RuntimeError('PIM down')
+            self.assertEqual(_search_pim_product_id('N-1'), (None, _SEARCH_ERROR))
 
-    def test_search_uses_equals_so_sku_wildcards_stay_literal(self):
+    def test_search_uses_equals_so_number_wildcards_stay_literal(self):
         """AtroPIM feeds a `like` value straight into SQL LIKE.
 
         Measured against the live API: `like '2001_-04_z01'` returns the
-        product numbered `20015-04_z01` (so `_` is a single-char wildcard) and
-        `like '%'` returns the whole catalog. PIM numbers routinely carry `_`
-        and sku is supplier-supplied, so under `like` a sku can match a
-        *different* product. When exactly one such match comes back the
-        ambiguity guard never fires and _resolve_pim_id writes the wrong
-        pim_id — silently. `equals` keeps both characters literal.
+        product numbered `20015-04_z01`. PIM numbers routinely carry `_`, so
+        under `like` a number can match a *different* product, and exactly
+        one wrong match slips past the ambiguity guard. `equals` keeps both
+        wildcard characters literal.
         """
-        product = self.product(sku='2001_-04_z01')
-
         with patch.object(mp_utils, 'site') as site:
             site.get.return_value = _pim_list('pim-1')
-            _search_pim_id_result(product)
-
+            _search_pim_product_id('2001_-04_z01')
             entity_list = site.get.call_args.args[0]
 
         self.assertEqual(entity_list.name, 'Product')
@@ -673,29 +610,136 @@ class SearchPimIdOutcomeTests(_PimSearchTestCase):
             [('number', 'equals', '2001_-04_z01')],
         )
 
-    def test_product_without_sku_is_never_searched(self):
-        # Where.get() omits the value key when it is None, so the request would
-        # go out as an unconstrained match on number and return everything.
-        product = self.product(sku=None, article='NO-SKU')
 
-        with patch.object(mp_utils, 'site') as site:
-            pim_id, outcome = _search_pim_id_result(product)
+class LinkUnlinkedMainProductsTests(_PimSearchTestCase):
+    """The local half of reindex: MainProduct -> product.Product by sku = number."""
 
-        site.get.assert_not_called()
-        self.assertIsNone(pim_id)
-        self.assertEqual(outcome, _SEARCH_NO_SKU)
+    def test_creates_one_product_per_sku_and_links_every_main_product_to_it(self):
+        first = self.product(sku='SKU-A', name='Первый')
+        second = self.product(sku='SKU-A', article='OTHER', name='Второй')
+
+        linked = link_unlinked_main_products()
+
+        first.refresh_from_db()
+        second.refresh_from_db()
+        self.assertEqual(linked, 2)
+        self.assertEqual(first.product_id, second.product_id)
+        self.assertEqual(first.product.number, 'SKU-A')
+        self.assertEqual(first.product.name, 'Первый')
+        self.assertIsNone(first.product.pim_id)
+
+    def test_links_to_an_existing_product_instead_of_creating_one(self):
+        existing = PimProduct.objects.create(number='SKU-B')
+        main_product = self.product(sku='SKU-B')
+
+        link_unlinked_main_products()
+
+        main_product.refresh_from_db()
+        self.assertEqual(main_product.product_id, existing.pk)
+        self.assertEqual(PimProduct.objects.count(), 1)
+
+    def test_existing_links_are_never_moved(self):
+        elsewhere = PimProduct.objects.create(number='MANUAL')
+        PimProduct.objects.create(number='SKU-C')
+        main_product = self.product(sku='SKU-C', product=elsewhere)
+
+        self.assertEqual(link_unlinked_main_products(), 0)
+
+        main_product.refresh_from_db()
+        self.assertEqual(main_product.product_id, elsewhere.pk)
+
+    def test_products_without_sku_stay_unlinked(self):
+        no_sku = self.product(sku=None, article='NO-SKU')
+        empty_sku = self.product(sku='', article='EMPTY-SKU')
+
+        self.assertEqual(link_unlinked_main_products(), 0)
+
+        no_sku.refresh_from_db()
+        empty_sku.refresh_from_db()
+        self.assertIsNone(no_sku.product_id)
+        self.assertIsNone(empty_sku.product_id)
+        self.assertEqual(PimProduct.objects.count(), 0)
+
+    def test_sku_longer_than_number_stays_unlinked_without_failing_the_rest(self):
+        too_long = self.product(sku='X' * (mp_utils.PRODUCT_NUMBER_MAX_LENGTH + 1))
+        fine = self.product(sku='FINE')
+
+        with self.assertLogs(mp_utils.logger, level='WARNING'):
+            self.assertEqual(link_unlinked_main_products(batch_size=1), 1)
+
+        too_long.refresh_from_db()
+        fine.refresh_from_db()
+        self.assertIsNone(too_long.product_id)
+        self.assertEqual(fine.product.number, 'FINE')
+
+
+class BackfillProductNumbersTests(_PimSearchTestCase):
+    """Placeholder Products (number NULL) take their MainProducts' sku only when unambiguous."""
+
+    def test_placeholder_takes_the_sku_its_main_products_share(self):
+        placeholder = PimProduct.objects.create()
+        self.product(sku='SKU-1', product=placeholder)
+        self.product(sku='SKU-1', article='OTHER', product=placeholder)
+
+        self.assertEqual(backfill_product_numbers(), 1)
+
+        placeholder.refresh_from_db()
+        self.assertEqual(placeholder.number, 'SKU-1')
+
+    def test_disagreeing_skus_leave_the_number_empty(self):
+        placeholder = PimProduct.objects.create()
+        self.product(sku='SKU-1', product=placeholder)
+        self.product(sku='SKU-2', product=placeholder)
+
+        with self.assertLogs(mp_utils.logger, level='WARNING'):
+            self.assertEqual(backfill_product_numbers(), 0)
+
+        placeholder.refresh_from_db()
+        self.assertIsNone(placeholder.number)
+
+    def test_taken_number_is_not_duplicated(self):
+        PimProduct.objects.create(number='SKU-1')
+        placeholder = PimProduct.objects.create()
+        second = PimProduct.objects.create()
+        self.product(sku='SKU-1', product=placeholder)
+        self.product(sku='SKU-2', product=second)
+        self.product(sku='SKU-2', article='OTHER', product=PimProduct.objects.create())
+
+        with self.assertLogs(mp_utils.logger, level='WARNING'):
+            self.assertEqual(backfill_product_numbers(), 1)
+
+        placeholder.refresh_from_db()
+        self.assertIsNone(placeholder.number)
+        # Two placeholders wanting SKU-2: the lower pk gets it, the other waits.
+        second.refresh_from_db()
+        self.assertEqual(second.number, 'SKU-2')
+
+
+class IterUnpushedProductPkBatchesTests(_PimSearchTestCase):
+    def test_only_numbered_linked_products_without_pim_id_are_pushed(self):
+        waiting = PimProduct.objects.create(number='WAITING')
+        self.product(sku='WAITING', product=waiting)
+        self.product(sku='WAITING', article='TWICE', product=waiting)
+        pushed = PimProduct.objects.create(number='PUSHED', pim_id='pmp-1')
+        self.product(sku='PUSHED', product=pushed)
+        unnumbered = PimProduct.objects.create()
+        self.product(sku='X', product=unnumbered)
+        PimProduct.objects.create(number='ORPHAN')
+
+        self.assertEqual(list(iter_unpushed_product_pk_batches()), [[waiting.pk]])
 
 
 @override_settings(CACHES=LOCMEM_CACHE)
-class PimScanPushGuardTests(_PimSearchTestCase):
-    """The scans may only push products PIM actually confirmed it doesn't have.
+class PushPimLinksTests(_PimSearchTestCase):
+    """The PIM half of reindex: search the PIM Product, push the PriceManagerProduct, store its id."""
 
-    push_missing_pim_products creates a new PriceManagerProduct, so pushing on
-    an unanswered search duplicates a product that may already be in PIM.
-    """
+    def waiting_product(self, number, **main_product_kwargs):
+        product = PimProduct.objects.create(number=number)
+        self.product(sku=number, product=product, **main_product_kwargs)
+        return product
 
-    def _site_by_sku(self, responses):
-        """site.get double: maps the `number` filter value to a response/exception."""
+    def _site_by_number(self, responses):
+        """site.get double for the Product search: number -> response/exception."""
         def get(entity):
             answer = responses[entity.where[0].value]
             if isinstance(answer, Exception):
@@ -703,141 +747,242 @@ class PimScanPushGuardTests(_PimSearchTestCase):
             return answer
         return get
 
-    def test_create_pim_links_pushes_the_absence_but_not_the_failed_search(self):
-        absent = self.product(sku='ABSENT')
-        errored = self.product(sku='ERRORED')
+    def test_found_product_id_goes_into_the_payload_and_the_returned_id_is_stored(self):
+        product = self.waiting_product('N-1', name='Дрель', description='Описание')
 
         with patch.object(mp_utils, 'site') as site, \
-                patch.object(mp_utils, 'push_missing_pim_products', return_value=0) as push:
-            site.get.side_effect = self._site_by_sku({
+                patch.object(mp_utils, '_upsert_async', return_value=[_created('pmp-1')]) as upsert:
+            site.get.side_effect = self._site_by_number({'N-1': _pim_list('pim-product-1')})
+            linked = push_pim_links([product.pk], delay=0)
+
+        product.refresh_from_db()
+        self.assertEqual(linked, 1)
+        self.assertEqual(product.pim_id, 'pmp-1')
+        self.assertEqual(upsert.call_args.args[1], [{
+            'entity': 'PriceManagerProduct',
+            'payload': {
+                'platformID': str(product.pk),
+                'number': 'N-1',
+                'name': 'Дрель',
+                'description': 'Описание',
+                'productId': 'pim-product-1',
+            },
+        }])
+
+    def test_absent_and_ambiguous_push_without_the_product_id_key(self):
+        # Left out, not null: PIM keeps an existing productId when the key is
+        # absent, and a null would clear a link PIM staff set.
+        absent = self.waiting_product('ABSENT')
+        ambiguous = self.waiting_product('AMBIGUOUS')
+
+        with patch.object(mp_utils, 'site') as site, \
+                patch.object(mp_utils, '_upsert_async', return_value=[_created('pmp-a'), _created('pmp-b')]) as upsert:
+            site.get.side_effect = self._site_by_number({
                 'ABSENT': _pim_list(),
-                'ERRORED': RuntimeError('PIM down'),
+                'AMBIGUOUS': _pim_list('pim-1', 'pim-2'),
             })
-            with self.assertRaises(PimSearchError):
-                create_pim_links(delay=0)
+            self.assertEqual(push_pim_links([absent.pk, ambiguous.pk], delay=0), 2)
 
-        pushed = [p.pk for call in push.call_args_list for p in call.args[0]]
-        self.assertEqual(pushed, [absent.pk])
-        self.assertNotIn(errored.pk, pushed)
+        payloads = [item['payload'] for item in upsert.call_args.args[1]]
+        self.assertEqual([p['number'] for p in payloads], ['ABSENT', 'AMBIGUOUS'])
+        self.assertTrue(all('productId' not in p for p in payloads))
 
-    def test_create_pim_links_keeps_the_links_it_resolved_before_raising(self):
-        linked = self.product(sku='LINKED')
-        errored = self.product(sku='ERRORED')
+    def test_unanswered_search_skips_the_product_and_raises_after_the_writes(self):
+        answered = self.waiting_product('ANSWERED')
+        errored = self.waiting_product('ERRORED')
 
         with patch.object(mp_utils, 'site') as site, \
-                patch.object(mp_utils, 'push_missing_pim_products', return_value=0):
-            site.get.side_effect = self._site_by_sku({
-                'LINKED': _pim_list('pim-99'),
+                patch.object(mp_utils, '_upsert_async', return_value=[_created('pmp-1')]) as upsert:
+            site.get.side_effect = self._site_by_number({
+                'ANSWERED': _pim_list(),
                 'ERRORED': RuntimeError('PIM down'),
             })
-            with self.assertRaises(PimSearchError):
-                create_pim_links(delay=0)
+            with self.assertRaises(PimScanError):
+                push_pim_links([answered.pk, errored.pk], delay=0)
 
-        linked.refresh_from_db()
+        answered.refresh_from_db()
         errored.refresh_from_db()
-        self.assertEqual(linked.product.pim_id, 'pim-99')
-        self.assertIsNone(errored.product)
+        self.assertEqual(answered.pim_id, 'pmp-1')
+        self.assertIsNone(errored.pim_id)
+        self.assertEqual([i['payload']['number'] for i in upsert.call_args.args[1]], ['ANSWERED'])
 
-    def test_create_pim_links_succeeds_when_every_search_was_answered(self):
-        self.product(sku='LINKED')
-        self.product(sku='ABSENT')
+    def test_not_modified_answer_is_how_a_lost_id_comes_back(self):
+        product = self.waiting_product('N-1')
+
+        with patch.object(mp_utils, 'site') as site, patch.object(mp_utils, '_upsert_async', return_value=[
+            {'entity': 'PriceManagerProduct', 'id': 'pmp-lost', 'stored': True, 'status': 'NotModified'},
+        ]):
+            site.get.side_effect = self._site_by_number({'N-1': _pim_list()})
+            push_pim_links([product.pk], delay=0)
+
+        product.refresh_from_db()
+        self.assertEqual(product.pim_id, 'pmp-lost')
+
+    def test_rejected_push_takes_over_the_pmp_holding_our_number(self):
+        product = self.waiting_product('N-1')
+        # The PMP used to belong to another local Product, which loses it.
+        previous_owner = PimProduct.objects.create(number='RENUMBERED', pim_id='pmp-taken')
+
+        def site_get(entity):
+            if entity.name == 'Product':
+                return _pim_list()
+            self.assertEqual(entity.name, 'PriceManagerProduct')
+            return {'list': [{'id': 'pmp-taken', 'platformID': '999'}]}
+
+        with patch.object(mp_utils, 'site') as site, patch.object(mp_utils, '_upsert_async', side_effect=[
+            [_UNIQUE_VIOLATION],
+            [{'entity': 'PriceManagerProduct', 'id': 'pmp-taken', 'stored': True, 'status': 'Updated'}],
+        ]) as upsert:
+            site.get.side_effect = site_get
+            with self.assertLogs(mp_utils.logger, level='WARNING'):
+                self.assertEqual(push_pim_links([product.pk], delay=0), 1)
+
+        takeover = upsert.call_args_list[1].args[1][0]['payload']
+        self.assertEqual(takeover['id'], 'pmp-taken')
+        self.assertEqual(takeover['platformID'], str(product.pk))
+        product.refresh_from_db()
+        previous_owner.refresh_from_db()
+        self.assertEqual(product.pim_id, 'pmp-taken')
+        self.assertIsNone(previous_owner.pim_id)
+
+    def test_rejection_nothing_can_place_is_recorded_and_raises(self):
+        rejected = self.waiting_product('REJECTED')
+        created = self.waiting_product('CREATED')
+
+        def site_get(entity):
+            if entity.name == 'Product':
+                return _pim_list()
+            return {'list': []}  # no PMP holds the number, so nothing to take over
 
         with patch.object(mp_utils, 'site') as site, \
-                patch.object(mp_utils, 'push_missing_pim_products', return_value=1) as push:
-            site.get.side_effect = self._site_by_sku({
-                'LINKED': _pim_list('pim-1'),
-                'ABSENT': _pim_list(),
-            })
-            linked, created = create_pim_links(delay=0)
-
-        self.assertEqual((linked, created), (1, 1))
-        self.assertEqual(len(push.call_args_list[-1].args[0]), 1)
-
-    def test_create_pim_links_skips_products_with_no_sku_entirely(self):
-        # They cannot be searched and must not be pushed (the PIM record would
-        # carry number=''), so they must not consume a slot in the 1000-row
-        # window either.
-        searchable = self.product(sku='SEARCHABLE')
-        self.product(sku=None, article='NO-SKU')
-
-        with patch.object(mp_utils, 'site') as site, \
-                patch.object(mp_utils, 'push_missing_pim_products', return_value=0) as push:
-            site.get.side_effect = self._site_by_sku({'SEARCHABLE': _pim_list('pim-5')})
-            linked, created = create_pim_links(delay=0)
-
-        searchable.refresh_from_db()
-        self.assertEqual((linked, created), (1, 0))
-        self.assertEqual(searchable.product.pim_id, 'pim-5')
-        self.assertEqual(push.call_args.args[0], [])
-
-    def test_reindex_batch_raises_and_leaves_the_errored_product_alone(self):
-        linked = self.product(sku='LINKED', pim_id='pim-old')
-        errored = self.product(sku='ERRORED', pim_id='pim-keep')
-        unlinked = self.product(sku='ERRORED-NEW')
-
-        with patch.object(mp_utils, 'site') as site, \
-                patch.object(mp_utils, 'push_missing_pim_products', return_value=0) as push:
-            site.get.side_effect = self._site_by_sku({
-                'LINKED': _pim_list('pim-new'),
-                'ERRORED': RuntimeError('PIM down'),
-                'ERRORED-NEW': RuntimeError('PIM down'),
-            })
-            with self.assertRaises(PimSearchError):
-                reindex_pim_ids_batch([linked.pk, errored.pk, unlinked.pk], delay=0)
-
-        linked.refresh_from_db()
-        errored.refresh_from_db()
-        self.assertEqual(linked.product.pim_id, 'pim-new')
-        self.assertEqual(errored.product.pim_id, 'pim-keep')
-        self.assertEqual(push.call_args.args[0], [])
-
-
-@override_settings(CACHES=LOCMEM_CACHE)
-class PushRejectedItemsTests(_PimSearchTestCase):
-    """PIM rejects items inside a job that still ends as Success.
-
-    upsert_async does not raise on that, so _push_pim_products has to record
-    it itself — otherwise a scan reports 0 created as a clean run and re-pushes
-    the same rejected products forever.
-    """
-
-    REJECTED = {
-        'status': 'Failed',
-        'stored': False,
-        'code': 400,
-        'message': "Validation failed. 'PlatformID' is required.",
-    }
-
-    def test_rejected_item_stays_unlinked_and_is_recorded(self):
-        rejected = self.product(sku='REJECTED')
-        created = self.product(sku='CREATED')
-
-        with patch.object(mp_utils, '_upsert_async', return_value=[
-            self.REJECTED,
-            {'status': 'Created', 'stored': True, 'entity': 'PriceManagerProduct', 'id': 'pmp-1'},
-        ]), self.assertLogs(mp_utils.logger, level='ERROR'):
-            linked = mp_utils.push_missing_pim_products([rejected, created], delay=0)
+                patch.object(mp_utils, '_upsert_async', return_value=[_UNIQUE_VIOLATION, _created('pmp-2')]), \
+                self.assertLogs(mp_utils.logger, level='ERROR'):
+            site.get.side_effect = site_get
+            with self.assertRaises(PimScanError):
+                push_pim_links([rejected.pk, created.pk], delay=0)
 
         rejected.refresh_from_db()
         created.refresh_from_db()
-        self.assertEqual(linked, 1)
-        self.assertIsNone(rejected.product)
-        self.assertEqual(created.product.pim_id, 'pmp-1')
+        self.assertIsNone(rejected.pim_id)
+        self.assertEqual(created.pim_id, 'pmp-2')
         error = cache.get(mp_utils._PIM_LAST_ERROR_KEY)
-        self.assertEqual(error['op'], 'push_pim_products')
+        self.assertEqual(error['op'], 'push_pim_links')
         self.assertIn('1 из 2', error['error'])
-        self.assertIn("'PlatformID' is required", error['error'])
 
-    def test_fully_accepted_chunk_records_nothing(self):
-        product = self.product(sku='CREATED')
+    def test_product_already_pushed_or_unlinked_is_left_alone(self):
+        pushed = PimProduct.objects.create(number='PUSHED', pim_id='pmp-1')
+        self.product(sku='PUSHED', product=pushed)
+        orphan = PimProduct.objects.create(number='ORPHAN')
 
-        with patch.object(mp_utils, '_upsert_async', return_value=[
-            {'status': 'Created', 'stored': True, 'entity': 'PriceManagerProduct', 'id': 'pmp-2'},
-        ]):
-            linked = mp_utils.push_missing_pim_products([product], delay=0)
+        with patch.object(mp_utils, 'site') as site, patch.object(mp_utils, '_upsert_async') as upsert:
+            self.assertEqual(push_pim_links([pushed.pk, orphan.pk], delay=0), 0)
 
-        self.assertEqual(linked, 1)
-        self.assertIsNone(cache.get(mp_utils._PIM_LAST_ERROR_KEY))
+        site.get.assert_not_called()
+        upsert.assert_not_called()
+
+
+@override_settings(CACHES=LOCMEM_CACHE)
+class GetPimDataTests(_PimSearchTestCase):
+    """Reads go PriceManagerProduct -> productId -> Product."""
+
+    def _site(self, links=None, products=None):
+        links = links or {}
+        products = products or {}
+
+        def get(entity):
+            table = links if entity.name == 'PriceManagerProduct' else products
+            answer = table[entity.id]
+            if isinstance(answer, Exception):
+                raise answer
+            return answer
+        return get
+
+    @staticmethod
+    def _not_found():
+        request = httpx.Request('GET', 'https://pim.invalid/api/x')
+        return httpx.HTTPStatusError('404', request=request, response=httpx.Response(404, request=request))
+
+    def test_two_hops_return_the_pim_product(self):
+        with patch.object(mp_utils, 'site') as site, patch.object(mp_utils, '_queue_pim_population') as queue:
+            site.get.side_effect = self._site(
+                links={'pmp-1': {'id': 'pmp-1', 'productId': 'prod-1'}},
+                products={'prod-1': {'id': 'prod-1', 'name': 'Дрель'}},
+            )
+            self.assertEqual(get_pim_data('pmp-1'), {'id': 'prod-1', 'name': 'Дрель'})
+
+        queue.assert_called_once_with('pmp-1')
+
+    def test_link_without_product_id_has_no_data(self):
+        with patch.object(mp_utils, 'site') as site:
+            site.get.side_effect = self._site(links={'pmp-1': {'id': 'pmp-1', 'productId': None}})
+            self.assertIsNone(get_pim_data('pmp-1'))
+
+        self.assertEqual([c.args[0].name for c in site.get.call_args_list], ['PriceManagerProduct'])
+
+    def test_links_sharing_a_pim_product_share_one_product_fetch(self):
+        with patch.object(mp_utils, 'site') as site, patch.object(mp_utils, '_queue_pim_population'):
+            site.get.side_effect = self._site(
+                links={
+                    'pmp-1': {'id': 'pmp-1', 'productId': 'prod-1'},
+                    'pmp-2': {'id': 'pmp-2', 'productId': 'prod-1'},
+                },
+                products={'prod-1': {'id': 'prod-1'}},
+            )
+            get_pim_data('pmp-1')
+            get_pim_data('pmp-2')
+
+        fetched = [(c.args[0].name, c.args[0].id) for c in site.get.call_args_list]
+        self.assertEqual(fetched.count(('Product', 'prod-1')), 1)
+
+    def test_repeated_404_on_the_link_clears_pim_id_but_keeps_the_main_product_link(self):
+        main_product = self.product(sku='N-1', pim_id='pmp-dead')
+
+        with patch.object(mp_utils, 'site') as site:
+            site.get.side_effect = self._site(links={'pmp-dead': self._not_found()})
+            for _ in range(mp_utils._PIM_404_THRESHOLD):
+                self.assertIsNone(get_pim_data('pmp-dead'))
+
+        main_product.refresh_from_db()
+        self.assertIsNotNone(main_product.product_id)
+        self.assertIsNone(main_product.product.pim_id)
+
+    def test_404_on_the_pim_product_changes_nothing_locally(self):
+        main_product = self.product(sku='N-1', pim_id='pmp-1')
+
+        with patch.object(mp_utils, 'site') as site:
+            site.get.side_effect = self._site(
+                links={'pmp-1': {'id': 'pmp-1', 'productId': 'prod-gone'}},
+                products={'prod-gone': self._not_found()},
+            )
+            for _ in range(mp_utils._PIM_404_THRESHOLD):
+                self.assertIsNone(get_pim_data('pmp-1', refresh=True))
+
+        main_product.refresh_from_db()
+        self.assertEqual(main_product.product.pim_id, 'pmp-1')
+
+
+class LinkToLocalProductTests(_PimSearchTestCase):
+    """The render path links to an existing Product only — it never creates one or asks PIM."""
+
+    def test_links_to_the_product_numbered_like_the_sku(self):
+        existing = PimProduct.objects.create(number='SKU-1')
+        main_product = self.product(sku='SKU-1')
+
+        with patch.object(mp_utils, 'site') as site:
+            self.assertTrue(_link_to_local_product(main_product))
+
+        site.get.assert_not_called()
+        main_product.refresh_from_db()
+        self.assertEqual(main_product.product_id, existing.pk)
+
+    def test_no_matching_product_creates_nothing(self):
+        main_product = self.product(sku='SKU-NEW')
+
+        with patch.object(mp_utils, 'site') as site:
+            self.assertFalse(_link_to_local_product(main_product))
+
+        site.get.assert_not_called()
+        self.assertEqual(PimProduct.objects.count(), 0)
 
 
 from django.contrib.auth.models import User

@@ -1,3 +1,5 @@
+import logging
+
 from celery import chain, shared_task
 
 from core.models import PersistentNotification
@@ -6,8 +8,14 @@ from django.contrib.auth import get_user_model
 from supplier_manager.models import Category
 from product_price_manager.models import update_prices
 
-from .utils import delete_outdated_logs, recalculate_search_vectors, update_logs, update_stocks, create_pim_links, iter_pim_id_pk_batches, reindex_pim_ids_batch, get_pim_data, sync_pim_relations
+from .utils import (
+    backfill_product_numbers, delete_outdated_logs, get_pim_data, iter_unpushed_product_pk_batches,
+    link_unlinked_main_products, push_pim_links, recalculate_search_vectors, sync_pim_relations,
+    update_logs, update_stocks,
+)
 from .models import MainProduct
+
+logger = logging.getLogger(__name__)
 
 
 def _build_step_result(payload: dict | None) -> dict:
@@ -146,31 +154,33 @@ def sync_main_products_task(user_id: int):
     )
     return workflow.apply_async()
 
-@shared_task(name="main_product_manager.create_pim_links")
-def create_pim_links_task(delay: float = 0.5, batch_size: int = 1000) -> dict:
-    return execute_locked_task(
-        task_name="main_product_manager.create_pim_links",
-        lock_ttl=60 * 20,
-        runner=lambda: create_pim_links(delay=delay, batch_size=batch_size),
-        # The runner spends most of its time in PIM HTTP calls and time.sleep;
-        # a transaction around it would idle open for the whole scan.
-        atomic=False,
-    )
-
-
 @shared_task(name="main_product_manager.reindex_pim_ids", time_limit=None, soft_time_limit=None)
-def reindex_pim_ids_task(delay: float = 0.5, batch_size: int = 1000, skip_non_empty: bool = False) -> dict:
+def reindex_pim_ids_task(delay: float = 0.5, batch_size: int = 1000) -> dict:
+    """Link MainProducts to local Products by sku, then push the missing PriceManagerProducts.
+
+    The local half runs here, in this task's transaction; the PIM half fans
+    out as one reindex_pim_ids_batch_task per chunk of Products still without
+    a pim_id.
+    """
     def _runner():
+        # Numbers before links — see backfill_product_numbers.
+        numbered = backfill_product_numbers()
+        linked = link_unlinked_main_products(batch_size=batch_size)
         # dispatch_after_commit, not .delay(): execute_locked_task runs this
         # runner inside transaction.atomic(), and a batch handed straight to
-        # Redis can start before that transaction commits.
+        # Redis can start before that transaction commits — before the
+        # Products the two calls above created exist for it.
         dispatched = 0
-        for pks in iter_pim_id_pk_batches(batch_size=batch_size, skip_non_empty=skip_non_empty):
+        for pks in iter_unpushed_product_pk_batches(batch_size=batch_size):
             dispatch_after_commit(
                 reindex_pim_ids_batch_task, pks=pks, delay=delay, batch_size=batch_size
             )
             dispatched += 1
-        return dispatched
+        logger.info(
+            'reindex_pim_ids: numbered %s Products, linked %s MainProducts, dispatched %s batches',
+            numbered, linked, dispatched,
+        )
+        return numbered, linked
 
     return execute_locked_task(
         task_name="main_product_manager.reindex_pim_ids",
@@ -184,9 +194,9 @@ def reindex_pim_ids_batch_task(pks: list[int], delay: float = 0.5, batch_size: i
     return execute_locked_task(
         task_name=f"main_product_manager.reindex_pim_ids_batch:{pks[0]}-{pks[-1]}",
         lock_ttl=60 * 30,
-        runner=lambda: reindex_pim_ids_batch(pks, delay=delay, batch_size=batch_size),
-        # As in create_pim_links_task: the scan is HTTP-bound, so it must not
-        # hold a transaction open across the loop.
+        runner=lambda: push_pim_links(pks, delay=delay, batch_size=batch_size),
+        # The batch is HTTP-bound (a search per Product, then upsertAsync), so
+        # it must not hold a transaction open across the loop.
         atomic=False,
     )
 
