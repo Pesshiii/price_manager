@@ -792,6 +792,54 @@ class PimScanPushGuardTests(_PimSearchTestCase):
         self.assertEqual(push.call_args.args[0], [])
 
 
+@override_settings(CACHES=LOCMEM_CACHE)
+class PushRejectedItemsTests(_PimSearchTestCase):
+    """PIM rejects items inside a job that still ends as Success.
+
+    upsert_async does not raise on that, so _push_pim_products has to record
+    it itself — otherwise a scan reports 0 created as a clean run and re-pushes
+    the same rejected products forever.
+    """
+
+    REJECTED = {
+        'status': 'Failed',
+        'stored': False,
+        'code': 400,
+        'message': "Validation failed. 'PlatformID' is required.",
+    }
+
+    def test_rejected_item_stays_unlinked_and_is_recorded(self):
+        rejected = self.product(sku='REJECTED')
+        created = self.product(sku='CREATED')
+
+        with patch.object(mp_utils, '_upsert_async', return_value=[
+            self.REJECTED,
+            {'status': 'Created', 'stored': True, 'entity': 'PriceManagerProduct', 'id': 'pmp-1'},
+        ]), self.assertLogs(mp_utils.logger, level='ERROR'):
+            linked = mp_utils.push_missing_pim_products([rejected, created], delay=0)
+
+        rejected.refresh_from_db()
+        created.refresh_from_db()
+        self.assertEqual(linked, 1)
+        self.assertIsNone(rejected.product)
+        self.assertEqual(created.product.pim_id, 'pmp-1')
+        error = cache.get(mp_utils._PIM_LAST_ERROR_KEY)
+        self.assertEqual(error['op'], 'push_pim_products')
+        self.assertIn('1 из 2', error['error'])
+        self.assertIn("'PlatformID' is required", error['error'])
+
+    def test_fully_accepted_chunk_records_nothing(self):
+        product = self.product(sku='CREATED')
+
+        with patch.object(mp_utils, '_upsert_async', return_value=[
+            {'status': 'Created', 'stored': True, 'entity': 'PriceManagerProduct', 'id': 'pmp-2'},
+        ]):
+            linked = mp_utils.push_missing_pim_products([product], delay=0)
+
+        self.assertEqual(linked, 1)
+        self.assertIsNone(cache.get(mp_utils._PIM_LAST_ERROR_KEY))
+
+
 from django.contrib.auth.models import User
 
 from core.models import PersistentNotification
