@@ -166,7 +166,7 @@ _PIM_404_COUNT_TTL = 60 * 60 * 24  # window resets if failures aren't consecutiv
 
 def _note_pim_404(pim_id: str) -> None:
     """Track a 404 for a pim_id; once _PIM_404_THRESHOLD is hit in a row,
-    clear pim_id from every MainProduct pointing at it so renders stop
+    clear the `product` FK on every MainProduct linked to it so renders stop
     hammering a dead id — create_pim_links/reindex_pim_ids will re-link it.
     """
     count_key = f"{_PIM_404_COUNT_PREFIX}{pim_id}"
