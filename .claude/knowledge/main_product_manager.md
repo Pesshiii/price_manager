@@ -5,9 +5,39 @@ link to PIM is `MainProduct.product`, a nullable FK to `product.Product`
 (see [[product]]) — replacing `MainProduct`'s own CharField `pim_id` as of
 the `MainProduct.product` FK conversion. `SupplierProduct.pim_id` is a
 **separate, still-live CharField** (`utils.py:685,688`), untouched by this —
-don't go looking for a FK there. The sections below are line-numbered
-against the tree as of that conversion (worktree `mainproduct-product-fk`),
-so re-check line numbers after it merges and drifts further.
+don't go looking for a FK there. Every line ref below was re-verified against
+merged `main` on 2026-09-12 (post-#181, `e912ef2`) — none had drifted;
+re-verify again before trusting old refs once `utils.py`/`models.py` change
+further.
+
+## Flow map — five paths through PIM
+
+Orienting map only; each line points at the section with the detail rather
+than repeating it.
+
+1. **Bootstrap.** `PIM_TOKEN`/`PIM_HOST` back a module-level `SiteAPI` built
+   at import time in `main_product_manager/pim_client.py:5` — and
+   independently again in `product/pim_client.py:5`. CLAUDE.md owns why
+   missing creds fail app boot; don't restate it here.
+2. **Identity.** `MainProduct.product` → `product.Product.pim_id`, read via
+   `_pim_id_of()` — the FK is the identity hop now, not a `pim_id` string.
+   See the FK-traps section below.
+3. **Read one product.** `get_pim_data`, `pim_product:{pim_id}`, the
+   404-vs-error split, `_note_pim_404`'s fleet-wide unlink (below), and
+   `get_pim_data_for_product`'s recovery (see the render-path-cost section).
+4. **Resolve.** `_search_pim_id_result` — one `equals` on PIM `Product.number`
+   against `sku`, five outcomes, cached under `pim_no_match:{pk}` (see
+   below).
+5. **Write, enrich, ops.** The two push entry points share
+   `compute_supplier_sku` (below) so PIM ends up with one record per
+   product; `_push_pim_products` validates the upsertAsync result before
+   trusting it (below). `_queue_pim_population` → `populate_pim_relations_task`
+   → `sync_pim_relations` fills manufacturer + the recursive category tree.
+   Ops: `create-pim-links` beat every 30 min, `reindex-pim-ids` at 03:00
+   (`settings/celery.py:50-57`); `manage.py run_task`/`check_pim`/
+   `import_main_products_pim`; `supplier_manager`'s
+   `populate_category_pim_ids --from-pim` — destructive, deletes every
+   `Category` and rebuilds from PIM.
 
 ## `.save()` deliberately doesn't rebuild the search vector
 
@@ -108,6 +138,31 @@ path (`MainProductPimImportResource`, `resources.py:286-296`), for the
 legitimate reason: PIM exports can carry ids the local mirror doesn't have
 yet.
 
+## `_note_pim_404` — a dead PIM link self-heals by unlinking, fleet-wide
+
+`_note_pim_404` (`utils.py:167-179`) counts consecutive 404s per pim id under
+`pim_404_count:{pim_id}` (`_PIM_404_COUNT_PREFIX`, `:162`), TTL 24h (`:164`).
+At `_PIM_404_THRESHOLD = 3` (`:163`) it runs
+`MainProduct.objects.filter(product__pim_id=pim_id).update(product=None)` and
+drops the counter; re-linking is left entirely to the next
+`create_pim_links`/`reindex_pim_ids_batch` pass — this function only unlinks.
+It fires from `get_pim_data`'s explicit-404 branch (`:206-209`) only; a
+non-404 error never reaches it, which is the whole point of the 404-vs-error
+split.
+
+The unlink is **fleet-wide** — it clears `product` on every `MainProduct`
+sharing that PIM `Product`, not just the row that happened to render — and
+that group can trip the threshold inside **one page render**, not just
+"three incidents over time": a 404 sets nothing in the cache
+(`get_pim_data`'s not_found branch only calls `cache.delete`, `:207`), so
+unlike the positive-cache dedup the next section describes, several rows
+sharing one dead pim_id each cost their own live PIM round-trip, each a
+consecutive hit on the same counter key. `prefetch_pim_data`'s per-row loop
+(`:453-469`) has no pim_id dedup of its own, so a 3-row group with a dead
+shared `product.Product` can unlink itself mid-render on its first cold
+view. `_note_pim_success` (`:181-182`) deletes the counter on any successful
+fetch, so the hits do have to be genuinely consecutive.
+
 ## The PIM cache's render-path cost — and why it bites tests too
 
 `get_pim_data` (`utils.py:185-210`) is synchronous on a cache miss or when
@@ -147,6 +202,29 @@ local fields (`test_grouping.py:122`, inside the `make_product` factory,
 `:103-123`) instead of calling `rebuild_search_vector()`. `get_file_url` has
 its own direct-mock recipe instead (`GetFileUrlTests`, `tests.py:357`,
 patches `main_product_manager.utils.site`).
+
+## The widest PIM cost in production is an Excel upload, not a scan
+
+The FK section above ("`recalculate_search_vectors` absorbs the FK hop")
+already lists `supplier_product_manager/tasks.py:277` among
+`recalculate_search_vectors`'s three callers, for a `select_related`
+correctness reason. The cost reason is separate:
+`copy_supplier_products_to_main_task` → `recalculate_search_vectors(...)`
+(`:276-277`, over every `touched_main_product_id`) → `_build_searchvector`
+(`models.py:151-156`) → `_resolve_pim_id`/`get_pim_data`, once per touched
+row.
+
+`prefetch_pim_data`'s own docstring (`utils.py:456-459`) says table
+rendering "never resolves/reindexes pim_id — that's the job of the
+background tasks"; this import path does exactly that resolve,
+synchronously, per row, with **no `time.sleep(delay)`** between rows —
+`create_pim_links`/`reindex_pim_ids_batch` sleep between every search
+(`utils.py:804,875`) specifically to avoid hammering PIM, and the upload
+path bypasses that rate-limiting entirely. One price-list upload therefore
+both writes to PIM (see `compute_supplier_sku` below) and pays up to two
+synchronous, unthrottled round-trips per newly-touched row in the same
+request — see [[supplier_product_manager]], which owns the trigger and its
+batching (`_chunked`, `tasks.py:183-191`).
 
 ## `get_file_url`'s PIM File payload — the precedence bug is fixed (#160/PR #169)
 
@@ -290,6 +368,66 @@ name participated. It now reads "Поиск идёт по артикулу то�
 совпадает ли он с полем «number» в PIM, или привяжите вручную" — matches the
 real lookup, and `priceManagerId` no longer appears anywhere in the repo
 (grepped).
+
+## Why `_push_pim_products` validates the upsertAsync result's shape and length
+
+`_push_pim_products` (`utils.py:625-681`) sends `{'entity': PIM_PRODUCT_ENTITY,
+'payload': ...}` items (`PIM_PRODUCT_ENTITY = 'PriceManagerProduct'`, `:606`)
+through `pim_api.upsert_async` (`pim_api/__init__.py:127-177`), which is not a
+plain POST: `POST /api/upsertAsync` returns only a `jobId` (`:145-146`), and
+`upsert_async` then polls `GET /api/Job/{id}` once a second until `status` is
+terminal (`{'Success','Failed','Canceled'}`, `:124,151-160`), raising
+`TimeoutError` after 60s.
+
+**`Job.payload` merely echoes the request back — the per-item outcome is a
+JSON-encoded *string* in `Job.message`, one entry per input item, in input
+order** (`:131-136,168-177`). That positional correspondence is the only
+thing tying a returned id back to an object, which is why
+`_push_pim_products` re-validates on top of what `upsert_async` already
+checks — a non-list/non-dict-items result (`utils.py:658-664`) and, more
+pointedly, `len(results) != len(chunk)` (`:665-671`) before zipping:
+`upsert_async` only confirms `results` *is* a list
+(`pim_api/__init__.py:175-176`), not that it's the right length for this
+caller's chunk, and a mismatch would otherwise silently write ids onto the
+wrong products.
+
+A chunk whose transport/timeout/job call raises is recorded via
+`_record_pim_error` and skipped without aborting the remaining chunks
+(`utils.py:653-657`) — the same promise "PIM scans run with `atomic=False`"
+above protects when it warns against wrapping `push_missing_pim_products` in
+a transaction.
+
+## `compute_supplier_sku` is what stops one product becoming two PIM records
+
+Two write entry points push to PIM at different times during the same
+import, and neither can see the other's `number` — the only thing making
+them agree is that both call `compute_supplier_sku`:
+
+- the pre-copy push, on `SupplierProduct` rows, from
+  `supplier_product_manager/functions.py:505` (`push_supplier_products_to_pim`,
+  right after `load_setting`'s `bulk_create(update_conflicts=True)`,
+  `:482-486`) — its number is `(sp.main_product.sku if sp.main_product else
+  None) or compute_supplier_sku(sp.article, sp.supplier)` (`utils.py:738`);
+- the post-copy push, on `MainProduct`, from the scans
+  (`push_missing_pim_products`, reached from `create_pim_links`/
+  `reindex_pim_ids_batch`).
+
+`compute_supplier_sku(article, supplier)` (`utils.py:609-618`) applies
+`supplier.sku_type`/`sku_value` (`supplier_manager/models.py:51,59`) as
+prefix or suffix, and `copy_supplier_products_to_main_task` uses the same
+function for the new `MainProduct.sku` (`supplier_product_manager/tasks.py:255`)
+— change one side alone and PIM silently gets two records for one product.
+See [[supplier_product_manager]], which owns both call sites.
+
+Related trap in the pre-copy push: `push_supplier_products_to_pim`
+(`utils.py:720-743`) re-reads `pim_id` from the DB (`:732`) rather than
+trusting the caller's in-memory `SupplierProduct` instances, because
+`bulk_create(update_conflicts=True)` doesn't refresh non-pk fields —
+`pim_id` included — on rows it updates rather than inserts; trusting the
+stale in-memory value would re-push every already-linked row on each
+re-import. `SupplierProduct.pim_id` is still a plain CharField
+(`supplier_product_manager/models.py:17`) — the FK conversion only touched
+`MainProduct.product`, so this path is unchanged by it.
 
 ## The 11 Celery tasks, and one that isn't
 
