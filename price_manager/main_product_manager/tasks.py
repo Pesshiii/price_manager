@@ -180,7 +180,9 @@ def reindex_pim_ids_task(delay: float = 0.5, batch_size: int = 1000) -> dict:
             'reindex_pim_ids: numbered %s Products, linked %s MainProducts, dispatched %s batches',
             numbered, linked, dispatched,
         )
-        return numbered, linked
+        # One bare int: execute_locked_task sums a tuple's members, and
+        # Products numbered and MainProducts linked are not the same count.
+        return linked
 
     return execute_locked_task(
         task_name="main_product_manager.reindex_pim_ids",

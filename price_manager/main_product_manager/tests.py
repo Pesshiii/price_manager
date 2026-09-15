@@ -326,7 +326,7 @@ class ReindexPimIdsDispatchTests(TestCase):
             )
 
         self.assertEqual(payload['status'], 'success')
-        # updated_count sums (numbered, linked): nothing to number, 3 linked.
+        # updated_count is the MainProducts linked, not the batches dispatched.
         self.assertEqual(payload['updated_count'], 3)
 
     def test_placeholder_claims_its_sku_before_unlinked_products_are_linked(self):

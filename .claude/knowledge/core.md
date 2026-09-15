@@ -24,12 +24,12 @@ What it gives you, in order:
    lock-skipped — with `duration_ms` and `updated_count`.
 4. `cache.delete(lock_key)` in `finally`.
 
-The skipped path `return`s at `:54`, **before** the `try` — so the `finally` at
-`:100` never runs for it and a lock-loser cannot delete the winner's lock.
+The skipped path `return`s at `:84`, **before** the `try` — so the `finally` at
+`:133` never runs for it and a lock-loser cannot delete the winner's lock.
 
-Errors are logged **and re-raised** (`:99`) — it is not a swallow-all wrapper.
-A task that wants to notify on failure must wrap the call itself; see
-`core/tasks.py:52`–`58`.
+Errors are logged **and re-raised** (`:131`-`:132`) — it is not a swallow-all
+wrapper. A task that wants to notify on failure must wrap the call itself;
+see `core/tasks.py:52`–`58`.
 
 `_normalize_updated_count` (`task_runner.py:14`) decides what `updated_count`
 becomes: an int/float is cast, a tuple is **summed over its numeric members**,
@@ -38,13 +38,21 @@ anything else (including a dict or a model instance) becomes **0**.
 The trap this sets: a runner returning a summary like
 `{"updated": 42, "skipped": 3}` records **0**, and the obvious fix —
 `return (42, 3)` — records **45**, a silently wrong metric that is worse. The
-tuple branch is only correct when every member counts the same thing (that is
-why `create_pim_links` returning `len(result), created`,
-`main_product_manager/utils.py:530`, is fine). **Return the one bare int you
-actually want counted.**
+tuple branch is only correct when every member counts the same unit, as
+`update_prices` (`product_price_manager/models.py:455`, passed straight as
+`runner=` by both apps' `update_prices_task`) does: both members of its
+`(count, dcount)` are counts of `MainProduct` rows written, so summing them
+is correct. [[main_product_manager]]'s `reindex_pim_ids_task` shows the trap
+from the other side: it used to return `(numbered, linked)` — Products
+numbered and MainProducts linked, not the same unit — and was changed to a
+bare `linked`, with a comment at the call site naming this exact trap
+(`main_product_manager/tasks.py:183-185`); the function its batch task runs,
+`push_pim_links` (`main_product_manager/utils.py:819`), returns a plain int
+and raises on failure rather than folding a failure count into the total.
+**Return the one bare int you actually want counted.**
 
 The rest of a dict return is not lost: the success path writes
-`details={"result": str(result)}` (`:75`). That is a Python **repr string**
+`details={"result": str(result)}` (`:108`). That is a Python **repr string**
 inside a `JSONField`, not structured JSON — reading it back needs
 `ast.literal_eval`, not `json.loads`. (`error` is populated only on the error
 path; `details` is left `{}` there.)
@@ -56,14 +64,16 @@ Three consequences worth remembering:
 - A transaction must not span an HTTP call, and moving the *write* after the
   API loop does **not** achieve that — the transaction opens here, before the
   runner is ever entered, so it is held for the whole loop no matter where the
-  write sits. `atomic=False` is the only thing that actually drops it. The two
-  PIM scans in [[main_product_manager]] use it.
+  write sits. `atomic=False` is the only thing that actually drops it. In
+  [[main_product_manager]] that's `reindex_pim_ids_batch_task`
+  (`tasks.py:194-203`), the HTTP-bound batch — its parent `reindex_pim_ids_task`
+  stays atomic on purpose, since its own runner does only local DB work
+  (backfill numbers, link/create `product.Product` rows) before dispatching.
 - A runner that `.delay()`s subtasks inside the transaction queues them on
-  Redis **immediately**, while its own DB writes can still roll back — the
-  subtask then runs against rows that never committed. Use
-  `dispatch_after_commit()` (`task_runner.py:24`) instead; the
-  `reindex_pim_ids_task` fan-out in `main_product_manager/tasks.py:174` was
-  converted to it and is the worked example.
+  Redis **immediately**, while its own DB writes can still roll back. Use
+  `dispatch_after_commit()` (`task_runner.py:24`) instead — CLAUDE.md's
+  "Dispatching a subtask" paragraph has the why. The `reindex_pim_ids_task`
+  fan-out in `main_product_manager/tasks.py:174-178` is the worked example.
 
 ## Trap: running `core` empties the DB for every later `--keepdb` run
 
