@@ -131,9 +131,10 @@ def upsert_async(site: SiteAPI, items: List[Dict[str, Any]], poll_interval: floa
     Job.payload just echoes back the request; the actual per-item outcome is
     a JSON-encoded string in Job.message, one entry per input item in the
     same order, e.g. {'status': 'Created', 'stored': True,
-    'entity': 'PriceManagerProduct', 'id': '...'} or (presumably, unconfirmed
-    against a real failure) {'status': 'Failed', 'stored': False, ...} with no
-    'id'. Returns that parsed list.
+    'entity': 'PriceManagerProduct', 'id': '...'} or, for an item PIM rejects,
+    {'status': 'Failed', 'stored': False, 'code': 400, 'message': 'Validation
+    failed. ...'} with no 'id' — while the job itself still ends as Success.
+    Returns that parsed list.
 
     Raises TimeoutError if the job doesn't reach a terminal status within
     `timeout` seconds, RuntimeError if the job itself ends as Failed/Canceled

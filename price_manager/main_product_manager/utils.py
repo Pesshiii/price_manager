@@ -638,7 +638,9 @@ def _push_pim_products(objects: list, payload_fn, link_fn, batch_size: int = 100
     called per chunk, on type(chunk[0])). A chunk whose transport/timeout/job
     call errors is skipped (recorded via _record_pim_error) without aborting
     the remaining chunks — a PIM outage must not fail the caller's larger
-    task. Returns how many objects were successfully linked in total.
+    task. Items PIM rejects inside an otherwise successful job (status
+    'Failed', or no id returned) are left unlinked and recorded the same way.
+    Returns how many objects were successfully linked in total.
     """
     if not objects:
         return 0
@@ -671,12 +673,25 @@ def _push_pim_products(objects: list, payload_fn, link_fn, batch_size: int = 100
             continue
 
         linked = []
+        rejected = []
         for obj, result in zip(chunk, results):
-            if result.get('status') == 'Failed':
-                continue
             pim_id = result.get('id')
-            if pim_id:
-                linked.append((obj, pim_id))
+            if result.get('status') == 'Failed' or not pim_id:
+                rejected.append(result)
+                continue
+            linked.append((obj, pim_id))
+        if rejected:
+            # The job itself ends as Success when PIM rejects individual items
+            # (e.g. a 400 "Validation failed" per item), so upsert_async does
+            # not raise and nothing above records it. Without this the caller
+            # returns 0 created, the task run is recorded as a success, and
+            # the same products are pushed and rejected again on every run.
+            error = Exception(
+                f'PIM отклонил {len(rejected)} из {len(chunk)} товаров; '
+                f'первый ответ: {rejected[0]!r:.500}'
+            )
+            logger.error('push_pim_products: %s', error)
+            _record_pim_error('push_pim_products', error, int((time.monotonic() - t0) * 1000))
         total_linked += link_fn(linked)
     return total_linked
 
