@@ -5,7 +5,7 @@ import logging
 from pim_api import Entity
 
 from .. import pim_client
-from ..models import Category, Product
+from ..models import Brand, Category, Product
 
 logger = logging.getLogger(__name__)
 
@@ -62,6 +62,26 @@ def _ensure_pim_category(pim_category_id: str) -> Category | None:
     return category
 
 
+def _ensure_pim_brand(data: dict) -> Brand | None:
+    """Find or create the Brand matching a PIM Product's brandId/brandName.
+
+    Keyed on brandId, never on the name: PIM staff rename brands, and matching
+    by name would fork one brand into two on the first rename. The name is kept
+    in sync as a display label only. Mirrors _resolve_manufacturer in
+    main_product_manager/utils.py, which does the same against the
+    supplier-side Manufacturer this replaces.
+    """
+    brand_id = data.get('brandId')
+    if not brand_id:
+        return None
+    name = data.get('brandName') or brand_id
+    brand, created = Brand.objects.get_or_create(pim_id=brand_id, defaults={'name': name})
+    if not created and brand.name != name:
+        brand.name = name
+        brand.save(update_fields=['name'])
+    return brand
+
+
 def sync_product_from_pim(pim_id: str, data: dict | None = None) -> Product:
     """Persist PIM data onto the local Product whose PriceManagerProduct is `pim_id`.
 
@@ -103,9 +123,14 @@ def sync_product_from_pim(pim_id: str, data: dict | None = None) -> Product:
 
     product.name = data.get('name') or None
     product.raw_data = data
+    product.brand = _ensure_pim_brand(data)
 
     category_ids = data.get('categoriesIds') or []
     categories = [c for c in (_ensure_pim_category(cid) for cid in category_ids) if c]
     product.save()
     product.categories.set(categories)
+    # После save(), а не до: rebuild_search_vector() делает update() по pk, и до
+    # первого сохранения у новой строки pk ещё нет. Вектор собирается из
+    # raw_data, которые мы только что записали, — в PIM он не ходит.
+    product.rebuild_search_vector()
     return product

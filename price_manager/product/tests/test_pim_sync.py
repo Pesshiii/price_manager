@@ -1,9 +1,10 @@
 from unittest.mock import patch
 
+from django.contrib.postgres.search import SearchQuery
 from django.test import TestCase
 from pim_api import Entity, SiteAPI
 
-from product.models import Category, Product
+from product.models import Brand, Category, Product
 from product.services.pim_sync import (
     _fetch_pim_category,
     _fetch_pim_link,
@@ -169,3 +170,46 @@ class SyncProductFromPimTests(TestCase):
         self.assertEqual(saved.categories.count(), 0)
         # The product itself still persisted — one bad id doesn't abort the sync.
         self.assertEqual(saved.name, 'Товар')
+
+    def test_brand_is_created_from_brand_id_and_linked(self):
+        payload = {'number': 'N1', 'name': 'Товар', 'brandId': 'br-1', 'brandName': 'Grohe'}
+
+        saved, _ = self._sync(payload)
+
+        self.assertIsNotNone(saved.brand)
+        self.assertEqual(saved.brand.pim_id, 'br-1')
+        self.assertEqual(saved.brand.name, 'Grohe')
+
+    def test_brand_is_matched_on_id_so_a_rename_does_not_fork_it(self):
+        """PIM-овский brandId — ссылка на сущность; имя это лишь подпись.
+
+        Сопоставление по имени раскололо бы один бренд надвое при первом же
+        переименовании в PIM.
+        """
+        self._sync({'number': 'N1', 'brandId': 'br-1', 'brandName': 'Grohe'}, pim_id='pmp-1')
+        saved, _ = self._sync(
+            {'number': 'N2', 'brandId': 'br-1', 'brandName': 'GROHE AG'},
+            link={'id': 'pmp-2', 'number': 'N2', 'productId': 'prod-2'},
+            pim_id='pmp-2',
+        )
+
+        self.assertEqual(Brand.objects.count(), 1)
+        self.assertEqual(saved.brand.name, 'GROHE AG')
+
+    def test_product_without_brand_id_keeps_brand_null(self):
+        saved, _ = self._sync({'number': 'N1', 'name': 'Товар'})
+
+        self.assertIsNone(saved.brand)
+        self.assertEqual(Brand.objects.count(), 0)
+
+    def test_sync_rebuilds_the_search_vector(self):
+        payload = {'number': 'N1', 'name': 'Смеситель', 'categoriesIds': []}
+
+        saved, _ = self._sync(payload)
+
+        self.assertIsNotNone(saved.search_vector)
+        self.assertTrue(
+            Product.objects.filter(
+                pk=saved.pk, search_vector=SearchQuery('смеситель', config='russian')
+            ).exists()
+        )
