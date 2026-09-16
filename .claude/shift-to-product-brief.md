@@ -52,7 +52,9 @@ Three consequences that matter:
 | §3.2 The page `/products/` | ✅ **Done** — `e71796c`, HTMX wiring fixed in `cb98183` |
 | §3.3 P1-G3 observability counter | ✅ **Done** (in `e71796c`) |
 | §3.3 P1-G1 / P1-G2 coverage gates | ⚠️ **Need re-measuring** — see §0.3 |
-| §5 Hybrid live-PIM filter (D15) | ❌ **Not built** — blocked, see §5 |
+| §5 `pim_api` extension (the D15 blocker) | ✅ **Done** — `e5ba73c` |
+| §5a Probe | ⚠️ **Runnable, not run** — needs real PIM credentials |
+| §5 Hybrid live-PIM filter (D15) itself | ❌ **Not built** — gated on the probe |
 | §4 Phase 2 (all destructive work) | ❌ Not started, by design (D10) |
 
 Branch `worktree-product-shift-phase1`, full suite green (409 tests).
@@ -359,24 +361,51 @@ without evidence.
 (`product.Category`, `product.Brand`). That is the correct half, and the seam for the live
 leg is the `categories_method` / `brand_method` pair in `product/filters.py`.
 
-**What blocks the live leg — `pim_api` cannot express the query:**
+**The client blocker is now closed** (`e5ba73c`). What was wrong and what it became:
 
-- `EntityList` (`pim_api/__init__.py:41-54`) has `select`, `where`, `ordering` but **no
-  `offset`/`maxSize`** and returns no `total`. AtroPIM's default page size silently
-  truncates: a category with 500 products returns the first page, and the page looks correct
-  while being wrong. **Add pagination and read `total` first.**
-- `Where.value` is `Optional[str]` — a single string. There is no way to express
-  `linkedWith` against a **list** of category/brand ids. **Extend it to accept a list.**
-- `EntityList.get` uses `timeout: float = 5.0`. Five seconds of dead page per filter click,
-  and `httpx` raises rather than degrading.
+- `EntityList` had `select`/`where`/`ordering` but **no `offset`/`maxSize`**, so PIM returned
+  its default first page and said nothing — a wide query looked successful while being
+  incomplete. Now `offset`/`maxSize` are emitted, and **`fetch_list()`** walks the pages.
+  (`total` was always in the raw JSON — `{'total': N, 'list': [...]}`. The client simply
+  never paged. Existing callers search `number equals`, expecting 0–1 hits, which is why
+  none of them were bitten.)
+- `Where.value` was `Optional[str]`. Now `Union[str, List[str]]`: a list is emitted as
+  PHP array notation (`where[0][value][]` repeated), which is what `linkedWith` needs.
+  **The scalar branch is untouched** — every existing PIM link lookup goes through it.
+- `SiteAPI.get(method, timeout=...)` overrides the 5s default per call, for interactive
+  paths where 5 seconds is a frozen page.
+- **`fetch_list()` returns `ListResult(total, items, truncated)`.** `truncated` is the point:
+  a capped set is indistinguishable from a complete one by the items alone, and returning a
+  silent prefix is the exact bug the paging exists to prevent. It covers both causes — the
+  `max_items` cap and PIM returning fewer rows than its own `total` claims.
+- **Phantom field fixed in passing:** `EntityList.ordering` was declared on the model and
+  **never emitted into the request**. Assigning it did nothing. Same class as the
+  `category_path` trap in `.claude/knowledge/product.md`. No existing caller passes it.
 
 ### 5a. Probe before building — named exit
 
-Against the live PIM (needs a real `PIM_TOKEN`; the probe was not run): take the largest
-category, ask how many products it holds, and see whether PIM answers a broad category query
-at all. **If the worst case exceeds what one `pim_id IN (...)` can carry, the honest finding
-is that the live leg can only serve narrow filters** — take that back to the user rather
-than capping silently.
+⚠️ **Runnable but NOT RUN.** This environment has `PIM_HOST = http://pim.invalid` and an
+11-character placeholder token, so no live probe is possible here.
+
+Shipped as a management command:
+
+```bash
+docker compose exec web python manage.py probe_pim_category_size --top 5
+```
+
+It takes the largest local categories, expands each branch through MPTT, asks PIM how many
+products are linked with that id set, and prints a verdict against a `--max-items` limit
+(default 1000). **If the worst case exceeds what one `pim_id IN (...)` can carry, the honest
+finding is that the live leg only serves narrow filters** — take that back to the user
+rather than capping silently. The command says exactly that, and says so explicitly when the
+credentials are placeholders.
+
+Two prerequisites before the probe means anything:
+1. Real `PIM_TOKEN` / `PIM_HOST`. Note `SiteAPI` builds `https://{host}/api/`, so `host`
+   must be a bare hostname — the current placeholder carries a `http://` scheme and would
+   produce a malformed URL even if the token were real.
+2. The §3.1a backfill must have run far enough for local categories to have products; the
+   probe reports "no local categories with products" otherwise, which it did here.
 
 ### 5b. Descendant semantics — ✅ already handled
 
@@ -387,8 +416,9 @@ already in place, so this regression cannot happen by omission.
 
 ### 5c. Minimum requirements for the live leg
 
-1. Bounded result set — paginate and read `total`. **A cap is silent truncation**, the same
-   bug class as the missing `maxSize`. If the id set exceeds the bound, say so in the UI.
+1. Bounded result set — use `fetch_list(..., max_items=…)` and **check `result.truncated`**.
+   The client now reports it; the UI must surface it. A silent prefix is the bug the whole
+   paging change exists to prevent.
 2. Cache the id set per (facet, page) with a short TTL. Reuse the cache-key idioms in
    `main_product_manager/utils.py` (`pim_no_match:{pk}`, the 404 threshold).
 3. **Graceful degradation when PIM is down.** Pick one and implement it: fall back to the
@@ -403,9 +433,11 @@ already in place, so this regression cannot happen by omission.
 
 ## 6. Risks carried forward
 
-- **R1 — hybrid filtering (D15).** Still the highest-risk decision, and now the only
-  unbuilt one. A network call in the page's query path is the exact pattern `CLAUDE.md`
-  flags on `_build_searchvector`. §5c is mandatory, not optional.
+- **R1 — hybrid filtering (D15).** Still the highest-risk decision and the only unbuilt one.
+  The *client* blocker is closed; what remains unknown is whether PIM can answer a broad
+  category query at all, which only the §5a probe against real credentials can say. A
+  network call in the page's query path is the exact pattern `CLAUDE.md` flags on
+  `_build_searchvector`. §5c is mandatory, not optional.
 - **R2 — ✅ resolved.** Coverage was measured (§0.3). G1/G2 need one re-read post-`#184`,
   not a fresh investigation.
 - **R3 — two PIM clients.** `product/pim_client.py` and `main_product_manager/pim_client.py`
