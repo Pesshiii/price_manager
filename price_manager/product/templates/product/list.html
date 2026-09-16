@@ -1,0 +1,146 @@
+{% extends 'base.html' %}
+{% load django_tables2 %}
+
+{% block title %}
+Товары
+{% endblock %}
+
+{% block style %}
+  #products-block {
+    --bs-gutter-x: 0;
+  }
+
+  .product-filters-card {
+    position: sticky;
+    top: 88px;
+    max-height: calc(100vh - 120px);
+    overflow: auto;
+    scrollbar-width: none;
+    -ms-overflow-style: none;
+  }
+
+  .product-filters-card::-webkit-scrollbar {
+    display: none;
+  }
+
+  .product-filters-card .card {
+    border: 1px solid #e9ecef;
+    border-radius: 1rem;
+    box-shadow: 0 0.5rem 1.5rem rgba(15, 23, 42, 0.06);
+  }
+
+  .filter-header h5 {
+    font-weight: 600;
+  }
+
+  .filter-section {
+    padding: 0.9rem 0;
+    border-bottom: 1px solid #f1f3f5;
+  }
+
+  .filter-section-last {
+    border-bottom: none;
+  }
+
+  .filter-section-title {
+    font-size: 0.8rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+    color: #6c757d;
+    margin-bottom: 0.6rem;
+  }
+
+  .product-suppliers-row > td {
+    background-color: #f8f9fa;
+    padding: 0;
+  }
+
+  .product-suppliers-row table {
+    margin-bottom: 0;
+  }
+
+  .coverage-note {
+    font-size: 0.85rem;
+  }
+{% endblock %}
+
+{% block body %}
+  <div id="products-block" class="row gap-2 p-4">
+
+    <div class="col-12 col-lg-3">
+      <div id="product-filters-card" class="product-filters-card"
+           hx-get="{% url 'product-filter' %}{% querystring %}"
+           hx-trigger="load"
+           hx-swap="innerHTML">
+        <div class="card p-3 pe-1">
+          <div class="placeholder-glow">
+            <span class="placeholder col-7 mb-2"></span>
+            <span class="placeholder col-10 mb-2"></span>
+            <span class="placeholder col-8"></span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="col-12 col-lg-8 ps-lg-4">
+      <form id="products-search-form"
+            hx-get="{% url 'products' %}"
+            hx-target="#products-table"
+            hx-swap="outerHTML"
+            hx-push-url="true"
+            hx-trigger="input changed delay:500ms from:#products-search, submit">
+        <div class="input-group mb-3">
+          <span class="input-group-text"><i class="bi bi-search"></i></span>
+          {{ filter.form.search }}
+        </div>
+      </form>
+
+      {% include 'product/partials/coverage_note.html' %}
+      {% include 'product/partials/table.html' %}
+    </div>
+  </div>
+{% endblock %}
+
+{% block script %}
+<script>
+  // Раскрытие поставщиков. Строка-контейнер уже лежит в разметке сразу за
+  // строкой товара и пуста — наполняем её по требованию.
+  //
+  // Запрос делается ЗДЕСЬ, а не через hx-get на кнопке. hx-get сработал бы на
+  // каждый клик, включая сворачивающий: строка честно пряталась, но следом
+  // приходил ответ и наполнял её заново. Лишний запрос на каждое сворачивание
+  // и контент, живущий в скрытой строке.
+  //
+  // Сворачивание чистит контейнер, чтобы следующее раскрытие сходило за
+  // свежими ценами: их меняют прайсы поставщиков, и показать устаревшие хуже,
+  // чем сходить второй раз.
+  document.body.addEventListener('click', function (event) {
+    const button = event.target.closest('.product-expand');
+    if (!button) return;
+
+    const suppliersRow = button.closest('tr').nextElementSibling;
+    if (!suppliersRow || !suppliersRow.classList.contains('product-suppliers-row')) return;
+
+    const container = suppliersRow.querySelector('div');
+    const icon = button.querySelector('i');
+    const collapsed = suppliersRow.classList.contains('d-none');
+
+    if (collapsed) {
+      suppliersRow.classList.remove('d-none');
+      icon.classList.replace('bi-chevron-down', 'bi-chevron-up');
+      button.setAttribute('aria-expanded', 'true');
+      button.setAttribute('title', 'Скрыть поставщиков');
+      button.setAttribute('aria-label', 'Скрыть поставщиков');
+      htmx.ajax('GET', button.dataset.suppliersUrl, { target: container, swap: 'innerHTML' });
+    } else {
+      suppliersRow.classList.add('d-none');
+      container.innerHTML = '';
+      icon.classList.replace('bi-chevron-up', 'bi-chevron-down');
+      button.setAttribute('aria-expanded', 'false');
+      button.setAttribute('title', 'Показать поставщиков');
+      button.setAttribute('aria-label', 'Показать поставщиков');
+    }
+  });
+</script>
+{% endblock %}

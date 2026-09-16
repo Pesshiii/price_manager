@@ -10,6 +10,7 @@ from supplier_product_manager import views as spm_views
 from main_product_manager import views as mp_views
 from supplier_manager import views as sm_views
 from product_price_manager import views as ppm_views
+from product import views as product_views
 
 
 urlpatterns = [
@@ -19,6 +20,18 @@ urlpatterns = [
     path('accounts/logout/', views.AppLogoutView.as_view(), name='logout'),
 
     path('', views.mainpage, name='mainpage'),
+
+    # PRODUCT WORKFRAME
+    #
+    # Товарная страница живёт рядом с главной, а не вместо неё: главная и
+    # MainProduct остаются рабочими до тех пор, пока эта не окажется в
+    # настоящем обиходе. Свои имена маршрутов — build_helper и hx-get в
+    # шаблонах привязаны именно к ним, а не к 'mainproducts'.
+    path('products/', product_views.ProductPage.as_view(), name='products'),
+    path('products/filter/', product_views.ProductFilterView.as_view(), name='product-filter'),
+    path('products/table/', product_views.ProductTableView.as_view(), name='product-table'),
+    path('products/<int:pk>/suppliers/', product_views.ProductSuppliersView.as_view(),
+         name='product-suppliers'),
 
     # SUPPLIER WORKFRAME
 

@@ -1,0 +1,72 @@
+{% load django_tables2 %}
+{% comment %}
+  Таблица рендерится вручную, а не штатным тегом django-tables2: под каждой
+  строкой товара нужна вторая, скрытая — контейнер для строк поставщиков.
+  Штатный шаблон такую пару выдать не может.
+
+  Блочный {% comment %}, а не {# #}: однострочный комментарий не закрывается
+  переносом строки, и теги внутри него разбираются как настоящие.
+{% endcomment %}
+<div id="products-table">
+  {% if table.paginated_rows %}
+    <div class="table-responsive">
+      <table {{ table.attrs.as_html }}>
+        <thead>
+          <tr>
+            {% for column in table.columns %}
+              <th {{ column.attrs.th.as_html }}>
+                {% if column.orderable %}
+                  <a href="{% querystring table.prefixed_order_by_field=column.order_by_alias.next %}">{{ column.header }}</a>
+                {% else %}
+                  {{ column.header }}
+                {% endif %}
+              </th>
+            {% endfor %}
+          </tr>
+        </thead>
+        <tbody>
+          {% for row in table.paginated_rows %}
+            <tr {{ row.attrs.as_html }}>
+              {% for column, cell in row.items %}
+                <td {{ column.attrs.td.as_html }}>{{ cell }}</td>
+              {% endfor %}
+            </tr>
+            <tr class="product-suppliers-row d-none">
+              <td colspan="{{ table.columns|length }}">
+                <div id="product-suppliers-{{ row.record.pk }}"></div>
+              </td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+
+    {% if table.page and table.paginator.num_pages > 1 %}
+      <nav aria-label="Постраничная навигация">
+        <ul class="pagination">
+          {% if table.page.has_previous %}
+            <li class="page-item">
+              <a class="page-link" href="{% querystring table.prefixed_page_field=table.page.previous_page_number %}">Назад</a>
+            </li>
+          {% endif %}
+          <li class="page-item disabled">
+            <span class="page-link">
+              Страница {{ table.page.number }} из {{ table.paginator.num_pages }}
+            </span>
+          </li>
+          {% if table.page.has_next %}
+            <li class="page-item">
+              <a class="page-link" href="{% querystring table.prefixed_page_field=table.page.next_page_number %}">Вперёд</a>
+            </li>
+          {% endif %}
+        </ul>
+      </nav>
+    {% endif %}
+  {% else %}
+    <div class="text-center text-muted py-5">
+      <i class="bi bi-inbox fs-1 d-block mb-2"></i>
+      <p class="mb-1">Ничего не нашлось</p>
+      <p class="small mb-0">Попробуйте изменить запрос или снять часть фильтров.</p>
+    </div>
+  {% endif %}
+</div>
