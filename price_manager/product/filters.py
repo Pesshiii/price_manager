@@ -35,6 +35,12 @@ class ProductFilter(FilterSet):
         method='search_method',
         label='Поиск товаров',
         widget=forms.TextInput(attrs={
+            # id задаётся явно: по нему и hx-trigger строки поиска, и
+            # hx-include формы фильтров. По умолчанию Django выдал бы
+            # id_search, оба селектора молча не нашли бы ничего — поиск не
+            # срабатывал бы вовсе, а применение фильтра стирало бы уже
+            # введённый запрос.
+            'id': 'products-search',
             'placeholder': 'Название, артикул или ключевое слово',
             'class': 'form-control',
         }),

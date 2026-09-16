@@ -94,6 +94,25 @@ class ProductPageTests(TestCase):
 
         self.assertEqual(len(response.context['table'].rows), 1)
 
+    def test_search_input_carries_the_id_the_htmx_wiring_selects_on(self):
+        """hx-include формы фильтров и hx-trigger строки поиска ссылаются на
+        #products-search. С дефолтным id_search оба селектора молча не находят
+        ничего: поиск не срабатывает, а применение фильтра стирает запрос.
+        """
+        response = self.client.get(reverse('products'))
+
+        self.assertContains(response, 'id="products-search"')
+
+    def test_filter_keeps_the_search_term(self):
+        Product.objects.create(pim_id='pmp-3', number='SKU-OTHER', name='Лампа')
+
+        response = self.client.get(
+            reverse('products'), {'search': 'SKU-1', 'available': 'true'}
+        )
+
+        self.assertEqual(len(response.context['table'].rows), 1)
+        self.assertEqual(response.context['filter'].data.get('search'), 'SKU-1')
+
 
 class ProductFragmentTests(TestCase):
     def setUp(self):
@@ -143,6 +162,27 @@ class ProductFragmentTests(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertTemplateUsed(response, 'product/partials/filter.html')
 
-    def test_table_fragment_redirects_a_non_htmx_request(self):
-        response = self.client.get(reverse('product-table'))
-        self.assertEqual(response.status_code, 302)
+    def test_htmx_request_returns_only_the_table_fragment(self):
+        """Иначе в #products-table вставляется list.html целиком.
+
+        И фильтр, и строка поиска бьют hx-get в 'products'. Без ветки на
+        request.htmx ответом приходит вся страница и попадает внутрь таблицы —
+        страница в странице.
+        """
+        response = self.client.get(reverse('products'), HTTP_HX_REQUEST='true')
+
+        self.assertEqual(response.status_code, 200)
+        self.assertTemplateUsed(response, 'product/partials/table.html')
+        self.assertTemplateNotUsed(response, 'product/list.html')
+
+    def test_plain_request_returns_the_whole_page(self):
+        response = self.client.get(reverse('products'))
+
+        self.assertTemplateUsed(response, 'product/list.html')
+
+    def test_htmx_fragment_carries_no_second_filter_panel(self):
+        """Фрагмент не должен тащить с собой панель фильтров и шапку."""
+        response = self.client.get(reverse('products'), HTTP_HX_REQUEST='true')
+
+        self.assertNotContains(response, 'Фильтры товаров')
+        self.assertNotContains(response, '<body')

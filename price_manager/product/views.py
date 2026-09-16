@@ -4,7 +4,7 @@ from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse_lazy
 from django.views.generic import View
 from django_filters.views import FilterView
-from django_tables2 import RequestConfig, SingleTableMixin
+from django_tables2 import SingleTableMixin
 
 from main_product_manager.models import MainProduct
 
@@ -55,6 +55,24 @@ class ProductPage(SingleTableMixin, FilterView):
     template_name = 'product/list.html'
     table_pagination = {'per_page': 25}
 
+    def get_template_names(self):
+        """HTMX-запрос получает только таблицу, обычный — страницу целиком.
+
+        И фильтр, и строка поиска бьют hx-get сюда же, в 'products', а не в
+        отдельный эндпоинт: так hx-push-url кладёт в адресную строку
+        /products/?…, который потом честно открывается и перезагружается. Если
+        бы они ходили за фрагментом, в адресной строке оказался бы адрес
+        фрагмента.
+
+        Расплата за это — представление обязано отдавать фрагмент само. Без
+        этой ветки ответом на hx-get приходит list.html целиком и вставляется
+        внутрь #products-table: страница в странице. Главная решает это тем же
+        способом.
+        """
+        if self.request.htmx:
+            return ['product/partials/table.html']
+        return [self.template_name]
+
     def get_queryset(self):
         return _base_queryset()
 
@@ -74,18 +92,6 @@ class ProductFilterView(View):
         filterset = ProductFilter(request.GET, queryset=_base_queryset())
         filterset.build_helper(url=reverse_lazy('products'))
         return render(request, 'product/partials/filter.html', {'filter': filterset})
-
-
-class ProductTableView(View):
-    """Таблица товаров — тот же фрагмент, что и внутри страницы."""
-
-    def get(self, request, *args, **kwargs):
-        if not request.htmx:
-            return redirect(reverse_lazy('products'))
-        filterset = ProductFilter(request.GET, queryset=_base_queryset())
-        table = ProductTable(filterset.qs, request=request)
-        RequestConfig(request, paginate={'per_page': 25}).configure(table)
-        return render(request, 'product/partials/table.html', {'table': table})
 
 
 class ProductSuppliersView(View):

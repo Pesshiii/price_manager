@@ -29,7 +29,6 @@ urlpatterns = [
     # шаблонах привязаны именно к ним, а не к 'mainproducts'.
     path('products/', product_views.ProductPage.as_view(), name='products'),
     path('products/filter/', product_views.ProductFilterView.as_view(), name='product-filter'),
-    path('products/table/', product_views.ProductTableView.as_view(), name='product-table'),
     path('products/<int:pk>/suppliers/', product_views.ProductSuppliersView.as_view(),
          name='product-suppliers'),
 
