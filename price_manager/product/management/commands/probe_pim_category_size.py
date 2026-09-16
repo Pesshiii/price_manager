@@ -1,107 +1,134 @@
 """Зонд §5a: выдержит ли PIM широкий отбор по категории.
 
-Живая нога фильтра (D15) спрашивает у PIM id товаров категории и подставляет их
-в `Product.pim_id IN (...)`. Вопрос, на который надо ответить ДО того, как её
-писать: сколько товаров в самой большой категории. Если там столько, что один
-IN их не унесёт, честный вывод — живая нога годится только для узких фильтров,
-и это повод вернуться к решению, а не молча обрезать набор.
+Живая нога фильтра (D15) должна была спросить у PIM id товаров категории и
+подставить их в `Product.pim_id IN (...)`. Зонд отвечает на вопрос, который
+надо было задать ДО того, как её писать.
 
-Зонд ходит в PIM и ничего не пишет. Без настоящих PIM_TOKEN/PIM_HOST он
-осмысленно не отработает — так и скажет.
+Дерево берётся из САМОГО PIM, а не из локальных категорий: локальные появляются
+только после бэкфилла, а вопрос к PIM не зависит от того, дошёл бэкфилл или нет.
+Первая версия зонда ходила по локальным Category и на пустой базе отвечала «нет
+категорий» вместо ответа по существу.
 
-    docker compose exec web python manage.py probe_pim_category_size --top 5
+Только чтение. Без настоящих PIM_TOKEN/PIM_HOST осмысленно не отработает — так
+и скажет.
+
+    docker compose --env-file ../../../.env run --rm --no-deps -T web \\
+        python manage.py probe_pim_category_size
+
+Результат прогона 2026-09-16 записан в .claude/shift-to-product-brief.md §5a.
 """
 
+import collections
+import time
+
+import httpx
 from django.core.management.base import BaseCommand
-from django.db.models import Count
 
 from pim_api import EntityList, Where, fetch_list
 
 from ... import pim_client
-from ...models import Category
 
-# Выше этого набора id подставлять в IN уже не стоит: URL запроса к PIM растёт
-# линейно по числу id, и вместе с ним растёт и сам IN в SQL. Порог намеренно
-# грубый — зонду нужно разделить «спокойно влезает» и «не влезает», а не найти
-# точную границу.
-IN_CLAUSE_COMFORT_LIMIT = 1000
+# Замерено на живом PIM: 100 id проходит, 125 даёт 414 URI Too Long. Ниже —
+# консервативный размер куска, а не найденная граница.
+CHUNK_SIZE = 90
+
+# Выше этого набора товаров отбор перестаёт быть интерактивным: id надо ещё
+# выкачать страницами, а потом внести в SQL-овый IN.
+INTERACTIVE_PRODUCT_LIMIT = 1000
 
 
 class Command(BaseCommand):
-    help = 'Проверяет, сколько товаров PIM отдаёт на самые крупные категории (зонд §5a).'
+    help = 'Проверяет, выдержит ли PIM широкий отбор по категории (зонд §5a).'
 
     def add_arguments(self, parser):
-        parser.add_argument('--top', type=int, default=5,
-                            help='Сколько самых крупных категорий проверить.')
-        parser.add_argument('--page-size', type=int, default=200,
-                            help='Размер страницы при обходе.')
-        parser.add_argument('--max-items', type=int, default=IN_CLAUSE_COMFORT_LIMIT,
-                            help='Предел набора. Превышение — это и есть ответ зонда.')
+        parser.add_argument('--chunk-size', type=int, default=CHUNK_SIZE,
+                            help='Сколько id категорий слать в одном запросе.')
+        parser.add_argument('--limit', type=int, default=INTERACTIVE_PRODUCT_LIMIT,
+                            help='Порог, выше которого отбор считается неинтерактивным.')
 
     def handle(self, *args, **options):
-        categories = (
-            Category.objects.annotate(n=Count('products'))
-            .filter(n__gt=0).order_by('-n')[:options['top']]
-        )
-        if not categories:
-            self.stdout.write(self.style.WARNING(
-                'Локальных категорий с товарами нет — сначала нужен бэкфилл '
-                '(product.backfill_products_from_pim).'
+        site = pim_client.site
+        try:
+            cats = fetch_list(
+                site,
+                EntityList(name='Category', select=['id', 'name', 'parentId', 'isRoot']),
+                page_size=200,
+            )
+        except Exception as exc:
+            self.stderr.write(self.style.ERROR(
+                f'PIM не ответил — {exc!r}. Проверьте PIM_TOKEN/PIM_HOST: с заглушками '
+                'зонд не работает, а PIM_HOST должен быть голым именем хоста без схемы.'
             ))
             return
 
-        verdicts = []
-        for category in categories:
-            # Тот же разворот по дереву, что делает фильтр: PIM сопоставляет
-            # ровно те id, которые мы прислали, поэтому родителя недостаточно.
-            descendant_ids = list(
-                category.get_descendants(include_self=True)
-                .exclude(pim_id__isnull=True).exclude(pim_id='')
-                .values_list('pim_id', flat=True)
-            )
-            if not descendant_ids:
-                self.stdout.write(f'{category}: нет ни одного pim_id в ветке — пропуск.')
+        self.stdout.write(
+            f'Категорий в PIM: {cats.total} (получено {len(cats.items)}, '
+            f'обрезано: {cats.truncated})'
+        )
+
+        children = collections.defaultdict(list)
+        for c in cats.items:
+            children[c.get('parentId')].append(c)
+        roots = [c for c in cats.items if c.get('isRoot')]
+
+        def descendants(cid):
+            out, stack = [cid], [cid]
+            while stack:
+                for child in children.get(stack.pop(), []):
+                    out.append(child['id'])
+                    stack.append(child['id'])
+            return out
+
+        self.stdout.write(f'Корневых категорий: {len(roots)}')
+        self.stdout.write('')
+
+        worst_products = 0
+        worst_branch = 0
+        over_limit = []
+
+        for root in sorted(roots, key=lambda r: -len(descendants(r['id']))):
+            ids = descendants(root['id'])
+            chunks = [ids[i:i + options['chunk_size']]
+                      for i in range(0, len(ids), options['chunk_size'])]
+            started = time.monotonic()
+            total = 0
+            try:
+                for chunk in chunks:
+                    total += site.get(EntityList(
+                        name='Product', select=['id'], maxSize=1,
+                        where=[Where(attribute='categories', type='linkedWith', value=chunk)],
+                    )).get('total') or 0
+            except httpx.HTTPStatusError as exc:
+                self.stdout.write(self.style.ERROR(
+                    f'{root.get("name")}: HTTP {exc.response.status_code} на {len(ids)} id — '
+                    'кусок всё ещё слишком велик, уменьшите --chunk-size.'
+                ))
                 continue
 
-            try:
-                result = fetch_list(
-                    pim_client.site,
-                    EntityList(
-                        name='Product',
-                        select=['id'],
-                        where=[Where(attribute='categories', type='linkedWith',
-                                     value=descendant_ids)],
-                    ),
-                    page_size=options['page_size'],
-                    max_items=options['max_items'],
-                )
-            except Exception as exc:
-                self.stdout.write(self.style.ERROR(
-                    f'{category}: PIM не ответил — {exc!r}. '
-                    'Проверьте PIM_TOKEN/PIM_HOST: с заглушками зонд не работает.'
-                ))
-                return
-
-            verdicts.append((str(category), result.total, result.truncated))
-            marker = self.style.ERROR('ВЫШЕ ПРЕДЕЛА') if result.truncated else self.style.SUCCESS('ок')
+            elapsed = time.monotonic() - started
+            worst_products = max(worst_products, total)
+            worst_branch = max(worst_branch, len(ids))
+            flag = ''
+            if total > options['limit']:
+                over_limit.append((root.get('name'), total))
+                flag = self.style.ERROR('  ВЫШЕ ПОРОГА')
             self.stdout.write(
-                f'{category}: узлов в ветке {len(descendant_ids)}, '
-                f'товаров в PIM {result.total}, получено {len(result.items)} — {marker}'
+                f'{root.get("name")}: узлов {len(ids)}, запросов {len(chunks)}, '
+                f'товаров ~{total} за {elapsed:.2f}с{flag}'
             )
 
-        if not verdicts:
-            return
-
-        worst = max(v[1] for v in verdicts)
         self.stdout.write('')
-        if worst > options['max_items']:
+        self.stdout.write(f'Худший случай: ветка из {worst_branch} узлов, ~{worst_products} товаров.')
+        if over_limit:
             self.stdout.write(self.style.ERROR(
-                f'ВЫХОД §5a: худший случай {worst} товаров при пределе {options["max_items"]}. '
-                'Живая нога фильтра в таком виде обслуживает только узкие отборы. '
+                f'ВЫХОД §5a: {len(over_limit)} из {len(roots)} корневых категорий дают больше '
+                f'{options["limit"]} товаров. Чтобы отдать их в `pim_id IN (...)`, id надо '
+                'выкачать страницами — это десятки запросов и десятки секунд на один клик по '
+                'фильтру. Живая нога в таком виде обслуживает только узкие отборы. '
                 'Это надо вернуть на решение, а не обрезать набор молча.'
             ))
         else:
             self.stdout.write(self.style.SUCCESS(
-                f'Худший случай {worst} товаров — влезает в предел {options["max_items"]}. '
-                'Живую ногу можно писать; требования §5c остаются в силе.'
+                'Все корневые категории влезают в порог — живую ногу можно писать; '
+                'требования §5c остаются в силе.'
             ))

@@ -53,8 +53,8 @@ Three consequences that matter:
 | §3.3 P1-G3 observability counter | ✅ **Done** (in `e71796c`) |
 | §3.3 P1-G1 / P1-G2 coverage gates | ⚠️ **Need re-measuring** — see §0.3 |
 | §5 `pim_api` extension (the D15 blocker) | ✅ **Done** — `e5ba73c` |
-| §5a Probe | ⚠️ **Runnable, not run** — needs real PIM credentials |
-| §5 Hybrid live-PIM filter (D15) itself | ❌ **Not built** — gated on the probe |
+| §5a Probe | ✅ **Run against live PIM** — **the named exit fired**, see §5a |
+| §5 Hybrid live-PIM filter (D15) itself | ⛔ **Not built — blocked on a decision**, not on code |
 | §4 Phase 2 (all destructive work) | ❌ Not started, by design (D10) |
 
 Branch `worktree-product-shift-phase1`, full suite green (409 tests).
@@ -182,7 +182,7 @@ Filtering on the new page draws on exactly three sources:
 | D12 | `MainProduct` **keeps**: `sku`, `article`, `name`, `supplier` FK, all price fields, `stock`, `price_updated_at`, `stock_updated_at`, `MainProductLog`. | `sku` cannot go — it is the link key to `Product.number`. |
 | D13 | `MainProduct` **drops**: `search_vector`, `description`, `categories`, `manufacturer`, `weight`, `length`, `width`, `depth`. No data migration for description. | Safe per F4, with the 2-row residue named. |
 | D14 | **No category sidebar.** Flat product list; categories are a filter facet only. | ✅ Built. `tables_bycat.html`, `CategoryFilter`, `Paginator(cat_filter.qs, 5)`, `has_nulled`/`nulled_mp_count` **not ported**. Consequence: `product.Category` needs **no** `search_vector`/GIN — and none was added. |
-| D15 | Category/brand filtering is **hybrid**: facet lists from local mirrors, result set live from PIM. | ❌ **Live leg not built.** Local leg works. See §5 — the blocker is real and unresolved. |
+| D15 | Category/brand filtering is **hybrid**: facet lists from local mirrors, result set live from PIM. | ⛔ **Measured as not viable for broad filters** — §5a probe, 2026-09-16. Enumerating a wide category costs ~45 requests and ~a minute; 9 of 15 roots are affected. Local leg works and is what ships today. **Awaiting the user's call between options A/B/C in §5a.** |
 
 ---
 
@@ -382,30 +382,56 @@ leg is the `categories_method` / `brand_method` pair in `product/filters.py`.
   **never emitted into the request**. Assigning it did nothing. Same class as the
   `category_path` trap in `.claude/knowledge/product.md`. No existing caller passes it.
 
-### 5a. Probe before building — named exit
-
-⚠️ **Runnable but NOT RUN.** This environment has `PIM_HOST = http://pim.invalid` and an
-11-character placeholder token, so no live probe is possible here.
-
-Shipped as a management command:
+### 5a. Probe — RUN 2026-09-16 against the live PIM. **The named exit fired.**
 
 ```bash
-docker compose exec web python manage.py probe_pim_category_size --top 5
+docker compose --env-file <path-to>/.env run --rm --no-deps -T web \
+    python manage.py probe_pim_category_size
 ```
 
-It takes the largest local categories, expands each branch through MPTT, asks PIM how many
-products are linked with that id set, and prints a verdict against a `--max-items` limit
-(default 1000). **If the worst case exceeds what one `pim_id IN (...)` can carry, the honest
-finding is that the live leg only serves narrow filters** — take that back to the user
-rather than capping silently. The command says exactly that, and says so explicitly when the
-credentials are placeholders.
+The probe reads the category tree **from PIM itself**, not from local categories — the
+question is about PIM and does not depend on whether the backfill has run. (The first
+version walked local `Category` rows and answered "no local categories" on an empty
+database, which is not an answer.)
 
-Two prerequisites before the probe means anything:
-1. Real `PIM_TOKEN` / `PIM_HOST`. Note `SiteAPI` builds `https://{host}/api/`, so `host`
-   must be a bare hostname — the current placeholder carries a `http://` scheme and would
-   produce a malformed URL even if the token were real.
-2. The §3.1a backfill must have run far enough for local categories to have products; the
-   probe reports "no local categories with products" otherwise, which it did here.
+**Shape of the live catalog:** 668 categories, 15 roots, 36,051 products.
+
+**Four measured findings:**
+
+1. **Hard URI limit.** 100 category ids in one `linkedWith` request works; **125 returns
+   `HTTP 414 URI Too Long`.** Root branches run to 186 nodes, so the widest selections
+   cannot be expressed in a single request at all. Chunking at 90 ids works and is cheap.
+2. **PIM does not expand a category to its children.** A root id sent alone returns **0**
+   products — links are to leaf categories. The full descendant set must be sent, so §5b's
+   local MPTT expansion is mandatory, not an optimisation.
+3. **Counting is cheap.** A chunked count over a 186-node branch is ~1.8s total, each
+   request ~0.6s. **A live facet *count* is affordable.**
+4. **Enumerating is not.** Fetching the actual product ids — which is what
+   `Product.pim_id IN (...)` needs — took **19.0s for 3,000 ids, and was still truncated
+   at a `total` of 5,583.** The worst branch holds ~8,597 products: roughly 45 paged
+   requests and a minute of wall clock, per filter click.
+
+**Distribution:** **9 of 15 root categories exceed 1,000 products.** The largest single
+root holds ~7,281 on its own. This is not a tail case; it is most of the catalog.
+
+> **Verdict.** The live leg as specified in D15 is **not viable for broad filters.** It is
+> fine for narrow ones — a leaf category of a few hundred products is one request,
+> sub-second. The split is sharp and it falls in the middle of normal use.
+>
+> Per the named exit, this goes back to the user rather than being capped silently. The
+> options, and what each costs:
+>
+> - **A — drop the live leg; keep the local mirror.** Already built and working. Instant,
+>   paginates, gives real facet counts. The mirror is itself PIM-sourced via `pim_sync`, so
+>   this is a freshness trade, not a fidelity one: results reflect the last sync.
+> - **B — live counts, local result set.** Finding 3 says counts are affordable. Facet
+>   numbers could come from PIM live while the rows come from the mirror. Cheap, but the
+>   count and the list can disagree, which needs saying in the UI copy.
+> - **C — live leg for narrow selections only, mirror above a threshold.** Honest but
+>   two code paths, and the mirror path has to exist anyway, so it buys little.
+>
+> Nothing here reopens D15 on preference. It reopens it on evidence that did not exist when
+> it was made.
 
 ### 5b. Descendant semantics — ✅ already handled
 
