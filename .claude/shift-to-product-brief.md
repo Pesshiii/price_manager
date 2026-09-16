@@ -54,7 +54,7 @@ Three consequences that matter:
 | §3.3 P1-G1 / P1-G2 coverage gates | ⚠️ **Need re-measuring** — see §0.3 |
 | §5 `pim_api` extension (the D15 blocker) | ✅ **Done** — `e5ba73c` |
 | §5a Probe | ✅ **Run against live PIM** — **the named exit fired**, see §5a |
-| §5 Hybrid live-PIM filter (D15) itself | ⛔ **Not built — blocked on a decision**, not on code |
+| §5 Live-PIM filter (D15) | ✅ **Resolved: dropped.** Local mirror is the final design — no code change needed |
 | §4 Phase 2 (all destructive work) | ❌ Not started, by design (D10) |
 
 Branch `worktree-product-shift-phase1`, full suite green (409 tests).
@@ -62,7 +62,12 @@ Branch `worktree-product-shift-phase1`, full suite green (409 tests).
 **What the page does today:** flat Product list at `/products/`, filter panel on the left,
 each row expandable to its supplier price rows. Search, category (with MPTT descendant
 expansion), brand, supplier, availability and price-range filters all work **against the
-local mirror**. The live-PIM leg of D15 is the one piece missing.
+local mirror** — which, after the §5a probe and the D15 revision, is the finished design
+rather than half of one. **Phase 1 is functionally complete.**
+
+What remains before it is worth showing anyone is data, not code: the P1-G1/G2 coverage
+gates and the ~155k-row backfill behind them (§0.3 F5). **R8** — the category mirror going
+stale — is the one open code item, and it is a consequence of the D15 revision.
 
 ---
 
@@ -159,7 +164,9 @@ off a Product.
 Filtering on the new page draws on exactly three sources:
 
 1. **A local search vector on `Product`** — free text.
-2. **PIM content fields (categories, brands)** — hybrid, see §5.
+2. **PIM content fields (categories, brands)** — mirrored locally into `product.Category` /
+   `product.Brand` and queried from there. See §5: the live-PIM variant was measured and
+   rejected.
 3. **`MainProduct` stock and price fields** — traversed via `Product.main_products`.
 
 ---
@@ -182,7 +189,7 @@ Filtering on the new page draws on exactly three sources:
 | D12 | `MainProduct` **keeps**: `sku`, `article`, `name`, `supplier` FK, all price fields, `stock`, `price_updated_at`, `stock_updated_at`, `MainProductLog`. | `sku` cannot go — it is the link key to `Product.number`. |
 | D13 | `MainProduct` **drops**: `search_vector`, `description`, `categories`, `manufacturer`, `weight`, `length`, `width`, `depth`. No data migration for description. | Safe per F4, with the 2-row residue named. |
 | D14 | **No category sidebar.** Flat product list; categories are a filter facet only. | ✅ Built. `tables_bycat.html`, `CategoryFilter`, `Paginator(cat_filter.qs, 5)`, `has_nulled`/`nulled_mp_count` **not ported**. Consequence: `product.Category` needs **no** `search_vector`/GIN — and none was added. |
-| D15 | Category/brand filtering is **hybrid**: facet lists from local mirrors, result set live from PIM. | ⛔ **Measured as not viable for broad filters** — §5a probe, 2026-09-16. Enumerating a wide category costs ~45 requests and ~a minute; 9 of 15 roots are affected. Local leg works and is what ships today. **Awaiting the user's call between options A/B/C in §5a.** |
+| D15 | ~~Hybrid: facet lists local, result set live from PIM.~~ **REVISED 2026-09-16 → local mirror only, no live leg.** | The §5a probe measured the live leg as unworkable for broad filters: enumerating a wide category costs ~45 requests and ~a minute, and 9 of 15 roots are affected. User chose option A on that evidence. Already how the page works — no code change. Trades freshness, not fidelity; the cost is **R8**. |
 
 ---
 
@@ -351,15 +358,35 @@ docker compose exec -T celery_worker python manage.py test <app_label> --keepdb
 
 ---
 
-## 5. The hybrid filter (D15) — ❌ not built, and here is exactly why
+## 5. Category/brand filtering — ✅ RESOLVED: local mirror, no live leg
 
-**Decision unchanged:** mirrored facet lists, live PIM for the result set. The user chose
-this with the latency and failure-mode risk in front of them. It is not up for re-argument
-without evidence.
+**D15 is revised.** The original decision was hybrid — mirrored facet lists, live PIM for
+the result set. The §5a probe measured that against the real PIM and it does not hold: see
+the numbers below. Presented with them, the user chose **option A — drop the live leg and
+keep the local mirror.**
 
-**What exists today:** the category and brand filters query the **local mirror**
-(`product.Category`, `product.Brand`). That is the correct half, and the seam for the live
-leg is the `categories_method` / `brand_method` pair in `product/filters.py`.
+**This requires no code change.** The page already filters `product.Category` /
+`product.Brand` locally, and that is now the final design rather than half of one.
+
+**What this trades:** freshness, not fidelity. The mirror is itself PIM-sourced through
+`pim_sync`, so filter results reflect the last sync rather than the last minute. What it
+buys: instant filtering, real facet counts, pagination, and no network call anywhere in the
+page's query path — which is the pattern `CLAUDE.md` flags on `_build_searchvector`.
+
+**The consequence that is now load-bearing — see R8.** While the mirror was only a facet
+list, staleness was cosmetic. Now the mirror *is* the answer, and
+`_ensure_pim_category` (`pim_sync.py:26`) **returns early when the category already
+exists — it never updates `name` or `parent`.** A category renamed in PIM keeps its old
+local name forever; one re-parented in PIM filters into the wrong branch. (`Brand` does not
+have this problem: `_ensure_pim_brand` refreshes the name on change.)
+
+The rest of this section is kept as the record of *why* the live leg was rejected, and what
+it would take if PIM ever changes.
+
+### The client blocker (closed, and still worth having)
+
+Closed in `e5ba73c`. It is no longer on the critical path, but it fixed two real defects and
+powers the probe:
 
 **The client blocker is now closed** (`e5ba73c`). What was wrong and what it became:
 
@@ -421,9 +448,10 @@ root holds ~7,281 on its own. This is not a tail case; it is most of the catalog
 > Per the named exit, this goes back to the user rather than being capped silently. The
 > options, and what each costs:
 >
-> - **A — drop the live leg; keep the local mirror.** Already built and working. Instant,
->   paginates, gives real facet counts. The mirror is itself PIM-sourced via `pim_sync`, so
->   this is a freshness trade, not a fidelity one: results reflect the last sync.
+> - **A — drop the live leg; keep the local mirror.** ← **CHOSEN 2026-09-16.** Already built
+>   and working. Instant, paginates, gives real facet counts. The mirror is itself
+>   PIM-sourced via `pim_sync`, so this is a freshness trade, not a fidelity one: results
+>   reflect the last sync. Its cost is **R8**.
 > - **B — live counts, local result set.** Finding 3 says counts are affordable. Facet
 >   numbers could come from PIM live while the rows come from the mirror. Cheap, but the
 >   count and the list can disagree, which needs saying in the UI copy.
@@ -433,37 +461,50 @@ root holds ~7,281 on its own. This is not a tail case; it is most of the catalog
 > Nothing here reopens D15 on preference. It reopens it on evidence that did not exist when
 > it was made.
 
-### 5b. Descendant semantics — ✅ already handled
+### 5b. Descendant semantics — ✅ handled, and still required
 
 `categories_method` expands the selection through `product.Category`'s MPTT tree locally
-before filtering. When the live leg lands it must send that **full descendant id set** to
-PIM, because `linkedWith` matches only the ids you send. The expansion and its test are
-already in place, so this regression cannot happen by omission.
+before filtering. This is **not** live-leg-specific: with the mirror it is what makes
+selecting a parent category match everything beneath it. Finding 2 of the probe confirms PIM
+behaves the same way — it links products to leaves only — so the expansion is correct
+against both. Pinned by `test_selecting_a_parent_finds_products_in_its_descendants`.
 
-### 5c. Minimum requirements for the live leg
+### 5c. If the live leg is ever revisited
 
-1. Bounded result set — use `fetch_list(..., max_items=…)` and **check `result.truncated`**.
-   The client now reports it; the UI must surface it. A silent prefix is the bug the whole
-   paging change exists to prevent.
-2. Cache the id set per (facet, page) with a short TTL. Reuse the cache-key idioms in
-   `main_product_manager/utils.py` (`pim_no_match:{pk}`, the 404 threshold).
-3. **Graceful degradation when PIM is down.** Pick one and implement it: fall back to the
-   local mirror, or show an explicit Russian error. Silently returning zero results is the
-   failure mode to avoid.
-4. Never inside a `transaction.atomic()` runner — `atomic=False` if a task drives it.
-5. No facet counts are possible on the live leg. Either show names without counts, or take
-   counts from the local mirror and accept that they will disagree with the result set.
-   **Pick one and make it visible in the UI copy.**
+It would need a PIM-side change first, not a client-side one. The blocker is that PIM can
+**count** a wide category cheaply but cannot **enumerate** it cheaply, and enumeration is
+what `pim_id IN (...)` requires. What would unblock it:
+
+- a category filter that expands to descendants server-side (removing the 186-id URI
+  problem), and
+- a POST-based search, or any transport not bounded by URI length.
+
+If that ever lands, the requirements that still apply: use
+`fetch_list(..., max_items=…)` and **surface `result.truncated`** rather than returning a
+silent prefix; cache per facet with a short TTL; decide explicitly what happens when PIM is
+down (falling back to the mirror is now the obvious answer, since the mirror is the primary);
+and never call it inside a `transaction.atomic()` runner.
 
 ---
 
 ## 6. Risks carried forward
 
-- **R1 — hybrid filtering (D15).** Still the highest-risk decision and the only unbuilt one.
-  The *client* blocker is closed; what remains unknown is whether PIM can answer a broad
-  category query at all, which only the §5a probe against real credentials can say. A
-  network call in the page's query path is the exact pattern `CLAUDE.md` flags on
-  `_build_searchvector`. §5c is mandatory, not optional.
+- **R1 — ✅ CLOSED.** The hybrid filter was the highest-risk item; the §5a probe measured it
+  as unworkable for broad filters and the user chose the local mirror (option A). There is
+  no longer a network call anywhere in the page's query path. **Replaced by R8, which is the
+  cost of that choice.**
+- **R8 — the category mirror goes stale, and that now matters.**
+  `_ensure_pim_category` (`pim_sync.py:26`) returns early when a category already exists: it
+  **never updates `name` or `parent`.** A rename in PIM leaves the old label on the filter
+  forever; a re-parent silently puts products in the wrong branch of the MPTT tree, which
+  `categories_method` then expands incorrectly. While the mirror was only a facet list this
+  was cosmetic — under option A it is the answer itself.
+  `_ensure_pim_brand` does **not** share this bug; it refreshes the name on change.
+  **Fix shape:** a `sync_categories_from_pim` reconciliation task that walks PIM's category
+  list and updates names and parents, rather than patching `_ensure_pim_category` (which
+  only ever runs when a product happens to reference the category, so it can never see a
+  rename on an untouched branch). This is also the first genuine production use of
+  `fetch_list` — 668 categories is 4 paged requests.
 - **R2 — ✅ resolved.** Coverage was measured (§0.3). G1/G2 need one re-read post-`#184`,
   not a fresh investigation.
 - **R3 — two PIM clients.** `product/pim_client.py` and `main_product_manager/pim_client.py`
