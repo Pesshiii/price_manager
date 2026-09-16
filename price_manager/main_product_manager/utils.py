@@ -4,10 +4,10 @@ import time
 import httpx
 from django.db.models import Max, F
 from django.core.cache import cache
-from django.db.models import Value, OuterRef, Subquery, Q, F, Sum, IntegerField
+from django.db.models import Value, OuterRef, Subquery, Q, F, Sum, IntegerField, Count, Min
 from django.utils import timezone
 from django.contrib.postgres.search import SearchVectorField, SearchVector
-from django.db.models.functions import Coalesce
+from django.db.models.functions import Coalesce, Length
 
 from pim_api import EntityList, Entity, Where, FileRecord, upsert_async as _upsert_async
 
@@ -22,17 +22,21 @@ from core.task_runner import dispatch_after_commit
 
 logger = logging.getLogger(__name__)
 
-PIM_ID_MAX_LENGTH = PimProduct._meta.get_field('pim_id').max_length
+PRODUCT_NUMBER_MAX_LENGTH = PimProduct._meta.get_field('number').max_length
+PRODUCT_NAME_MAX_LENGTH = PimProduct._meta.get_field('name').max_length
 
 
 def _pim_id_of(product) -> str | None:
-    """PIM `Product` id a MainProduct is linked to, or None if it is unlinked.
+    """PIM `PriceManagerProduct` id of a MainProduct's local Product, or None.
 
-    MainProduct.product replaced the old pim_id string column, so every read of
-    "this product's PIM id" is now a hop across the FK. Deliberately a function
-    and not a MainProduct property: a property named pim_id would keep working
-    in templates and silently break in .filter()/annotations, where the lookup
-    has to be `product__pim_id`.
+    The link runs MainProduct -> product.Product (local, matched by
+    number = sku) -> product.Product.pim_id, the id of the PriceManagerProduct
+    record reindex pushed for that Product. The PIM `Product` itself is one
+    more hop, on the PMP's productId — see get_pim_data.
+
+    Deliberately a function and not a MainProduct property: a property named
+    pim_id would keep working in templates and silently break in
+    .filter()/annotations, where the lookup has to be `product__pim_id`.
 
     Callers iterating a queryset must select_related('product') — otherwise this
     is one query per row.
@@ -40,26 +44,23 @@ def _pim_id_of(product) -> str | None:
     return product.product.pim_id if product.product_id else None
 
 
-def _pim_product_row(pim_id: str) -> PimProduct | None:
-    """The local product.Product mirror row for a PIM Product id, bare-created if absent.
+def _link_to_local_product(product) -> bool:
+    """Link an unlinked MainProduct to the existing local Product with number = sku.
 
-    product.Product.pim_id is unique and NOT NULL, so a row with number/name
-    left null is the only thing that can be created before
-    product.services.pim_sync.sync_product_from_pim fills it in — the same
-    placeholder shape migration product.0005 seeded.
-
-    Returns None for an id that does not fit: MainProduct.pim_id was an
-    unbounded varchar while product.Product.pim_id is max_length=64, so an
-    over-long value has to be dropped rather than abort the caller's batch.
+    The render-path counterpart of link_unlinked_main_products: it never
+    creates a Product and never talks to PIM — creating and pushing is left to
+    reindex. Returns whether the product is linked afterwards.
     """
-    if len(pim_id) > PIM_ID_MAX_LENGTH:
-        logger.warning(
-            'PIM id %r is longer than %s chars — MainProduct left unlinked',
-            pim_id, PIM_ID_MAX_LENGTH,
-        )
-        return None
-    row, _ = PimProduct.objects.get_or_create(pim_id=pim_id)
-    return row
+    if product.product_id:
+        return True
+    if not product.sku:
+        return False
+    row = PimProduct.objects.filter(number=product.sku).first()
+    if row is None:
+        return False
+    MainProduct.objects.filter(pk=product.pk, product__isnull=True).update(product=row)
+    product.product = row
+    return True
 
 CACHE_TTL = 60 * 60 * 24 * 30  # 30 дней
 PIM_CACHE_TTL = 60 * 60 * 24  # 24 часа
@@ -112,21 +113,19 @@ def maybe_notify_pim_error(user) -> None:
     cache.set(throttle_key, True, _PIM_NOTIF_THROTTLE_TTL)
 
 
-def _fetch_pim_product(pim_id: str) -> tuple[dict | None, bool]:
-    """GET a PIM `Product` by id straight from the API (no cache).
+PIM_LINK_ENTITY = 'PriceManagerProduct'
 
-    pim_id is a PIM `Product` id — either one already stored on the MainProduct,
-    or one _search_pim_id_result found by matching sku against `Product.number`.
-    It is not a `ContributorProduct` id, which is why a single pim_id
-    legitimately spans several MainProducts (see sync_pim_relations).
+
+def _fetch_pim_entity(name: str, entity_id: str) -> tuple[dict | None, bool]:
+    """GET one PIM record by entity name and id straight from the API (no cache).
 
     Returns (data, not_found) — not_found is True only on an explicit 404,
-    so callers can tell "PIM deleted/renumbered this id" apart from a
-    transient network/API error.
+    so callers can tell "PIM deleted this id" apart from a transient
+    network/API error.
     """
     t0 = time.monotonic()
     try:
-        data = site.get(Entity(name='Product', id=pim_id))
+        data = site.get(Entity(name=name, id=entity_id))
         return data, False
     except httpx.HTTPStatusError as exc:
         _record_pim_error("get_pim_data", exc, int((time.monotonic() - t0) * 1000))
@@ -144,10 +143,10 @@ def _queue_pim_population(pim_id: str) -> None:
 
     Dispatched via dispatch_after_commit because a caller may still be inside
     execute_locked_task's transaction: recalculate_vectors_missing_task reaches
-    here through _build_searchvector -> _resolve_pim_id, which writes the new
-    pim_id in that same transaction. sync_pim_relations looks products up by
-    pim_id, so a task queued before the commit would find none and silently
-    populate nothing.
+    here through _build_searchvector -> _link_to_local_product, which writes
+    the MainProduct link in that same transaction. sync_pim_relations looks
+    products up through that link, so a task queued before the commit would
+    find none and silently populate nothing.
     """
     queued_key = f"pim_populate_queued:{pim_id}"
     # Flag set before the deferred dispatch on purpose: if the transaction rolls
@@ -165,9 +164,13 @@ _PIM_404_COUNT_TTL = 60 * 60 * 24  # window resets if failures aren't consecutiv
 
 
 def _note_pim_404(pim_id: str) -> None:
-    """Track a 404 for a pim_id; once _PIM_404_THRESHOLD is hit in a row,
-    clear the `product` FK on every MainProduct linked to it so renders stop
-    hammering a dead id — create_pim_links/reindex_pim_ids will re-link it.
+    """Track a 404 on a PriceManagerProduct; once _PIM_404_THRESHOLD is hit in
+    a row, clear product.Product.pim_id so renders stop hammering a dead id.
+
+    Only the PIM-side link is dropped: MainProducts stay linked to their local
+    Product (that link is local, by sku), and the next reindex pushes a new
+    PriceManagerProduct for it. A 404 on the PIM Product the PMP points at
+    never reaches here — that is PIM's link to fix, not ours.
     """
     count_key = f"{_PIM_404_COUNT_PREFIX}{pim_id}"
     count = cache.get(count_key, 0) + 1
@@ -175,25 +178,59 @@ def _note_pim_404(pim_id: str) -> None:
         cache.set(count_key, count, _PIM_404_COUNT_TTL)
         return
     cache.delete(count_key)
-    MainProduct.objects.filter(product__pim_id=pim_id).update(product=None)
+    PimProduct.objects.filter(pim_id=pim_id).update(pim_id=None)
 
 
 def _note_pim_success(pim_id: str) -> None:
     cache.delete(f"{_PIM_404_COUNT_PREFIX}{pim_id}")
 
 
-def get_pim_data(pim_id: str | None, refresh: bool = False) -> dict | None:
-    if not pim_id:
-        return None
-    cache_key = f"pim_product:{pim_id}"
+def _get_pim_link(pim_id: str, refresh: bool = False) -> dict | None:
+    """The PriceManagerProduct record for a local Product's pim_id, cached."""
+    cache_key = f"pim_link:{pim_id}"
     if not refresh:
         cached = cache.get(cache_key)
         if cached is not None:
             return cached
-    data, not_found = _fetch_pim_product(pim_id)
+    data, not_found = _fetch_pim_entity(PIM_LINK_ENTITY, pim_id)
     if data is not None:
         cache.set(cache_key, data, PIM_CACHE_TTL)
         _note_pim_success(pim_id)
+        return data
+    if not_found:
+        cache.delete(cache_key)
+        _note_pim_404(pim_id)
+        return None
+    return cache.get(cache_key)
+
+
+def get_pim_data(pim_id: str | None, refresh: bool = False) -> dict | None:
+    """PIM `Product` data for a local Product's pim_id (a PriceManagerProduct id).
+
+    Two hops: PriceManagerProduct/{pim_id} for its productId, then
+    Product/{productId}. None while the PMP is not linked to a PIM Product yet
+    — PIM staff set that link, or reindex did when the number search found one.
+
+    The two hops cache under different keys on purpose: the Product fetch is
+    keyed by productId, not by pim_id, so several local Products whose PMPs
+    point at one PIM Product still share a single Product round-trip.
+    """
+    if not pim_id:
+        return None
+    link = _get_pim_link(pim_id, refresh=refresh)
+    if not isinstance(link, dict):
+        return None
+    product_id = link.get('productId')
+    if not product_id:
+        return None
+    cache_key = f"pim_product:{product_id}"
+    if not refresh:
+        cached = cache.get(cache_key)
+        if cached is not None:
+            return cached
+    data, not_found = _fetch_pim_entity('Product', product_id)
+    if data is not None:
+        cache.set(cache_key, data, PIM_CACHE_TTL)
         # Queue on every successful fetch, refresh=True included: whoever warms
         # this key owns the trigger, because it lasts PIM_CACHE_TTL and every
         # other caller only queues on a miss. Queueing from the miss branch
@@ -205,88 +242,54 @@ def get_pim_data(pim_id: str | None, refresh: bool = False) -> dict | None:
         return data
     if not_found:
         cache.delete(cache_key)
-        _note_pim_404(pim_id)
         return None
     return cache.get(cache_key)
 
 
-_PIM_NO_MATCH_TTL = 60 * 60 * 4  # 4 hours — avoid hammering PIM for unlinked products
-_PIM_SEARCH_ERROR_TTL = 60 * 5  # 5 minutes — backoff after a search PIM never answered
 _PIM_POPULATE_QUEUED_TTL = 60 * 10  # throttle for the post-fetch population trigger
 
-# Outcomes of one _search_pim_id_result() call. The middle three double as the
-# values cached under pim_no_match:{pk}, so the cached shortcut still tells the
-# caller *why* the previous search came back empty.
+# Outcomes of one _search_pim_product_id() call.
 _SEARCH_FOUND = "found"
 _SEARCH_ABSENT = "absent"
 _SEARCH_AMBIGUOUS = "ambiguous"
 _SEARCH_ERROR = "error"
-_SEARCH_NO_SKU = "no_sku"
 
 
-class PimSearchError(RuntimeError):
-    """A catalog scan ended with PIM searches that never got an answer."""
+class PimScanError(RuntimeError):
+    """A reindex batch ended with PIM searches unanswered or pushes rejected."""
 
 
-def _search_pim_id_result(product) -> tuple[str | None, str]:
-    """Resolve a MainProduct's pim_id in PIM — returns (pim_id, outcome).
+def _search_pim_product_id(number: str) -> tuple[str | None, str]:
+    """Find the PIM `Product` whose number equals `number` — returns (id, outcome).
 
-    The search is one `equals` on the PIM `Product` attribute `number`, matched
-    against `product.sku`. It must not be `like`: AtroPIM passes that value
-    straight into a SQL LIKE, so `_` matches any single character and `%`
+    Only reindex calls this, to fill a new PriceManagerProduct's productId; the
+    render path never searches PIM. `number` must be non-empty: Where.get()
+    drops the value key when it is None (pim_api/__init__.py:24-25), so the
+    request would otherwise go out as an unconstrained match.
+
+    The search must stay `equals`, not `like`: AtroPIM passes a `like` value
+    straight into SQL LIKE, so `_` matches any single character and `%`
     matches anything. Verified against the live API — `like '2001_-04_z01'`
-    returns the product numbered `20015-04_z01`, and `like '%'` returns the
-    whole catalog — and PIM numbers routinely contain `_` (`20015-04_z01`,
-    `20110-8_z02`) while sku is supplier-supplied. `equals` matches both
-    characters literally and costs nothing: bare `like` never did substring
-    matching anyway (a genuine prefix returns no rows).
+    returns the product numbered `20015-04_z01` — and PIM numbers routinely
+    contain `_` while sku is supplier-supplied.
 
-    `outcome` is one of the _SEARCH_* constants, and callers must not collapse
-    it back to "found or not": only _SEARCH_ABSENT means PIM was reached and
-    answered that it holds no such product. The other three misses all mean
-    "unknown", and treating one of them as an absence is what makes
-    push_missing_pim_products create a second PIM record for a product that may
-    already be in there:
-
-    - _SEARCH_ERROR — the request failed, so nothing was learned.
-    - _SEARCH_AMBIGUOUS — the search matched several products, so no single one
-      is *the* match. Returning the first (as this used to) links the product to
-      whichever one PIM happened to list first.
-    - _SEARCH_NO_SKU — no sku to search by, so PIM is never asked. Where.get()
-      drops the value key when it is None (pim_api/__init__.py:24-25), so the
-      request would otherwise go out as an unconstrained match on `number`.
-
-    Misses are throttled through one cache key, pim_no_match:{pk}, holding the
-    outcome that wrote it: a confirmed absence and an ambiguous match are
-    conditions of the data and hold for _PIM_NO_MATCH_TTL, while an error holds
-    only for _PIM_SEARCH_ERROR_TTL — a PIM outage costs minutes of suppressed
-    retries, not hours. Does not persist the id — callers decide how/when to
-    save it.
+    `outcome` is one of the _SEARCH_* constants. Callers must keep
+    _SEARCH_ERROR apart from the rest: an error learned nothing, so pushing
+    then would create the PMP without a productId the search could have found.
+    PIM's metadata does not declare Product.number unique, so several matches
+    come back as _SEARCH_AMBIGUOUS and link none of them.
     """
-    cache_key = f"pim_no_match:{product.pk}"
-    cached = cache.get(cache_key)
-    if isinstance(cached, str):
-        return None, cached
-    if cached is not None:
-        # A bare True written by an older revision: it recorded no outcome, so
-        # drop it and search again rather than guess which one it meant.
-        cache.delete(cache_key)
-
-    if not product.sku:
-        return None, _SEARCH_NO_SKU
-
     t0 = time.monotonic()
     try:
         result = site.get(
             EntityList(
                 name='Product',
                 select=['id'],
-                where=[Where(attribute='number', type='equals', value=product.sku)],
+                where=[Where(attribute='number', type='equals', value=number)],
             )
         )
     except Exception as exc:
-        _record_pim_error("_search_pim_id", exc, int((time.monotonic() - t0) * 1000))
-        cache.set(cache_key, _SEARCH_ERROR, _PIM_SEARCH_ERROR_TTL)
+        _record_pim_error("_search_pim_product_id", exc, int((time.monotonic() - t0) * 1000))
         return None, _SEARCH_ERROR
 
     pim_ids = [item.get('id') for item in result.get('list', []) if item.get('id')]
@@ -294,67 +297,21 @@ def _search_pim_id_result(product) -> tuple[str | None, str]:
         return pim_ids[0], _SEARCH_FOUND
     if pim_ids:
         logger.warning(
-            "PIM number=%s matched %s products (MainProduct pk=%s) — linking none",
-            product.sku, len(pim_ids), product.pk,
+            "PIM Product number=%s matched %s products — PriceManagerProduct goes out without productId",
+            number, len(pim_ids),
         )
-        cache.set(cache_key, _SEARCH_AMBIGUOUS, _PIM_NO_MATCH_TTL)
         return None, _SEARCH_AMBIGUOUS
-
-    cache.set(cache_key, _SEARCH_ABSENT, _PIM_NO_MATCH_TTL)
     return None, _SEARCH_ABSENT
 
 
-def _search_pim_id(product) -> str | None:
-    """The resolved id alone, for callers with nothing to decide on a miss.
-
-    Anything that *writes* on a miss must call _search_pim_id_result and check
-    the outcome instead — see push_missing_pim_products.
-    """
-    return _search_pim_id_result(product)[0]
-
-
-def _resolve_pim_id(product) -> str | None:
-    """Look up pim_id in PIM and link the product to the matching Product row.
-
-    Returns the resolved id even though what gets persisted is the FK, because
-    callers only ever use it as "did this resolve?".
-    """
-    pim_id = _search_pim_id(product)
-    if not pim_id:
-        return None
-    row = _pim_product_row(pim_id)
-    if row is None:
-        return None
-    MainProduct.objects.filter(pk=product.pk).update(product=row)
-    product.product = row
-    return pim_id
-
-
 def get_pim_data_for_product(product, refresh: bool = False) -> dict | None:
-    """Return PIM data for a MainProduct, resolving pim_id if not set.
+    """Return PIM data for a MainProduct, linking it to a local Product first if one matches its sku.
 
-    If the stored pim_id 404s _PIM_404_THRESHOLD times in a row (deleted/
-    renumbered in PIM), get_pim_data clears it from the DB — detected here via
-    refresh_from_db — and it's re-resolved by sku before retrying once. The
-    no-match cache is dropped first; without that, the cached outcome would
-    short-circuit the re-resolve. This is the only place that clears it.
+    Never creates a Product or pushes to PIM — an unlinked product, or one
+    whose Product has no pim_id yet, simply has no PIM data until reindex runs.
     """
     if not product.product_id:
-        _resolve_pim_id(product)
-    pim_id = _pim_id_of(product)
-    if not pim_id:
-        return None
-    data = get_pim_data(pim_id, refresh=refresh)
-    if data is not None:
-        return data
-
-    product.refresh_from_db(fields=['product'])
-    if product.product_id:
-        return None  # still linked — transient error or under the 404 threshold
-
-    cache.delete(f"pim_no_match:{product.pk}")
-    if not _resolve_pim_id(product):
-        return None
+        _link_to_local_product(product)
     return get_pim_data(_pim_id_of(product), refresh=refresh)
 
 
@@ -424,11 +381,12 @@ def _ensure_pim_category(pim_category_id: str) -> Category | None:
 
 
 def sync_pim_relations(pim_id: str, data: dict) -> int:
-    """Sync manufacturer + categories for every MainProduct linked to this PIM Product id.
+    """Sync manufacturer + categories for every MainProduct under this pim_id.
 
-    Several MainProducts (from different suppliers) can share the same pim_id,
-    since it points at a single PIM `Product` matched by number/sku rather than
-    at anything per-supplier — so this updates all of them in one go.
+    pim_id is a PriceManagerProduct id, so it names one local Product, and
+    several MainProducts (from different suppliers) share that Product through
+    a common sku — this updates all of them in one go. `data` is the PIM
+    `Product` the PMP points at (get_pim_data).
     """
     products = list(MainProduct.objects.filter(product__pim_id=pim_id))
     if not products:
@@ -453,10 +411,10 @@ def sync_pim_relations(pim_id: str, data: dict) -> int:
 def prefetch_pim_data(products) -> dict:
     """Fetch PIM data for a list of MainProduct objects and return {product.pk: data}.
 
-    Table rendering never resolves/reindexes pim_id — that's the job of the
-    background tasks (create_pim_links, reindex_pim_ids). A product without a
-    pim_id, or whose pim_id 404s with nothing cached, is simply skipped here
-    rather than triggering a live PIM search.
+    Table rendering never links products or pushes to PIM — that's the job of
+    reindex_pim_ids. A product without a pim_id, or whose pim_id 404s with
+    nothing cached, is simply skipped here rather than triggering a live PIM
+    search.
     """
     result = {}
     for product in products:
@@ -603,70 +561,224 @@ def update_stocks(logs: bool = True, batch_size: int = 10000) -> int:
         updated += mps.update(stock=F('new_stock'), stock_updated_at=now)
     return updated
 
-PIM_PRODUCT_ENTITY = 'PriceManagerProduct'
-
-
 def compute_supplier_sku(article: str, supplier) -> str:
     """The MainProduct.sku a SupplierProduct.article turns into once copied to
     MainProduct (copy_supplier_products_to_main_task) — prefixed/suffixed per
-    supplier.sku_type/sku_value. Centralized so PIM pushes for SupplierProduct
-    (pre-copy) and MainProduct (post-copy) agree on the same `number` and
-    don't create two separate PriceManagerProduct records for one product.
+    supplier.sku_type/sku_value. That sku is what reindex matches against
+    product.Product.number, so change it here and every copied product lands
+    on a different local Product — and a different PriceManagerProduct.
     """
     prefix = (supplier.sku_value or '') if supplier.sku_type == 'prefix' else ''
     suffix = (supplier.sku_value or '') if supplier.sku_type == 'suffix' else ''
     return f'{prefix}{article}{suffix}'
 
 
-def _pim_product_payload(name: str, description: str | None, number: str | None) -> dict:
-    return {'name': name, 'description': description or '', 'number': number or ''}
+def backfill_product_numbers() -> int:
+    """Give a number to local Products that have none, from their MainProducts' sku.
 
+    Rows seeded by product.0005 / main_product_manager.0011 carry no number,
+    so they can be neither searched nor pushed. Such a Product takes its
+    MainProducts' sku when that is unambiguous: every linked MainProduct with
+    a sku has the same one, it fits number's max_length, and no other Product
+    holds that number yet. Anything else is logged and left alone — guessing
+    would put two products under one PIM record, and existing links are not
+    reindex's to move. Returns how many Products got a number.
 
-def _push_pim_products(objects: list, payload_fn, link_fn, batch_size: int = 1000, delay: float = 0.5) -> int:
-    """Bulk-create `objects` as PriceManagerProduct records in PIM via
-    upsertAsync, persisting the ids PIM returns through `link_fn`.
-
-    `link_fn` takes the chunk's [(obj, pim_id), ...] and returns how many it
-    actually persisted. It is a per-caller hook because the two callers no
-    longer store the link the same way: SupplierProduct still has its own
-    pim_id CharField, while MainProduct now carries a FK to product.Product.
-
-    Split into chunks of `batch_size` so a large `objects` list doesn't go out
-    as one oversized upsertAsync payload/job, with `delay` seconds between
-    consecutive chunks so batches are spaced out rather than fired back to
-    back. `objects` must all be instances of the same model (bulk_update is
-    called per chunk, on type(chunk[0])). A chunk whose transport/timeout/job
-    call errors is skipped (recorded via _record_pim_error) without aborting
-    the remaining chunks — a PIM outage must not fail the caller's larger
-    task. Items PIM rejects inside an otherwise successful job (status
-    'Failed', or no id returned) are left unlinked and recorded the same way.
-    Returns how many objects were successfully linked in total.
+    Runs before link_unlinked_main_products on purpose: a placeholder claims
+    its sku first, so unlinked MainProducts with that sku join it instead of
+    getting a second Product that would then block this backfill for good.
     """
-    if not objects:
+    has_sku = ~Q(main_products__sku='')
+    candidates = (
+        PimProduct.objects.filter(number__isnull=True)
+        .annotate(
+            sku_count=Count('main_products__sku', distinct=True, filter=has_sku),
+            first_sku=Min('main_products__sku', filter=has_sku),
+        )
+        .filter(sku_count__gte=1)
+        .order_by('pk')
+    )
+    taken = set(PimProduct.objects.exclude(number__isnull=True).values_list('number', flat=True))
+    numbered = []
+    conflicts = 0
+    for product in candidates.iterator():
+        sku = product.first_sku
+        if product.sku_count != 1 or len(sku) > PRODUCT_NUMBER_MAX_LENGTH or sku in taken:
+            conflicts += 1
+            continue
+        product.number = sku
+        taken.add(sku)
+        numbered.append(product)
+    if numbered:
+        PimProduct.objects.bulk_update(numbered, fields=['number'], batch_size=1000)
+    if conflicts:
+        logger.warning(
+            'backfill_product_numbers: %s Products left without a number '
+            '(MainProducts disagree on sku, sku too long, or the number is taken)',
+            conflicts,
+        )
+    return len(numbered)
+
+
+def link_unlinked_main_products(batch_size: int = 1000) -> int:
+    """Link every unlinked MainProduct that has a sku to the local Product with number = sku.
+
+    A sku with no Product yet gets one (number = sku, name = the lowest-pk
+    such MainProduct's name), so afterwards every linkable MainProduct is
+    linked. Existing links are never touched: a MainProduct already on a
+    Product keeps it even if its sku now says otherwise.
+
+    Pure DB work, safe inside execute_locked_task's transaction. A sku longer
+    than number's max_length can never be a number, so it stays unlinked and
+    is counted in the log rather than failing the bulk_create. Returns how
+    many MainProducts were linked.
+    """
+    def unlinked():
+        return MainProduct.objects.filter(product__isnull=True).exclude(sku__isnull=True).exclude(sku='')
+
+    before = unlinked().count()
+    if not before:
         return 0
+    with_length = unlinked().annotate(sku_length=Length('sku'))
+    too_long = with_length.filter(sku_length__gt=PRODUCT_NUMBER_MAX_LENGTH).count()
+    if too_long:
+        logger.warning(
+            'link_unlinked_main_products: %s MainProducts have a sku longer than %s chars — left unlinked',
+            too_long, PRODUCT_NUMBER_MAX_LENGTH,
+        )
+    linkable = with_length.filter(sku_length__lte=PRODUCT_NUMBER_MAX_LENGTH)
+
+    skus = list(linkable.order_by('sku').values_list('sku', flat=True).distinct())
+    for start in range(0, len(skus), batch_size):
+        chunk = skus[start:start + batch_size]
+        existing = set(PimProduct.objects.filter(number__in=chunk).values_list('number', flat=True))
+        missing = [sku for sku in chunk if sku not in existing]
+        if not missing:
+            continue
+        names = {}
+        for sku, name in linkable.filter(sku__in=missing).order_by('sku', 'pk').values_list('sku', 'name'):
+            names.setdefault(sku, name)
+        PimProduct.objects.bulk_create(
+            [
+                PimProduct(number=sku, name=(names.get(sku) or '')[:PRODUCT_NAME_MAX_LENGTH] or None)
+                for sku in missing
+            ],
+            batch_size=batch_size,
+            # number is unique: a row created since `existing` was read is
+            # simply the Product this sku should link to.
+            ignore_conflicts=True,
+        )
+
+    # One correlated UPDATE rather than one per sku. A sku with no Product
+    # (only the too-long ones by now) gets NULL from the subquery, which is
+    # what it already had — so count what got linked instead of trusting
+    # update()'s row count.
+    unlinked().update(
+        product_id=Subquery(PimProduct.objects.filter(number=OuterRef('sku')).values('id')[:1])
+    )
+    return before - unlinked().count()
+
+
+def iter_unpushed_product_pk_batches(batch_size: int = 1000):
+    """Yield pks of local Products still waiting for a PriceManagerProduct, chunked.
+
+    Waiting means pim_id NULL, a number to push under, and at least one
+    MainProduct — the PMP takes its name and description from one, and a
+    Product nothing links to has no business in PIM. Used by
+    reindex_pim_ids_task to fan out one reindex_pim_ids_batch_task per chunk.
+    """
+    pks = list(
+        PimProduct.objects
+        .filter(pim_id__isnull=True, number__isnull=False, main_products__isnull=False)
+        .order_by('pk')
+        .values_list('pk', flat=True)
+        .distinct()
+    )
+    for start in range(0, len(pks), batch_size):
+        yield pks[start:start + batch_size]
+
+
+def _take_over_pim_link(payload: dict) -> str | None:
+    """Repoint the PriceManagerProduct holding payload's number at our Product.
+
+    Reached when PIM rejected a push. PIM matches an upsert on the PMP's two
+    unique fields, so a rejection means one of them sits on a record whose
+    other one differs — typically our number on a PMP whose platformID is
+    someone else's (a local Product deleted and recreated under a new pk, or
+    another environment pushed first). Upserting that record by id with our
+    payload rewrites its platformID — and name, description and, when the
+    search found one, productId — to ours.
+
+    Returns the PMP id, or None when no single PMP holds the number or PIM
+    refuses the rewrite too (our platformID already on a PMP with another
+    number).
+    """
+    t0 = time.monotonic()
+    try:
+        found = site.get(EntityList(
+            name=PIM_LINK_ENTITY,
+            select=['id', 'platformID'],
+            where=[Where(attribute='number', type='equals', value=payload['number'])],
+        ))
+        records = [item for item in (found.get('list') or []) if item.get('id')] if isinstance(found, dict) else []
+        if len(records) != 1:
+            return None
+        results = _upsert_async(site, [{'entity': PIM_LINK_ENTITY, 'payload': {**payload, 'id': records[0]['id']}}])
+    except Exception as exc:
+        _record_pim_error('take_over_pim_link', exc, int((time.monotonic() - t0) * 1000))
+        return None
+    if not (isinstance(results, list) and len(results) == 1 and isinstance(results[0], dict)):
+        return None
+    result = results[0]
+    if result.get('status') == 'Failed' or not result.get('id'):
+        return None
+    logger.warning(
+        'PriceManagerProduct %s (number=%s) repointed from platformID=%s to %s',
+        result['id'], payload['number'], records[0].get('platformID'), payload['platformID'],
+    )
+    return result['id']
+
+
+def _push_pim_links(targets: list, batch_size: int = 1000, delay: float = 0.5) -> tuple[int, int]:
+    """upsertAsync `targets` — [(Product, payload), ...] — as PriceManagerProduct
+    records and store each returned id as that Product's pim_id.
+
+    Chunked to `batch_size` items per job, `delay` seconds between jobs. A
+    chunk whose transport/timeout/job call errors, or whose result has the
+    wrong shape or length, is recorded via _record_pim_error and skipped
+    without aborting the rest: results are tied back to Products only by
+    position, so a short or malformed list must never be zipped.
+
+    PIM matches an upsert on number + platformID (verified live): both on one
+    record answers NotModified/Updated with its id — how a PMP whose id was
+    lost gets it back — while only one of them matching fails the item with a
+    unique-violation 400 inside a job that still ends as Success. A rejected
+    item goes to _take_over_pim_link; what even that cannot place is logged
+    and recorded. Returns (linked, rejected).
+    """
     total_linked = 0
-    chunk_starts = list(range(0, len(objects), batch_size))
-    for i, start in enumerate(chunk_starts):
+    total_rejected = 0
+    for i, start in enumerate(range(0, len(targets), batch_size)):
         if i > 0:
             time.sleep(delay)
-        chunk = objects[start:start + batch_size]
-        items = [{'entity': PIM_PRODUCT_ENTITY, 'payload': payload_fn(obj)} for obj in chunk]
+        chunk = targets[start:start + batch_size]
+        items = [{'entity': PIM_LINK_ENTITY, 'payload': payload} for _, payload in chunk]
         t0 = time.monotonic()
         try:
             results = _upsert_async(site, items)
         except Exception as exc:
-            _record_pim_error('push_pim_products', exc, int((time.monotonic() - t0) * 1000))
+            _record_pim_error('push_pim_links', exc, int((time.monotonic() - t0) * 1000))
             continue
         if not isinstance(results, list) or not all(isinstance(r, dict) for r in results):
             _record_pim_error(
-                'push_pim_products',
+                'push_pim_links',
                 Exception(f'unexpected upsertAsync result shape: {results!r:.500}'),
                 int((time.monotonic() - t0) * 1000),
             )
             continue
         if len(results) != len(chunk):
             _record_pim_error(
-                'push_pim_products',
+                'push_pim_links',
                 Exception(f'result count {len(results)} != item count {len(chunk)}'),
                 int((time.monotonic() - t0) * 1000),
             )
@@ -674,237 +786,95 @@ def _push_pim_products(objects: list, payload_fn, link_fn, batch_size: int = 100
 
         linked = []
         rejected = []
-        for obj, result in zip(chunk, results):
+        for (product, payload), result in zip(chunk, results):
             pim_id = result.get('id')
             if result.get('status') == 'Failed' or not pim_id:
-                rejected.append(result)
-                continue
-            linked.append((obj, pim_id))
+                pim_id = _take_over_pim_link(payload)
+                if not pim_id:
+                    rejected.append(result)
+                    continue
+            product.pim_id = pim_id
+            linked.append(product)
         if rejected:
-            # The job itself ends as Success when PIM rejects individual items
-            # (e.g. a 400 "Validation failed" per item), so upsert_async does
-            # not raise and nothing above records it. Without this the caller
-            # returns 0 created, the task run is recorded as a success, and
-            # the same products are pushed and rejected again on every run.
             error = Exception(
                 f'PIM отклонил {len(rejected)} из {len(chunk)} товаров; '
                 f'первый ответ: {rejected[0]!r:.500}'
             )
-            logger.error('push_pim_products: %s', error)
-            _record_pim_error('push_pim_products', error, int((time.monotonic() - t0) * 1000))
-        total_linked += link_fn(linked)
-    return total_linked
+            logger.error('push_pim_links: %s', error)
+            _record_pim_error('push_pim_links', error, int((time.monotonic() - t0) * 1000))
+        if linked:
+            # A taken-over PMP may still be stored on the Product it used to
+            # point at; that Product lost it in PIM, so it loses it here too
+            # (and is pushed afresh next run) rather than tripping pim_id's
+            # unique constraint.
+            PimProduct.objects.filter(pim_id__in=[p.pim_id for p in linked]).exclude(
+                pk__in=[p.pk for p in linked]
+            ).update(pim_id=None)
+            PimProduct.objects.bulk_update(linked, fields=['pim_id'])
+        total_linked += len(linked)
+        total_rejected += len(rejected)
+    return total_linked, total_rejected
 
 
-def _link_supplier_products(linked: list) -> int:
-    """Persist pushed ids onto SupplierProduct.pim_id (still a plain CharField)."""
-    objects = []
-    for supplier_product, pim_id in linked:
-        supplier_product.pim_id = pim_id
-        objects.append(supplier_product)
-    if objects:
-        SupplierProduct.objects.bulk_update(objects, fields=['pim_id'])
-    return len(objects)
+def push_pim_links(pks: list[int], delay: float = 0.5, batch_size: int = 1000) -> int:
+    """Create the PriceManagerProduct for one batch of local Products and store its id as pim_id.
 
+    For each Product still without a pim_id: search the PIM Product by
+    number, then push {platformID: our pk, number, name, description} — plus
+    productId when the search found exactly one. An ambiguous search pushes
+    without productId, leaving PIM staff to pick the product; a failed search
+    skips the Product, since pushing then would drop a productId the search
+    might have found. The key is left out rather than sent as null when there
+    is no match, so a push never clears a link PIM staff already set.
 
-def _link_main_products(linked: list) -> int:
-    """Persist pushed ids as MainProduct.product links.
-
-    ВНИМАНИЕ / known mismatch, carried over unchanged from the pim_id version:
-    the id upsertAsync returns here is a **PriceManagerProduct** id, while
-    every read path (get_pim_data, _search_pim_id_result) addresses the PIM
-    `Product` entity — PriceManagerProduct.productId is the Product id, and
-    PriceManagerProduct.id is not. Under the old CharField that mismatch sat
-    inert as a string that simply never resolved; under the FK it additionally
-    materialises a placeholder product.Product row per push. Preserved as-is so
-    the existing "already pushed, do not push again" suppression keeps working
-    — changing what gets stored is a separate decision. See the note in the PR.
+    Runs as reindex_pim_ids_batch_task with atomic=False, so the writes commit
+    as they go instead of idling a transaction across the PIM calls. Safe to
+    resume: a Product that got its pim_id drops out of the next run's batches,
+    and a repeat push of a PMP whose id was never saved answers with that id.
+    Raises PimScanError after its writes if any search went unanswered or any
+    push stayed rejected, so the batch is recorded as an error, not a success.
     """
-    objects = []
-    for main_product, pim_id in linked:
-        row = _pim_product_row(pim_id)
-        if row is None:
-            continue
-        main_product.product = row
-        objects.append(main_product)
-    if objects:
-        MainProduct.objects.bulk_update(objects, fields=['product'])
-    return len(objects)
-
-
-def push_supplier_products_to_pim(supplier_products, batch_size: int = 1000, delay: float = 0.5) -> int:
-    """Bulk-create SupplierProduct rows lacking a pim_id as PriceManagerProduct
-    records in PIM.
-
-    `supplier_products` may be an iterable of SupplierProduct instances or
-    pks (e.g. the rows just written by load_setting's bulk_create). pim_id is
-    always re-read from the DB rather than trusted off the caller's in-memory
-    instances, since bulk_create(update_conflicts=True) does not refresh
-    non-pk fields on rows it updates rather than inserts — trusting the
-    in-memory value would re-push every already-linked row on each re-import.
-    """
-    pks = [sp.pk if isinstance(sp, SupplierProduct) else sp for sp in supplier_products]
-    targets = list(SupplierProduct.objects.filter(pk__in=pks, pim_id__isnull=True).select_related('supplier', 'main_product'))
-    return _push_pim_products(
-        targets,
-        lambda sp: _pim_product_payload(
-            sp.name,
-            sp.description,
-            (sp.main_product.sku if sp.main_product else None) or compute_supplier_sku(sp.article, sp.supplier),
-        ),
-        _link_supplier_products,
-        batch_size=batch_size,
-        delay=delay,
-    )
-
-
-def push_missing_pim_products(products, batch_size: int = 1000, delay: float = 0.5) -> int:
-    """Bulk-create MainProducts with no PIM match as PriceManagerProduct records.
-
-    Callers must pass only products already confirmed absent from PIM —
-    product is None and _search_pim_id_result just came back _SEARCH_ABSENT.
-    This doesn't re-check, so every other empty outcome (a failed request, an
-    ambiguous match, a product with no sku to search by) must be filtered out
-    by the caller: PIM cannot confirm an absence it was never asked about, and
-    pushing on one creates a duplicate record for a product already in there.
-    """
-    return _push_pim_products(
-        list(products),
-        lambda mp: _pim_product_payload(mp.name, mp.description, mp.sku),
-        _link_main_products,
-        batch_size=batch_size,
-        delay=delay,
-    )
-
-
-def create_pim_links(delay: float = 0.5, batch_size: int = 1000) -> tuple[int, int]:
-    # The window is the first 1000 unlinked products in pk order (Meta.ordering
-    # = ['id']), so it is the same rows every run until they leave the unlinked
-    # set. A product with no sku never can: _search_pim_id_result returns
-    # _SEARCH_NO_SKU without asking PIM, and it must not be pushed either
-    # (_pim_product_payload would create a PIM record with number=''). Excluded
-    # here so it doesn't hold a slot — and a delay — against products the scan
-    # can still resolve. Drop the exclusion if a search that works without an
-    # sku is ever added back.
-    # Без select_related('product') намеренно, в отличие от
-    # reindex_pim_ids_batch: выборка — ровно непривязанные товары, и цикл ниже
-    # связь только пишет, ни разу не зовя _pim_id_of. Если сюда добавится
-    # чтение текущей связи — select_related станет обязателен.
     products = list(
-        MainProduct.objects
-        .filter(product__isnull=True)
-        .exclude(sku__isnull=True)
-        .exclude(sku='')[:1000]
+        PimProduct.objects.filter(pk__in=pks, pim_id__isnull=True, number__isnull=False).order_by('pk')
     )
-    result = []
-    missing = []
-    created = 0
+    if not products:
+        return 0
+    first_main_product = {}
+    for product_id, name, description in (
+        MainProduct.objects.filter(product_id__in=[p.pk for p in products])
+        .order_by('product_id', 'pk')
+        .values_list('product_id', 'name', 'description')
+    ):
+        first_main_product.setdefault(product_id, (name, description))
+
+    targets = []
     unanswered = 0
     for product in products:
-        pim_id, outcome = _search_pim_id_result(product)
-        if pim_id:
-            row = _pim_product_row(pim_id)
-            if row is not None:
-                product.product = row
-                result.append(product)
-        elif outcome == _SEARCH_ABSENT:
-            # Only a confirmed absence may be pushed as a new PIM record; an
-            # error or an ambiguous match leaves the product for a later run.
-            missing.append(product)
-            if len(missing) >= batch_size:
-                created += push_missing_pim_products(missing, batch_size=batch_size, delay=delay)
-                missing = []
-        elif outcome == _SEARCH_ERROR:
-            unanswered += 1
+        if product.pk not in first_main_product:
+            continue
+        pim_product_id, outcome = _search_pim_product_id(product.number)
         time.sleep(delay)
-    # Runs with no transaction held (create_pim_links_task passes atomic=False),
-    # so each write below commits on its own rather than idling a transaction
-    # open across the PIM calls above. Safe to resume after a partial run: this
-    # only ever fills product__isnull=True, so committed rows are simply skipped
-    # next time, and a row skipped over a PIM error is retried once its
-    # _PIM_SEARCH_ERROR_TTL backoff expires.
-    if result:
-        MainProduct.objects.bulk_update(result, fields=['product'])
-    created += push_missing_pim_products(missing, batch_size=batch_size, delay=delay)
-    if unanswered:
-        # Raised after the writes, so the progress above stays committed. The
-        # run is recorded as an error instead of a success over a dead PIM:
-        # TaskRunHistory is the durable signal. maybe_notify_pim_error now fires
-        # in prod too, but it is per-user and throttled, so it only reaches
-        # whoever happens to open the list — it does not record that this run
-        # went out over a PIM that never answered.
-        raise PimSearchError(
-            f'PIM не ответил на поиск по {unanswered} из {len(products)} товаров: '
-            f'связано {len(result)}, создано в PIM {created}'
-        )
-    return len(result), created
-
-
-def iter_pim_id_pk_batches(batch_size: int = 1000, skip_non_empty: bool = False):
-    """Yield MainProduct pks in pk order, chunked to `batch_size` each.
-
-    Used by reindex_pim_ids_task to fan out one reindex_pim_ids_batch_task
-    per chunk, so the full catalog re-scan runs as separate parallel Celery
-    tasks instead of a single long sequential loop. With skip_non_empty,
-    products that already have a pim_id are excluded, so the re-scan only
-    resolves products still missing one.
-    """
-    products = MainProduct.objects.order_by('pk')
-    if skip_non_empty:
-        products = products.filter(product__isnull=True)
-    pks = list(products.values_list('pk', flat=True))
-    for i in range(0, len(pks), batch_size):
-        yield pks[i:i + batch_size]
-
-
-def reindex_pim_ids_batch(pks: list[int], delay: float = 0.5, batch_size: int = 1000) -> tuple[int, int]:
-    """Re-resolve pim_id for one batch of MainProducts, including ones already linked.
-
-    Unlike create_pim_links (which only fills product__isnull=True), this
-    re-searches PIM for every product in the batch so relinked/re-merged
-    records pick up their new pim_id. Only writes products whose resolved
-    pim_id changed. Products that were never linked and still aren't found
-    get pushed to PIM via push_missing_pim_products.
-
-    Runs as its own Celery task (see reindex_pim_ids_batch_task) — pks is one
-    chunk produced by iter_pim_id_pk_batches, so many batches process in
-    parallel across Celery workers instead of one product at a time.
-    """
-    products = MainProduct.objects.filter(pk__in=pks).select_related('product').order_by('pk')
-    result = []
-    missing = []
-    unanswered = 0
-    for product in products:
-        pim_id, outcome = _search_pim_id_result(product)
-        if pim_id:
-            if pim_id != _pim_id_of(product):
-                row = _pim_product_row(pim_id)
-                if row is not None:
-                    product.product = row
-                    result.append(product)
-        elif outcome == _SEARCH_ABSENT and product.product_id is None:
-            # As in create_pim_links: only a confirmed absence gets pushed.
-            missing.append(product)
-        elif outcome == _SEARCH_ERROR:
+        if outcome == _SEARCH_ERROR:
             unanswered += 1
-        time.sleep(delay)
-    # Runs with no transaction held (reindex_pim_ids_batch_task passes
-    # atomic=False), so each write below commits on its own rather than idling
-    # a transaction open across the PIM calls above. Safe to resume after a
-    # partial run: re-searching is idempotent, only a changed pim_id is written
-    # back, and a row skipped over a PIM error is retried once its
-    # _PIM_SEARCH_ERROR_TTL backoff expires.
-    if result:
-        MainProduct.objects.bulk_update(result, fields=['product'])
-    created = push_missing_pim_products(missing, batch_size=batch_size, delay=delay)
-    if unanswered:
-        # See create_pim_links: raised after the writes so committed progress
-        # survives, and the batch is recorded as an error, not a success.
-        raise PimSearchError(
-            f'PIM не ответил на поиск по {unanswered} из {len(pks)} товаров партии: '
-            f'связано {len(result)}, создано в PIM {created}'
+            continue
+        name, description = first_main_product[product.pk]
+        payload = {
+            'platformID': str(product.pk),
+            'number': product.number,
+            'name': name or product.name or product.number,
+            'description': description or '',
+        }
+        if pim_product_id:
+            payload['productId'] = pim_product_id
+        targets.append((product, payload))
+
+    linked, rejected = _push_pim_links(targets, batch_size=batch_size, delay=delay)
+    if unanswered or rejected:
+        raise PimScanError(
+            f'Партия из {len(products)} товаров: PIM не ответил на поиск по {unanswered}, '
+            f'отклонил {rejected}; связано с PIM {linked}'
         )
-    return len(result), created
+    return linked
 
 
 def update_logs():

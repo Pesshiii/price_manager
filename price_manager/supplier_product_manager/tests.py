@@ -29,12 +29,11 @@ from supplier_product_manager.tasks import copy_supplier_products_to_main_task
 class _PimUnreachable:
     """Заглушка для main_product_manager.utils.site: сеть в тестах запрещена.
 
-    Импорт прайса и задача копирования доходят до PIM двумя разными путями:
-    load_setting зовёт push_supplier_products_to_pim (functions.py:505), а
-    copy_supplier_products_to_main_task — recalculate_search_vectors, тот
-    _build_searchvector, а тот get_pim_data. Оба пути ловят Exception
-    (_push_pim_products и _fetch_pim_product соответственно) и продолжают,
-    поэтому исключение отсюда ничего не ломает, но и в сеть не пускает.
+    Импорт прайса в PIM больше не пишет, но задача копирования до него
+    доходит: copy_supplier_products_to_main_task — recalculate_search_vectors,
+    тот _build_searchvector, а тот get_pim_data. _fetch_pim_entity ловит
+    Exception и продолжает, поэтому исключение отсюда ничего не ломает, но и
+    в сеть не пускает.
     Полный разбор, почему заглушка ставится в setUp, а не декоратором класса,
     — в модульном docstring main_product_manager/test_grouping.py.
     """

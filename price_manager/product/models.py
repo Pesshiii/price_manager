@@ -46,9 +46,17 @@ class Category(MPTTModel):
 
 
 class Product(models.Model):
-    pim_id = models.CharField('Id товара в PIM', max_length=64, unique=True)
-    number = models.CharField('Номер PIM (артикул)', max_length=128, null=True, blank=True, unique=True)
-    name = models.CharField('Название', max_length=512, unique=True, null=True, blank=True)
+    # Id of this Product's PriceManagerProduct in PIM — the through record whose
+    # platformID is our pk and whose productId points at the PIM Product. NULL
+    # until reindex_pim_ids pushes it.
+    pim_id = models.CharField(
+        'Id связи в PIM (PriceManagerProduct)', max_length=64, null=True, blank=True, unique=True,
+    )
+    # The match key: MainProduct.sku. Local, never overwritten from PIM.
+    number = models.CharField('Артикул', max_length=128, null=True, blank=True, unique=True)
+    # Not unique: several Products can sit on one PIM Product, and PIM does not
+    # keep Product.name unique either.
+    name = models.CharField('Название', max_length=512, null=True, blank=True)
     categories = models.ManyToManyField(
         Category, related_name='products', blank=True, verbose_name='Категории',
     )

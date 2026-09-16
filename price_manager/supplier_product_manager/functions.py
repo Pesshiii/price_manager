@@ -9,7 +9,7 @@ from .models import (SupplierFile, Setting, Link,
                      SP_NUMBERS, SP_PRICES)
 from .tables import SP_AVAILABLE_COLUMN_MAP, SP_DEFAULT_VISIBLE_COLUMNS
 from main_product_manager.models import MainProduct
-from main_product_manager.utils import recalculate_search_vectors, push_supplier_products_to_pim
+from main_product_manager.utils import recalculate_search_vectors
 
 from .forms import (DictFormset, LinkFormset,
                     InitialForm,
@@ -502,5 +502,4 @@ def load_setting(pk):
            if column in SP_PRICES:
               missing_sps.update(**{column:None})
     setting.supplier.save()
-    push_supplier_products_to_pim(sps)
     return sps

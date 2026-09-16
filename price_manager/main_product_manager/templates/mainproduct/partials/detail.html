@@ -64,18 +64,22 @@
         PIM
         {% if pim_data %}
           <span class="badge text-bg-success">Привязан</span>
+        {% elif mainproduct.product.pim_id %}
+          <span class="badge text-bg-warning">Нет данных</span>
         {% elif mainproduct.product %}
-          <span class="badge text-bg-warning">Ошибка получения данных</span>
+          <span class="badge text-bg-secondary">Не отправлен в PIM</span>
         {% else %}
-          <span class="badge text-bg-secondary">Не найден в PIM</span>
+          <span class="badge text-bg-secondary">Не привязан</span>
         {% endif %}
       </h5>
       {% if not pim_data %}
-      <div class="alert {% if mainproduct.product %}alert-warning{% else %}alert-secondary{% endif %} mb-0">
-        {% if mainproduct.product %}
-          Не удалось получить данные из PIM (id: {{ mainproduct.product.pim_id }}). Возможно, временная ошибка соединения — попробуйте обновить страницу.
+      <div class="alert {% if mainproduct.product.pim_id %}alert-warning{% else %}alert-secondary{% endif %} mb-0">
+        {% if mainproduct.product.pim_id %}
+          Запись в PIM есть (id: {{ mainproduct.product.pim_id }}), но данных товара PIM нет: либо в PIM она ещё не связана с товаром, либо PIM временно недоступен — попробуйте обновить страницу.
+        {% elif mainproduct.product %}
+          Товар ещё не отправлен в PIM. Это делает ночная переиндексация — после неё здесь появятся данные.
         {% else %}
-          Товар не найден в PIM. Поиск идёт по артикулу товара — проверьте, совпадает ли он с полем «number» в PIM, или привяжите вручную.
+          Товар не привязан: у него нет артикула, либо ночная переиндексация ещё не связала его по артикулу.
         {% endif %}
       </div>
       {% else %}

@@ -263,10 +263,10 @@ class SupplierFeedViewSet(viewsets.ModelViewSet):
     def create_product(self, request, pk=None, entry_id=None):
         """Create/link a Product from a queued entry by syncing it from PIM.
 
-        Request body: {pim_id: str}
-        Fetches the full record from PIM (number, name, categories and
-        raw_data all populated in one sync call), dedupes on
-        pim_id (already-synced -> reuses the existing row), links it to the
+        Request body: {pim_id: str} — the id of a PriceManagerProduct in PIM,
+        not of a PIM Product. Syncs the local Product holding that link
+        (name, categories and raw_data from the PIM Product it points at),
+        reusing the existing row when one already holds it, links it to the
         entry and creates a SupplierLink.  Returns 201 with the updated entry.
         """
         from django.db import IntegrityError, transaction
@@ -306,7 +306,7 @@ class SupplierFeedViewSet(viewsets.ModelViewSet):
                 entry.save(update_fields=['product'])
         except IntegrityError:
             return Response(
-                {'detail': 'Товар с таким номером PIM уже существует под другим pim_id.'},
+                {'detail': 'Товар с таким артикулом уже связан с другой записью PIM.'},
                 status=status.HTTP_400_BAD_REQUEST,
             )
         except Exception as exc:

@@ -12,11 +12,11 @@ PIM-запросы заглушены в GroupingTestCase.setUp, поэтому 
 
 Почему это не просто «медленные тесты». MainProductTableView.get_context_data
 зовёт prefetch_pim_data, тот при промахе кэша делает живой GET
-/api/Product/PIM-1. Рабочие PIM-креды из корневого .env отвечают на
+/api/PriceManagerProduct/PIM-1. Рабочие PIM-креды из корневого .env отвечают на
 несуществующий id честным 404 (раньше токен отвергался, и 401 за 404 не
 считался), а на третий такой ответ — _PIM_404_THRESHOLD — _note_pim_404
-выполняет MainProduct.objects.filter(product__pim_id='PIM-1').update(product=None),
-обнуляя фикстуры прямо посреди прогона. Счётчик 404 лежит в общем Redis и
+обнуляет связь фикстур с PIM (сейчас это product.Product.pim_id, когда писался
+этот текст — сам MainProduct.product) прямо посреди прогона. Счётчик 404 лежит в общем Redis и
 копится через все тесты, поэтому поодиночке тесты проходили, а на полном
 прогоне падал test_head_stays_first_on_descending_sort: схлопывать стало
 нечего.
@@ -48,7 +48,7 @@ class _PimUnreachable:
     Намеренно не MagicMock. Тот вернул бы из site.get() объект, который
     get_pim_data положит в кэш и по которому дёрнет _queue_pim_population, —
     «работающий» мок молча засорял бы общий Redis и очередь задач. Исключение
-    инертно: _fetch_pim_product ловит Exception и отдаёт (None, False), то
+    инертно: _fetch_pim_entity ловит Exception и отдаёт (None, False), то
     есть даже за 404 это не считается и счётчик _note_pim_404 не растёт.
     """
 

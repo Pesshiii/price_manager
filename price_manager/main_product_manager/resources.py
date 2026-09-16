@@ -3,8 +3,6 @@ from import_export import resources, fields
 from import_export.widgets import ForeignKeyWidget, ManyToManyWidget
 from difflib import get_close_matches
 from .models import *
-from .utils import _pim_product_row
-from product.models import Product as PimProduct
 from supplier_manager.models import ManufacturerDict, Discount
 
 class CategoryWidget(ManyToManyWidget):
@@ -255,45 +253,19 @@ class PimCategoryWidget(ManyToManyWidget):
         return ','.join(cat.pim_id for cat in value if cat.pim_id)
 
 
-class PimProductWidget(ForeignKeyWidget):
-    """Колонка ID выгрузки PIM (id товара в PIM) → FK MainProduct.product.
-
-    get_or_create, а не просто поиск, как у стокового ForeignKeyWidget:
-    выгрузка законно приносит id, которых в локальном зеркале ещё нет, а
-    product.Product.pim_id — NOT NULL и unique, так что заготовка с пустыми
-    number/name — единственное, что здесь можно создать. Дозаполнит её потом
-    product.services.pim_sync.sync_product_from_pim.
-
-    Пустое значение даёт None — то есть «снять привязку». Слишком длинный id
-    тоже даёт None (_pim_product_row его залогирует): раньше колонка лежала в
-    varchar без ограничения длины, а теперь упирается в max_length=64, и одна
-    кривая строка не должна ронять весь импорт.
-    """
-
-    def __init__(self, *args, **kwargs):
-        super().__init__(PimProduct, 'pim_id', *args, **kwargs)
-
-    def clean(self, value, row=None, *args, **kwargs):
-        pim_id = str(value).strip() if value is not None else ''
-        if not pim_id:
-            return None
-        return _pim_product_row(pim_id)
-
-    def render(self, value, obj=None, **kwargs):
-        return value.pim_id if value else ''
-
-
 class MainProductPimImportResource(resources.ModelResource):
-    """Import MainProduct data exported from PIM.
+    """Import MainProduct categories exported from PIM.
 
     Expected columns:
       PriceManagerId  – MainProduct.id (used to locate the record)
-      ID              – PIM product ID  → MainProduct.product (FK to product.Product)
       Categories      – JSON/CSV list of PIM category IDs; the first one found
                         in the 'Main tree' (Основной) is assigned as category
+
+    The export's ID column (a PIM Product id) is deliberately not read: the
+    link to PIM now lives in PriceManagerProduct, pushed by reindex_pim_ids,
+    and product.Product.pim_id holds that record's id, not a Product's.
     """
     id = fields.Field(column_name='PriceManagerId', attribute='id')
-    product = fields.Field(column_name='ID', attribute='product', widget=PimProductWidget())
     category = fields.Field(
         column_name='Categories',
         attribute='categories',
@@ -303,7 +275,7 @@ class MainProductPimImportResource(resources.ModelResource):
     class Meta:
         model = MainProduct
         import_id_fields = ('id',)
-        fields = ('id', 'product', 'category')
+        fields = ('id', 'category')
         skip_unchanged = True
         report_skipped = True
 

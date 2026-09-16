@@ -47,10 +47,6 @@ CELERY_BEAT_SCHEDULE = {
         'task': 'supplier_product_manager.cleanup_supplier_files_task',
         'schedule': CELERY_SUPPLIER_FILES_CLEANUP_MINUTES * 60,
     },
-    'create-pim-links':{
-        'task': 'main_product_manager.create_pim_links',
-        'schedule': 1800,
-    },
     'reindex-pim-ids': {
         'task': 'main_product_manager.reindex_pim_ids',
         'schedule': crontab(hour=3, minute=0),

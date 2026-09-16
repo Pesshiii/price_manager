@@ -55,10 +55,18 @@ class ProductModelTests(TestCase):
         with self.assertRaises(IntegrityError):
             Product.objects.create(pim_id='p2', number='N1', name='B')
 
-    def test_name_unique(self):
+    def test_name_is_not_unique(self):
+        # Several local Products can sit on one PIM Product, and PIM does not
+        # keep Product.name unique either.
         Product.objects.create(pim_id='p1', number='N1', name='A')
-        with self.assertRaises(IntegrityError):
-            Product.objects.create(pim_id='p2', number='N2', name='A')
+        Product.objects.create(pim_id='p2', number='N2', name='A')
+        self.assertEqual(Product.objects.filter(name='A').count(), 2)
+
+    def test_products_without_pim_id_coexist(self):
+        # pim_id stays NULL until reindex pushes the PriceManagerProduct.
+        Product.objects.create(pim_id=None, number='N1')
+        Product.objects.create(pim_id=None, number='N2')
+        self.assertEqual(Product.objects.filter(pim_id__isnull=True).count(), 2)
 
     def test_products_without_name_coexist(self):
         # Postgres treats NULLs as distinct in a unique index but '' as equal,
