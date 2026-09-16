@@ -49,13 +49,13 @@ Three consequences that matter:
 |---|---|
 | §3.1 Model work — `Brand`, `search_vector`, `display_name`, migration `0008` | ✅ **Done** — `667747a` |
 | §3.1a Backfill orchestrator | ✅ **Done** — `df575c9` |
-| §3.2 The page `/products/` | ✅ **Done** — `e71796c` |
+| §3.2 The page `/products/` | ✅ **Done** — `e71796c`, HTMX wiring fixed in `cb98183` |
 | §3.3 P1-G3 observability counter | ✅ **Done** (in `e71796c`) |
 | §3.3 P1-G1 / P1-G2 coverage gates | ⚠️ **Need re-measuring** — see §0.3 |
 | §5 Hybrid live-PIM filter (D15) | ❌ **Not built** — blocked, see §5 |
 | §4 Phase 2 (all destructive work) | ❌ Not started, by design (D10) |
 
-Branch `worktree-product-shift-phase1`, 3 commits, full suite green (405 tests).
+Branch `worktree-product-shift-phase1`, full suite green (409 tests).
 
 **What the page does today:** flat Product list at `/products/`, filter panel on the left,
 each row expandable to its supplier price rows. Search, category (with MPTT descendant
@@ -171,7 +171,7 @@ Filtering on the new page draws on exactly three sources:
 | D3 | New `product.Brand`, **keyed by PIM `brandId`**. No alias/normalisation layer. | ✅ Built. PIM returns `brandId`/`brandName` as **scalars**, so FK not M2M — confirmed against `_resolve_manufacturer` (`utils.py:362-374`), which does the same shape against the supplier-side Manufacturer this replaces. |
 | D4 | `PriceManager` rules scope via `product__categories`. ✅ **No-op in practice — G4 = 0.** | `product_price_manager/models.py:187-188` currently filters on `MainProduct.categories`. |
 | D5 | MainProducts with `product_id IS NULL` are **invisible** on the new page. Accepted. | ✅ Counter shipped (P1-G3). Cheaper than assumed post-`#184`: linking is local, see §0.1. |
-| D6 | New page at a **new route**, parallel to the existing one. | ✅ Built at `/products/` with its own reverse names (`products`, `product-filter`, `product-table`, `product-suppliers`). |
+| D6 | New page at a **new route**, parallel to the existing one. | ✅ Built at `/products/` with its own reverse names (`products`, `product-filter`, `product-suppliers`). |
 | D7 | **One row = one Product, expandable to its supplier MainProducts.** | ✅ Built. `grouping.py` deliberately **not** ported — see §3.2. |
 | D8 | Category migration maps **by `pim_id` only**; non-PIM categories dropped. | Safe per F2. Keeps `product.Category` a pure PIM mirror — see R6. |
 | D9 | Search by raw supplier `article` is **dropped**. `sku` is covered by `Product.number`. | **Now confirmed in code**, not inferred: `product/models.py` documents `number` as the `MainProduct.sku` match key. `article` is the *unprefixed* article (`sku = prefix + article + suffix`) and is not covered. See R4. |
@@ -244,8 +244,15 @@ backfill reaches it, and an empty cell reads as broken data rather than pending 
 
 ### 3.2 The page — ✅ done, `e71796c`
 
-Route `/products/` plus `product-filter`, `product-table`, `product-suppliers`, registered
-centrally in `price_manager/price_manager/urls.py`. Russian UI strings throughout.
+Routes `products`, `product-filter`, `product-suppliers`, registered centrally in
+`price_manager/price_manager/urls.py`. Russian UI strings throughout.
+
+**The page serves its own table fragment.** `get_template_names()` returns
+`product/partials/table.html` when `request.htmx`, and `list.html` otherwise. Both the
+filter form and the search box `hx-get` back to `products` — not to a fragment endpoint —
+so `hx-push-url` writes `/products/?…`, which reloads and bookmarks correctly. A separate
+table endpoint existed briefly and was deleted as dead code once this landed. See §7; the
+failure mode is a whole page rendered inside `#products-table`.
 
 - **`ProductFilter`** — search (`search_vector` + `number`), categories, brand, supplier,
   availability, price range.
@@ -443,6 +450,29 @@ Every one of these passed the test suite and was caught only by loading the page
 - **`f'{value:.2f}'` bypasses localisation.** The UI is Russian and Django renders decimals
   with a comma; python formatting produced `99.00` beside `99,00` in the table below. Use
   `django.utils.formats.number_format`.
+- **A page whose own filters `hx-get` back to it must return the fragment itself.** Without
+  an `request.htmx` branch in `get_template_names()`, the response is the whole `list.html`
+  and HTMX drops it — navbar, filter panel and all — inside `#products-table`. Page inside
+  page. The main page has exactly this branch; omitting it is the default outcome, not an
+  exotic mistake.
+  - **Don't "fix" it by pointing the filter at a fragment endpoint.** `hx-push-url` is on,
+    so that writes the *fragment's* URL into the address bar and a reload hands the user a
+    bare table. The page serving its own fragment is what keeps the pushed URL honest — and
+    it makes any separate table endpoint dead code.
+- **A form widget needs an explicit `id` if HTMX selects on it.** Django renders
+  `id_<field>` by default. The search field was wired as `#products-search` in two places —
+  the search box's `hx-trigger="… from:#products-search"` and the filter form's
+  `hx-include` — and both selectors silently matched nothing. Result: typing in the search
+  box did nothing at all, **and applying any filter discarded the search term**. Neither
+  threw, because "selector found nothing" is not an error in either HTMX or the DOM.
+
+**The meta-lesson, worth more than any single item above.** Every bug in this list passed a
+green suite. The filter-wiring ones survived even a browser pass, because I had exercised
+expand/collapse by hand but checked the filters through the Django test client — which
+issues plain GETs and never evaluates `hx-target`, `hx-include` or `hx-trigger`. **A test
+client cannot see a swap-target mistake.** Any HTMX screen needs at least one real
+interaction driven in a browser: apply a filter, read back the DOM, and assert the target
+contains only what it should.
 - **`self.data` is not always a QueryDict.** `MainProductFilter` calls `.getlist()` on it
   directly and gets away with it because views always pass `request.GET`. Constructing a
   filterset from a plain dict — from tests, or from code — raises `AttributeError` inside
