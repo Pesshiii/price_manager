@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import time
 
 from pim_api import Entity
 
@@ -134,3 +135,54 @@ def sync_product_from_pim(pim_id: str, data: dict | None = None) -> Product:
     # raw_data, которые мы только что записали, — в PIM он не ходит.
     product.rebuild_search_vector()
     return product
+
+
+def unsynced_products(refresh: bool = False):
+    """Product-ы, которым нужен контент из PIM.
+
+    Синхронизировать можно только строку, у которой уже есть pim_id: он и есть
+    тот PriceManagerProduct, через который мы ходим за товаром. Заготовки без
+    pim_id — работа reindex_pim_ids, не наша, и порядок здесь жёсткий:
+
+        reindex_pim_ids (проставляет pim_id) -> этот бэкфилл -> вектор
+
+    Признак «ни разу не синхронизировали» — пустой raw_data. Миграции 0005/0007
+    оставляют заготовки именно такими: pim_id есть, а name, категории, бренд и
+    вектор пустые.
+    """
+    queryset = Product.objects.filter(pim_id__isnull=False)
+    return queryset if refresh else queryset.filter(raw_data={})
+
+
+def iter_unsynced_product_pk_batches(batch_size: int = 500, refresh: bool = False):
+    """pk-шки под бэкфилл, партиями. Порядок по pk — чтобы партии не пересекались."""
+    pks = list(unsynced_products(refresh=refresh).order_by('pk').values_list('pk', flat=True))
+    for start in range(0, len(pks), batch_size):
+        yield pks[start:start + batch_size]
+
+
+def sync_products(pks: list[int], delay: float = 0.5) -> int:
+    """Синхронизирует партию Product-ов, возвращает число успешных.
+
+    Ошибка на одном товаре не роняет партию: PIM отвечает по товару за раз, и
+    один 404 или таймаут не повод потерять остальные 499. Та же логика, что у
+    _ensure_pim_category с битым id категории. Сбойные строки останутся с
+    пустым raw_data и попадут в следующий прогон — бэкфилл идемпотентен.
+    """
+    synced = 0
+    failed = 0
+    for pim_id in (
+        Product.objects.filter(pk__in=pks)
+        .exclude(pim_id__isnull=True)
+        .values_list('pim_id', flat=True)
+    ):
+        try:
+            sync_product_from_pim(pim_id)
+            synced += 1
+        except Exception:
+            failed += 1
+            logger.warning('pim_sync: не удалось синхронизировать PMP %s', pim_id, exc_info=True)
+        if delay:
+            time.sleep(delay)
+    logger.info('pim_sync: партия завершена — синхронизировано %s, с ошибкой %s', synced, failed)
+    return synced
