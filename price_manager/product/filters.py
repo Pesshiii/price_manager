@@ -47,7 +47,14 @@ class ProductFilter(FilterSet):
     )
 
     categories = filters.ModelMultipleChoiceFilter(
-        queryset=Category.objects.all(),
+        # select_related обязателен: Category.__str__ рекурсивно идёт по
+        # self.parent, и без предзагрузки каждая метка стоит по запросу на
+        # уровень. На боевом дереве это 1567 запросов и 1.6 с против одного
+        # запроса и 36 мс — метки при этом получаются те же самые.
+        # Глубина 5 покрывает всё дерево (уровни 0-5).
+        # supplier_manager.CategoryFilter делает ровно то же самое.
+        queryset=Category.objects.select_related(
+            'parent__parent__parent__parent__parent'),
         method='categories_method',
         label='Категории',
         widget=forms.CheckboxSelectMultiple(),
@@ -272,7 +279,8 @@ class ProductFilter(FilterSet):
             Div(HTML('<div class="filter-section-title">Себестоимость</div>'),
                 Div(Field('price_from'), Field('price_to'), css_class='d-flex gap-2'),
                 css_class='filter-section'),
-            Div(Field('categories'), css_class='filter-section'),
+            Div(Field('categories', template='product/partials/category_tree_field.html'),
+                css_class='filter-section'),
             Div(Field('brand', template='core/includes/checkbox_field.html'),
                 css_class='filter-section'),
             Div(Field('supplier', template='core/includes/checkbox_field.html'),
