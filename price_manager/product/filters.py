@@ -2,7 +2,7 @@ from crispy_forms.helper import FormHelper
 from crispy_forms.layout import Div, Field, HTML, Hidden, Layout, Submit
 from django import forms
 from django.contrib.postgres.search import SearchQuery, SearchRank
-from django.db.models import Exists, OuterRef, Q
+from django.db.models import Exists, F, OuterRef, Q
 from django_filters import FilterSet, filters
 
 from main_product_manager.models import MainProduct
@@ -137,13 +137,17 @@ class ProductFilter(FilterSet):
     def search_rank(value):
         """Выражение релевантности для непустого поиска, иначе None.
 
-        Отдельно от search_method по той же причине, что и у MainProductFilter:
-        представление пересобирает queryset и теряет аннотацию, а сортировка по
-        релевантности её требует. Определение обязано быть одно на оба места.
+        F('search_vector'), а НЕ строка 'search_vector'. Со строкой Django
+        считает её текстовым полем, которое надо векторизовать, и генерирует
+        ts_rank(to_tsvector(search_vector::text), …): готовый tsvector
+        приводится к тексту и токенизируется заново — на каждой строке, дефолтной
+        конфигурацией вместо russian. Индекс при этом не при делах. На 155 тыс.
+        товаров это разница между сотнями миллисекунд и секундами.
+        MainProductFilter.search_rank написан со строкой и болеет тем же.
         """
         if not [term for term in (value or '').split() if term]:
             return None
-        return SearchRank('search_vector', SearchQuery(value, config='russian'))
+        return SearchRank(F('search_vector'), SearchQuery(value, config='russian'))
 
     def search_method(self, queryset, name, value):
         """Вектор ИЛИ артикул ИЛИ название у поставщика.
