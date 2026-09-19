@@ -2,7 +2,7 @@ from django_filters import filters, FilterSet
 from .models import Category, Supplier, Manufacturer, MainProduct
 from django import forms
 from django.contrib.postgres.search import SearchQuery, SearchRank
-from django.db.models import Q, Case, When, Value, IntegerField
+from django.db.models import F, Q, Case, When, Value, IntegerField
 
 
 from django.urls import reverse_lazy
@@ -186,10 +186,17 @@ class MainProductFilter(FilterSet):
     пересобирает queryset через filter(pk__in=...) ради дедупликации и теряет
     аннотацию rank — а групповая сортировка по релевантности её требует.
     Определение обязано быть одно на оба места, иначе они разъедутся.
+
+    F("search_vector"), а НЕ строка "search_vector". Со строкой Django считает
+    её текстовым полем, которое надо векторизовать, и генерирует
+    ts_rank(to_tsvector(search_vector::text), …): готовый tsvector приводится к
+    тексту и токенизируется заново — на каждой строке и конфигурацией по
+    умолчанию вместо russian, мимо GIN-индекса. Найдено на product.ProductFilter,
+    который был написан по образцу этого метода и унаследовал ту же ошибку.
     """
     if not [term for term in (value or '').split() if term]:
       return None
-    return SearchRank("search_vector", SearchQuery(value, config='russian'))
+    return SearchRank(F("search_vector"), SearchQuery(value, config='russian'))
 
   def search_method(self, queryset, name, value):
     query = self._build_partial_query(value)

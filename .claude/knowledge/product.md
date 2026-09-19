@@ -2,9 +2,11 @@
 
 **Read this before assuming anything about `product`.** It is the one app whose
 status recently inverted, and stale mental models of it are actively wrong.
-`feat/pim-pmp-through-link` (PR #184, unmerged as of 2026-09-15) changed what
-`Product.pim_id` *means* — re-verify anything below that predates it if this
-file looks old.
+PR #184 (merged, `21175bb`) changed what `Product.pim_id` *means*, and the
+product-shift Phase 1 (2026-09-19) made `Product` the root of search and
+filtering, with its own page at `/products/`. Re-verify anything below that
+predates either one if this file looks old. The design and every decision
+behind it are in `.claude/shift-to-product-brief.md`.
 
 ## What it is *now*
 
@@ -12,16 +14,30 @@ A plain **PIM-linked mirror**, being deliberately recreated and reconnected to
 the live legacy stack — treat anything here as in-motion; check
 `git log -- product/` if something surprises you.
 
-`product/models.py` (74 lines, read the whole thing):
+`product/models.py` — read the whole thing:
 - `Category(MPTTModel)` — `parent`(PROTECT) / `name` / `slug` / `pim_id`,
   unique constraint on `(parent, name)`, `order_insertion_by = ['name']`.
   `save()` auto-generates a unique `slug` via `slugify(allow_unicode=True)`
-  with a `-2`, `-3` … suffix loop.
+  with a `-2`, `-3` … suffix loop. **`__str__` recurses through `self.parent`**
+  — see the N+1 trap below.
+- `Brand` — `pim_id` (unique, PIM `brandId`), `name`. **Keyed on the id, never
+  the name**: a PIM rename would otherwise fork one brand into two. No alias
+  layer by design — `supplier_manager.ManufacturerDict` solved that for supplier
+  names and has 0 rows in prod.
 - `Product` — `pim_id` (nullable, unique — see next section for what it now
   identifies), `number` (unique, nullable, the local match key =
-  `MainProduct.sku`, never overwritten from PIM), `name` (**not** unique,
-  `models.py:59`), M2M `categories`, `raw_data` JSON, timestamps.
+  `MainProduct.sku`, never overwritten from PIM), `name` (**not** unique),
+  M2M `categories`, FK `brand` (nullable — PIM returns `brandId` as a
+  **scalar**, hence FK not M2M), `raw_data` JSON, `search_vector` + GIN
+  (`product_search_vector_gin`, `config='russian'`), timestamps.
   `ordering = ['-updated_at']`.
+- `Product.display_name` — `name`, else the first linked MainProduct's name,
+  else `number`. Needed because `name` comes from PIM and ~64% of Products have
+  no PIM counterpart at all.
+- `Product._build_searchvector()` builds **only from `raw_data`** — no network
+  call. That is the defect `MainProduct._build_searchvector()` has, and the
+  reason search moved here. Joins with `' '`, not `''`: the MainProduct version
+  glued category names into one token, so neither word was searchable.
 
 ## `Product.pim_id` now names a PIM `PriceManagerProduct` (PMP), not a PIM `Product`
 
@@ -195,10 +211,86 @@ third pattern: it runs the migration's `RunPython` function directly against
 rows created via the ORM, inside a normal `TestCase` — see the migration
 section above for why that's the only place its filters meet real data.
 
+## The product page `/products/` — traps, all found on real data
+
+`ProductFilter` (`filters.py`), `ProductTable` (`tables.py`), `ProductPage`
+(`views.py`). Every trap below passed a green suite and was caught only by
+measuring on the prod snapshot or driving the page in a browser.
+
+- **`SearchRank(F('search_vector'), …)`, never `SearchRank('search_vector', …)`.**
+  With a string, Django treats it as a text field to vectorize and emits
+  `ts_rank(to_tsvector(search_vector::text), …)`: the stored tsvector is cast to
+  text and re-tokenized on every row, with the default config instead of
+  `russian`, bypassing the GIN index. Copied from [[main_product_manager]]'s
+  `MainProductFilter.search_rank`, which had the same bug (now also fixed).
+- **Rank order needs `nulls_last=True`.** `'-rank'` compiles to
+  `ORDER BY rank DESC`, and Postgres puts NULLs *first* on DESC. Products with no
+  PIM data have no vector, so their rank is NULL, and they filled **all 25 rows of
+  page 1 on every search measured**, pushing every genuine full-text match off it.
+  `test_full_text_match_ranks_above_a_supplier_name_only_match` guards this and is
+  verified to fail on the old ordering. The rest of the suite never checked order,
+  only membership.
+- **Search is a UNION, not an OR.** Vector (36ms), `number__icontains` (41ms) and
+  the MainProduct-name `Exists` (98ms) are each cheap. OR'd together Postgres
+  cannot combine the GIN scan with the subquery and scans everything: 622ms for the
+  filter alone and ~1.4s per page even with one result. As a UNION of `pk` sets
+  it is 263–586ms end to end.
+- **The category facet needs `select_related('parent__…')` to depth 5.**
+  `Category.__str__` recurses through `self.parent`: 1,567 queries and 1.6s on the
+  real tree, versus 1 query and 36ms. Same labels byte for byte.
+- **The category facet is a tree, not a checkbox list.** 668 flat checkboxes with
+  full paths up to 126 chars was unusable. `product/partials/category_tree_*.html`
+  is a copy of `supplier_manager`'s MPTT accordion — a *copy*, because Phase 2
+  retires that app. Showing only categories that have products does **not** help:
+  633 of 668 do.
+- **`ProductPage.get_template_names()` must return the table fragment for HTMX.**
+  Filter and search both `hx-get` back to `products`; without the branch, the whole
+  page is rendered inside `#products-table`. Don't "fix" it with a separate fragment
+  endpoint: `hx-push-url` would then put the fragment's URL in the address bar.
+- **The search widget needs an explicit `id='products-search'`.** Django renders
+  `id_search`; `hx-trigger`/`hx-include` select on `#products-search`, and both
+  silently matched nothing — search did nothing and every filter wiped the query.
+- **`self.data` is not always a QueryDict** — `ProductFilter._selected()` handles a
+  plain dict. `MainProductFilter` still calls `.getlist()` directly and raises
+  `AttributeError` in `__init__` if built from a dict.
+
+## Filling the mirror from PIM — `load_pim_mirror`
+
+`services/pim_sync.py`: `sync_category_tree_from_pim()` and
+`load_products_by_number()`, wrapped by `manage.py load_pim_mirror`.
+
+- **Read-only against PIM.** It exists because `reindex_pim_ids` (the production
+  path in [[main_product_manager]]) *creates* `PriceManagerProduct` records in PIM,
+  which must never happen from a dev or snapshot database.
+- **`sync_category_tree_from_pim` is the fix for stale categories.**
+  `_ensure_pim_category` returns early when a category exists and never updates
+  `name` or `parent`, and it only runs when a product happens to reference that
+  category, so it can never see a rename on an untouched branch. The tree sync walks
+  PIM's whole list; it re-parents with MPTT `move_to`, because a plain `save()`
+  leaves `lft`/`rght`/`level` broken.
+- **PIM list mode omits fields silently.** Without an explicit `select`, `Product`
+  rows come back with no `categoriesIds` and no `description` at all — not empty,
+  absent. Use `PRODUCT_SELECT`.
+- **PIM facts measured on the live API:** 178,605 products, 668 categories in 15
+  roots, 6 levels deep. `linkedWith` on >100 category ids returns
+  `414 URI Too Long`. PIM does **not** expand a category to its descendants (a root
+  alone returns 0 products), so the MPTT expansion in `categories_method` is
+  required, not an optimisation.
+- **Coverage is ~36%, and that is real.** 55,281 of 155,087 Products match a PIM
+  number. Whitespace (+400), case (+380) and prefix/suffix stripping do not close it.
+  The old `mainproduct.pim_id` values in the dump are dead ids from an earlier
+  generation of PIM records — every one returns 404.
+- **Network flakes are normal over a 50-minute pass** (TLS EOF, DNS
+  `Name or service not known`); page fetches retry 6 times (~1 min). Use
+  `--start-offset` to resume and `--vectors-only` to finish just the vectors.
+
 ## Status boundary — the subtle part
 
-`product` sits in the *retiring* five in `CLAUDE.md`/`AGENTS.md`, but it is
-carved out by an explicit exception: work that serves the PIM-mirror
-reconnection is fine; growing `product` into an independent catalog is not.
-It is also the only one of the five with no `api/` package — it is not mounted
+`CLAUDE.md` still lists `product` among the retiring five, with an exception
+for the PIM-mirror reconnection. **The product shift has since gone further
+than that exception described:** `Product` is now the root of search and
+filtering, with its own page. Work that serves that shift — decided by the
+user and specified in `.claude/shift-to-product-brief.md` — is in scope. Growing
+`product` into something *independent of PIM and the legacy stack* is still
+not. It remains the only one of the five with no `api/` package — not mounted
 in `api_urls.py`. Its siblings are covered by [[retiring_stack]].
