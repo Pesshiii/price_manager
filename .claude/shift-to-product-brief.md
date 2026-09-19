@@ -155,6 +155,59 @@ Throughput question, not correctness — but it is the critical path.
 
 ---
 
+## 0.4 PIM coverage — measured 2026-09-19. **The premise is weaker than assumed.**
+
+Measured by loading the full live PIM catalog into the snapshot and matching it (see
+`load_pim_mirror`), then investigating why the match rate was low. Aggregates only.
+
+**The number:** of **155,087** local Products, **55,281 (36%)** have a PIM counterpart. Of
+those, 22,690 have a brand and 25,528 have a category — so **brand covers 15% of the whole
+catalog, category 16%.** Every one of the rest was checked: no `brandId` / `categoriesIds`
+exists in their PIM payload. It is missing data, not a loading bug.
+
+**Why it isn't higher — every hypothesis tested:**
+
+| Hypothesis | Test | Result |
+|---|---|---|
+| The old links recover it: the snapshot linked **154,969** distinct PIM ids | 450 random old ids looked up in live PIM, with a control id to prove the `in` filter works | **0 of 450** exist. Individual GETs return **404 as both `Product` and `PriceManagerProduct`** |
+| Whitespace in `sku`/`number` | All 178,605 PIM numbers fetched (none truncated), matched stripped | **+400** |
+| Letter case | Stripped + casefold | **+380** |
+| Supplier prefix/suffix (`sku = prefix + article + suffix`) | Matched the bare `article` against PIM numbers | ~58k, **marginal** |
+
+**Why the old links are dead.** The old ids are time-ordered UUIDs whose timestamp prefix is
+older than every live PIM id seen, so they come from an **earlier generation** of
+PIM records. They were never made by `import_main_products_pim`, which keys on
+`PriceManagerId` and only imports categories. They came from the push path in
+`_push_pim_products`: search PIM by `number`, and if nothing matches, **create a record in
+PIM** and store the id that comes back. *(Inference, not proven:)* much of the "155k linked"
+figure was therefore price_manager's own data echoed back through PIM rather than curated
+content, and that generation has since been removed. **The old 155k was never a measure of
+coverage.**
+
+**What this changes:**
+
+- **R7 has fired, decisively.** D1/D11 drop `SupplierProduct.manufacturer` (**74%** of products)
+  in favour of PIM brands. PIM brands cover **15%**, and no matching fix recovers the gap —
+  the products simply are not in PIM. Doing Phase 2 as specified permanently loses brand
+  information for roughly **59% of the catalog**. This is the evidence R7 was written to
+  wait for, and it points against D1 as it stands.
+- **The Product-shift premise has a hole.** "Product (PIM-backed) owns content, search and
+  filtering" holds for 36% of the catalog. For the other 64%, the new page shows a fallback
+  name from the supplier row, and **category and brand filters cannot reach those products
+  at all** — ticking a brand hides everything PIM does not know about. That is a real
+  obstacle to D10's cutover (retiring the old page).
+- **A local data-quality bug, independent of all this:** **32,123 local `number`s (21%)** carry
+  leading or trailing whitespace; PIM has 3. The whitespace comes from supplier articles
+  flowing into `sku` unstripped. It costs only ~400 matches here, but it is a latent bug
+  wherever `sku` is compared or used as a unique key.
+
+**Recovery paths, none decided:** keep supplier-side name/manufacturer as the fallback
+layer for non-PIM products (i.e. revise D1 and D13); or push the missing ~98k into PIM for
+PIM staff to enrich — the R7 "PIM-side enrichment" route, which is a content project rather
+than a code change; or both. Strip `sku` at import either way.
+
+---
+
 ## 1. The target state
 
 `product.Product` becomes the catalog: it owns identity, content, search and filtering.
@@ -521,7 +574,10 @@ and never call it inside a `transaction.atomic()` runner.
 - **R6 — `product.Category` becomes mixed-provenance if D8 is softened.** `pim_sync`'s
   `_ensure_pim_category` does `get_or_create(parent=…, name=…)`; carrying non-PIM categories
   across would collide. D8 keeps the tree pure — keep it that way.
-- **R7 — brand coverage is unmeasured and accepted (D1/D3/D11).** 74% manufacturer density
+- **R7 — 🔴 FIRED 2026-09-19, see §0.4.** PIM brands cover **15%** of products against the
+  **74%** manufacturer coverage D1 drops, and matching fixes do not close it. Revisit D1
+  before any Phase 2 work. *Original text below.*
+  **Brand coverage is unmeasured and accepted (D1/D3/D11).** 74% manufacturer density
   traded for PIM brand coverage nobody has sampled. **Cheapest early warning: after the
   backfill, count Products that resolved a brand and compare against 74% — before the old
   page is retired.** Past that point the supplier-side data is gone and the only recovery is
