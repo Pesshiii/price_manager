@@ -96,6 +96,17 @@ that only works from inside a container. And it has to be `run --no-deps` (so it
 does not start the shared `db`/`redis`), not `exec`: `exec` attaches to the
 running container, whose `/app` is whichever tree last ran `up`.
 
+`staticfiles/` is the same trap from another angle. Static storage is whitenoise's
+`CompressedManifestStaticFilesStorage`, which needs a collected manifest, and only
+the `web` service runs `collectstatic` (in its start command; CI runs it
+explicitly). Start just `db`/`redis`/`celery_worker` in a fresh worktree and every
+test that renders `base.html` fails with `ValueError: Missing staticfiles manifest
+entry for 'js/htmx.min.js'` — 10 errors, none of them yours. Once per worktree:
+
+```bash
+docker compose exec -T celery_worker python manage.py collectstatic --noinput
+```
+
 ## Direction of travel — read this before adding code
 
 There are two product catalogs in the tree. **They are not peers, and the newer one is not the future.**
