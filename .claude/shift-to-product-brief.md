@@ -6,8 +6,9 @@ code, not preferences. Read `CLAUDE.md` and `.claude/knowledge/product.md` first
 
 **Ships in two phases. Phase 1 is additive and reversible. Phase 2 is destructive.**
 
-*Revised 2026-09-16 after Phase 1 implementation. §0.1 records a base change that
-invalidated part of the original spec — read it before trusting anything dated earlier.*
+*Revised through 2026-09-19, at Phase 1 ship. §0.1 records a base change that
+invalidated part of the original spec — read it before trusting anything dated earlier.
+§0.4–§0.5 hold the measurements that settled D15 and D1.*
 
 ---
 
@@ -45,19 +46,25 @@ Three consequences that matter:
 
 ## 0.2 Status
 
+*Phase 1 shipped as one PR. Branch commit SHAs are deliberately not cited: the repo
+squash-merges, so they do not survive onto `main`.*
+
 | Section | State |
 |---|---|
-| §3.1 Model work — `Brand`, `search_vector`, `display_name`, migration `0008` | ✅ **Done** — `667747a` |
-| §3.1a Backfill orchestrator | ✅ **Done** — `df575c9` |
-| §3.2 The page `/products/` | ✅ **Done** — `e71796c`, HTMX wiring fixed in `cb98183` |
-| §3.3 P1-G3 observability counter | ✅ **Done** (in `e71796c`) |
-| §3.3 P1-G1 / P1-G2 coverage gates | ⚠️ **Need re-measuring** — see §0.3 |
-| §5 `pim_api` extension (the D15 blocker) | ✅ **Done** — `e5ba73c` |
-| §5a Probe | ✅ **Run against live PIM** — **the named exit fired**, see §5a |
-| §5 Live-PIM filter (D15) | ✅ **Resolved: dropped.** Local mirror is the final design — no code change needed |
-| §4 Phase 2 (all destructive work) | ❌ Not started, by design (D10) |
+| §3.1 Model work — `Brand`, `search_vector`, `display_name`, migration `0008` | ✅ **Done** |
+| §3.1a Backfill orchestrator | ✅ **Done** |
+| §3.2 The page `/products/` | ✅ **Done** — incl. HTMX wiring fix, tree facet, search fix |
+| §3.3 P1-G3 observability counter | ✅ **Done** |
+| §3.3 P1-G1 / P1-G2 coverage gates | ✅ **Measured on the prod snapshot** — linkage ~100%, PIM content **36%**, see §0.4 |
+| §5 `pim_api` extension | ✅ **Done** — paging, list-valued `where`, `fetch_list` |
+| §5a Probe | ✅ **Run against live PIM** — **the named exit fired** |
+| §5 Live-PIM filter (D15) | ✅ **Resolved: dropped.** Local mirror is the final design |
+| R8 stale category mirror | ✅ **Closed** — `sync_category_tree_from_pim` |
+| D1 revisited | ✅ **Reaffirmed as final** — see §0.5; imposes **P2-G4** |
+| §4 Phase 2 (all destructive work) | ❌ Not started, by design (D10). **Gated by P2-G4.** |
 
-Branch `worktree-product-shift-phase1`, full suite green (409 tests).
+Full suite green (428 tests). Verified end to end on a restore of the production snapshot
+with content loaded from the live PIM.
 
 **What the page does today:** flat Product list at `/products/`, filter panel on the left,
 each row expandable to its supplier price rows. Search, category (with MPTT descendant
@@ -65,9 +72,10 @@ expansion), brand, supplier, availability and price-range filters all work **aga
 local mirror** — which, after the §5a probe and the D15 revision, is the finished design
 rather than half of one. **Phase 1 is functionally complete.**
 
-What remains before it is worth showing anyone is data, not code: the P1-G1/G2 coverage
-gates and the ~155k-row backfill behind them (§0.3 F5). **R8** — the category mirror going
-stale — is the one open code item, and it is a consequence of the D15 revision.
+What limits it now is data, not code: only **36%** of Products have PIM content (§0.4), so
+most rows show a fallback name and cannot be reached by the category or brand facets. D1 is
+settled (§0.5); closing that gap is PIM enrichment, and Phase 2 is gated on exporting the
+manufacturer data first (P2-G4).
 
 ---
 
@@ -281,7 +289,7 @@ Filtering on the new page draws on exactly three sources:
 
 ## 3. Phase 1 — additive, nothing is dropped
 
-### 3.1 Model work (`product/`) — ✅ done, `667747a`
+### 3.1 Model work (`product/`) — ✅ done
 
 - **`Product.search_vector`** — `SearchVectorField(null=True, editable=False)` + `GinIndex`
   (`product_search_vector_gin`), `config='russian'`. Built **only** from `raw_data`
@@ -301,7 +309,7 @@ Filtering on the new page draws on exactly three sources:
 - **Migration `0008_brand_and_product_search_vector`** — fully additive (create model, two
   nullable fields, one index). No three-step staging needed; nothing is tightened.
 
-### 3.1a Backfill orchestrator — ✅ done, `df575c9`
+### 3.1a Backfill orchestrator — ✅ done
 
 **The ordering is three stages, not two.** The original brief had this wrong because it
 predated `#184`:
@@ -337,7 +345,7 @@ Built:
 name when `name IS NULL`, then to `number`. Every unsynced row is nameless until the
 backfill reaches it, and an empty cell reads as broken data rather than pending work.
 
-### 3.2 The page — ✅ done, `e71796c`
+### 3.2 The page — ✅ done
 
 Routes `products`, `product-filter`, `product-suppliers`, registered centrally in
 `price_manager/price_manager/urls.py`. Russian UI strings throughout.
@@ -486,10 +494,10 @@ it would take if PIM ever changes.
 
 ### The client blocker (closed, and still worth having)
 
-Closed in `e5ba73c`. It is no longer on the critical path, but it fixed two real defects and
+Closed. It is no longer on the critical path, but it fixed two real defects and
 powers the probe:
 
-**The client blocker is now closed** (`e5ba73c`). What was wrong and what it became:
+**The client blocker is now closed.** What was wrong and what it became:
 
 - `EntityList` had `select`/`where`/`ordering` but **no `offset`/`maxSize`**, so PIM returned
   its default first page and said nothing — a wide query looked successful while being
