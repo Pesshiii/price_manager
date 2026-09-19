@@ -55,7 +55,7 @@ splits shared products (156,481 -> 164,325 rows).
 
 | | A — raw | B — ORM-ready (default) | C — fully migrated |
 |---|---|---|---|
-| Steps | restore only | + migrate `main_product_manager`, `product_price_manager` | + migrate `supplier_product_manager` |
+| Steps | restore only | + migrate `main_product_manager`, `product_price_manager`, `supplier_manager` | + migrate `supplier_product_manager` |
 | Tooling | SQL; ORM limited to `.count()` / `.values()` | full ORM | full ORM |
 | Prices, `PriceTag`s, linkage | intact | **intact** | destroyed |
 | Use for | quick SQL probes | almost everything | only when you need `SupplierProduct.main_product`'s current uniqueness constraint |
@@ -64,8 +64,15 @@ In mode A any query that materializes a model instance (`.first()`, `.get()`,
 `.all()`) fails with
 `ProgrammingError: column main_product_manager_mainproduct.kaspi_price does not exist`
 — the snapshot predates that field. `.count()` and `.values(...)` still work.
-Mode B is the fix and costs nothing: both apps' pending migrations are field
+Mode B is the fix and costs nothing: all three apps' pending migrations are field
 alterations only.
+
+`supplier_manager` is in mode B because leaving it out produces the same failure
+from a different column: every page that touches a `Supplier` returns 500 with
+`column supplier_manager_supplier.price_priority does not exist`. That includes the
+filter panel on `/products/`. The pending migration is two `AddField`s. (The dump
+records a *different* `0010` for this app than the repo has — two branches both
+created one — and Django applies the repo's cleanly.)
 
 ## How
 
@@ -103,7 +110,7 @@ docker compose exec -T db psql -U priceuser -d pricemanager_snapshot -c "<SQL>"
 **Mode B** — migrate the two safe apps *by label*; a bare `migrate` fails (see Traps):
 
 ```bash
-for app in main_product_manager product_price_manager; do
+for app in main_product_manager product_price_manager supplier_manager; do
   docker compose exec -T -e POSTGRES_DB=pricemanager_snapshot web \
     python manage.py migrate "$app"
 done
@@ -125,6 +132,74 @@ print(MainProduct.objects.filter(basic_price__gt=0).count())"
 docker compose exec -T -e POSTGRES_DB=pricemanager_snapshot web \
   python manage.py migrate supplier_product_manager
 ```
+
+**Mode D — the product page (`/products/`) on real data.** Mode B plus the recreated
+`product` app. Needed because the product page reads `product.Product`, and the dump's
+`product` app is the dead API-first lineage (see Traps). Verified 2026-09-19; prices and
+`PriceTag`s stay intact. **It destroys the retiring apps' tables** (`pricing`,
+`supplier_feed`, `dataframe`, `supplier`), which is fine in a throwaway copy and exactly why
+it must never touch `price_manager_db`.
+
+```bash
+# D1. Drop the old product lineage BY NAME. A 'product_%' pattern would also match
+#     product_price_manager_*, which is live and holds every PriceTag.
+docker compose exec -T db psql -U priceuser -d pricemanager_snapshot -v ON_ERROR_STOP=1 -c "
+DROP TABLE IF EXISTS product_category_contenttypes, product_characteristictype_categories,
+  product_characteristicmutationjob, product_characteristictype, product_importjob,
+  product_content, product_contenttype, product_price, product_pricetype, product_stock,
+  product_stocktype, product_manufacturer, product_brand, product_product, product_category
+CASCADE;"
+
+# D2. The retiring apps' migrations are INTERLEAVED into product's own chain
+#     (migrate product --plan shows dataframe/pricing/supplier/supplier_feed inside it),
+#     so their tables must go too, or product.0001 collides with them.
+docker compose exec -T db psql -U priceuser -d pricemanager_snapshot -v ON_ERROR_STOP=1 -c "
+DROP TABLE IF EXISTS dataframe_link, dataframe_dictitem, dataframe_filemodel,
+  dataframe_dataframe, pricing_productprice, pricing_stock, pricing_pricingrule,
+  pricing_pricetype, supplier_feed_feedcolumnmapping, supplier_feed_supplierlink,
+  supplier_feed_supplierfeedentry, supplier_feed_supplierfeed, supplier_feed_feedmapping,
+  supplier_supplier CASCADE;
+DELETE FROM django_migrations
+ WHERE app IN ('product','pricing','supplier_feed','dataframe','supplier');"
+
+# D3. Now product migrates cleanly, together with the retiring apps it drags in.
+docker compose exec -T -e POSTGRES_DB=pricemanager_snapshot web python manage.py migrate product
+
+# D4. Give Products their numbers and link stragglers — LOCALLY. Do NOT run the
+#     reindex_pim_ids task: its fan-out pushes PriceManagerProduct records into PIM.
+docker compose exec -T -e POSTGRES_DB=pricemanager_snapshot web python manage.py shell -c "
+from main_product_manager.utils import backfill_product_numbers, link_unlinked_main_products
+print(backfill_product_numbers(), link_unlinked_main_products(batch_size=1000))"
+
+# D5. (Optional) Fill Product content from PIM — read-only, see 'Talking to PIM' below.
+```
+
+Expect `0011` to report ~156k MainProducts linked, `0007` to zero ~155k `pim_id`s, and
+the number backfill to leave ~900 Products without a number (their MainProducts disagree
+on `sku`). Those are logged, not errors.
+
+### Talking to PIM from a snapshot
+
+`load_pim_mirror` fills the mirror from the **live** PIM and writes nothing back to it:
+
+```bash
+POSTGRES_DB=pricemanager_snapshot docker compose --env-file <repo>/.env \
+  run --rm --no-deps -T -e POSTGRES_DB=pricemanager_snapshot -e DEBUG=0 --name pimload \
+  web python manage.py load_pim_mirror
+```
+
+- **Never** run `reindex_pim_ids` or `push_pim_links` against a snapshot with real
+  credentials: they create and repoint `PriceManagerProduct` records in the live PIM.
+- Use `--env-file`, not a copied `.env`. It keeps the token out of the worktree and out of
+  your context. `.env`'s `DB_HOST=localhost` is harmless because compose hardcodes
+  `DB_HOST: db`.
+- A full pass is **~50 minutes** and has died on TLS drops and DNS failures. Use
+  `--start-offset` to resume, `--vectors-only` to finish just the vectors, and `--name` so
+  the container's logs outlive it.
+- **The dump's `mainproduct.pim_id` values are dead.** They are ids from an earlier
+  generation of PIM records (their time-ordered prefix is older than any live PIM id); every one returns
+  404. Match on `number` instead. Expect ~36% of Products to match — that is the real
+  overlap, not a matching bug.
 
 Teardown:
 
@@ -151,8 +226,17 @@ MSYS_NO_PATHCONV=1 docker compose exec -T db rm -f /tmp/snap.dump
   `embedding_text_hash`, `characteristics`, `image_urls`, `brand_id`, `status`) at
   `product.0011_*`, while this repo's `product` was recreated from a fresh
   `0001_initial`. Django name-matches `0001_initial`, then applies
-  `0002_product_sku` onto the old table. **Never migrate the `product` app on a
-  snapshot** — nothing in the legacy stack imports it.
+  `0002_product_sku` onto the old table. **Never run a plain `migrate product` on a
+  snapshot.** When you need the product app (the `/products/` page reads it), use
+  **mode D**, which clears the old lineage first.
+- **Pointing the running app at the snapshot recreates the `db` container.** A per-command
+  `exec -e POSTGRES_DB=…` is safe. But `POSTGRES_DB=pricemanager_snapshot docker compose up
+  -d web` also changes the `db` service's env (`POSTGRES_DB: ${POSTGRES_DB:-…}`), so Compose
+  **recreates the database container**. That kills every open connection, including any
+  long-running load, and **wipes `/tmp/snap.dump`**. From then on, *every* `up`/`restart`
+  must carry the same `POSTGRES_DB=` prefix, or the next one recreates it again. Data
+  survives each time (the var only matters on an empty volume); the connections and `/tmp`
+  do not. This killed two ~50-minute loads before it was understood.
 - **PG18 dump into a PG17 server is not an officially supported direction.** It
   worked cleanly for the 2026-09-03 dump (archive 1.16, exit 0), but re-run step 0
   after any production upgrade rather than assuming it keeps working.
