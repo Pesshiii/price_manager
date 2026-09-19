@@ -41,10 +41,6 @@ NECESSARY = ['supplier', 'article', 'name']
 NA_VALUES = ['nan', '', '—', None]
 
 
-def match_manufacturer(name: str)->Manufacturer:
-  return ManufacturerDict.objects.all().filter(name__icontains=name)[0].manufacturer
-
-
 def extract_initial_from_post(post, prefix="form", data={}, length=None):
   rows = []
   if not length:
