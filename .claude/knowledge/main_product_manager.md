@@ -211,13 +211,14 @@ The copy task still reaches PIM indirectly: `copy_supplier_products_to_main_task
 → `recalculate_search_vectors` → `_build_searchvector` → `get_pim_data`, once
 per touched row (read-only now, not a push).
 
-**It does not strip `article`, and that shows up at scale.** On the snapshot,
-**32,123 of 154,168 Product numbers (21%)** carry leading or trailing
-whitespace — supplier articles land in `sku` verbatim — against **3** in all of
-PIM's 178,605 numbers. Since `sku` becomes `number` and `number` is matched by
-`equals`, those rows can't match PIM. Stripping recovers only ~400 matches today,
-but it is a latent bug anywhere `sku` is compared or treated as unique. The fix
-belongs at import, not in the matcher.
+**It does not strip `article` — and that is fine, because PIM does.** On the
+snapshot, **32,123 of 154,168 Product numbers (21%)** carry leading or trailing
+whitespace (supplier articles land in `sku` verbatim), against **3** in all of
+PIM's 178,605 numbers. **PIM strips whitespace from numbers on its side**
+(confirmed by the user), and `reindex_pim_ids` matches by asking PIM, so these
+rows link normally in production. Don't "fix" it at import on the strength of
+the 21% figure. It only shows up where matching happens *locally* against PIM's
+numbers — [[product]]'s `load_pim_mirror`, a dev tool, loses ~400 matches to it.
 
 ## `MainProductPimImportResource` — `ID` column dropped (`resources.py:256-287`)
 

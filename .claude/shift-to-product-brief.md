@@ -204,13 +204,14 @@ coverage.**
   name from the supplier row, and **category and brand filters cannot reach those products
   at all** — ticking a brand hides everything PIM does not know about. That is a real
   obstacle to D10's cutover (retiring the old page).
-- **A local data-quality bug, independent of all this:** **32,123 local `number`s (21%)** carry
-  leading or trailing whitespace; PIM has 3. The whitespace comes from supplier articles
-  flowing into `sku` unstripped. It costs only ~400 matches here, but it is a latent bug
-  wherever `sku` is compared or used as a unique key.
+- **Whitespace in `sku` — not a production issue.** 32,123 local `number`s (21%) carry
+  leading or trailing whitespace (supplier articles flow into `sku` unstripped), against 3
+  in PIM. **PIM strips whitespace from numbers itself** (confirmed by the user), and in
+  production the matching happens inside PIM, so these rows match normally. The only place
+  it shows is `load_pim_mirror`'s local exact match, a dev tool, where it costs ~400 rows.
 
 **Recovery path — decided 2026-09-19 (§0.5):** enrich PIM. D1 stands; supplier-side
-manufacturer is *not* kept as a fallback. Strip `sku` at import regardless.
+manufacturer is *not* kept as a fallback.
 
 ---
 
