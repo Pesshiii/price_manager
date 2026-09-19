@@ -233,8 +233,17 @@ decision was actually made on.
 from the Excel import. That matters because `sync_pim_relations` overwrites
 `MainProduct.manufacturer` with the PIM brand, so testing against `MainProduct` would be
 partly PIM agreeing with itself. On raw supplier data: **21,381 of 21,559 agree exactly
-(99.2%)**, 87 are containment variants, 91 genuinely differ. Only 38 products have suppliers
-disagreeing among themselves. 309 manufacturer names are in use against 89 PIM brands.
+(99.2%)**, 87 are containment variants, 91 genuinely differ. 309 manufacturer names are in
+use against 89 PIM brands.
+
+**Correction (P2-G4 build, same day).** The per-product table above and a "38 products whose
+suppliers disagree" figure that used to stand here were measured on `MainProduct.manufacturer`
+— the exact column this section warns against. Re-measured on the raw
+`SupplierProduct.manufacturer`, matching the export command to the row: **118,346** products
+have a supplier manufacturer (not 118,277), and **392** have suppliers naming different
+manufacturers (not 38 — PIM overwrites on `MainProduct` had evened most of them out). The
+96,725 figure shares that basis, so treat it as approximate (±~100). None of this moves D1;
+it does mean the export's «Поставщики расходятся» rows are ~10× more common than first said.
 
 **So the case for dropping manufacturer rested on PIM being more complete and more
 accurate, and neither held**: PIM is less complete (15% vs 76%) and no more accurate (99.2%
@@ -419,7 +428,9 @@ where F2/F4 relaxed the gates.
      last consumer.
    - Log or assert on the 2 descriptions with no SupplierProduct counterpart (F4).
 2. Drop `SupplierProduct.category` and `.manufacturer`; remove both from `LINKS`; data
-   migration deleting the 160 orphaned `Link` rows (D11).
+   migration deleting the 160 orphaned `Link` rows (D11). **Only after P2-G4's export has
+   been run in production and handed over** — and delete `export_manufacturers_for_pim`
+   (command, service and its tests) in the same change, since it reads these columns.
 3. Repoint `PriceManager.categories` at `product.Category`; rewrite `get_fitting_mps` to
    `product__categories__in=...`. **G4 = 0 makes this mechanical** — no live rule is affected.
 4. Retire `supplier_manager.Category`, `Manufacturer`, `ManufacturerDict`, and the
@@ -443,6 +454,22 @@ where F2/F4 relaxed the gates.
 > source. Before the manufacturer columns are dropped, produce an export of
 > `(Product.number, name, manufacturer)` for every product without a PIM brand, and hand
 > it to whoever enriches PIM. This is **ordering, not a reversal of D1** — D1 stands.
+>
+> **Tool: `manage.py export_manufacturers_for_pim`** (`product/services/manufacturer_export.py`).
+> Run it **in production, after the content backfill and before Phase 2**. After the
+> backfill, "no PIM brand" means exactly that; before it, every product looks brand-less
+> and the export is merely wider than needed, which is the safe direction. CSV goes to
+> stdout, counts to stderr; `--output` writes a file with a BOM for Excel. The rows are:
+> - **one row per (product, manufacturer)**, so a product whose suppliers disagree shows up
+>   as several rows flagged «Поставщики расходятся», rather than a silently picked winner;
+> - taken from the **raw `SupplierProduct.manufacturer`**, never `MainProduct.manufacturer`,
+>   which `sync_pim_relations` overwrites with the PIM brand;
+> - `--with-disagreements` adds the products whose PIM brand no supplier confirms — the
+>   PIM-side check below.
+>
+> The file holds production data: write it outside the repo (`/app` in the container *is*
+> the repo), and it never goes into a commit, PR or issue. `*.csv` is gitignored anyway.
+> **Phase 2 must delete this command** along with the columns it reads.
 > Two data points for that export's recipients:
 > - Where PIM and supplier both have a brand, they agree **99.2%** — the supplier value is a
 >   trustworthy seed, not noise.
