@@ -179,16 +179,35 @@ class ProductFilter(FilterSet):
         by_main_product_name = Q()
         for term in terms:
             by_main_product_name &= Q(name__icontains=term)
-        has_named_main_product = Exists(
-            MainProduct.objects.filter(product=OuterRef('pk')).filter(by_main_product_name)
+
+        # UNION трёх отборов, а не OR трёх условий. По отдельности они дешёвые:
+        # вектор 36 мс (GIN), number 41 мс, название у поставщика 98 мс. Под
+        # общим OR Postgres не умеет совместить GIN-скан с подзапросом и
+        # проваливается в полный проход — 622 мс на один только отбор и ~1.4 с
+        # на страницу даже при единственном совпадении. UNION даёт каждой ветке
+        # её собственный план, а потом один semi-join по pk.
+        matched = (
+            Product.objects.filter(search_vector=SearchQuery(value, config='russian'))
+            .values('pk')
+            .union(
+                Product.objects.filter(by_number).values('pk'),
+                MainProduct.objects.filter(by_main_product_name, product__isnull=False)
+                .values('product_id'),
+            )
         )
 
-        rank = self.search_rank(value)
-        return queryset.annotate(rank=rank).filter(
-            Q(search_vector=SearchQuery(value, config='russian'))
-            | by_number
-            | has_named_main_product
-        ).order_by('-rank')
+        return (
+            queryset.filter(pk__in=matched)
+            .annotate(rank=self.search_rank(value))
+            # nulls_last обязателен. '-rank' компилируется в ORDER BY rank DESC,
+            # а Postgres при DESC ставит NULL ПЕРВЫМИ. Вектора нет у ~100 тыс.
+            # товаров без данных PIM, и их rank — NULL, поэтому ВСЯ первая
+            # страница заполнялась самыми слабыми совпадениями (по номеру или по
+            # названию у поставщика), а настоящие полнотекстовые — на «молоток»
+            # их 463 — на неё не попадали вовсе. pk вторым ключом — чтобы
+            # пагинация была стабильной при равном rank.
+            .order_by(F('rank').desc(nulls_last=True), 'pk')
+        )
 
     # --- контентные фасеты (зеркало PIM) ----------------------------------
 

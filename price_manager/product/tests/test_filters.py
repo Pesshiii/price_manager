@@ -51,6 +51,28 @@ class ProductSearchFilterTests(TestCase):
     def test_empty_search_returns_everything(self):
         self.assertEqual(self._filter(search='').count(), 2)
 
+    def test_full_text_match_ranks_above_a_supplier_name_only_match(self):
+        """Настоящее полнотекстовое совпадение обязано идти выше слабого.
+
+        Регрессия, найденная на снимке прода: '-rank' компилируется в ORDER BY
+        rank DESC, а Postgres при DESC ставит NULL первыми. У товара без данных
+        PIM нет вектора, его rank — NULL, и на «молоток» ВСЯ первая страница
+        (25 из 25) состояла из совпадений только по названию у поставщика, а
+        463 настоящих полнотекстовых на неё не попадали. Весь набор тестов при
+        этом был зелёным: ни один не проверял порядок, только состав.
+        """
+        weak = Product.objects.create(pim_id='pmp-weak', number='SKU-WEAK', raw_data={})
+        # Вектор намеренно не собираем — так выглядит товар без данных PIM.
+        MainProduct.objects.create(product=weak, article='W1', name='Кувалда поставщика')
+
+        strong = make_product('pmp-strong', 'SKU-STRONG',
+                              raw_data={'name': 'Кувалда стальная'})
+
+        results = list(self._filter(search='кувалда'))
+
+        self.assertEqual(set(results), {weak, strong})
+        self.assertEqual(results[0], strong)
+
     def test_search_does_not_duplicate_rows(self):
         """Условие по main_products — Exists, а не join.
 
