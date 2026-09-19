@@ -111,15 +111,15 @@ There are two product catalogs in the tree. **They are not peers, and the newer 
 
 **The API-driven stack is being retired. Do not build new features here.**
 
-- `product`, `pricing`, `supplier`, `supplier_feed`, `dataframe`
+- `pricing`, `supplier`, `supplier_feed`, `dataframe`
 
-The API-first rewrite did not work out. `product` is currently being **recreated as a PIM-linked mirror and reconnected to the legacy stack** — `product/models.py` is now a plain mirror (`pim_id`, `number`, `name`, `categories` as MPTT, `raw_data` JSON), and `product/migrations/0005_seed_products_from_main_product_pim_ids.py` seeds it from `MainProduct.pim_id`. There is no embedding, no characteristics JSONB, and no `ImportJob`/`CharacteristicMutationJob` — earlier revisions of this file described those; they no longer exist.
+**`product` is the exception, and it has moved further than the other four.** The API-first rewrite did not work out, and `product` was recreated as a **PIM-linked mirror** reconnected to the legacy stack: `pim_id`, `number` (= `MainProduct.sku`), `name`, `categories` as MPTT, `brand`, `raw_data` JSON, and a local `search_vector`. Since the product-shift Phase 1 it is the **root of search and filtering**, served at `/products/` alongside the old main page — the design and every decision behind it are in `.claude/shift-to-product-brief.md`. Build there when the work serves that shift; do not grow it into anything independent of PIM and the legacy stack. There is no embedding, no characteristics JSONB, and no `ImportJob`/`CharacteristicMutationJob` — earlier revisions of this file described those; they no longer exist.
 
 **Do not delete these apps or their routes without confirming there is no external consumer.** They are wired into `api_urls.py` (`/api/dataframe/`, `/api/supplier-feed/`, `/api/suppliers/`, `/api/pricing/`) behind token auth. Whether anything outside this repo calls them is an **open question** — ask before removing.
 
-Retirement status is otherwise clean: nothing in the legacy apps imports `product`, `pricing`, `supplier`, `supplier_feed`, or `dataframe`. Those five reference only each other and are reachable only via `/api/`.
+Retirement status of the other four is clean: nothing in the legacy apps imports `pricing`, `supplier`, `supplier_feed` or `dataframe`; they reference only each other and are reachable only via `/api/`. `product` differs on both counts — `MainProduct.product` is an FK to it, and it is served at `/products/`.
 
-A `PreToolUse` hook (`.claude/hooks/guard_retiring_stack.py`) turns an edit under `pricing`, `supplier`, `supplier_feed` or `dataframe` into a permission prompt — `supplier` and `supplier_manager` are one keystroke apart and that is the usual way code lands in a dead app. It is a net, not a gate: `product` is excluded on purpose (it is being recreated), and a file rewritten through `Bash` does not pass through it.
+A `PreToolUse` hook (`.claude/hooks/guard_retiring_stack.py`) turns an edit under `pricing`, `supplier`, `supplier_feed` or `dataframe` into a permission prompt — `supplier` and `supplier_manager` are one keystroke apart and that is the usual way code lands in a dead app. It is a net, not a gate: `product` is excluded on purpose (it is where the product shift lives), and a file rewritten through `Bash` does not pass through it.
 
 ## Where the UI lives: `core`
 
@@ -205,7 +205,7 @@ small to justify one; anything important about them belongs in this file.
 
 PostgreSQL 17 (`pgvector/pgvector:pg17` image). One full-text index type is in use:
 
-- `GinIndex` on `MainProduct.search_vector` and `supplier_manager.Category.search_vector`, built with `config='russian'`.
+- `GinIndex` on `MainProduct.search_vector`, `supplier_manager.Category.search_vector` and `product.Product.search_vector`, built with `config='russian'`. Rank against a stored vector with `SearchRank(F('search_vector'), …)`, never the string `'search_vector'` — the string makes Django re-tokenize the stored vector on every row, with the default config and without the index.
 
 There is **no pgvector/HNSW/embedding usage anywhere in the Python code** — semantic search went away with the API rewrite. The image still ships the extension; nothing depends on it.
 

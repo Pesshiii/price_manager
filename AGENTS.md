@@ -13,7 +13,7 @@ Settings is a package under `price_manager/price_manager/settings/`. Its `__init
 `core`, `supplier_manager`, `supplier_product_manager`, `main_product_manager`, `product_price_manager` (plus `file_manager`, `blogapp`, `api_auth`, `pim_api`).
 
 **3. The API-driven stack is being retired. Do not build new features there.**
-`product`, `pricing`, `supplier`, `supplier_feed`, `dataframe`. The API-first rewrite did not work out. `product` is being recreated as a PIM-linked mirror and reconnected to the legacy stack.
+`pricing`, `supplier`, `supplier_feed`, `dataframe`. The API-first rewrite did not work out. **`product` is the exception:** recreated as a PIM-linked mirror, it is now the root of search and filtering, served at `/products/` — see `.claude/shift-to-product-brief.md`. Build there when the work serves that shift.
 
 **4. Do not delete the retiring apps or their routes.**
 They are still served at `/api/dataframe/`, `/api/supplier-feed/`, `/api/suppliers/`, `/api/pricing/` behind token auth. Whether anything outside this repo consumes them is an **open question** — ask a human before removing any of it.
