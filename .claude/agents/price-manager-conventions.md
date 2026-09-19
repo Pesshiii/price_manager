@@ -29,10 +29,11 @@ Flag as a **blocker**:
 - A live app importing from a retiring app. (Today nothing in the legacy apps
   imports `product`, `pricing`, `supplier`, `supplier_feed`, or `dataframe` —
   verify with grep before claiming a new import is the first one.)
-- **Deletion** of any retiring app, model, or route. They are still served at
-  `/api/dataframe/`, `/api/supplier-feed/`, `/api/suppliers/`, `/api/pricing/`
-  behind token auth, and whether an external consumer exists is an open
-  question. Say so and tell the user to ask a human.
+- **Deletion** of any retiring app **by just removing its directory**. The owner
+  confirmed on 2026-09-19 that nothing outside the repo calls their `/api/`
+  routes, so removal itself is allowed. But `product/migrations/0007_…` depends on
+  `supplier_feed.0001`, so deleting the apps without first cutting that migration
+  edge breaks every `migrate`, CI included. Flag a removal that doesn't handle it.
 
 Exception: `product` is being deliberately recreated as a PIM-linked mirror
 (`pim_id`, `number`, `name`, MPTT `categories`, `raw_data`) and reconnected to the
