@@ -44,11 +44,12 @@ REASON = (
     '"The API-driven stack is being retired. Do not build new features here." '
     "The live equivalent is usually a differently-named app -- `supplier` is "
     "retiring, `supplier_manager` is the one being built on.\n\n"
-    "Approve this only for a bug fix, a test removal, or work that was asked "
-    "for by name. Do not approve a new model, route, serializer or feature. "
-    "Deleting one of these apps or its `/api/` route needs its own "
-    "confirmation that no external consumer exists -- CLAUDE.md calls that an "
-    "open question. Ask `retiring-stack-keeper` if the line is unclear."
+    "Approve this only for a bug fix, a test removal, removal of the app, or "
+    "work that was asked for by name. Do not approve a new model, route, "
+    "serializer or feature. Removal is allowed -- the owner confirmed no "
+    "external consumer calls these `/api/` routes -- but `product`'s migration "
+    "0007 depends on `supplier_feed`, so cut that edge first or every `migrate` "
+    "breaks. Ask `retiring-stack-keeper` if the line is unclear."
 )
 
 
