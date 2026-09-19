@@ -180,6 +180,15 @@ The PIM-facing half fans out via `iter_unpushed_product_pk_batches`
 dispatched through `dispatch_after_commit` (`tasks.py:174-178`; see
 CLAUDE.md's Shared infrastructure section for the general rule).
 
+**The two halves are not equally safe to run.** `backfill_product_numbers()`
+and `link_unlinked_main_products()` are purely local — call them directly on a
+prod snapshot to give Products their numbers. The fan-out **writes to PIM**
+(creates and repoints `PriceManagerProduct` records), so **never run the task
+itself against a snapshot with real credentials**. To fill Product content
+read-only, use [[product]]'s `load_pim_mirror` instead. Measured on the
+2026-09-03 snapshot: backfill numbered 154,050 Products and left 919 unnumbered
+(their MainProducts disagree on `sku`); linking picked up 122 stragglers.
+
 ## `compute_supplier_sku` — the only thing left tying import to PIM
 
 `compute_supplier_sku(article, supplier)` (`utils.py:564-573`) still applies
@@ -201,6 +210,14 @@ before relying on it if that app's own code changes.
 The copy task still reaches PIM indirectly: `copy_supplier_products_to_main_task`
 → `recalculate_search_vectors` → `_build_searchvector` → `get_pim_data`, once
 per touched row (read-only now, not a push).
+
+**It does not strip `article`, and that shows up at scale.** On the snapshot,
+**32,123 of 154,168 Product numbers (21%)** carry leading or trailing
+whitespace — supplier articles land in `sku` verbatim — against **3** in all of
+PIM's 178,605 numbers. Since `sku` becomes `number` and `number` is matched by
+`equals`, those rows can't match PIM. Stripping recovers only ~400 matches today,
+but it is a latent bug anywhere `sku` is compared or treated as unique. The fix
+belongs at import, not in the matcher.
 
 ## `MainProductPimImportResource` — `ID` column dropped (`resources.py:256-287`)
 
@@ -303,6 +320,32 @@ observable effect today, and every caller (`render_pim_photo`,
 `tables.py:234-245`) renders a full-size image, not a thumbnail.
 `downloadUrl` also needs a PIM session — an unauthenticated GET 401s, so a
 logged-out browser shows a broken image rather than a 500.
+
+## `MainProduct.manufacturer` is not raw supplier data
+
+`sync_pim_relations` (`utils.py:437-449`) **overwrites
+`MainProduct.manufacturer` with the PIM brand** for linked products, while
+`copy_supplier_products_to_main_task` writes the supplier's value. So the column
+holds whichever of the two ran last. To measure what suppliers actually report,
+use `SupplierProduct.manufacturer`, which only the Excel import writes.
+Comparing a PIM brand against `MainProduct.manufacturer` is partly comparing
+PIM with itself. On raw supplier data the two agree **99.2%** where both exist
+(21,381 of 21,559); see §0.5 of `.claude/shift-to-product-brief.md`.
+
+## `MainProductFilter.search_rank` — `F()`, not a string
+
+Fixed 2026-09-19. It used to pass the string `"search_vector"` to
+`SearchRank`, which Django treats as a text field to vectorize:
+`ts_rank(to_tsvector(search_vector::text), …)`. That re-tokenizes the stored
+vector on every row, with the default config instead of `russian`, and bypasses
+the GIN index. It is now `F("search_vector")`. Because the method is shared by
+`search_method` and `MainProductTableView`'s group ordering, the one fix covers
+both. The same bug had been copied into [[product]]'s `ProductFilter`.
+
+Separately, `MainProductFilter` still calls `self.data.getlist()` directly in
+`config_filters`. That works only because views always pass `request.GET`;
+building the filterset from a plain `dict` raises `AttributeError` inside
+`__init__`. Use a `QueryDict` in shell and tests.
 
 ## `MainProductFilter` — `.order_by()` bleeding into `GROUP BY`
 
