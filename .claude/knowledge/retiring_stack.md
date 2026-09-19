@@ -20,9 +20,20 @@ the live stack: `core`, `supplier_manager`, `supplier_product_manager`,
 /api/pricing/         → pricing.api.urls
 ```
 
-Whether anything **outside this repo** calls them is an **open question**. Ask a
-human before removing any app, model, or route. Do not infer "unused" from the
-absence of internal callers — internal callers were never the point of an API.
+**Answered 2026-09-19: nothing outside this repo calls them.** The owner confirmed
+the `/api/` routes have no external consumer, so the four apps can be removed.
+This used to be an open question, and the rule was not to infer "unused" from the
+absence of internal callers. That rule was right; what settled it was the owner's
+answer, not a grep.
+
+**What still blocks a naive removal is the migration graph, not the API.**
+`product/migrations/0007_product_pim_id_is_price_manager_product.py` depends on
+`('supplier_feed', '0001_initial')` and loads `SupplierFeedEntry`/`SupplierLink`
+in its `RunPython`; `supplier_feed.0001` depends on `dataframe.0001`,
+`pricing.0001` and `product.0001` and holds FKs into `product.Product`. Cut that
+edge first (drop the dependency and the two `get_model` calls from `0007`, or
+squash [[product]]'s migrations), or every `migrate` fails on a missing parent
+node — including CI's fresh database. Production has already applied `0007`.
 
 ## Isolation is clean, with one qualification — verify before claiming otherwise
 

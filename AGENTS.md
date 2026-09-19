@@ -15,8 +15,8 @@ Settings is a package under `price_manager/price_manager/settings/`. Its `__init
 **3. The API-driven stack is being retired. Do not build new features there.**
 `pricing`, `supplier`, `supplier_feed`, `dataframe`. The API-first rewrite did not work out. **`product` is the exception:** recreated as a PIM-linked mirror, it is now the root of search and filtering, served at `/products/` — see `.claude/shift-to-product-brief.md`. Build there when the work serves that shift.
 
-**4. Do not delete the retiring apps or their routes.**
-They are still served at `/api/dataframe/`, `/api/supplier-feed/`, `/api/suppliers/`, `/api/pricing/` behind token auth. Whether anything outside this repo consumes them is an **open question** — ask a human before removing any of it.
+**4. The retiring apps may be removed — but not by deleting directories.**
+They are still served at `/api/dataframe/`, `/api/supplier-feed/`, `/api/suppliers/`, `/api/pricing/` behind token auth, and the owner confirmed on 2026-09-19 that **nothing outside this repo consumes them**. Removing them first means cutting `product`'s migration dependency on `supplier_feed` (`product/migrations/0007_…`), or every `migrate` fails — see CLAUDE.md.
 
 ## Working conventions
 
