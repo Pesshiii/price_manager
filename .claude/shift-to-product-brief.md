@@ -201,10 +201,43 @@ coverage.**
   flowing into `sku` unstripped. It costs only ~400 matches here, but it is a latent bug
   wherever `sku` is compared or used as a unique key.
 
-**Recovery paths, none decided:** keep supplier-side name/manufacturer as the fallback
-layer for non-PIM products (i.e. revise D1 and D13); or push the missing ~98k into PIM for
-PIM staff to enrich — the R7 "PIM-side enrichment" route, which is a content project rather
-than a code change; or both. Strip `sku` at import either way.
+**Recovery path — decided 2026-09-19 (§0.5):** enrich PIM. D1 stands; supplier-side
+manufacturer is *not* kept as a fallback. Strip `sku` at import regardless.
+
+---
+
+## 0.5 D1 revisited — brand vs manufacturer, per product (2026-09-19)
+
+"74% vs 15%" compared two different populations. This is the per-product version the D1
+decision was actually made on.
+
+| Per product (of 155,087) | Count | |
+|---|---|---|
+| Has a supplier manufacturer | 118,277 | 76% |
+| Has a PIM brand | 22,690 | 15% |
+| Both | 21,552 | |
+| **Manufacturer only — loses its brand under D1** | **96,725** | **62%** |
+| PIM brand only — what PIM adds | 1,138 | 0.7% |
+| Neither | 35,672 | |
+
+**Agreement where both exist**, checked against the *raw* `SupplierProduct.manufacturer`
+from the Excel import. That matters because `sync_pim_relations` overwrites
+`MainProduct.manufacturer` with the PIM brand, so testing against `MainProduct` would be
+partly PIM agreeing with itself. On raw supplier data: **21,381 of 21,559 agree exactly
+(99.2%)**, 87 are containment variants, 91 genuinely differ. Only 38 products have suppliers
+disagreeing among themselves. 309 manufacturer names are in use against 89 PIM brands.
+
+**So the case for dropping manufacturer rested on PIM being more complete and more
+accurate, and neither held**: PIM is less complete (15% vs 76%) and no more accurate (99.2%
+agreement, with the disagreements pointing at a likely PIM-side error — see P2-G4).
+
+**The user reaffirmed D1 anyway** — the second time, now with this table in front of them —
+choosing to close the gap by enriching PIM rather than keeping supplier data. That is a
+legitimate strategic choice: it keeps a single source of truth instead of a merged one, and
+the direction of travel is PIM-first. **It is recorded as final. Do not reopen it.**
+
+What it imposes is sequencing, not a reversal: **P2-G4** — export the manufacturer data for
+the enrichment before Phase 2 deletes it.
 
 ---
 
@@ -228,7 +261,7 @@ Filtering on the new page draws on exactly three sources:
 
 | # | Decision | Rationale / hazard |
 |---|---|---|
-| D1 | **CONFIRMED after measurement.** Both `MainProduct` and `SupplierProduct` lose `category`/`categories` and `manufacturer`. | Both are entries in the `LINKS` choices map — dropping them touches the Excel import. See F1. |
+| D1 | **CONFIRMED TWICE — final.** Both `MainProduct` and `SupplierProduct` lose `category`/`categories` and `manufacturer`. Brand comes from PIM alone; the gap is closed by **enriching PIM**, not by keeping supplier data. | Reaffirmed 2026-09-19 with the per-product cost measured (§0.5): **96,725 products (62%) lose their only brand**. **Do not reopen this** — it has been decided on full evidence. What it *does* impose is **P2-G4**: the manufacturer data must be exported for the enrichment before Phase 2 deletes it. |
 | D2 | `product.Category` survives. `supplier_manager.Category` is **retired**. | Two MPTT trees mirror the same PIM tree: `main_product_manager/utils.py:441-449` writes one, `product/services/pim_sync.py` the other. |
 | D3 | New `product.Brand`, **keyed by PIM `brandId`**. No alias/normalisation layer. | ✅ Built. PIM returns `brandId`/`brandName` as **scalars**, so FK not M2M — confirmed against `_resolve_manufacturer` (`utils.py:362-374`), which does the same shape against the supplier-side Manufacturer this replaces. |
 | D4 | `PriceManager` rules scope via `product__categories`. ✅ **No-op in practice — G4 = 0.** | `product_price_manager/models.py:187-188` currently filters on `MainProduct.categories`. |
@@ -393,6 +426,21 @@ where F2/F4 relaxed the gates.
 > **P2-G3 — ✅ measured, and it is the red one.** 85 of 85 Settings map `manufacturer`,
 > 75 map `category`, 0 DictItems hang off either. The user accepted this (F1). The migration
 > should still report how many Links it deletes rather than doing it silently.
+
+> **P2-G4 — 🔴 BLOCKING: export manufacturer data before dropping it.** D1 closes the brand
+> gap by enriching PIM. The best input for that enrichment is the very data this phase
+> deletes: for **96,725 products** `SupplierProduct.manufacturer` is the *only* brand
+> information that exists anywhere. Run Phase 2 first and the enrichment project loses its
+> source. Before the manufacturer columns are dropped, produce an export of
+> `(Product.number, name, manufacturer)` for every product without a PIM brand, and hand
+> it to whoever enriches PIM. This is **ordering, not a reversal of D1** — D1 stands.
+> Two data points for that export's recipients:
+> - Where PIM and supplier both have a brand, they agree **99.2%** — the supplier value is a
+>   trustworthy seed, not noise.
+> - The ~91 disagreements are almost all PIM saying **DENZEL** where suppliers report seven
+>   different manufacturers between them. One PIM brand against seven
+>   different manufacturers looks like a bulk mis-assignment *in PIM*. Suggestive, not
+>   proven — worth a PIM-side check.
 
 ### 4.2 Migration staging — non-negotiable
 
@@ -574,9 +622,12 @@ and never call it inside a `transaction.atomic()` runner.
 - **R6 — `product.Category` becomes mixed-provenance if D8 is softened.** `pim_sync`'s
   `_ensure_pim_category` does `get_or_create(parent=…, name=…)`; carrying non-PIM categories
   across would collide. D8 keeps the tree pure — keep it that way.
-- **R7 — 🔴 FIRED 2026-09-19, see §0.4.** PIM brands cover **15%** of products against the
-  **74%** manufacturer coverage D1 drops, and matching fixes do not close it. Revisit D1
-  before any Phase 2 work. *Original text below.*
+- **R7 — ✅ CLOSED: fired, measured, and accepted.** It fired on 2026-09-19 (§0.4): PIM
+  brands cover **15%** of products against **76%** for supplier manufacturer, and no matching
+  fix closes the gap. D1 was then revisited with the per-product cost in hand (§0.5) —
+  **96,725 products lose their only brand** — and **the user reaffirmed it**, choosing PIM
+  enrichment over keeping supplier data. The remaining obligation is P2-G4 (export before
+  delete). *Original text below.*
   **Brand coverage is unmeasured and accepted (D1/D3/D11).** 74% manufacturer density
   traded for PIM brand coverage nobody has sampled. **Cheapest early warning: after the
   backfill, count Products that resolved a brand and compare against 74% — before the old
