@@ -40,8 +40,18 @@ class Command(BaseCommand):
                             help='Не трогать дерево категорий.')
         parser.add_argument('--skip-vectors', action='store_true',
                             help='Не пересобирать search_vector.')
+        parser.add_argument('--vectors-only', action='store_true',
+                            help='Только пересобрать search_vector, в PIM не ходить.')
 
     def handle(self, *args, **options):
+        # Пересборка вектора отделена от загрузки намеренно: загрузка каталога
+        # идёт десятки минут и может оборваться на сети, а вектор строится из
+        # уже лежащих в базе raw_data и в PIM не ходит вовсе. Гонять каталог
+        # заново ради одного этого шага незачем.
+        if options['vectors_only']:
+            self._rebuild_vectors()
+            return
+
         if not options['skip_categories']:
             self.stdout.write('Синхронизирую дерево категорий…')
             started = time.monotonic()
@@ -73,7 +83,9 @@ class Command(BaseCommand):
 
         if options['skip_vectors']:
             return
+        self._rebuild_vectors()
 
+    def _rebuild_vectors(self):
         self.stdout.write('Пересобираю search_vector…')
         started = time.monotonic()
         # Только по наполненным строкам: у пустых вектор состоит из одного
