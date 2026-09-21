@@ -17,7 +17,6 @@ from pim_api import EntityList, Entity, Where, FileRecord, upsert_async as _upse
 from .models import MainProduct, MainProductLog, MP_PRICES
 from product.models import Product as PimProduct
 from .pim_client import site
-from .columns import AVAILABLE_COLUMN_MAP, DEFAULT_VISIBLE_COLUMNS
 
 from supplier_product_manager.models import SupplierProduct
 from supplier_manager.models import Category, Manufacturer
@@ -238,7 +237,7 @@ def get_pim_data(pim_id: str | None, refresh: bool = False) -> dict | None:
         # this key owns the trigger, because it lasts PIM_CACHE_TTL and every
         # other caller only queues on a miss. Queueing from the miss branch
         # instead meant a refreshing caller — the detail views — suppressed
-        # population, here and in prefetch_pim_data, for the next 24 hours.
+        # population for the next 24 hours.
         # After cache.set, so the task's own get_pim_data is a cache hit rather
         # than a second live fetch inside its transaction.
         _queue_pim_population(pim_id)
@@ -411,25 +410,6 @@ def sync_pim_relations(pim_id: str, data: dict) -> int:
     return len(products)
 
 
-def prefetch_pim_data(products) -> dict:
-    """Fetch PIM data for a list of MainProduct objects and return {product.pk: data}.
-
-    Table rendering never links products or pushes to PIM — that's the job of
-    reindex_pim_ids. A product without a pim_id, or whose pim_id 404s with
-    nothing cached, is simply skipped here rather than triggering a live PIM
-    search.
-    """
-    result = {}
-    for product in products:
-        pim_id = _pim_id_of(product)
-        if not pim_id:
-            continue
-        data = get_pim_data(pim_id)
-        if data:
-            result[product.pk] = data
-    return result
-
-
 _PIM_FILE_URL_KEYS = ('url', 'downloadUrl')  # fallbacks, tried after {size}ThumbnailUrl
 
 
@@ -574,23 +554,6 @@ def fetch_pim_image(file_id: str | None, size: str = 'medium') -> tuple[bytes, s
     cache.set(cache_key, image, PIM_CACHE_TTL)
     return image
 
-
-def _cache_key(user_id: int) -> str:
-    return f"mainprice:selected_columns:user:{user_id}"
-
-def normalize_columns(columns):
-    valid = [col for col in columns if col in AVAILABLE_COLUMN_MAP]
-    return valid or DEFAULT_VISIBLE_COLUMNS
-
-def save_user_columns(user, columns):
-    if not user.is_authenticated:
-        return
-    cache.set(_cache_key(user.id), normalize_columns(columns), CACHE_TTL)
-
-def load_user_columns(user):
-    if not user.is_authenticated:
-        return DEFAULT_VISIBLE_COLUMNS
-    return cache.get(_cache_key(user.id), DEFAULT_VISIBLE_COLUMNS)
 
 def recalculate_search_vectors(mps):
     if not mps: return None

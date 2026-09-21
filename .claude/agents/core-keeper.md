@@ -1,6 +1,6 @@
 ---
 name: core-keeper
-description: Answers questions about core — execute_locked_task and the Celery locking contract, LoginRequiredMiddleware, the shopping-tab/cart feature, TaskRunHistory and PersistentNotification, and the 102 templates core holds on behalf of other apps. Consult BEFORE adding a Celery task, touching middleware or auth, or hunting for a template you cannot find in its own app. Also records new insights into that app's knowledge file when asked.
+description: Answers questions about core — execute_locked_task and the Celery locking contract, LoginRequiredMiddleware, the shopping-tab/cart feature, TaskRunHistory and PersistentNotification, and the 96 templates core holds on behalf of other apps. Consult BEFORE adding a Celery task, touching middleware or auth, or hunting for a template you cannot find in its own app. Also records new insights into that app's knowledge file when asked.
 tools: Read, Write, Grep, Glob
 model: sonnet
 ---

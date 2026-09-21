@@ -138,7 +138,7 @@ A `PreToolUse` hook (`.claude/hooks/guard_retiring_stack.py`) turns an edit unde
 
 `core` is the largest and most active app, and holds most of the front end:
 
-- **102 of the repo's 146 templates** are under `core/templates/`, including templates owned by other apps' views (`supplier/`, `manufacturer/`, `currency/`, `category/`, `main/`, `upload/`, `registration/`).
+- **96 of the repo's 140 templates** are under `core/templates/`, including templates owned by other apps' views (`supplier/`, `manufacturer/`, `currency/`, `category/`, `main/`, `upload/`, `registration/`).
 - `core/views.py` (~640 lines) owns the **shopping-tab / cart** feature — `ShoppingTab*` (list, detail, delete, export, import + preview/run) and `CartItem*` (detail, quick-add, product select, add, confirm/unconfirm, remove). Templates in `core/templates/shopping_tab/`.
 - `core/models.py` → `CartItem`, `ShoppingTab`, `ShoppingTabExport`, `PersistentNotification`, `TaskRunHistory`.
 - `core/middleware.py` → `LoginRequiredMiddleware` (global login gate; anonymous requests under `/api/` get 401 JSON instead of a redirect) and `toaster_middleware`.

@@ -11,19 +11,17 @@ from .columns import COLUMN_LABELS, DEFAULT_COLUMNS, PRODUCT_ROW_COLUMNS, SUPPLI
 from .models import Product
 
 # Ровно эта строка, когда остаток не синхронизировался ни разу: NULL в stock —
-# третье состояние, а не ноль. Та же константа и та же причина, что в
-# main_product_manager/grouping.py.
+# третье состояние, а не ноль.
 NO_STOCK_DATA = 'Нет данных'
 
 
 def annotate_product_rows(queryset):
     """Агрегаты по связанным MainProduct для строки товара.
 
-    Настоящая агрегация по Product.main_products, а не оконные функции.
-    grouping.py в main_product_manager считает то же самое окнами только потому,
-    что там корень выборки — плоский MainProduct и группы приходится
-    изображать. Здесь группа это строка, поэтому окна не нужны — и переносить
-    их сюда не надо.
+    Настоящая агрегация по Product.main_products, а не оконные функции. Старая
+    главная считала то же самое окнами (grouping.py, удалён в Phase 2b) только
+    потому, что её корнем был плоский MainProduct и группы приходилось
+    изображать. Здесь группа это строка, поэтому окна не нужны.
 
     distinct=True у Count обязателен: параллельно висит join на categories из
     фильтра, и без него поставщики посчитались бы с кратностью категорий.

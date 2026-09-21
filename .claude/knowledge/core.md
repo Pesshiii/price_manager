@@ -1,7 +1,7 @@
 # core
 
 The UI hub and shared infrastructure. Largest, most template-heavy app:
-**102 of the repo's 146 templates** live here, including templates owned by
+**96 of the repo's 140 templates** live here, including templates owned by
 *other* apps' views (`supplier/`, `manufacturer/`, `currency/`, `category/`,
 `main/`, `upload/`, `registration/`). If you are looking for a template and it
 isn't under the app that renders it, look here first.
@@ -167,13 +167,14 @@ badge is explicitly out of that issue's scope** and stays as-is. If the cart
 is ever revisited, it needs its own decision about what a null stock should
 say — it isn't inherited for free from whatever #155 lands on.
 
-## `core/templates/core/includes/table_htmx.html` — shared by five tables
+## `core/templates/core/includes/table_htmx.html` — shared by four tables
 
-Not `core`-only: `core/tables.py:25`, `main_product_manager/tables.py:113` and
-`:206`, `product_price_manager/tables.py:18`, `supplier_product_manager/tables.py:75`
-all set `template_name = 'core/includes/table_htmx.html'`
-(`django-tables2==2.7.5`, `price_manager/requirements.txt:37`; verified
-against `venv/Lib/site-packages/django_tables2/`). A change here touches all five.
+Not `core`-only: `core/tables.py` (cart picker), `main_product_manager/tables.py`
+(`MainProductResolveTable`), `product_price_manager/tables.py` and
+`supplier_product_manager/tables.py` all set
+`template_name = 'core/includes/table_htmx.html'` (`django-tables2==2.7.5`).
+A change here touches all four. (Five until Phase 2b deleted the old main
+page's table.)
 
 **Infinite scroll dies on a hidden last row.** The next-page fetch is wired to
 the *last* `<tr>` of the page (`table_htmx.html:40-45`):

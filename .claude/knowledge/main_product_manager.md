@@ -277,29 +277,14 @@ a PIM outage actually costs something — got no signal. It's throttled per
 user instead (`_PIM_NOTIF_THROTTLE_TTL`, 30 min). `test_notifies_even_though_debug_is_false`
 guards it — don't re-add a DEBUG gate as an easy "fix."
 
-## `MainProduct.product` FK — grouping traps
+## `recalculate_search_vectors` needs `select_related('product')`
 
-`group_key()` (`grouping.py:50-79`) must stay
-`Case/When(product__isnull=True, then=Concat('mp-', id))`,
-`default=Concat('pim-', product_id)` — not `Coalesce(Concat(...))`. Postgres
-`CONCAT()` treats NULL as `''`, so `Concat('pim-', NULL)` returns `'pim-'`,
-not NULL: under `Coalesce` every unlinked product would collapse into one
-fake group. Both branches need their own prefix too, independently:
-`product_id` and `MainProduct.id` are separate sequences, so an unlinked row
-can otherwise collide with an unrelated `Product.id`. Guarded by
-`test_unlinked_products_never_group` and
-`test_unlinked_product_does_not_join_group_with_matching_product_id`
-(`test_grouping.py:190-204`, `:206-225`).
-
-`recalculate_search_vectors` (`utils.py:507-517`) is the one place that has
-to `select_related('product')` before calling `_build_searchvector` →
-`_pim_id_of` — a module function, deliberately not a `MainProduct` property
-(a property named `pim_id` would keep working in templates and silently
-break in `.filter()`/annotations, where the lookup is `product__pim_id`).
-Its three callers (`main_product_manager/tasks.py`,
-`supplier_product_manager/tasks.py:277`,
-`supplier_product_manager/functions.py`, plus `views.py:421-422`) stay
-correct without adding the `select_related` themselves.
+It is the one place that has to `select_related('product')` before calling
+`_build_searchvector` → `_pim_id_of` — a module function, deliberately not a
+`MainProduct` property (a property named `pim_id` would keep working in
+templates and silently break in `.filter()`/annotations, where the lookup is
+`product__pim_id`). Its callers stay correct without adding the
+`select_related` themselves. Phase 2b's column drop removes all of this.
 
 ## `sync_main_products_task` has no `@shared_task` (`tasks.py:146-155`)
 
@@ -333,85 +318,42 @@ Comparing a PIM brand against `MainProduct.manufacturer` is partly comparing
 PIM with itself. On raw supplier data the two agree **99.2%** where both exist
 (21,381 of 21,559); see §0.5 of `.claude/shift-to-product-brief.md`.
 
-## Two filtersets since Phase 2a — which one you are looking at
+## `MainProductFilter` is the cart's filter, not a page's
 
-Since Phase 2a (2026-09-21) `filters.py` holds two classes, and the name that
-used to mean "the main page's filter" now means something else:
+Since Phase 2a it serves the cart's «Добавить товары» modal
+(`core/views.py` `CartItemProductSelectView`), the shopping-tab import
+auto-match (`core/utils.py` `find_main_products`) and «Привязать из ГП»
+(`ResolveMainproduct`). Rows are MainProduct, but search, brand and categories
+go **through `MainProduct.product`**, using [[product]]'s shared
+`matching_product_pks`. It must not touch `MainProduct.search_vector`,
+`.categories` or `.manufacturer`, and `core/views.py` imports it at module
+scope — a stale field reference stops the whole app booting. Rows without a
+Product are still found by own `sku`/`name`/`article`: in the cart, invisible
+would mean unbuyable.
 
-- **`MainProductFilter`** — the cart's «Добавить товары» modal
-  (`core/views.py` `CartItemProductSelectView`), the shopping-tab import
-  auto-match (`core/utils.py` `find_main_products`) and «Привязать из ГП»
-  (`ResolveMainproduct`). Rows are still MainProduct, but search, brand and
-  categories go **through `MainProduct.product`**, using [[product]]'s shared
-  `matching_product_pks`. It must not touch `MainProduct.search_vector`,
-  `.categories` or `.manufacturer`: Phase 2b drops them, and `core/views.py`
-  imports this class at module scope, so a stale reference stops the whole app
-  booting. Rows without a Product are still found by own `sku`/`name`/`article`
-  — in the cart, invisible would mean unbuyable.
-- **`MainPageFilter`** — the old main page only, byte-for-byte the previous
-  `MainProductFilter`. It lives until Phase 2b deletes it with the page. Do not
-  wire anything new to it. Everything below about `search_rank`, `.getlist()`
-  and `GROUP BY` describes this class.
-
-## `MainPageFilter.search_rank` — `F()`, not a string
-
-Fixed 2026-09-19. It used to pass the string `"search_vector"` to
-`SearchRank`, which Django treats as a text field to vectorize:
-`ts_rank(to_tsvector(search_vector::text), …)`. That re-tokenizes the stored
-vector on every row, with the default config instead of `russian`, and bypasses
-the GIN index. It is now `F("search_vector")`. Because the method is shared by
-`search_method` and `MainProductTableView`'s group ordering, the one fix covers
-both. The same bug had been copied into [[product]]'s `ProductFilter`.
-
-Separately, `MainPageFilter` still calls `self.data.getlist()` directly in
-`config_filters`. That works only because views always pass `request.GET`;
-building the filterset from a plain `dict` raises `AttributeError` inside
-`__init__`. Use a `QueryDict` in shell and tests.
-
-## `MainPageFilter` — `.order_by()` bleeding into `GROUP BY`
-
-`search_method`'s `.order_by("-rank")` (`filters.py:200`) folds into
-`GROUP BY` once `get_table_data` (`views.py:194-201`) does
-`.values(...).annotate(...)` on the same queryset — `search_rank`
-(`filters.py:182-189`) is a separate `@staticmethod` specifically to work
-around this; don't inline it.
+The old main page, its `MainPageFilter`, `MainProductTable`, `grouping.py`,
+`columns.py` and the column-preference cache were deleted in Phase 2b; the
+page's address now redirects to `/products/`, whose own column picker lives
+in [[product]] `columns.py`.
 
 ## Three columns that look like fields but aren't
 
-`MainProductLog` has three writers: `utils.update_logs()`
-(`utils.py:880-914`), and [[product_price_manager]]'s
-`PriceManager.apply(logs=True)` / `PriceTag.get_mp()`, the latter reached
-unconditionally every run via `update_prices()`.
+`MainProductLog` has three writers: `utils.update_logs()`, and
+[[product_price_manager]]'s `PriceManager.apply(logs=True)` /
+`PriceTag.get_mp()`, the latter reached unconditionally every run via
+`update_prices()`.
 `supplier_product_price`/`supplier_product_rrp`/`supplier_product_discount_price`
-(`tables.py:39-41`) are correlated Subqueries built in
-`MainProductTableView.get_table_data` (`views.py:146-160`), not
-`MainProduct` fields. `kaspi_price` is a genuine field (`columns.py:33`) but
-absent from `MainProductTable.Meta.fields` — selecting it in the column
-picker does nothing.
-
-## The `product` FK is indexed, but that doesn't make grouping cheap
-
-Django gives `MainProduct.product` a btree index automatically, same as the
-old `pim_id` CharField's explicit one — that removes a lookup cost, not the
-grouping cost. `annotate_groups` (`grouping.py:120-170`) computes
-`Window(...)` per partition over the *expression* `grp_key`, not the indexed
-column, so Postgres still sorts every row in a bucket. On a restored
-production snapshot the uncategorised bucket (156,016 of 156,481
-MainProducts) costs ~70ms→~3s depending on the pass — benchmark grouping
-changes there, never against a real category, which always looks fast.
-`GroupHeadRecord.__init__` (`grouping.py:237-244`) exposes `product_id`
-rather than resolving `pim_id`, precisely to avoid adding a join to that hot
-path.
+are not `MainProduct` fields but correlated Subqueries over the latest
+`SupplierProduct` row — now built in [[product]]'s
+`views._latest_supplier_prices()` for the supplier rows on `/products/`.
 
 ## `render_<column>` is silently skipped when the cell value is empty
 
-Every branching renderer on `MainProductTable` declares `empty_values=()`
-(`actions`, `stock_msg`, `delivery_days`, all eight `pim_*` columns,
-`tables.py:33-54`). Without it, django-tables2 skips the renderer for
-`None`/`""` and returns the column's `default` — reads like a data problem,
-not a wiring one. `GroupHeadRecord.__getattr__` (`grouping.py:257-260`)
-relies on the inverse on purpose: an unhandled column falls through to `—`
-for free.
+django-tables2 skips a column's renderer for `None`/`""` and returns the
+column's `default` instead — which reads like a data problem, not a wiring one.
+Every branching renderer must declare `empty_values=()`; [[product]]'s
+`SupplierRowTable` does for `actions`, `stock`, `stock_msg` and
+`delivery_days`.
 
 ## `update_stocks` — NULL vs `0`, and its batching trap
 

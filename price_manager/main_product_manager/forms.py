@@ -76,16 +76,3 @@ class MainProductCreateForm(forms.ModelForm):
         'Главный продукт с таким поставщиком, артикулом и названием уже существует.'
       )
     return cleaned_data
-
-
-class MainProductBulkCategoryForm(forms.Form):
-  category = forms.ModelChoiceField(
-    label='Категория',
-    queryset=Category.objects.all(),
-    required=True,
-    empty_label='Выберите категорию',
-  )
-
-  def __init__(self, *args, **kwargs):
-    super().__init__(*args, **kwargs)
-    self.fields['category'].queryset = Category.objects.all().order_by('tree_id', 'lft')
