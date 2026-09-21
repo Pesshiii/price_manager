@@ -1,9 +1,13 @@
 import django_tables2 as tables
 from django.db.models import Count, Max, Min, Q, Sum
+from django.template.loader import render_to_string
 from django.urls import reverse
 from django.utils.formats import number_format
 from django.utils.html import format_html
 
+from main_product_manager.models import MainProduct
+
+from .columns import COLUMN_LABELS, DEFAULT_COLUMNS, PRODUCT_ROW_COLUMNS, SUPPLIER_ROW_COLUMNS
 from .models import Product
 
 # Ровно эта строка, когда остаток не синхронизировался ни разу: NULL в stock —
@@ -49,19 +53,30 @@ class ProductTable(tables.Table):
     )
     total_stock = tables.Column(verbose_name='Остаток', default=NO_STOCK_DATA)
 
+    # Необязательные колонки — включаются в выборе колонок (product/columns.py).
+    photo = tables.Column(verbose_name=COLUMN_LABELS['photo'], empty_values=(), orderable=False)
+    tags = tables.Column(verbose_name=COLUMN_LABELS['tags'], empty_values=(), orderable=False)
+    ean = tables.Column(verbose_name=COLUMN_LABELS['ean'], empty_values=(), orderable=False)
+    pim_status = tables.Column(verbose_name=COLUMN_LABELS['pim_status'], empty_values=(),
+                               orderable=False)
+
     class Meta:
         model = Product
         fields = ()
         sequence = (
-            'expand', 'display_name', 'number', 'brand', 'product_categories',
-            'supplier_count', 'prime_cost_range', 'total_stock',
+            'expand', 'photo', 'display_name', 'number', 'brand', 'product_categories',
+            'supplier_count', 'prime_cost_range', 'total_stock', 'tags', 'ean', 'pim_status',
         )
         attrs = {'class': 'table table-hover align-middle'}
         row_attrs = {'data-product-pk': lambda record: record.pk}
 
     def __init__(self, *args, **kwargs):
         self.request = kwargs.pop('request', None)
+        selected = kwargs.pop('selected_columns', None) or DEFAULT_COLUMNS
         super().__init__(*args, **kwargs)
+        for key in PRODUCT_ROW_COLUMNS:
+            if key not in selected:
+                self.columns.hide(key)
 
     def render_expand(self, record):
         """Кнопка раскрытия.
@@ -112,3 +127,107 @@ class ProductTable(tables.Table):
         if total is None:
             return NO_STOCK_DATA
         return total
+
+    # --- необязательные колонки из данных PIM -------------------------------
+
+    def render_photo(self, record):
+        """Фото товара — ЕДИНСТВЕННЫЙ сетевой вызов на странице.
+
+        Всё остальное здесь локально (R1 закрыт ровно на этом), но ссылку на
+        файл raw_data не хранит — только его id, и адрес приходится спрашивать
+        у PIM. get_file_url кэширует ответ на сутки, так что платит только
+        первый показ. Поэтому колонка и выключена по умолчанию: включивший её
+        соглашается на до 25 запросов к PIM на холодной странице.
+        """
+        from main_product_manager.utils import get_file_url
+
+        data = record.raw_data or {}
+        url = get_file_url(data.get('mainImageId') or data.get('imageId'))
+        if not url:
+            return '—'
+        return format_html(
+            '<img src="{}" alt="" style="max-height:50px;max-width:80px;object-fit:contain"'
+            ' loading="lazy">',
+            url,
+        )
+
+    def render_tags(self, record):
+        return ', '.join((record.raw_data or {}).get('tag') or []) or '—'
+
+    def render_ean(self, record):
+        return (record.raw_data or {}).get('ean') or '—'
+
+    def render_pim_status(self, record):
+        return (record.raw_data or {}).get('status') or '—'
+
+
+class SupplierRowTable(tables.Table):
+    """Строки поставщиков под товаром — то, чем была вся таблица старой главной.
+
+    Колонки выбирает пользователь (product/columns.py). Объявлены здесь только
+    те, что требуют своей отрисовки; остальные — простые поля MainProduct и
+    его поставщика — собираются в __init__ из каталога.
+    """
+
+    actions = tables.Column(verbose_name='', empty_values=(), orderable=False)
+    name = tables.Column(verbose_name=COLUMN_LABELS['name'])
+    stock = tables.Column(verbose_name=COLUMN_LABELS['stock'], empty_values=())
+    stock_msg = tables.Column(verbose_name=COLUMN_LABELS['stock_msg'], empty_values=())
+    delivery_days = tables.Column(verbose_name=COLUMN_LABELS['delivery_days'], empty_values=())
+
+    DECLARED = ('actions', 'name', 'stock', 'stock_msg', 'delivery_days')
+
+    class Meta:
+        model = MainProduct
+        fields = ()
+        orderable = False
+        template_name = 'django_tables2/bootstrap5.html'
+        attrs = {'class': 'table table-sm align-middle mb-0'}
+
+    def __init__(self, *args, **kwargs):
+        self.request = kwargs.pop('request', None)
+        selected = [key for key in (kwargs.pop('selected_columns', None) or DEFAULT_COLUMNS)
+                    if key in SUPPLIER_ROW_COLUMNS]
+        # Выбраны только колонки строки товара — таблица поставщиков не должна
+        # остаться вовсе без колонок.
+        if not selected:
+            selected = [key for key in DEFAULT_COLUMNS if key in SUPPLIER_ROW_COLUMNS]
+        extra_columns = [
+            (key, tables.Column(accessor=key, verbose_name=COLUMN_LABELS[key], default='—'))
+            for key in selected if key not in self.DECLARED
+        ]
+        kwargs['exclude'] = [key for key in self.DECLARED if key not in selected]
+        kwargs['sequence'] = selected
+        super().__init__(*args, extra_columns=extra_columns, **kwargs)
+
+    def render_actions(self, record):
+        return render_to_string('product/partials/supplier_row_actions.html',
+                                {'record': record}, request=self.request)
+
+    def render_name(self, record):
+        return format_html('<a href="{}">{}</a>',
+                           reverse('mainproduct-info', kwargs={'pk': record.pk}), record.name)
+
+    def render_stock(self, record):
+        """NULL — «ни разу не синхронизировался», 0 — «синхронизировался, нет»."""
+        return NO_STOCK_DATA if record.stock is None else record.stock
+
+    def render_stock_msg(self, record):
+        # Остаток проверяется ПЕРЕД поставщиком: «Нет данных» — утверждение про
+        # остаток, и строка без поставщика с NULL в остатке про него тоже ничего
+        # не знает. Так же было на старой главной.
+        if record.stock is None:
+            return NO_STOCK_DATA
+        if not record.supplier:
+            return ''
+        if record.stock == 0:
+            return record.supplier.msg_navailable or ''
+        return record.supplier.msg_available or ''
+
+    def render_delivery_days(self, record):
+        # Срок физически берётся из полей поставщика — без него его неоткуда
+        # взять, отсюда и расхождение с render_stock_msg.
+        if not record.supplier:
+            return ''
+        days = record.supplier.get_delivery_days_for_stock(record.stock)
+        return '' if days is None else days

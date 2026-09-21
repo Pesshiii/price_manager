@@ -231,10 +231,14 @@ class MainProductTableView(SingleTableView):
 # Обработка продуктов главного прайса
 
 def sync_main_products(request, **kwargs):
-  """Запускает асинхронную синхронизацию MainProduct."""
+  """Запускает асинхронную синхронизацию MainProduct.
+
+  Refresh, а не redirect на 'mainproducts': кнопка есть и на товарной
+  странице, и вернуть человека надо туда, откуда он нажал.
+  """
   sync_main_products_task(request.user.id)
   messages.info(request, "Синхронизация запущена")
-  return HttpResponseClientRedirect(reverse('mainproducts'))
+  return HttpResponseClientRefresh()
 
 
 

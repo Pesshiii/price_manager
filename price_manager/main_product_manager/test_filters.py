@@ -5,6 +5,7 @@ categories и manufacturer самого MainProduct — Phase 2 их удаля�
 контентные фасеты идут через MainProduct.product.
 """
 from django.http import QueryDict
+from django.template.loader import render_to_string
 from django.test import TestCase
 
 from core.utils import find_main_products
@@ -111,6 +112,32 @@ class MainProductFilterTests(TestCase):
         self.assertEqual(
             set(filterset.filters['categories'].field.queryset), {self.root, self.child},
         )
+
+    def test_selected_categories_outside_the_results_still_render_as_a_tree(self):
+        """Выбран вложенный узел и корень другой ветки, а поиск исключил товары
+        обоих. Без предков выбранного узла {% recursetree %} падал с
+        «not in depth-first order» — модалка корзины отдавала 500.
+
+        Рендер, а не проверка queryset: падает именно отрисовка.
+        """
+        filterset = MainProductFilter(
+            data=query(search='RAW-777', categories=[self.child.pk, self.electric.pk]),
+            queryset=MainProduct.objects.all(),
+        )
+
+        html = render_to_string('product/partials/category_tree_field.html',
+                                {'field': filterset.form['categories']})
+
+        self.assertEqual(set(filterset.filters['categories'].field.queryset),
+                         {self.root, self.child, self.electric})
+        self.assertIn('Сантехника', html)
+
+    def test_garbage_facet_ids_are_ignored_not_a_crash(self):
+        """Фасеты собираются до валидации формы — мусор не должен ронять pk__in."""
+        filterset = MainProductFilter(data=query(brand=['abc'], categories=['x'], supplier=['1;']),
+                                      queryset=MainProduct.objects.all())
+
+        self.assertEqual(len(filterset.filters['brand'].field.queryset), 2)
 
     def test_selected_brand_stays_in_the_facet_when_the_search_excludes_it(self):
         """Иначе галочку, сузившую выдачу до нуля, нечем было бы снять."""

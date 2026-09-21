@@ -1,0 +1,52 @@
+{% comment %}
+  Выбор колонок — перенос со старой главной.
+
+  Выбор уходит тем же hx-get, что и фильтр, и в ответ приходит таблица:
+  ProductPage сохраняет columns, если они есть в запросе. hx-include тянет
+  текущие фильтры и поиск — иначе смена колонок сбрасывала бы выдачу.
+  hx-push-url выключен: columns в адресной строке пересохраняли бы выбор при
+  каждой перезагрузке страницы, даже после того как его поменяли.
+
+  Пустой выбор нельзя отправить пустым: без единого columns в запросе
+  представление решит, что выбора не было, и покажет сохранённый. Скрытое
+  поле с пустым значением превращает «снял всё» в явный выбор, который
+  normalize_columns сводит к колонкам по умолчанию.
+{% endcomment %}
+<div class="dropdown">
+  <button class="btn btn-outline-secondary dropdown-toggle"
+          type="button"
+          data-bs-toggle="dropdown"
+          data-bs-auto-close="outside"
+          aria-expanded="false">
+    Столбцы
+  </button>
+  <div class="dropdown-menu dropdown-menu-end p-3" style="min-width: 360px; max-height: 55vh; overflow-y: auto;">
+    <form id="product-columns"
+          hx-get="{% url 'products' %}"
+          hx-target="#products-table"
+          hx-swap="outerHTML"
+          hx-push-url="false"
+          hx-include="#product-filter, #products-search"
+          hx-trigger="change delay:1s">
+      <input type="hidden" name="columns" value="">
+      {% for group_label, group_choices in column_groups %}
+        <div class="mb-2 {% if not forloop.last %}border-bottom pb-2{% endif %}">
+          <div class="small fw-semibold text-muted mb-1">{{ group_label }}</div>
+          {% for value, label in group_choices %}
+            <div class="form-check">
+              <input class="form-check-input"
+                     type="checkbox"
+                     value="{{ value }}"
+                     name="columns"
+                     id="columns_{{ forloop.parentloop.counter0 }}_{{ forloop.counter0 }}"
+                     {% if value in selected_columns %}checked{% endif %}>
+              <label class="form-check-label small" for="columns_{{ forloop.parentloop.counter0 }}_{{ forloop.counter0 }}">
+                {{ label }}
+              </label>
+            </div>
+          {% endfor %}
+        </div>
+      {% endfor %}
+    </form>
+  </div>
+</div>

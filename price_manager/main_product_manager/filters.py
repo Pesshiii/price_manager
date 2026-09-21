@@ -153,6 +153,14 @@ class MainProductFilter(FilterSet):
     self.form.helper = helper
     return helper
 
+  def _selected_ids(self, name):
+    """Выбранные pk фасета — только числа.
+
+    Фасеты собираются в __init__, ДО валидации формы, так что мусор из
+    адресной строки уронил бы pk__in с ValueError, а не просто не выбрался бы.
+    """
+    return [pk for pk in selected_values(self.data, name) if str(pk).isdigit()]
+
   @staticmethod
   def _selected_first(queryset, selected):
     """Фасет из того, что есть в выдаче, плюс уже выбранное — выбранное наверху.
@@ -177,21 +185,23 @@ class MainProductFilter(FilterSet):
     молотков, а не весь справочник."""
     self.filters['supplier'].field.queryset = self._selected_first(
       Supplier.objects.filter(pk__in=queryset.values('supplier')),
-      selected_values(self.data, 'supplier'),
+      self._selected_ids('supplier'),
     )
     self.filters['brand'].field.queryset = self._selected_first(
       Brand.objects.filter(pk__in=queryset.values('product__brand')),
-      selected_values(self.data, 'brand'),
+      self._selected_ids('brand'),
     )
 
+    # Предки берутся у объединения «встречается в выдаче» + «выбрано», а не
+    # только у первого. Дерево рисует {% recursetree %}, и выбранный узел без
+    # своих предков он принимает за корень; если следом по дереву идёт узел
+    # мельче уровнем, mptt падает с «not in depth-first order» — модалка
+    # корзины отдаёт 500. Так бывает, когда поиск исключил товары выбранной
+    # категории: её предков в выдаче больше нет.
     category_queryset = Category.objects.filter(
-      pk__in=queryset.values('product__categories')
+      Q(pk__in=queryset.values('product__categories'))
+      | Q(pk__in=self._selected_ids('categories'))
     ).get_ancestors(include_self=True)
-    selected_categories = selected_values(self.data, 'categories')
-    if selected_categories:
-      category_queryset = Category.objects.filter(
-        Q(pk__in=category_queryset) | Q(pk__in=selected_categories)
-      )
     # select_related — см. CATEGORY_LABEL_DEPTH.
     self.filters['categories'].field.queryset = category_queryset.select_related(CATEGORY_LABEL_DEPTH)
 

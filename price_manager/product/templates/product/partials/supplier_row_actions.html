@@ -1,0 +1,13 @@
+{% comment %}
+  Действия строки поставщика: в заявку — тем же окном, что и на старой главной
+  (main/product/actions.html), и карточка строки: цены, их история, ценники.
+{% endcomment %}
+<div class="d-flex gap-1">
+  {% include 'main/product/actions.html' %}
+  <a class="btn btn-sm btn-outline-secondary"
+     href="{% url 'mainproduct-info' record.pk %}"
+     title="Карточка"
+     aria-label="Карточка «{{ record.name }}»">
+    <i class="bi bi-card-text"></i>
+  </a>
+</div>
