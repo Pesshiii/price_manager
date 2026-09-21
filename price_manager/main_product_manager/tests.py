@@ -1027,3 +1027,26 @@ class PimErrorNotificationTests(TestCase):
         maybe_notify_pim_error(self.user)
 
         self.assertEqual(self._notification_count(), 0)
+
+
+class SyncButtonTests(TestCase):
+    """«Обновить» есть и на старой главной, и на /products/."""
+
+    def test_sync_refreshes_the_page_it_was_pressed_on(self):
+        from unittest import mock
+
+        from django.contrib.auth.models import User
+        from django.urls import reverse
+
+        user = User.objects.create_user(username='sync-tester', password='pw')
+        self.client.force_login(user)
+
+        with mock.patch('main_product_manager.views.sync_main_products_task') as task:
+            response = self.client.get(reverse('mainproducts-sync'), HTTP_HX_REQUEST='true',
+                                       HTTP_REFERER='/products/')
+
+        task.assert_called_once_with(user.pk)
+        # HX-Refresh, а не HX-Redirect на 'mainproducts': иначе кнопка на
+        # товарной странице уводила бы на старую главную.
+        self.assertEqual(response.headers.get('HX-Refresh'), 'true')
+        self.assertNotIn('HX-Redirect', response.headers)
