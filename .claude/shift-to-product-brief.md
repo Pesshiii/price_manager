@@ -516,13 +516,14 @@ What 2b-2 also had to do, found by consulting the three keepers first:
 - the whole `sync_pim_relations` chain, the «Добавить производителя в ГП» admin
   action, `CategoryFilter`, the PIM-categories import resource and command, and
   `export_manufacturers_for_pim` (P2-G4 done) are deleted;
-- the main-price export keeps its «Производитель» / «Название_группы» /
-  «HTML_описание» columns and no longer imports them. **Description** reads the
-  supplier row first (what the dropped column was copied from), then PIM —
-  coverage kept. **Brand** has no other source (D1), so «Производитель» drops
-  from supplier-manufacturer coverage (~76%) to PIM-brand coverage (~15%, §0.4)
-  until PIM is enriched. That is a visible change in a file users download;
-  it was put to the user rather than decided here.
+- the main-price export keeps «Название_группы» / «HTML_описание» and no longer
+  imports them. **Description** reads the supplier row first (what the dropped
+  column was copied from), then PIM — coverage kept. **«Производитель» is
+  removed from the export — the user's decision.** Its only remaining source,
+  the PIM brand (D1), covers ~15% of products against ~76% for the supplier
+  manufacturer it replaced (§0.4); a mostly empty column was judged worse than
+  none. The cart's own Excel export (Phase 2a) still has a PIM-brand
+  «Производитель» column — a separate file, not part of that decision.
 
 **Deploy note:** the three migrations are independent of each other but all
 run after deploy; run them with the app briefly idle — 0004 is the one that can

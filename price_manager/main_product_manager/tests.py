@@ -1050,7 +1050,7 @@ class SyncButtonTests(TestCase):
 class MainProductExportTests(_PimSearchTestCase):
     """Выгрузка главного прайса: колонки прежние, значения — из PIM (Product)."""
 
-    def test_brand_group_and_description_come_from_the_product(self):
+    def test_group_and_description_come_from_the_product(self):
         from product.models import Brand, Category
 
         from .resources import MainProductResource
@@ -1070,10 +1070,9 @@ class MainProductExportTests(_PimSearchTestCase):
 
         rows = {row['sku']: row for row in MainProductResource().export(MainProduct.objects.all()).dict}
 
-        self.assertEqual(rows['EXP-1']['Производитель'], 'Bosch')
         self.assertEqual(rows['EXP-1']['Название_группы'], 'Инструмент > Дрели')
         self.assertEqual(rows['EXP-1']['HTML_описание'], '<p>Мощная</p>')
-        self.assertEqual((rows['EXP-2']['Производитель'], rows['EXP-2']['Название_группы']), ('', ''))
+        self.assertEqual(rows['EXP-2']['Название_группы'], '')
         # Описание — прежде всего из строки прайса: именно его хранил удалённый
         # MainProduct.description. Без этого у товаров без контента PIM (их
         # большинство) колонка опустела бы.
@@ -1090,6 +1089,17 @@ class MainProductExportTests(_PimSearchTestCase):
         row = MainProductResource().export(MainProduct.objects.all()).dict[0]
 
         self.assertEqual(row['HTML_описание'], 'Из прайса')
+
+    def test_manufacturer_column_is_gone(self):
+        """Решение пользователя в Phase 2b: бренд PIM покрывает ~15% товаров
+        против ~76% у прежнего производителя — колонку убрали, а не оставили
+        в основном пустой."""
+        from .resources import MainProductResource
+
+        headers = MainProductResource().export(MainProduct.objects.none()).headers
+
+        self.assertNotIn('Производитель', headers)
+        self.assertIn('Название_группы', headers)
 
     def test_the_dropped_columns_are_no_longer_importable(self):
         from .resources import MainProductResource

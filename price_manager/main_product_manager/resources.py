@@ -56,12 +56,15 @@ class MainProductResource(resources.ModelResource):
         attribute="supplier",
         widget=SupplierWidget(Supplier, "name"),
     )
-    # Производитель, группа и описание — только на выгрузку и из PIM (Product):
-    # собственные manufacturer, categories и description у MainProduct удалены
-    # в Phase 2b. Колонки и их заголовки прежние, чтобы не сломать тех, кто
-    # грузит этот файл дальше; на импорт они больше не принимаются — писать
-    # их некуда.
-    manufacturer = fields.Field(column_name="Производитель")
+    # Группа и описание — только на выгрузку: собственные categories и
+    # description у MainProduct удалены в Phase 2b. Заголовки прежние, чтобы не
+    # сломать тех, кто грузит этот файл дальше; на импорт они больше не
+    # принимаются — писать их некуда.
+    #
+    # Колонки «Производитель» больше нет — решение пользователя в Phase 2b.
+    # Единственный оставшийся источник, бренд из PIM (D1), покрывает ~15%
+    # товаров против ~76% у производителя от поставщиков; колонку сочли лучше
+    # убрать, чем отдавать в основном пустой.
     category = fields.Field(column_name="Название_группы")
     supplier_prices = fields.Field(column_name='Supplier Prices')
     m_price = fields.Field(
@@ -85,7 +88,6 @@ class MainProductResource(resources.ModelResource):
             "name",
             "description",
             "category",
-            "manufacturer",
             "stock",
             "prime_cost",
             "wholesale_price",
@@ -113,7 +115,7 @@ class MainProductResource(resources.ModelResource):
         report_skipped = True
 
     def export(self, queryset=None, **kwargs):
-        # Колонки ходят в product, его бренд и категории и в строки прайса —
+        # Колонки ходят в product, его категории и в строки прайса —
         # без предзагрузки это несколько запросов на каждую из ~160 тыс. строк.
         if queryset is None:
             queryset = self.get_queryset()
@@ -121,16 +123,12 @@ class MainProductResource(resources.ModelResource):
         from product.filters import CATEGORY_LABEL_DEPTH
         from product.models import Category as ProductCategory
 
-        queryset = queryset.select_related('supplier', 'product__brand').prefetch_related(
+        queryset = queryset.select_related('supplier', 'product').prefetch_related(
             Prefetch('product__categories',
                      queryset=ProductCategory.objects.select_related(CATEGORY_LABEL_DEPTH)),
             'supplierproducts__supplier__currency',
         )
         return super().export(queryset, **kwargs)
-
-    def dehydrate_manufacturer(self, mainproduct):
-        product = mainproduct.product
-        return product.brand.name if product and product.brand else ""
 
     def dehydrate_category(self, mainproduct):
         """Путь первой категории товара: 'Инструмент > Ручной инструмент'."""
