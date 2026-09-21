@@ -84,6 +84,34 @@
     </div>
 
     <div class="col-12 col-lg-8 ps-lg-4">
+      <div class="d-flex align-items-center justify-content-between flex-wrap gap-2 mb-3">
+        <h1 class="h2 fw-semibold mb-0">Товары</h1>
+        <div class="d-flex gap-2">
+          {% include 'product/partials/columns_picker.html' %}
+          <button type="button"
+                  class="btn btn-outline-primary"
+                  title="Добавить товар"
+                  data-bs-toggle="modal"
+                  data-bs-target="#modal-container"
+                  hx-get="{% url 'mainproduct-create' %}"
+                  hx-target="#modal-container .modal-content"
+                  hx-swap="innerHTML">
+            Добавить товар
+          </button>
+          {% comment %}
+            hx-swap="none": ответ — HX-Refresh, страница перезагрузится сама,
+            а сообщение «Синхронизация запущена» покажет django.contrib.messages.
+          {% endcomment %}
+          <button type="button"
+                  class="btn btn-primary"
+                  title="Обновить цены, остатки и векторы"
+                  hx-get="{% url 'mainproducts-sync' %}"
+                  hx-swap="none">
+            Обновить
+          </button>
+        </div>
+      </div>
+
       <form id="products-search-form"
             hx-get="{% url 'products' %}"
             hx-target="#products-table"
@@ -98,6 +126,22 @@
 
       {% include 'product/partials/coverage_note.html' %}
       {% include 'product/partials/table.html' %}
+    </div>
+  </div>
+
+  {% comment %}
+    Контейнер модалок: «Добавить товар» и «В заявку» из строк поставщиков
+    открываются в нём. На старой главной он жил в её list.html.
+  {% endcomment %}
+  <div id="modal-container" class="modal modal-xl fade" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog">
+      <div class="modal-content">
+        <div class="container d-flex justify-content-center mb-4 mt-4">
+          <div class="spinner-grow" role="status"></div>
+          <div class="spinner-grow" role="status"></div>
+          <div class="spinner-grow" role="status"></div>
+        </div>
+      </div>
     </div>
   </div>
 {% endblock %}

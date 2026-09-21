@@ -333,7 +333,27 @@ Comparing a PIM brand against `MainProduct.manufacturer` is partly comparing
 PIM with itself. On raw supplier data the two agree **99.2%** where both exist
 (21,381 of 21,559); see §0.5 of `.claude/shift-to-product-brief.md`.
 
-## `MainProductFilter.search_rank` — `F()`, not a string
+## Two filtersets since Phase 2a — which one you are looking at
+
+Since Phase 2a (2026-09-21) `filters.py` holds two classes, and the name that
+used to mean "the main page's filter" now means something else:
+
+- **`MainProductFilter`** — the cart's «Добавить товары» modal
+  (`core/views.py` `CartItemProductSelectView`), the shopping-tab import
+  auto-match (`core/utils.py` `find_main_products`) and «Привязать из ГП»
+  (`ResolveMainproduct`). Rows are still MainProduct, but search, brand and
+  categories go **through `MainProduct.product`**, using [[product]]'s shared
+  `matching_product_pks`. It must not touch `MainProduct.search_vector`,
+  `.categories` or `.manufacturer`: Phase 2b drops them, and `core/views.py`
+  imports this class at module scope, so a stale reference stops the whole app
+  booting. Rows without a Product are still found by own `sku`/`name`/`article`
+  — in the cart, invisible would mean unbuyable.
+- **`MainPageFilter`** — the old main page only, byte-for-byte the previous
+  `MainProductFilter`. It lives until Phase 2b deletes it with the page. Do not
+  wire anything new to it. Everything below about `search_rank`, `.getlist()`
+  and `GROUP BY` describes this class.
+
+## `MainPageFilter.search_rank` — `F()`, not a string
 
 Fixed 2026-09-19. It used to pass the string `"search_vector"` to
 `SearchRank`, which Django treats as a text field to vectorize:
@@ -343,12 +363,12 @@ the GIN index. It is now `F("search_vector")`. Because the method is shared by
 `search_method` and `MainProductTableView`'s group ordering, the one fix covers
 both. The same bug had been copied into [[product]]'s `ProductFilter`.
 
-Separately, `MainProductFilter` still calls `self.data.getlist()` directly in
+Separately, `MainPageFilter` still calls `self.data.getlist()` directly in
 `config_filters`. That works only because views always pass `request.GET`;
 building the filterset from a plain `dict` raises `AttributeError` inside
 `__init__`. Use a `QueryDict` in shell and tests.
 
-## `MainProductFilter` — `.order_by()` bleeding into `GROUP BY`
+## `MainPageFilter` — `.order_by()` bleeding into `GROUP BY`
 
 `search_method`'s `.order_by("-rank")` (`filters.py:200`) folds into
 `GROUP BY` once `get_table_data` (`views.py:194-201`) does

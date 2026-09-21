@@ -61,7 +61,8 @@ squash-merges, so they do not survive onto `main`.*
 | §5 Live-PIM filter (D15) | ✅ **Resolved: dropped.** Local mirror is the final design |
 | R8 stale category mirror | ✅ **Closed** — `sync_category_tree_from_pim` |
 | D1 revisited | ✅ **Reaffirmed as final** — see §0.5; imposes **P2-G4** |
-| §4 Phase 2 (all destructive work) | ❌ Not started, by design (D10). **Gated by P2-G4.** |
+| §4.0 Phase 2a — decouple and port (additive, no migrations) | ✅ **Done** — see §4.0 |
+| §4 Phase 2b — the destructive drops | ❌ Not started. **Gated by P2-G4** (export run in prod and handed over) |
 
 Full suite green (428 tests). Verified end to end on a restore of the production snapshot
 with content loaded from the live PIM.
@@ -414,6 +415,60 @@ Restore via the **`prod-snapshot` skill** (never over `price_manager_db`). **Agg
 
 ## 4. Phase 2 — destructive, after the new page is in real use
 
+### 4.0 Phase 2a — decouple and port first (additive, done)
+
+Measuring §4's blast radius before writing a migration turned up consumers this brief never
+named. Phase 2 is therefore **two PRs**: 2a moves every survivor off the doomed columns and
+ports what the old page had, with **no migration**; 2b is the drops. 2a can ship and be used
+on real data first, and 2b then arrives as a diff that is mostly migrations, which is what
+§4.2's snapshot validation needs.
+
+**The finding: `MainProductFilter` had three consumers that outlive the old page.** It was
+built on `MainProduct.search_vector`, `.categories` and `.manufacturer`, and `core/views.py`
+imports it at module scope — so dropping those columns would not break a page, it would stop
+**the whole app booting**. The consumers:
+
+| Consumer | What it is |
+|---|---|
+| `core/views.py` `CartItemProductSelectView` | the cart's «Добавить товары» modal |
+| `core/utils.py` `find_main_products` | auto-match when a shopping-tab spreadsheet is imported |
+| `main_product_manager/views.py` `ResolveMainproduct` | «Привязать из ГП» on the MainProduct card |
+
+**What 2a did:**
+- `MainProductFilter` keeps **MainProduct as the row** — you buy from a specific supplier —
+  but searches and facets **through `MainProduct.product`**: the product page's own search
+  (`product/filters.py` `matching_product_pks`, now shared), `product.Brand`,
+  `product.Category`. Rows with `product IS NULL` are still found by their own
+  `sku`/`name`/`article`: D5 accepted invisibility on the browse page, and in the cart
+  invisibility would mean *unbuyable*, which nobody decided.
+- The old page got its own **`MainPageFilter`** (the previous code, unchanged) and lives on it
+  until 2b deletes both.
+- The cart, its candidate list and its Excel export show the **PIM brand** instead of
+  `manufacturer`. The export column keeps its «Производитель» header for downstream users.
+- **Port of the old page onto `/products/`** (user chose "full port incl. column picker"):
+  per-user column picker (`product/columns.py`) over the expanded supplier rows — all seven
+  prices, supplier price/РРЦ/discount from the latest `SupplierProduct`, stock message,
+  delivery days, supplier fields, update dates; optional PIM columns on the product row
+  (tags, EAN, status, photo); «В заявку» and card link per supplier row; «Добавить товар» and
+  «Обновить» buttons. Not ported, deliberately: the dropped fields, and the `pim_*` columns
+  the product row already shows. **Photo is the one network call on the page** (PIM knows the
+  file URL, `raw_data` only the id), so it is opt-in.
+- Column preferences live under **their own cache key**. The old page's key holds lists
+  naming `manufacturer`, `weight` and the rest; `normalize_columns` would drop them, but 2b
+  should not depend on that for data nobody chose here.
+
+**What 2b must now also do, beyond items 1–5 below:** delete `MainPageFilter`, the old page's
+views/templates/`grouping.py`/`columns.py`/`test_grouping.py`/`test_tables.py`, the old
+column-preference helpers and `MAINPRODUCT_GROUPING_ROW_LIMIT`; drop `manufacturer`,
+`categories` and the dimensions from `MainProductCreateForm`/`MainProductForm`; and call
+`_link_to_local_product` **explicitly** in `MainProductCreate.form_valid`. Today a row made
+by «Добавить товар» is linked to its Product as a side effect of `rebuild_search_vector()` →
+`_build_searchvector()`, which item 1 deletes. It would still get linked afterwards — by the
+redirect to its card (`get_pim_data_for_product` links first) and by `reindex_pim_ids`'
+`link_unlinked_main_products` — but only by accident of the redirect, and until then it is
+invisible on the page that created it.
+
+
 Separate PR. Each item is irreversible on prod. Unchanged from the original spec except
 where F2/F4 relaxed the gates.
 
@@ -721,6 +776,14 @@ contains only what it should.
   `__init__` and takes the whole filterset down. `ProductFilter._selected()` handles both.
 - **`FilterView` alone puts no `table` in the context.** Use `SingleTableMixin, FilterView`
   when the table renders inline.
+- **A category facet narrowed to the result set must keep the ancestors of what is
+  *selected*, not just of what is found.** `{% recursetree %}` treats a node without its
+  parent as a root, and a later node of lower level then raises «not in depth-first order» —
+  a 500, not a cosmetic glitch. It happens exactly when a search excludes the products of an
+  already-ticked category. Take `get_ancestors(include_self=True)` of the *union*. Found in
+  the cart modal during 2a; `ProductFilter` is immune only because it offers the whole tree.
+- **Facets built in a filterset's `__init__` run before form validation.** A non-numeric id
+  from the address bar reaches `pk__in` raw and raises `ValueError`. Keep only digits there.
 
 ---
 

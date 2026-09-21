@@ -1,35 +1,11 @@
+{% load django_tables2 %}
 {% comment %}
   Строки поставщиков под товаром. MainProduct здесь — то, чем он и остаётся
-  после переноса: остатки и цены конкретного поставщика.
+  после переноса: остатки и цены конкретного поставщика. Колонки выбирает
+  пользователь (product/columns.py), таблица — SupplierRowTable.
 {% endcomment %}
 {% if main_products %}
-  <table class="table table-sm mb-0">
-    <thead>
-      <tr>
-        <th>Поставщик</th>
-        <th>Артикул поставщика</th>
-        <th>Артикул товара</th>
-        <th>Себестоимость</th>
-        <th>Базовая цена</th>
-        <th>Цена ИМ</th>
-        <th>Остаток</th>
-      </tr>
-    </thead>
-    <tbody>
-      {% for mp in main_products %}
-        <tr>
-          <td>{{ mp.supplier.name|default:'—' }}</td>
-          <td>{{ mp.article|default:'—' }}</td>
-          <td>{{ mp.sku|default:'—' }}</td>
-          <td>{{ mp.prime_cost|default:'—' }}</td>
-          <td>{{ mp.basic_price|default:'—' }}</td>
-          <td>{{ mp.m_price|default:'—' }}</td>
-          {# NULL и 0 — разные состояния: «не синхронизировался» против «нет в наличии» #}
-          <td>{% if mp.stock is None %}Нет данных{% else %}{{ mp.stock }}{% endif %}</td>
-        </tr>
-      {% endfor %}
-    </tbody>
-  </table>
+  {% render_table table %}
 {% else %}
   <p class="text-muted small mb-0 p-3">Ни один поставщик не привязан к этому товару.</p>
 {% endif %}

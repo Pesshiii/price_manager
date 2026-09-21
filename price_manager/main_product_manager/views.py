@@ -64,7 +64,7 @@ logger = logging.getLogger(__name__)
 
 class MainPage(FilterView):
   model = MainProduct
-  filterset_class = MainProductFilter
+  filterset_class = MainPageFilter
   template_name = 'mainproduct/list.html'
   def get_template_names(self) -> list[str]:
       if self.request.htmx:
@@ -114,7 +114,7 @@ class MainProductFilterView(View):
   def get(self, request, *args, **kwargs):
     if not request.htmx:
       return redirect(reverse_lazy('mainproducts'))
-    filterset = MainProductFilter(request.GET)
+    filterset = MainPageFilter(request.GET)
     filterset.build_helper(url=reverse_lazy('mainproducts'))
     return render(request, 'mainproduct/partials/filter.html', {'filter': filterset})
 
@@ -159,7 +159,7 @@ class MainProductTableView(SingleTableView):
       'supplier_product_discount_price': Subquery(discount_price_sq),
     }
 
-    filtered = MainProductFilter(self.request.GET).qs
+    filtered = MainPageFilter(self.request.GET).qs
     if self.category_pk:
       filtered = filtered.filter(categories=Category.objects.get(pk=self.category_pk))
     else:
@@ -205,7 +205,7 @@ class MainProductTableView(SingleTableView):
 
     # rank не переживает пересборку queryset, а групповая сортировка по
     # релевантности его требует — навешиваем заново тем же выражением.
-    rank = MainProductFilter.search_rank(self.request.GET.get('search', ''))
+    rank = MainPageFilter.search_rank(self.request.GET.get('search', ''))
     searching = rank is not None
     if searching:
       qs = qs.annotate(rank=rank)
@@ -231,10 +231,14 @@ class MainProductTableView(SingleTableView):
 # Обработка продуктов главного прайса
 
 def sync_main_products(request, **kwargs):
-  """Запускает асинхронную синхронизацию MainProduct."""
+  """Запускает асинхронную синхронизацию MainProduct.
+
+  Refresh, а не redirect на 'mainproducts': кнопка есть и на товарной
+  странице, и вернуть человека надо туда, откуда он нажал.
+  """
   sync_main_products_task(request.user.id)
   messages.info(request, "Синхронизация запущена")
-  return HttpResponseClientRedirect(reverse('mainproducts'))
+  return HttpResponseClientRefresh()
 
 
 
@@ -402,13 +406,13 @@ class MainProductBulkCategoryView(FormView):
 
   def get_context_data(self, **kwargs):
     context = super().get_context_data(**kwargs)
-    queryset = MainProductFilter(self.request.GET).qs
+    queryset = MainPageFilter(self.request.GET).qs
     context['products_count'] = queryset.count()
     context['query_string'] = self.request.GET.urlencode()
     return context
 
   def form_valid(self, form):
-    queryset = MainProductFilter(self.request.GET).qs
+    queryset = MainPageFilter(self.request.GET).qs
     category = form.cleaned_data['category']
     updated_ids = list(queryset.values_list('pk', flat=True))
     updated_count = len(updated_ids)

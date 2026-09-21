@@ -14,8 +14,8 @@
       </p>
 
       <dl class="ci-spec">
-        <dt>Производитель</dt>
-        <dd>{{ item.confirmed_product.manufacturer|default:"—" }}</dd>
+        <dt>Бренд</dt>
+        <dd>{{ item.confirmed_product.product.brand.name|default:"—" }}</dd>
         <dt>Наличие</dt>
         <dd>{% include 'shopping_tab/includes/stock_badge.html' with product=item.confirmed_product %}</dd>
         <dt>Цена</dt>
