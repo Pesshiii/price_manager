@@ -67,40 +67,34 @@
             {% endfor %}
         </div>
         {% endif %}
-        <script>
-            const initCheckboxFilters = () => {
-                const filterBlocks = document.querySelectorAll('[data-checkbox-filter]');
-                filterBlocks.forEach((block) => {
-
-                const search = block.querySelector('[data-checkbox-filter-search]');
-                const items = Array.from(block.querySelectorAll('[data-checkbox-filter-item]'));
-
-                const applySearch = () => {
-                    if (!search) {
-                    return;
-                    }
-                    const term = search.value.trim().toLowerCase();
-                    items.forEach((item) => {
-                    const name = (item.dataset.checkboxFilterText || '').toLowerCase();
-                    item.classList.toggle('d-none', (term && !name.includes(term)));
-                    if (item.querySelector('input').checked) {
-                        item.classList.remove('d-none');
-                    }
-                    });
-                };
-
-                if (search) {
-                    search.addEventListener('input', applySearch);
-                }
-
-                applySearch();
-                });
-            };
-
-            document.addEventListener('DOMContentLoaded', initCheckboxFilters);
-            document.body.addEventListener('htmx:load', initCheckboxFilters);
-        </script>
     </div>
     {%endpartialdef%}
+
+    {# Included once per facet, so the script must be idempotent: a top-level const would be redeclared by the second include. The search input sits outside #checkboxes_* and survives its OOB swap, so items are re-queried on every input instead of captured. #}
+    <script>
+        if (!window.__priceManagerCheckboxFilterInit) {
+            window.__priceManagerCheckboxFilterInit = true;
+            const applyCheckboxSearch = (block) => {
+                const search = block.querySelector('[data-checkbox-filter-search]');
+                if (!search) return;
+                const term = search.value.trim().toLowerCase();
+                block.querySelectorAll('[data-checkbox-filter-item]').forEach((item) => {
+                    const name = (item.dataset.checkboxFilterText || '').toLowerCase();
+                    const isChecked = item.querySelector('input').checked;
+                    item.classList.toggle('d-none', Boolean(term) && !name.includes(term) && !isChecked);
+                });
+            };
+            const applyAllCheckboxSearches = () => {
+                document.querySelectorAll('[data-checkbox-filter]').forEach(applyCheckboxSearch);
+            };
+            document.addEventListener('input', (event) => {
+                if (!event.target.matches('[data-checkbox-filter-search]')) return;
+                const block = event.target.closest('[data-checkbox-filter]');
+                if (block) applyCheckboxSearch(block);
+            });
+            document.addEventListener('DOMContentLoaded', applyAllCheckboxSearches);
+            document.addEventListener('htmx:load', applyAllCheckboxSearches);
+        }
+    </script>
 </div>
 
