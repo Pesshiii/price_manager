@@ -1,38 +1,8 @@
-import json
 from import_export import resources, fields
 from import_export.widgets import ForeignKeyWidget, ManyToManyWidget
-from difflib import get_close_matches
 from .models import *
-from supplier_manager.models import ManufacturerDict, Discount
+from supplier_manager.models import Discount
 
-class CategoryWidget(ManyToManyWidget):
-    """Категория строкой: 'Инструмент > Ручной инструмент > Отвертки'."""
-
-    def clean(self, value, row=None, *args, **kwargs):
-        if not value:
-            return []
-        parts = [p.strip() for p in str(value).split(">") if p and str(p).strip()]
-        parent = None
-        node = None
-        for name in parts[:10]:
-            node, _ = Category.objects.get_or_create(name=name, parent=parent)
-            parent = node
-        return [node] if node else []
-
-    def render(self, value, obj=None, **kwargs):
-        if not value:
-            return ""
-        cat = value.first() if hasattr(value, 'first') else next(iter(value), None)
-        if not cat:
-            return ""
-        path = []
-        cur = cat
-        while cur:
-            path.append(cur.name)
-            cur = cur.parent
-        return " > ".join(reversed(path))
-    
-    
 class MainProductWidget(ForeignKeyWidget):
     """Главный продукт по артикулу и поставщику."""
 
@@ -66,42 +36,6 @@ class SupplierWidget(ForeignKeyWidget):
         supplier, _ = Supplier.objects.get_or_create(name=value)
         return supplier
     
-class ManufacturerWidget(ForeignKeyWidget):
-    """Производитель по названию."""
-
-    def clean(self, value, row=None, *args, **kwargs):
-        if not value:
-            return None
-        normalized_name = str(value).strip()
-        if not normalized_name:
-            return None
-
-        # 1) Точное совпадение по имени производителя
-        manufacturer = Manufacturer.objects.filter(name__iexact=normalized_name).first()
-        if manufacturer:
-            return manufacturer
-
-        # 2) Сопоставление через словарь вариаций производителя
-        manufacturer_dict = ManufacturerDict.objects.filter(
-            name__iexact=normalized_name
-        ).select_related("manufacturer").first()
-        if manufacturer_dict:
-            return manufacturer_dict.manufacturer
-
-        # 3) Пытаемся сопоставить с уже существующим производителем
-        existing_names = list(Manufacturer.objects.values_list("name", flat=True))
-        close_matches = get_close_matches(normalized_name, existing_names, n=1, cutoff=0.85)
-        if close_matches:
-            manufacturer = Manufacturer.objects.get(name=close_matches[0])
-            ManufacturerDict.objects.get_or_create(
-                name=normalized_name,
-                defaults={"manufacturer": manufacturer},
-            )
-            return manufacturer
-
-        # 4) Если сопоставить не удалось — создаём нового производителя
-        return Manufacturer.objects.create(name=normalized_name)
-
 class DiscountWidget(ManyToManyWidget):
     """Скидки по названию."""
 
@@ -122,16 +56,16 @@ class MainProductResource(resources.ModelResource):
         attribute="supplier",
         widget=SupplierWidget(Supplier, "name"),
     )
-    manufacturer = fields.Field(
-        column_name="Производитель",
-        attribute="manufacturer",
-        widget=ManufacturerWidget(Manufacturer, "name"),
-    )
-    category = fields.Field(
-        column_name="Название_группы",
-        attribute="categories",
-        widget=CategoryWidget(Category),
-    )
+    # Группа и описание — только на выгрузку: собственные categories и
+    # description у MainProduct удалены в Phase 2b. Заголовки прежние, чтобы не
+    # сломать тех, кто грузит этот файл дальше; на импорт они больше не
+    # принимаются — писать их некуда.
+    #
+    # Колонки «Производитель» больше нет — решение пользователя в Phase 2b.
+    # Единственный оставшийся источник, бренд из PIM (D1), покрывает ~15%
+    # товаров против ~76% у производителя от поставщиков; колонку сочли лучше
+    # убрать, чем отдавать в основном пустой.
+    category = fields.Field(column_name="Название_группы")
     supplier_prices = fields.Field(column_name='Supplier Prices')
     m_price = fields.Field(
         column_name="Цена",
@@ -139,9 +73,7 @@ class MainProductResource(resources.ModelResource):
     stock = fields.Field(
         column_name="Количество",
         attribute="stock")
-    description = fields.Field(
-        column_name='HTML_описание',
-        attribute='description')
+    description = fields.Field(column_name='HTML_описание')
 
 
     class Meta:
@@ -156,7 +88,6 @@ class MainProductResource(resources.ModelResource):
             "name",
             "description",
             "category",
-            "manufacturer",
             "stock",
             "prime_cost",
             "wholesale_price",
@@ -170,8 +101,6 @@ class MainProductResource(resources.ModelResource):
             "supplier",
             "article",
             "name",
-            "category",
-            "manufacturer",
             "stock",
             "prime_cost",
             "basic_price",
@@ -184,6 +113,50 @@ class MainProductResource(resources.ModelResource):
         import_id_fields = ("id",)
         skip_unchanged = True
         report_skipped = True
+
+    def export(self, queryset=None, **kwargs):
+        # Колонки ходят в product, его категории и в строки прайса —
+        # без предзагрузки это несколько запросов на каждую из ~160 тыс. строк.
+        if queryset is None:
+            queryset = self.get_queryset()
+        from django.db.models import Prefetch
+        from product.filters import CATEGORY_LABEL_DEPTH
+        from product.models import Category as ProductCategory
+
+        queryset = queryset.select_related('supplier', 'product').prefetch_related(
+            Prefetch('product__categories',
+                     queryset=ProductCategory.objects.select_related(CATEGORY_LABEL_DEPTH)),
+            'supplierproducts__supplier__currency',
+        )
+        return super().export(queryset, **kwargs)
+
+    def dehydrate_category(self, mainproduct):
+        """Путь первой категории товара: 'Инструмент > Ручной инструмент'."""
+        product = mainproduct.product
+        # .all()[0], а не .first(): first() добавляет ORDER BY и обходит
+        # предзагрузку. Путь — по уже загруженной цепочке parent.
+        categories = list(product.categories.all()) if product else []
+        if not categories:
+            return ""
+        path, node = [], categories[0]
+        while node is not None:
+            path.append(node.name)
+            node = node.parent
+        return " > ".join(reversed(path))
+
+    def dehydrate_description(self, mainproduct):
+        """Описание строки прайса поставщика, иначе — из PIM.
+
+        Строка прайса — первой: удалённое MainProduct.description копировалось
+        ровно оттуда (copy-to-main), так что колонка сохраняет прежние
+        значения. PIM — запасной источник: контент из PIM есть лишь у части
+        товаров, и брать его первым значило бы потерять большинство описаний.
+        """
+        for supplier_row in mainproduct.supplierproducts.all():
+            if supplier_row.description:
+                return supplier_row.description
+        product = mainproduct.product
+        return (product.raw_data or {}).get('description') or "" if product else ""
 
     def dehydrate_supplier_prices(self, mainproduct):
         """Format all supplier prices for this main product"""
@@ -204,83 +177,3 @@ class MainProductResource(resources.ModelResource):
     def get_export_fields(self, selected_fields=None):
         """Ограничить набор экспортируемых полей"""
         return [self.fields[f] for f in self.Meta.export_fields]
-
-
-class PimCategoryWidget(ManyToManyWidget):
-    """Parses PIM category IDs from 'Categories' column and returns the
-    categories that belong to the 'Main tree' (Основной, parent=None)."""
-
-    def __init__(self, *args, **kwargs):
-        super().__init__(Category, *args, **kwargs)
-
-    def _get_main_tree_map(self):
-        try:
-            main_tree = Category.objects.get(name='Основной', parent=None)
-        except Category.DoesNotExist:
-            return {}
-        return {
-            cat.pim_id: cat
-            for cat in main_tree.get_descendants().exclude(pim_id__isnull=True)
-        }
-
-    def clean(self, value, row=None, *args, **kwargs):
-        if not value:
-            return []
-        if isinstance(value, str):
-            stripped = value.strip()
-            if stripped.startswith('['):
-                try:
-                    pim_ids = json.loads(stripped)
-                except json.JSONDecodeError:
-                    pim_ids = [v.strip() for v in stripped.strip('[]').split(',') if v.strip()]
-            else:
-                pim_ids = [v.strip() for v in stripped.split(',') if v.strip()]
-        elif isinstance(value, (list, tuple)):
-            pim_ids = list(value)
-        else:
-            pim_ids = [str(value)]
-
-        cat_map = self._get_main_tree_map()
-        return [
-            cat_map[str(pim_id).strip()]
-            for pim_id in pim_ids
-            if str(pim_id).strip() in cat_map
-        ]
-
-    def render(self, value, obj=None, **kwargs):
-        if not value:
-            return ''
-        return ','.join(cat.pim_id for cat in value if cat.pim_id)
-
-
-class MainProductPimImportResource(resources.ModelResource):
-    """Import MainProduct categories exported from PIM.
-
-    Expected columns:
-      PriceManagerId  – MainProduct.id (used to locate the record)
-      Categories      – JSON/CSV list of PIM category IDs; the first one found
-                        in the 'Main tree' (Основной) is assigned as category
-
-    The export's ID column (a PIM Product id) is deliberately not read: the
-    link to PIM now lives in PriceManagerProduct, pushed by reindex_pim_ids,
-    and product.Product.pim_id holds that record's id, not a Product's.
-    """
-    id = fields.Field(column_name='PriceManagerId', attribute='id')
-    category = fields.Field(
-        column_name='Categories',
-        attribute='categories',
-        widget=PimCategoryWidget(),
-    )
-
-    class Meta:
-        model = MainProduct
-        import_id_fields = ('id',)
-        fields = ('id', 'category')
-        skip_unchanged = True
-        report_skipped = True
-
-    def skip_row(self, instance, original, row, import_validation_errors=None):
-        # только обновление — пропускаем строки без совпадения в БД
-        if instance.pk is None:
-            return True
-        return super().skip_row(instance, original, row, import_validation_errors)

@@ -132,6 +132,66 @@ class PriceManagerDiscountFilteringTests(TestCase):
         self.assertEqual(fitting.first().changed_price, Decimal('10'))
 
 
+class PriceManagerCategoryScopingTests(TestCase):
+    """Категории правила — product.Category, через MainProduct.product (Phase 2b, D4)."""
+
+    def setUp(self):
+        from product.models import Category, Product
+
+        currency, _ = Currency.objects.get_or_create(name='KZT', defaults={'value': Decimal('1')})
+        self.supplier = Supplier.objects.create(
+            name='Scoped supplier', currency=currency, price_update_rate='', stock_update_rate='',
+            delivery_days_available=1, delivery_days_navailable=2,
+        )
+        self.tools = Category.objects.create(name='Инструмент')
+        self.drills = Category.objects.create(name='Дрели', parent=self.tools)
+        self.lights = Category.objects.create(name='Свет')
+
+        def offer(article, category):
+            product = Product.objects.create(number=f'N-{article}')
+            if category:
+                product.categories.add(category)
+            mp = MainProduct.objects.create(supplier=self.supplier, article=article, name=article,
+                                            product=product)
+            SupplierProduct.objects.create(main_product=mp, supplier=self.supplier, article=article,
+                                           name=article, supplier_price=Decimal('10'))
+            return mp
+
+        self.tool = offer('TOOL', self.tools)
+        self.drill = offer('DRILL', self.drills)
+        self.light = offer('LIGHT', self.lights)
+        self.unlinked = MainProduct.objects.create(supplier=self.supplier, article='RAW', name='RAW')
+        SupplierProduct.objects.create(main_product=self.unlinked, supplier=self.supplier,
+                                       article='RAW', name='RAW', supplier_price=Decimal('10'))
+
+    def _manager(self):
+        return PriceManager.objects.create(
+            name='PM-CAT', supplier=self.supplier, source='supplier_price', dest='basic_price',
+            markup=Decimal('0'), increase=Decimal('0'),
+        )
+
+    def test_rule_without_categories_applies_to_every_row(self):
+        fitting = set(self._manager().get_fitting_mps().values_list('pk', flat=True))
+
+        self.assertEqual(fitting, {self.tool.pk, self.drill.pk, self.light.pk, self.unlinked.pk})
+
+    def test_scoped_rule_matches_exactly_the_chosen_categories(self):
+        """Как и до переноса — без разворота на потомков: «Инструмент» не
+        захватывает «Дрели». Строка без товара под такое правило не попадает."""
+        manager = self._manager()
+        manager.categories.add(self.tools)
+
+        self.assertEqual(list(manager.get_fitting_mps().values_list('pk', flat=True)), [self.tool.pk])
+
+    def test_product_in_two_chosen_categories_is_one_row(self):
+        self.tool.product.categories.add(self.lights)
+        manager = self._manager()
+        manager.categories.add(self.tools, self.lights)
+
+        self.assertEqual(sorted(manager.get_fitting_mps().values_list('pk', flat=True)),
+                         sorted([self.tool.pk, self.light.pk]))
+
+
 class PriceTagAndPriceManagerRuntimeTests(TestCase):
     def setUp(self):
         self.currency = Currency.objects.create(name='USD', value=Decimal('2'))

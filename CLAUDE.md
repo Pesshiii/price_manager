@@ -116,7 +116,7 @@ There are two product catalogs in the tree. **They are not peers, and the newer 
 - `core` → the UI hub and the shopping-tab/cart feature (see below)
 - `supplier_manager` → `Supplier`, `Currency`, `Category` (MPTT), `Manufacturer`, `Discount`
 - `supplier_product_manager` → `SupplierProduct` (supplier's raw price row), `Setting`/`Link` (column-mapping config for Excel imports), `SupplierFile` (upload queue)
-- `main_product_manager` → `MainProduct` (canonical product record, multiple price fields, full-text `SearchVectorField` with a PostgreSQL GIN index, PIM integration)
+- `main_product_manager` → `MainProduct` — since the product shift's Phase 2b, a **per-supplier stock + price row** hanging off `product.Product` (multiple price fields, `stock`, logs, the PIM link push). Its own search vector, description, categories, manufacturer and dimensions are gone; search, name, brand and categories live on `product.Product`
 - `product_price_manager` → `PriceManager` (markup rules: source price → dest price, with formula), `PriceTag` (per-product-per-rule snapshot), `update_prices()` (bulk apply)
 - `file_manager`, `blogapp`, `api_auth`, `pim_api` → supporting
 
@@ -124,7 +124,7 @@ There are two product catalogs in the tree. **They are not peers, and the newer 
 
 - `pricing`, `supplier`, `supplier_feed`, `dataframe`
 
-**`product` is the exception, and it has moved further than the other four.** The API-first rewrite did not work out, and `product` was recreated as a **PIM-linked mirror** reconnected to the legacy stack: `pim_id`, `number` (= `MainProduct.sku`), `name`, `categories` as MPTT, `brand`, `raw_data` JSON, and a local `search_vector`. Since the product-shift Phase 1 it is the **root of search and filtering**, served at `/products/` alongside the old main page — the design and every decision behind it are in `.claude/shift-to-product-brief.md`. Build there when the work serves that shift; do not grow it into anything independent of PIM and the legacy stack. There is no embedding, no characteristics JSONB, and no `ImportJob`/`CharacteristicMutationJob` — earlier revisions of this file described those; they no longer exist.
+**`product` is the exception, and it has moved further than the other four.** The API-first rewrite did not work out, and `product` was recreated as a **PIM-linked mirror** reconnected to the legacy stack: `pim_id`, `number` (= `MainProduct.sku`), `name`, `categories` as MPTT, `brand`, `raw_data` JSON, and a local `search_vector`. Since the product-shift Phase 1 it is the **root of search and filtering**, served at `/products/`; Phase 2b retired the old main page (`/mainproduct/` redirects there) — the design and every decision behind it are in `.claude/shift-to-product-brief.md`. Build there when the work serves that shift; do not grow it into anything independent of PIM and the legacy stack. There is no embedding, no characteristics JSONB, and no `ImportJob`/`CharacteristicMutationJob` — earlier revisions of this file described those; they no longer exist.
 
 **Nothing outside this repo calls them — confirmed by the owner on 2026-09-19.** They are wired into `api_urls.py` (`/api/dataframe/`, `/api/supplier-feed/`, `/api/suppliers/`, `/api/pricing/`) behind token auth, and those routes have no external consumer, so the four apps can be removed. That used to be an open question; it is not any more, so don't ask again.
 
@@ -149,7 +149,7 @@ A `PreToolUse` hook (`.claude/hooks/guard_retiring_stack.py`) turns an edit unde
 
 **`core/task_runner.py` — `execute_locked_task()`**: Every Celery task should go through this. It provides Redis-based distributed locking (via `cache.add`), wraps the runner in `transaction.atomic()`, and writes a `TaskRunHistory` record with duration and updated-count for every run (success, error, or lock-skipped). Pass `atomic=False` to skip only the transaction — the lock and history still apply. That is for runners that make network calls or sleep between their DB writes (the PIM scans in `main_product_manager`), where an open transaction would idle for the whole scan; it requires the runner to be idempotent, since a partial run's writes stay committed.
 
-**Dispatching a subtask from inside a task — use `dispatch_after_commit()`, not `.delay()`.** Because `execute_locked_task()` wraps the runner in `transaction.atomic()`, a bare `.delay()` inside a runner hands the subtask to Redis while the enclosing transaction can still roll back, so the subtask can start against state that never committed. `core/task_runner.py` provides `dispatch_after_commit(task, *args, **kwargs)` (a `transaction.on_commit` wrapper) for this; outside a transaction it dispatches immediately, so it is safe from views too. Two `main_product_manager` call sites needed it, for different reasons: `_queue_pim_population` queued a task that looks products up through a link the same transaction had not committed yet (a stale read, so the task silently populated nothing), and the `reindex_pim_ids` fan-out dispatches batches that select the local `product.Product` rows its own transaction just created or numbered — dispatched early, a batch finds none of them, and after a rollback the already-dispatched batches keep running against a parent run recorded as failed.
+**Dispatching a subtask from inside a task — use `dispatch_after_commit()`, not `.delay()`.** Because `execute_locked_task()` wraps the runner in `transaction.atomic()`, a bare `.delay()` inside a runner hands the subtask to Redis while the enclosing transaction can still roll back, so the subtask can start against state that never committed. `core/task_runner.py` provides `dispatch_after_commit(task, *args, **kwargs)` (a `transaction.on_commit` wrapper) for this; outside a transaction it dispatches immediately, so it is safe from views too. The `reindex_pim_ids` fan-out is the standing example (an earlier one, `_queue_pim_population`, went with Phase 2b): it dispatches batches that select the local `product.Product` rows its own transaction just created or numbered — dispatched early, a batch finds none of them, and after a rollback the already-dispatched batches keep running against a parent run recorded as failed.
 
 **Celery:** Worker runs as the `celery_worker` container, broker/backend via Redis. Tasks are `@shared_task` in each app's `tasks.py`.
 
@@ -211,14 +211,14 @@ small to justify one; anything important about them belongs in this file.
 ## Key cross-app dependencies
 
 - `product_price_manager` imports from both `main_product_manager` and `supplier_product_manager` — pricing logic bridges them.
-- `main_product_manager.MainProduct._build_searchvector()` calls the external PIM API (via `main_product_manager/utils.py` → `pim_client.site` → the `pim_api` package) to enrich the search vector with PIM category/tag/description data. It is a network call inside a model method.
+- Nothing on the `MainProduct` save path calls PIM any more — `_build_searchvector()` and its network call went with the search vector in Phase 2b. PIM is reached from `main_product_manager/utils.py` (card views' `get_pim_data`, the photo proxy `fetch_pim_image`, `push_pim_links`) and from `product/services/pim_sync.py`.
 - **`main_product_manager/pim_client.py` instantiates `SiteAPI(token=settings.PIM_TOKEN, host=settings.PIM_HOST)` at import time**, and `supplier_product_manager/admin.py` imports it transitively. If `PIM_TOKEN`/`PIM_HOST` are unset, the *entire app* fails to boot with a pydantic `ValidationError` — not just PIM features. `docker-compose.yml` supplies placeholder defaults.
 
 ## Database
 
 PostgreSQL 17 (`pgvector/pgvector:pg17` image). One full-text index type is in use:
 
-- `GinIndex` on `MainProduct.search_vector`, `supplier_manager.Category.search_vector` and `product.Product.search_vector`, built with `config='russian'`. Rank against a stored vector with `SearchRank(F('search_vector'), …)`, never the string `'search_vector'` — the string makes Django re-tokenize the stored vector on every row, with the default config and without the index.
+- `GinIndex` on `product.Product.search_vector` and `supplier_manager.Category.search_vector` (the latter until that model is retired), built with `config='russian'`. Rank against a stored vector with `SearchRank(F('search_vector'), …)`, never the string `'search_vector'` — the string makes Django re-tokenize the stored vector on every row, with the default config and without the index.
 
 There is **no pgvector/HNSW/embedding usage anywhere in the Python code** — semantic search went away with the API rewrite. The image still ships the extension; nothing depends on it.
 

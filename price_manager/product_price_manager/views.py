@@ -36,6 +36,8 @@ from .models import PriceManager
 from file_manager.models import FileModel
 from core.utils import *
 from main_product_manager.models import MainProduct, MainProductLog, MP_PRICES, PRICE_TYPES
+from product.filters import CATEGORY_LABEL_DEPTH
+from product.models import Category as ProductCategory
 from .forms import *
 from .tables import *
 from .filters import *
@@ -45,6 +47,21 @@ from decimal import Decimal, InvalidOperation
 import pandas as pd
 import re
 import math
+
+
+def _supplier_categories(supplier):
+  """Категории товаров поставщика — выбор для правила наценки.
+
+  Через MainProduct.product: собственные категории у MainProduct удалены в
+  Phase 2b, правило фильтрует по product__categories (get_fitting_mps).
+  """
+  # select_related обязателен: метка варианта — Category.__str__, а он
+  # поднимается по parent запросом на уровень (см. CATEGORY_LABEL_DEPTH).
+  return ProductCategory.objects.filter(
+    pk__in=MainProduct.objects
+      .filter(supplierproducts__in=supplier.supplierproducts.all())
+      .values('product__categories')
+  ).select_related(CATEGORY_LABEL_DEPTH)
 
 class PriceManagerList(SingleTableView):
   '''Отображение наценок << /supplier/pricemanagers/<int:pk> >>'''
@@ -106,7 +123,7 @@ class PriceManagerCreate(CreateView):
     form = context['form']
     context['supplier'] = supplier
     form.fields['discounts'].queryset = supplier.discounts.all()
-    form.fields['categories'].queryset = Category.objects.filter(pk__in=MainProduct.objects.select_related('supplierproducts').filter(supplierproducts__in=supplier.supplierproducts.all()).values('categories'))
+    form.fields['categories'].queryset = _supplier_categories(supplier)
     context['selected_discount_ids'] = []
     return context
   def form_invalid(self, form):
@@ -167,11 +184,7 @@ class PriceManagerUpdate(SingleTableMixin, UpdateView):
     form = context['form']
     form.initial['price_fixed'] = self.instance.source == 'fixed_price'
     form.fields['discounts'].queryset = supplier.discounts.all()
-    form.fields['categories'].queryset = Category.objects.filter(
-      pk__in=MainProduct.objects.select_related('supplierproducts')
-        .filter(supplierproducts__in=supplier.supplierproducts.all())
-        .values('categories')
-    )
+    form.fields['categories'].queryset = _supplier_categories(supplier)
     context['selected_discount_ids'] = list(self.instance.discounts.values_list('pk', flat=True))
     return context
   def form_valid(self, form):

@@ -45,7 +45,7 @@ from .forms import *
 from .tables import *
 from .filters import *
 from .utils import *
-from .utils import get_pim_data_for_product, pim_image_url, maybe_notify_pim_error
+from .utils import _link_to_local_product, get_pim_data_for_product, pim_image_url, maybe_notify_pim_error
 from .tasks import sync_main_products_task
 from supplier_product_manager.views import UploadSupplierFile
 
@@ -118,21 +118,11 @@ class MainProductCreate(CreateView):
     return super().get(request, *args, **kwargs)
   def form_valid(self, form):
     self.object = form.save()
-    self.object.rebuild_search_vector()
+    # Явная привязка к Product по sku. Раньше она была побочным эффектом
+    # пересборки search_vector, который Phase 2b удалил; без неё новая строка
+    # не видна на /products/ до ночного reindex.
+    _link_to_local_product(self.object)
     return HttpResponseClientRedirect(reverse('mainproduct-detail', kwargs={'pk': self.object.pk}))
-
-
-class MainProductCreateCategoryTree(View):
-  """Lazy-loaded category tree checkboxes for the create-product modal.
-
-  Split out from MainProductCreate so opening the modal doesn't pay for
-  building the whole Category tree unless/until the fragment is requested.
-  """
-  def get(self, request, *args, **kwargs):
-    if not self.request.htmx:
-      return redirect(reverse('products'))
-    form = MainProductCreateForm()
-    return render(request, 'supplier/partials/category_filter_field.html', {'field': form['categories']})
 
 
 class MainProductUpdate(UpdateView):

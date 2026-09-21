@@ -76,6 +76,13 @@ class Migration(migrations.Migration):
     dependencies = [
         ('main_product_manager', '0008_remove_mp_unique_supplier_article_name'),
         ('supplier_product_manager', '0007_supplierproduct_pim_id'),
+        # decouple_shared_main_products читает PriceTag, но эта зависимость не
+        # была объявлена — миграция работала лишь потому, что планировщик
+        # случайно ставил product_price_manager раньше. Phase 2b добавил
+        # зависимость main_product_manager.0012 -> этот app, порядок сдвинулся,
+        # и чистый migrate упал с LookupError. На уже применённой базе новая
+        # зависимость ничего не меняет — она только про порядок.
+        ('product_price_manager', '0001_initial'),
     ]
 
     operations = [

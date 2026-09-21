@@ -7,7 +7,7 @@ from django_filters.widgets import RangeWidget
 from crispy_forms.helper import FormHelper
 from crispy_forms.layout import Div, Field, HTML, Layout, Submit
 
-from supplier_manager.models import Category, Discount, Manufacturer
+from supplier_manager.models import Discount
 
 from .models import SupplierProduct
 
@@ -17,18 +17,6 @@ class SupplierProductFilter(FilterSet):
   name = filters.CharFilter(field_name='name', lookup_expr='icontains', label='Название')
   description = filters.CharFilter(field_name='description', lookup_expr='icontains', label='Описание')
 
-  category = filters.ModelMultipleChoiceFilter(
-    field_name='category',
-    queryset=Category.objects.none(),
-    label='Категория',
-    widget=forms.SelectMultiple(attrs={'class': 'form-select'}),
-  )
-  manufacturer = filters.ModelMultipleChoiceFilter(
-    field_name='manufacturer',
-    queryset=Manufacturer.objects.none(),
-    label='Производитель',
-    widget=forms.widgets.CheckboxSelectMultiple(),
-  )
   discount = filters.ModelMultipleChoiceFilter(
     field_name='discount',
     queryset=Discount.objects.none(),
@@ -67,8 +55,6 @@ class SupplierProductFilter(FilterSet):
       'article',
       'name',
       'description',
-      'category',
-      'manufacturer',
       'discount',
       'stock_min',
       'stock_max',
@@ -90,18 +76,6 @@ class SupplierProductFilter(FilterSet):
     if pk:
       queryset = queryset.filter(supplier_id=pk)
 
-    self._setup_related_queryset(
-      filter_name='category',
-      model=Category,
-      ids_key='category',
-      queryset=self._apply_current_filters(queryset, excluded_key='category'),
-    )
-    self._setup_related_queryset(
-      filter_name='manufacturer',
-      model=Manufacturer,
-      ids_key='manufacturer',
-      queryset=self._apply_current_filters(queryset, excluded_key='manufacturer'),
-    )
     self._setup_related_queryset(
       filter_name='discount',
       model=Discount,
@@ -131,8 +105,6 @@ class SupplierProductFilter(FilterSet):
       HTML('</details>'),
       HTML('<details class="mb-3" open><summary class="fw-semibold mb-2">Справочники</summary>'),
       Div(
-        Field('category', template='supplier/partials/category_filter_field.html'),
-        Field('manufacturer', template='core/includes/checkbox_field.html'),
         Field('discount', template='core/includes/checkbox_field.html'),
         Field('is_tied', css_class='form-select'),
         css_class='mb-3',
@@ -196,7 +168,7 @@ class SupplierProductFilter(FilterSet):
       if value:
         queryset = queryset.filter(**{f'{field_name}__icontains': value})
 
-    for relation in ('category', 'manufacturer', 'discount'):
+    for relation in ('discount',):
       ids = get_list(relation)
       if ids:
         queryset = queryset.filter(**{f'{relation}__in': ids})

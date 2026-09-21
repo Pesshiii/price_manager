@@ -64,8 +64,8 @@ squash-merges, so they do not survive onto `main`.*
 | §4.0 Phase 2a — decouple and port (additive, no migrations) | ✅ **Done** — see §4.0 |
 | §4 P2-G4 — manufacturer export | ✅ **Run in prod and handed over** (user, 2026-09-21) |
 | §4.0b 2b-1 — retire the old main page (item 5, code only) | ✅ **Done** |
-| §4.0b 2b-2 — the column drops (items 1–3) | ❌ Next |
-| §4.0b 2b-3 — retire `supplier_manager` Category/Manufacturer (item 4) | ❌ After 2b-2 |
+| §4.0b 2b-2 — the column drops (items 1–3) | ✅ **Done** — validated on the restored snapshot, see §4.0b |
+| §4.0b 2b-3 — retire `supplier_manager` Category/Manufacturer (item 4) | ❌ Next |
 
 Full suite green (428 tests). Verified end to end on a restore of the production snapshot
 with content loaded from the live PIM.
@@ -488,6 +488,48 @@ calls PIM live on render.
   `rebuild_categories_task` goes with 2b-3;
 - **canary for the PR:** P1-G3's `unlinked_main_product_count()` on `/products/` must stay
   flat across an import run after deploy.
+
+**2b-2 — done.** Three migrations, each with a data step in front, run against a
+restore of the production snapshot migrated to today's schema (modes C + D of the
+`prod-snapshot` skill; nothing pushed to PIM):
+
+| Migration | Reported on the snapshot | Matches |
+|---|---|---|
+| `product_price_manager.0004` — categories → `product.Category` | 0 rules with categories | G4 = 0 |
+| `main_product_manager.0012` — drop the 8 catalog fields | 2 descriptions with no source | F4 = 2 |
+| `supplier_product_manager.0010` — drop category, manufacturer | 85 + 75 Links deleted, 0 DictItems | P2-G3 = 160 |
+
+Then, on the same data: all 118 pricing rules resolve `get_fitting_mps` without
+error; `/products/`, search, supplier rows, the card and the create/update modals
+render; row counts unchanged. **0004's refusal was proven, not assumed:** rolled
+back, one rule given a category, re-run — it raised, applied nothing, and the
+rule kept its category.
+
+What 2b-2 also had to do, found by consulting the three keepers first:
+- explicit Product links (`link_to_local_products` in copy-to-main,
+  `_link_to_local_product` in «Добавить товар») — the silent one above;
+- `AUTO_LINK_ALIASES` loses «производитель»/«категория», or the mapping screen
+  would re-create the deleted Links; `load_setting` ignores keys outside `LINKS`;
+- both admins' `list_filter` (a stale entry fails system check E116 suite-wide);
+- `push_pim_links` reads the description from the supplier row it was copied
+  from; the rule form's category picker reads through `MainProduct.product`;
+- the whole `sync_pim_relations` chain, the «Добавить производителя в ГП» admin
+  action, `CategoryFilter`, the PIM-categories import resource and command, and
+  `export_manufacturers_for_pim` (P2-G4 done) are deleted;
+- the main-price export keeps «Название_группы» / «HTML_описание» and no longer
+  imports them. **Description** reads the supplier row first (what the dropped
+  column was copied from), then PIM — coverage kept. **«Производитель» is
+  removed from the export — the user's decision.** Its only remaining source,
+  the PIM brand (D1), covers ~15% of products against ~76% for the supplier
+  manufacturer it replaced (§0.4); a mostly empty column was judged worse than
+  none. The cart's own Excel export (Phase 2a) still has a PIM-brand
+  «Производитель» column — a separate file, not part of that decision.
+
+**Deploy note:** the three migrations are independent of each other but all
+run after deploy; run them with the app briefly idle — 0004 is the one that can
+refuse, and if it does, nothing has changed yet. Messages still queued in Redis
+for the deleted tasks (`populate_pim_relations`, `recalculate_vectors_missing`)
+are rejected by the worker as `NotRegistered` — expected, harmless, once.
 
 **2b-3 — retire `supplier_manager.Category`, `Manufacturer`, `ManufacturerDict` (item 4).**
 Their tables can only go once every FK and M2M into them is gone (2b-2). Write the

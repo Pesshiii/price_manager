@@ -4,7 +4,7 @@ from django.utils import timezone
 from django.conf import settings
 
 from core.models import PersistentNotification
-from main_product_manager.utils import recalculate_search_vectors, compute_supplier_sku
+from main_product_manager.utils import compute_supplier_sku, link_to_local_products
 from main_product_manager.models import MainProduct
 
 from .functions import load_setting, SupplierFileStorageMissingError
@@ -213,7 +213,7 @@ def copy_supplier_products_to_main_task(
         query_data = _restore_querydict(filter_params)
         products_qs = (
             SupplierProductFilter(query_data, pk=supplier_id)
-            .qs.select_related("main_product", "supplier", "manufacturer", "category")
+            .qs.select_related("main_product", "supplier")
             .filter(supplier_id=supplier_id)
             .order_by("pk")
         )
@@ -223,29 +223,18 @@ def copy_supplier_products_to_main_task(
         updated_links_count = 0
         touched_main_product_ids = set()
         supplier = Supplier.objects.get(id=supplier_id)
-        through = MainProduct.categories.through
 
         for batch in _chunked(products_qs.iterator(chunk_size=batch_size), batch_size):
             processed_count += len(batch)
             if not batch:
                 continue
 
+            # Уже связанным строкам копировать больше нечего: производитель,
+            # описание и категории у MainProduct удалены в Phase 2b. Остаётся
+            # только проверить их связь с товаром (ниже).
             linked = [sp for sp in batch if sp.main_product_id]
             unlinked = [sp for sp in batch if not sp.main_product_id]
-            category_links = []
-
-            if linked:
-                mps_to_update = [
-                    MainProduct(id=sp.main_product_id, manufacturer=sp.manufacturer, description=sp.description)
-                    for sp in linked
-                ]
-                MainProduct.objects.bulk_update(
-                    mps_to_update, fields=["manufacturer", "description"], batch_size=batch_size
-                )
-                for sp in linked:
-                    touched_main_product_ids.add(sp.main_product_id)
-                    if sp.category_id:
-                        category_links.append(through(mainproduct_id=sp.main_product_id, category_id=sp.category_id))
+            touched_main_product_ids.update(sp.main_product_id for sp in linked)
 
             if unlinked:
                 new_mps = [
@@ -254,8 +243,6 @@ def copy_supplier_products_to_main_task(
                         article=sp.article,
                         sku=compute_supplier_sku(sp.article, supplier),
                         name=sp.name,
-                        description=sp.description,
-                        manufacturer=sp.manufacturer,
                     )
                     for sp in unlinked
                 ]
@@ -264,17 +251,16 @@ def copy_supplier_products_to_main_task(
                 for sp, mp in zip(unlinked, new_mps):
                     sp.main_product_id = mp.id
                     touched_main_product_ids.add(mp.id)
-                    if sp.category_id:
-                        category_links.append(through(mainproduct_id=mp.id, category_id=sp.category_id))
 
                 SupplierProduct.objects.bulk_update(unlinked, fields=["main_product"], batch_size=batch_size)
                 updated_links_count += len(unlinked)
 
-            if category_links:
-                through.objects.bulk_create(category_links, ignore_conflicts=True, batch_size=batch_size)
-
+        # Связь с товаром (product.Product) — явно. До Phase 2b она ставилась
+        # побочным эффектом пересборки search_vector; без этого шага каждая
+        # новая строка ложилась бы с product IS NULL и не показывалась на
+        # /products/ до ночного reindex_pim_ids — без единой ошибки.
         for ids_chunk in _chunked(list(touched_main_product_ids), batch_size):
-            recalculate_search_vectors(MainProduct.objects.filter(pk__in=ids_chunk))
+            link_to_local_products(ids_chunk)
 
         duration_seconds = round((timezone.now() - started_at).total_seconds(), 2)
         message = (

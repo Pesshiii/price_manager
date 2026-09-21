@@ -2,17 +2,13 @@ from django import forms
 from crispy_forms.helper import FormHelper
 from crispy_forms.layout import Layout
 from core.crispy_fields import CustomRadio
-from .models import Supplier, Manufacturer, Category, MainProduct
+from .models import Supplier, MainProduct
 
 class MainProductForm(forms.ModelForm):
   class Meta:
     model = MainProduct
     fields = (
       'sku',
-      'weight',
-      'length',
-      'width',
-      'depth',
     )
 
 
@@ -24,17 +20,10 @@ class MainProductCreateForm(forms.ModelForm):
       'article',
       'name',
       'sku',
-      'manufacturer',
-      'categories',
       'stock',
-      'weight',
-      'length',
-      'width',
-      'depth',
     )
     widgets = {
       'supplier': forms.RadioSelect(),
-      'manufacturer': forms.RadioSelect(),
     }
 
   def __init__(self, *args, **kwargs):
@@ -48,9 +37,6 @@ class MainProductCreateForm(forms.ModelForm):
     kwargs['prefix'] = kwargs.get('prefix') or 'mpcreate'
     super().__init__(*args, **kwargs)
     self.fields['supplier'].queryset = Supplier.objects.order_by('name')
-    self.fields['manufacturer'].queryset = Manufacturer.objects.order_by('name')
-    # categories is rendered separately by MainProductCreateCategoryTree (a lazy-loaded
-    # tree widget), not by this crispy layout — see mainproduct/partials/create.html.
     self.helper = FormHelper(self)
     self.helper.form_tag = False
     self.helper.layout = Layout(
@@ -58,12 +44,7 @@ class MainProductCreateForm(forms.ModelForm):
       'article',
       'name',
       'sku',
-      CustomRadio('manufacturer'),
       'stock',
-      'weight',
-      'length',
-      'width',
-      'depth',
     )
 
   def clean(self):

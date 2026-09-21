@@ -40,7 +40,7 @@ class MainProductAdmin(ImportExportModelAdmin):
     list_display = [field.name for field in MainProduct._meta.fields]
     list_display_links = ['id', 'name']
     search_fields = ['article', 'name', 'sku', 'stock']
-    list_filter = ['supplier', 'manufacturer']
+    list_filter = ['supplier']
 
 @admin.register(MainProductLog)
 class MainProductLogAdmin(admin.ModelAdmin):

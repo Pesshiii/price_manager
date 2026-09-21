@@ -10,8 +10,7 @@ from product_price_manager.models import update_prices
 
 from .utils import (
     backfill_product_numbers, delete_outdated_logs, get_pim_data, iter_unpushed_product_pk_batches,
-    link_unlinked_main_products, push_pim_links, recalculate_search_vectors, sync_pim_relations,
-    update_logs, update_stocks,
+    link_unlinked_main_products, push_pim_links, update_logs, update_stocks,
 )
 from .models import MainProduct
 
@@ -44,20 +43,6 @@ def rebuild_categories_task(stats: dict | None = None) -> dict:
         runner=Category.objects.rebuild,
     )
     return _append_step(stats, "rebuild_categories", payload)
-
-
-@shared_task(name="main_product_manager.recalculate_vectors_missing")
-def recalculate_vectors_missing_task(stats: dict | None = None) -> dict:
-    def _runner():
-        queryset = MainProduct.objects.filter(search_vector__isnull=True)
-        return recalculate_search_vectors(queryset) or 0
-
-    payload = execute_locked_task(
-        task_name="main_product_manager.recalculate_vectors_missing",
-        lock_ttl=60 * 20,
-        runner=_runner,
-    )
-    return _append_step(stats, "recalculate_vectors_missing", payload)
 
 
 @shared_task(name="main_product_manager.update_prices")
@@ -146,7 +131,6 @@ def notify_sync_main_products_task(stats: dict, user_id: int) -> dict:
 def sync_main_products_task(user_id: int):
     workflow = chain(
         rebuild_categories_task.s(),
-        recalculate_vectors_missing_task.s(),
         update_prices_task.s(),
         update_stocks_task.s(),
         delete_outdated_logs_task.s(),
@@ -200,25 +184,4 @@ def reindex_pim_ids_batch_task(pks: list[int], delay: float = 0.5, batch_size: i
         # The batch is HTTP-bound (a search per Product, then upsertAsync), so
         # it must not hold a transaction open across the loop.
         atomic=False,
-    )
-
-
-@shared_task(name="main_product_manager.populate_pim_relations")
-def populate_pim_relations_task(pim_id: str) -> dict:
-    """Populates MainProduct.manufacturer/categories from PIM once its data is cached.
-
-    Triggered by get_pim_data()/get_pim_data_for_product() after a successful PIM
-    fetch for a given pim_id (see utils._queue_pim_population), rather than run on
-    a schedule.
-    """
-    def _runner():
-        data = get_pim_data(pim_id)
-        if not data:
-            return 0
-        return sync_pim_relations(pim_id, data)
-
-    return execute_locked_task(
-        task_name=f"main_product_manager.populate_pim_relations:{pim_id}",
-        lock_ttl=60 * 5,
-        runner=_runner,
     )
