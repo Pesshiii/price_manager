@@ -151,3 +151,38 @@ class SupplierRowsTests(TestCase):
         self._choose('tags')
 
         self.assertContains(self._fragment(), 'Поставщик')
+
+
+class ColumnCatalogTests(TestCase):
+    """Перенесено из удалённого main_product_manager/test_tables.py: цена,
+    добавленная в MainProduct, должна появиться и в выборе колонок."""
+
+    def test_every_main_product_price_is_choosable(self):
+        from main_product_manager.models import MP_PRICES
+        from product.columns import SUPPLIER_ROW_COLUMNS
+
+        self.assertEqual([p for p in MP_PRICES if p not in SUPPLIER_ROW_COLUMNS], [])
+
+
+class OldMainPageRedirectTests(TestCase):
+    """Старая главная удалена в Phase 2b; её адрес — постоянный переход."""
+
+    def setUp(self):
+        self.client.force_login(User.objects.create_user(username='tester', password='pw'))
+
+    def test_old_address_redirects_permanently_to_products(self):
+        response = self.client.get('/mainproduct/', {'search': 'молоток'})
+
+        self.assertEqual(response.status_code, 301)
+        self.assertEqual(response['Location'], reverse('products'))
+
+    def test_login_lands_on_products(self):
+        from django.conf import settings
+
+        self.assertEqual(reverse(settings.LOGIN_REDIRECT_URL), reverse('products'))
+
+    def test_the_old_pages_fragments_are_gone(self):
+        for path in ('/mainproduct/filter/', '/mainproduct/table_nocat/',
+                     '/mainproduct/mainproduct/bulk-category'):
+            with self.subTest(path=path):
+                self.assertEqual(self.client.get(path).status_code, 404)

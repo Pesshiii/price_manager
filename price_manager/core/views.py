@@ -437,7 +437,7 @@ class CartItemQuickAddView(LoginRequiredMixin, View):
 
     def get(self, request, product_pk):
         if not request.htmx:
-            return redirect('mainproducts')
+            return redirect('products')
         product = get_object_or_404(MainProduct, pk=product_pk)
         return render(request, self.template_name, {
             'product': product,
@@ -448,7 +448,7 @@ class CartItemQuickAddView(LoginRequiredMixin, View):
 
     def post(self, request, product_pk):
         if not request.htmx:
-            return redirect('mainproducts')
+            return redirect('products')
         product = get_object_or_404(MainProduct, pk=product_pk)
         tabs = self.get_tabs()
         search_query = (request.POST.get('search_query') or '').strip()
@@ -638,4 +638,4 @@ class InstructionsView(LoginRequiredMixin, TemplateView):
 
 
 def mainpage(request):
-    return redirect('mainproducts')
+    return redirect('products')

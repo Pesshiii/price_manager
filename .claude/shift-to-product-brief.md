@@ -62,7 +62,10 @@ squash-merges, so they do not survive onto `main`.*
 | R8 stale category mirror | ✅ **Closed** — `sync_category_tree_from_pim` |
 | D1 revisited | ✅ **Reaffirmed as final** — see §0.5; imposes **P2-G4** |
 | §4.0 Phase 2a — decouple and port (additive, no migrations) | ✅ **Done** — see §4.0 |
-| §4 Phase 2b — the destructive drops | ❌ Not started. **Gated by P2-G4** (export run in prod and handed over) |
+| §4 P2-G4 — manufacturer export | ✅ **Run in prod and handed over** (user, 2026-09-21) |
+| §4.0b 2b-1 — retire the old main page (item 5, code only) | ✅ **Done** |
+| §4.0b 2b-2 — the column drops (items 1–3) | ❌ Next |
+| §4.0b 2b-3 — retire `supplier_manager` Category/Manufacturer (item 4) | ❌ After 2b-2 |
 
 Full suite green (428 tests). Verified end to end on a restore of the production snapshot
 with content loaded from the live PIM.
@@ -457,16 +460,39 @@ imports it at module scope — so dropping those columns would not break a page,
   naming `manufacturer`, `weight` and the rest; `normalize_columns` would drop them, but 2b
   should not depend on that for data nobody chose here.
 
-**What 2b must now also do, beyond items 1–5 below:** delete `MainPageFilter`, the old page's
-views/templates/`grouping.py`/`columns.py`/`test_grouping.py`/`test_tables.py`, the old
-column-preference helpers and `MAINPRODUCT_GROUPING_ROW_LIMIT`; drop `manufacturer`,
-`categories` and the dimensions from `MainProductCreateForm`/`MainProductForm`; and call
-`_link_to_local_product` **explicitly** in `MainProductCreate.form_valid`. Today a row made
-by «Добавить товар» is linked to its Product as a side effect of `rebuild_search_vector()` →
-`_build_searchvector()`, which item 1 deletes. It would still get linked afterwards — by the
-redirect to its card (`get_pim_data_for_product` links first) and by `reindex_pim_ids`'
-`link_unlinked_main_products` — but only by accident of the redirect, and until then it is
-invisible on the page that created it.
+### 4.0b Phase 2b — three PRs, in this order
+
+**2b-1 — retire the old main page (item 5). ✅ Done, code only, no migration.** Deleted:
+the page's views, `MainPageFilter`, `MainProductTable`, `grouping.py`, `columns.py`, the
+old column-preference cache helpers, `MAINPRODUCT_GROUPING_ROW_LIMIT`, the bulk-category
+modal, their templates and `test_grouping.py`/`test_tables.py`, plus six `core` templates
+of an even earlier main page that nothing referenced. `/mainproduct/` is a permanent
+redirect to `/products/`; the navbar brand and `LOGIN_REDIRECT_URL` point there directly.
+The card, update, create, resolve, logs and price-tag routes survive — they are reached
+from `/products/`. `maybe_notify_pim_error` moved to the card views, the last place that
+calls PIM live on render.
+
+**2b-2 — the column drops (items 1–3), migrations.** Beyond the items below:
+- drop `manufacturer`, `categories` and the dimensions from
+  `MainProductCreateForm`/`MainProductForm`, and the lazy category tree of the create
+  modal (`mainproduct-create-categories`);
+- **the import pipeline loses its Product link — the silent one.** Copy-to-main
+  (`supplier_product_manager/tasks.py`) links new MainProducts to their Product only as a
+  side effect of `recalculate_search_vectors` → `_build_searchvector` →
+  `_link_to_local_product`. Item 1 deletes that chain, and every newly imported row would
+  then land with `product IS NULL`, invisible on `/products/` until `reindex_pim_ids`
+  runs. Nothing errors. Give it an explicit link step over the copied ids;
+- the same for «Добавить товар»: call `_link_to_local_product` explicitly in
+  `MainProductCreate.form_valid` (today it is `rebuild_search_vector()`'s side effect);
+- the «Обновить» chain (`sync_main_products_task`) loses `recalculate_vectors_missing_task`;
+  `rebuild_categories_task` goes with 2b-3;
+- **canary for the PR:** P1-G3's `unlinked_main_product_count()` on `/products/` must stay
+  flat across an import run after deploy.
+
+**2b-3 — retire `supplier_manager.Category`, `Manufacturer`, `ManufacturerDict` (item 4).**
+Their tables can only go once every FK and M2M into them is gone (2b-2). Write the
+cross-app `dependencies` explicitly — a fresh-DB `migrate` passes regardless of order, the
+FK constraint only fires on a populated database.
 
 
 Separate PR. Each item is irreversible on prod. Unchanged from the original spec except
@@ -476,11 +502,9 @@ where F2/F4 relaxed the gates.
    `weight`, `length`, `width`, `depth`.
    - Also strips the writes in `supplier_product_manager/tasks.py:239-274` (copy-to-main)
      and `main_product_manager/utils.py:437-449` (`sync_pim_relations`).
-   - **Bonus:** dropping `search_vector` removes the PIM network call from the MainProduct
-     save path, which may make `main_product_manager/pim_client.py` deletable — the
-     import-time `SiteAPI(...)` that crashes the **whole app** at boot when `PIM_TOKEN` is
-     unset. Check whether `supplier_product_manager/admin.py`'s transitive import is the
-     last consumer.
+   - ~~Bonus: may make `main_product_manager/pim_client.py` deletable.~~ **No longer:**
+     `get_file_url`/`fetch_pim_image` (the photo proxy, 2026-09-21) and the card views'
+     `get_pim_data` still use its `site`.
    - Log or assert on the 2 descriptions with no SupplierProduct counterpart (F4).
 2. Drop `SupplierProduct.category` and `.manufacturer`; remove both from `LINKS`; data
    migration deleting the 160 orphaned `Link` rows (D11). **Only after P2-G4's export has
