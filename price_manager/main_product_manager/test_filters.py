@@ -134,10 +134,17 @@ class MainProductFilterTests(TestCase):
 
     def test_garbage_facet_ids_are_ignored_not_a_crash(self):
         """Фасеты собираются до валидации формы — мусор не должен ронять pk__in."""
-        filterset = MainProductFilter(data=query(brand=['abc'], categories=['x'], supplier=['1;']),
-                                      queryset=MainProduct.objects.all())
+        filterset = MainProductFilter(
+            data=query(brand=['abc', self.other_brand.pk], categories=['x'], supplier=['1;']),
+            queryset=MainProduct.objects.all(),
+        )
 
-        self.assertEqual(len(filterset.filters['brand'].field.queryset), 2)
+        # Каждый фасет вычисляется целиком — до правки здесь был ValueError.
+        list(filterset.filters['supplier'].field.queryset)
+        list(filterset.filters['categories'].field.queryset)
+        # Мусор отброшен, а настоящий выбор рядом с ним — нет: выбранный бренд
+        # наверху списка, хотя по алфавиту он второй.
+        self.assertEqual(list(filterset.filters['brand'].field.queryset)[0], self.other_brand)
 
     def test_selected_brand_stays_in_the_facet_when_the_search_excludes_it(self):
         """Иначе галочку, сузившую выдачу до нуля, нечем было бы снять."""

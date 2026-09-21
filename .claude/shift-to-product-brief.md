@@ -460,9 +460,13 @@ imports it at module scope — so dropping those columns would not break a page,
 **What 2b must now also do, beyond items 1–5 below:** delete `MainPageFilter`, the old page's
 views/templates/`grouping.py`/`columns.py`/`test_grouping.py`/`test_tables.py`, the old
 column-preference helpers and `MAINPRODUCT_GROUPING_ROW_LIMIT`; drop `manufacturer`,
-`categories` and the dimensions from `MainProductCreateForm`/`MainProductForm`; and give
-MainProduct creation a way to link to its Product that doesn't go through
-`_build_searchvector` → `_link_to_local_product`, which item 1 deletes.
+`categories` and the dimensions from `MainProductCreateForm`/`MainProductForm`; and call
+`_link_to_local_product` **explicitly** in `MainProductCreate.form_valid`. Today a row made
+by «Добавить товар» is linked to its Product as a side effect of `rebuild_search_vector()` →
+`_build_searchvector()`, which item 1 deletes. It would still get linked afterwards — by the
+redirect to its card (`get_pim_data_for_product` links first) and by `reindex_pim_ids`'
+`link_unlinked_main_products` — but only by accident of the redirect, and until then it is
+invisible on the page that created it.
 
 
 Separate PR. Each item is irreversible on prod. Unchanged from the original spec except
