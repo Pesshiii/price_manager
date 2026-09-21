@@ -11,6 +11,130 @@ from supplier_manager.models import Supplier
 from .models import Brand, Category, Product
 
 
+# --- общие части поиска и фасетов --------------------------------------------
+#
+# Живут на уровне модуля, потому что у них два потребителя: товарная страница
+# (ProductFilter, корень — Product) и выбор строк поставщиков
+# (main_product_manager.MainProductFilter — корзина и «Привязать из ГП»,
+# корень — MainProduct). Определение поиска должно быть одно на оба места,
+# иначе они разъедутся.
+
+def search_terms(value) -> list[str]:
+    return [term for term in (value or '').split() if term]
+
+
+def selected_values(data, name) -> list:
+    """Выбранные значения фасета, независимо от типа data.
+
+    Из представления сюда приходит QueryDict с .getlist(), но фильтр законно
+    собирают и на обычном dict — из тестов, из кода. Голый .getlist() на dict
+    падает с AttributeError, причём в __init__, то есть роняет любое такое
+    использование целиком.
+    """
+    if not data:
+        return []
+    if hasattr(data, 'getlist'):
+        return data.getlist(name) or []
+    value = data.get(name) or []
+    return value if isinstance(value, (list, tuple)) else [value]
+
+
+def search_rank(value, vector='search_vector'):
+    """Выражение релевантности для непустого поиска, иначе None.
+
+    F(vector), а НЕ строка. Со строкой Django считает её текстовым полем,
+    которое надо векторизовать, и генерирует
+    ts_rank(to_tsvector(search_vector::text), …): готовый tsvector приводится к
+    тексту и токенизируется заново — на каждой строке, дефолтной конфигурацией
+    вместо russian. Индекс при этом не при делах. На 155 тыс. товаров это
+    разница между сотнями миллисекунд и секундами.
+
+    vector — путь до поля: 'search_vector' от Product,
+    'product__search_vector' от MainProduct.
+    """
+    if not search_terms(value):
+        return None
+    return SearchRank(F(vector), SearchQuery(value, config='russian'))
+
+
+def matching_product_pks(value):
+    """pk товаров под запрос: вектор ИЛИ номер ИЛИ название у поставщика.
+
+    Артикул поставщика (MainProduct.article) здесь намеренно не ищется:
+    артикул, который пользователь видит в интерфейсе, это sku, а sku и есть
+    Product.number — тот самый ключ сопоставления.
+
+    А вот название связанного MainProduct ищется, и это не лишнее: у
+    несинхронизированной заготовки вектор состоит из одного number, и без
+    этого условия такой товар нельзя найти вообще никак, пока бэкфилл до него
+    не дошёл.
+
+    UNION трёх отборов, а не OR трёх условий. По отдельности они дешёвые:
+    вектор 36 мс (GIN), number 41 мс, название у поставщика 98 мс. Под общим
+    OR Postgres не умеет совместить GIN-скан с подзапросом и проваливается в
+    полный проход — 622 мс на один только отбор и ~1.4 с на страницу даже при
+    единственном совпадении. UNION даёт каждой ветке её собственный план, а
+    потом один semi-join по pk.
+    """
+    terms = search_terms(value)
+
+    by_number = Q()
+    for term in terms:
+        by_number &= Q(number__icontains=term)
+
+    by_main_product_name = Q()
+    for term in terms:
+        by_main_product_name &= Q(name__icontains=term)
+
+    return (
+        Product.objects.filter(search_vector=SearchQuery(value, config='russian'))
+        .values('pk')
+        .union(
+            Product.objects.filter(by_number).values('pk'),
+            MainProduct.objects.filter(by_main_product_name, product__isnull=False)
+            .values('product_id'),
+        )
+    )
+
+
+def ranked(queryset, value, vector='search_vector'):
+    """Сортировка выдачи поиска по релевантности.
+
+    nulls_last обязателен. '-rank' компилируется в ORDER BY rank DESC, а
+    Postgres при DESC ставит NULL ПЕРВЫМИ. Вектора нет у ~100 тыс. товаров без
+    данных PIM, и их rank — NULL, поэтому ВСЯ первая страница заполнялась
+    самыми слабыми совпадениями (по номеру или по названию у поставщика), а
+    настоящие полнотекстовые — на «молоток» их 463 — на неё не попадали вовсе.
+    pk вторым ключом — чтобы пагинация была стабильной при равном rank.
+    """
+    return (
+        queryset
+        .annotate(rank=search_rank(value, vector))
+        .order_by(F('rank').desc(nulls_last=True), 'pk')
+    )
+
+
+def category_with_descendants(categories) -> set[int]:
+    """Выбор родителя должен находить всё, что под ним.
+
+    Разворачиваем выбор по дереву ЛОКАЛЬНО, через MPTT. Без этого выбор
+    «Сантехника» вернул бы только товары, привязанные ровно к этому узлу, а не
+    к «Сантехника > Смесители» — то есть заметно меньше, чем ожидается, и
+    молча.
+    """
+    pks = set()
+    for category in categories:
+        pks.update(category.get_descendants(include_self=True).values_list('pk', flat=True))
+    return pks
+
+
+# Глубина 5 покрывает всё дерево (уровни 0-5). Category.__str__ рекурсивно идёт
+# по self.parent, и без предзагрузки каждая метка стоит по запросу на уровень.
+# На боевом дереве это 1567 запросов и 1.6 с против одного запроса и 36 мс —
+# метки при этом получаются те же самые.
+CATEGORY_LABEL_DEPTH = 'parent__parent__parent__parent__parent'
+
+
 class ProductFilter(FilterSet):
     """Фильтр товарной страницы. Корень выборки — Product, а не MainProduct.
 
@@ -47,14 +171,8 @@ class ProductFilter(FilterSet):
     )
 
     categories = filters.ModelMultipleChoiceFilter(
-        # select_related обязателен: Category.__str__ рекурсивно идёт по
-        # self.parent, и без предзагрузки каждая метка стоит по запросу на
-        # уровень. На боевом дереве это 1567 запросов и 1.6 с против одного
-        # запроса и 36 мс — метки при этом получаются те же самые.
-        # Глубина 5 покрывает всё дерево (уровни 0-5).
-        # supplier_manager.CategoryFilter делает ровно то же самое.
-        queryset=Category.objects.select_related(
-            'parent__parent__parent__parent__parent'),
+        # select_related обязателен — см. CATEGORY_LABEL_DEPTH.
+        queryset=Category.objects.select_related(CATEGORY_LABEL_DEPTH),
         method='categories_method',
         label='Категории',
         widget=forms.CheckboxSelectMultiple(),
@@ -99,20 +217,7 @@ class ProductFilter(FilterSet):
     # --- фасеты -----------------------------------------------------------
 
     def _selected(self, name):
-        """Выбранные значения фасета, независимо от типа self.data.
-
-        Из представления сюда приходит QueryDict с .getlist(), но фильтр
-        законно собирают и на обычном dict — из тестов, из кода. Голый
-        .getlist() на dict падает с AttributeError, причём в __init__, то есть
-        роняет любое такое использование целиком.
-        """
-        data = self.data
-        if not data:
-            return []
-        if hasattr(data, 'getlist'):
-            return data.getlist(name) or []
-        value = data.get(name) or []
-        return value if isinstance(value, (list, tuple)) else [value]
+        return selected_values(self.data, name)
 
     def config_filters(self):
         """Наполняет списки фасетов и держит уже выбранное наверху.
@@ -140,95 +245,20 @@ class ProductFilter(FilterSet):
 
     # --- поиск ------------------------------------------------------------
 
-    @staticmethod
-    def search_rank(value):
-        """Выражение релевантности для непустого поиска, иначе None.
-
-        F('search_vector'), а НЕ строка 'search_vector'. Со строкой Django
-        считает её текстовым полем, которое надо векторизовать, и генерирует
-        ts_rank(to_tsvector(search_vector::text), …): готовый tsvector
-        приводится к тексту и токенизируется заново — на каждой строке, дефолтной
-        конфигурацией вместо russian. Индекс при этом не при делах. На 155 тыс.
-        товаров это разница между сотнями миллисекунд и секундами.
-        MainProductFilter.search_rank написан со строкой и болеет тем же.
-        """
-        if not [term for term in (value or '').split() if term]:
-            return None
-        return SearchRank(F('search_vector'), SearchQuery(value, config='russian'))
-
     def search_method(self, queryset, name, value):
-        """Вектор ИЛИ артикул ИЛИ название у поставщика.
-
-        Артикул поставщика (MainProduct.article) намеренно не ищется: артикул,
-        который пользователь видит в интерфейсе, это sku, а sku и есть
-        Product.number — тот самый ключ сопоставления.
-
-        А вот название связанного MainProduct ищется, и это не лишнее: у
-        несинхронизированной заготовки вектор состоит из одного number, и без
-        этого условия такой товар нельзя найти вообще никак, пока бэкфилл до
-        него не дошёл.
-        """
-        terms = [term for term in (value or '').split() if term]
-        if not terms:
+        if not search_terms(value):
             return queryset
-
-        by_number = Q()
-        for term in terms:
-            by_number &= Q(number__icontains=term)
-
-        by_main_product_name = Q()
-        for term in terms:
-            by_main_product_name &= Q(name__icontains=term)
-
-        # UNION трёх отборов, а не OR трёх условий. По отдельности они дешёвые:
-        # вектор 36 мс (GIN), number 41 мс, название у поставщика 98 мс. Под
-        # общим OR Postgres не умеет совместить GIN-скан с подзапросом и
-        # проваливается в полный проход — 622 мс на один только отбор и ~1.4 с
-        # на страницу даже при единственном совпадении. UNION даёт каждой ветке
-        # её собственный план, а потом один semi-join по pk.
-        matched = (
-            Product.objects.filter(search_vector=SearchQuery(value, config='russian'))
-            .values('pk')
-            .union(
-                Product.objects.filter(by_number).values('pk'),
-                MainProduct.objects.filter(by_main_product_name, product__isnull=False)
-                .values('product_id'),
-            )
-        )
-
-        return (
-            queryset.filter(pk__in=matched)
-            .annotate(rank=self.search_rank(value))
-            # nulls_last обязателен. '-rank' компилируется в ORDER BY rank DESC,
-            # а Postgres при DESC ставит NULL ПЕРВЫМИ. Вектора нет у ~100 тыс.
-            # товаров без данных PIM, и их rank — NULL, поэтому ВСЯ первая
-            # страница заполнялась самыми слабыми совпадениями (по номеру или по
-            # названию у поставщика), а настоящие полнотекстовые — на «молоток»
-            # их 463 — на неё не попадали вовсе. pk вторым ключом — чтобы
-            # пагинация была стабильной при равном rank.
-            .order_by(F('rank').desc(nulls_last=True), 'pk')
-        )
+        return ranked(queryset.filter(pk__in=matching_product_pks(value)), value)
 
     # --- контентные фасеты (зеркало PIM) ----------------------------------
 
     def categories_method(self, queryset, name, value):
-        """Выбор родителя должен находить всё, что под ним.
-
-        Разворачиваем выбор по дереву ЛОКАЛЬНО, через MPTT. Без этого выбор
-        «Сантехника» вернул бы только товары, привязанные ровно к этому узлу, а
-        не к «Сантехника > Смесители» — то есть заметно меньше, чем страница
-        отдаёт сегодня, и молча.
-        """
         if not value:
             return queryset
-        descendant_ids = set()
-        for category in value:
-            descendant_ids.update(
-                category.get_descendants(include_self=True).values_list('pk', flat=True)
-            )
         return queryset.filter(
             Exists(Product.categories.through.objects.filter(
-                product_id=OuterRef('pk'), category_id__in=descendant_ids,
+                product_id=OuterRef('pk'),
+                category_id__in=category_with_descendants(value),
             ))
         )
 

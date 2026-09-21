@@ -168,8 +168,9 @@ class ShoppingTabDeleteView(LoginRequiredMixin, View):
 def _get_shopping_tab_items(tab):
     return order_cart_items(
         tab.items
-        .select_related('confirmed_product', 'confirmed_product__supplier')
-        .prefetch_related('products')
+        .select_related('confirmed_product', 'confirmed_product__supplier',
+                        'confirmed_product__product__brand')
+        .prefetch_related('products__supplier', 'products__product__brand')
     )
 
 
@@ -407,8 +408,8 @@ class CartItemDetailView(LoginRequiredMixin, DetailView):
         return (
             CartItem.objects
             .filter(user=self.request.user)
-            .select_related('confirmed_product')
-            .prefetch_related('products')
+            .select_related('confirmed_product', 'confirmed_product__product__brand')
+            .prefetch_related('products__supplier', 'products__product__brand')
         )
 
     def get_context_data(self, **kwargs):

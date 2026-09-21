@@ -18,10 +18,13 @@ class CartItemProductTable(tables.Table):
   добавляет его в «Подходящие товары» по клику.
   '''
   select = tables.Column(verbose_name='', orderable=False, empty_values=())
+  # Бренд из PIM через MainProduct.product: собственный manufacturer у
+  # MainProduct уходит в Phase 2 (D1).
+  brand = tables.Column(verbose_name='Бренд', accessor='product__brand__name', default='—')
 
   class Meta:
     model = MainProduct
-    fields = ['select', 'sku', 'article', 'name', 'supplier', 'manufacturer', 'stock']
+    fields = ['select', 'sku', 'article', 'name', 'supplier', 'brand', 'stock']
     template_name = 'core/includes/table_htmx.html'
     attrs = {
       'class': 'table table-hover table-sm align-middle mb-0'
@@ -35,7 +38,7 @@ class CartItemProductTable(tables.Table):
     if not self.url:
       self.url = self.request.path_info
     if 'data' in kwargs:
-      kwargs['data'] = kwargs['data'].prefetch_related('supplier', 'manufacturer')
+      kwargs['data'] = kwargs['data'].select_related('supplier', 'product__brand')
     super().__init__(*args, **kwargs)
 
   def render_select(self, record):

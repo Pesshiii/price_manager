@@ -179,6 +179,13 @@ SHOPPING_TAB_EXPORT_COLUMNS = [
 ]
 
 
+def _brand_name(main_product) -> str:
+    """Бренд товара из PIM для строки поставщика, либо пустая строка."""
+    if main_product is None or main_product.product is None or main_product.product.brand is None:
+        return ''
+    return main_product.product.brand.name
+
+
 def build_shopping_tab_export(shopping_tab_id: int, user_id: int | None = None) -> ShoppingTabExport:
     """Собирает xlsx по позициям заявки и сохраняет его в ShoppingTabExport."""
     shopping_tab = ShoppingTab.objects.get(pk=shopping_tab_id)
@@ -187,7 +194,7 @@ def build_shopping_tab_export(shopping_tab_id: int, user_id: int | None = None) 
         .select_related(
             'confirmed_product',
             'confirmed_product__supplier',
-            'confirmed_product__manufacturer',
+            'confirmed_product__product__brand',
         )
     )
 
@@ -201,7 +208,10 @@ def build_shopping_tab_export(shopping_tab_id: int, user_id: int | None = None) 
             'Товар': product.name if product else '',
             'Артикул': (product.sku or product.article) if product else '',
             'Поставщик': str(product.supplier) if product else '',
-            'Производитель': str(product.manufacturer) if product and product.manufacturer else '',
+            # Бренд из PIM, а не MainProduct.manufacturer: тот уходит в Phase 2
+            # (D1). Заголовок колонки прежний — на него могут опираться те, кто
+            # обрабатывает выгрузку дальше.
+            'Производитель': _brand_name(product),
             'Цена': item.confirmed_price,
             'Сумма': item.line_total,
         })

@@ -34,12 +34,12 @@
     <div class="ci-cand-list" id="cart-item-products-list">
       {% for product in item.products.all %}
         <article class="ci-cand{% if item.confirmed_product_id == product.id %} is-chosen{% endif %}"
-                 data-search="{{ product.name|lower }} {{ product.sku|default:product.article|lower }} {{ product.supplier|lower }} {{ product.manufacturer|default_if_none:''|lower }}">
+                 data-search="{{ product.name|lower }} {{ product.sku|default:product.article|lower }} {{ product.supplier|lower }} {{ product.product.brand.name|default_if_none:''|lower }}">
           <div>
             <p class="ci-cand-name mb-1">{{ product.name }}</p>
             <p class="ci-cand-sub mb-0">
               <span class="ci-num">арт. {{ product.sku|default:product.article }}</span>
-              · {{ product.supplier }}{% if product.manufacturer %} · {{ product.manufacturer }}{% endif %}
+              · {{ product.supplier }}{% if product.product.brand %} · {{ product.product.brand.name }}{% endif %}
             </p>
           </div>
           <div class="ci-cand-price">
