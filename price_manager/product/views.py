@@ -1,6 +1,7 @@
 import logging
 
 from django.db.models import OuterRef, Subquery
+from django.http import Http404, HttpResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse_lazy
 from django.views.generic import View
@@ -8,6 +9,7 @@ from django_filters.views import FilterView
 from django_tables2 import SingleTableMixin
 
 from main_product_manager.models import MainProduct
+from main_product_manager.utils import fetch_pim_image
 from supplier_product_manager.models import SupplierProduct
 
 from .columns import PRODUCT_COLUMN_GROUPS, load_columns, save_columns
@@ -159,3 +161,22 @@ def _latest_supplier_prices():
         'supplier_product_rrp': Subquery(latest.values('rrp')[:1]),
         'supplier_product_discount_price': Subquery(latest.values('discount_price')[:1]),
     }
+
+
+class PimImageView(View):
+    """Фото из PIM через нас — браузеру PIM без токена отвечает 401.
+
+    Доступ — как у любой страницы приложения: LoginRequiredMiddleware. Байты
+    кэшируются на сутки на сервере (fetch_pim_image) и в браузере
+    (Cache-Control: private — картинка отдана залогиненному пользователю, в
+    общих кэшах ей делать нечего).
+    """
+
+    def get(self, request, file_id, size):
+        image = fetch_pim_image(file_id, size)
+        if image is None:
+            raise Http404
+        content, content_type = image
+        response = HttpResponse(content, content_type=content_type)
+        response['Cache-Control'] = 'private, max-age=86400'
+        return response

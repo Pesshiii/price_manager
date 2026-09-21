@@ -46,7 +46,7 @@ from .forms import *
 from .tables import *
 from .filters import *
 from .utils import *
-from .utils import get_pim_data_for_product, prefetch_pim_data, get_file_url, maybe_notify_pim_error
+from .utils import get_pim_data_for_product, prefetch_pim_data, pim_image_url, maybe_notify_pim_error
 from .columns import normalize_selected_columns
 from .grouping import annotate_groups, order_groups
 from .tasks import sync_main_products_task
@@ -221,9 +221,9 @@ class MainProductTableView(SingleTableView):
           page_records = [row.record for row in table.page.object_list]
         except Exception:
           page_records = []
+        # Фото здесь больше не прогреваются: колонка ссылается на прокси
+        # (pim_image_url), и за байтами браузер приходит сам.
         table.pim_map = prefetch_pim_data(page_records)
-        for data in table.pim_map.values():
-          get_file_url(data.get('mainImageId') or data.get('imageId'))
         maybe_notify_pim_error(self.request.user)
       return context
 
@@ -255,7 +255,7 @@ class MainProductInfo(DetailView):
     pim_data = get_pim_data_for_product(self.object, refresh=True)
     context['pim_data'] = pim_data
     if pim_data:
-      context['pim_image_url'] = get_file_url(pim_data.get('mainImageId') or pim_data.get('imageId'))
+      context['pim_image_url'] = pim_image_url(pim_data.get('mainImageId') or pim_data.get('imageId'))
     return context
 
 
@@ -271,7 +271,7 @@ class MainProductDetail(DetailView):
     pim_data = get_pim_data_for_product(self.object, refresh=True)
     context['pim_data'] = pim_data
     if pim_data:
-      context['pim_image_url'] = get_file_url(pim_data.get('mainImageId') or pim_data.get('imageId'))
+      context['pim_image_url'] = pim_image_url(pim_data.get('mainImageId') or pim_data.get('imageId'))
     return context
 
 
