@@ -425,3 +425,25 @@ short and silently skip the tail. `timezone.now()` is read once above the
 loop so one run stamps one `stock_updated_at`. Same gap-safe idiom as
 `iter_unpushed_product_pk_batches` (`utils.py:682-698`, feeding
 `push_pim_links`'s `pk__in=pks`, `utils.py:838`).
+
+## PIM photos need the token — templates get `pim_image_url`, never `get_file_url`
+
+Found 2026-09-21 when photos "did not display" on `/products/`. Every PIM image
+URL — `*ThumbnailUrl`, `downloadUrl`, `mainImagePathsData.download` alike —
+answers an anonymous request with **401** and a request carrying
+`Authorization-Token` with the image. An `<img src>` pointing at PIM therefore
+worked only for someone who happened to be logged into PIM in the same browser,
+which is why it looked flaky rather than broken.
+
+- `get_file_url()` returns the **PIM-side** URL. Server use only.
+- `pim_image_url(file_id, size)` returns our proxy path
+  (`product.views.PimImageView`, `/products/pim-image/<id>/<size>/`, behind
+  `LoginRequiredMiddleware`) and touches no network — this is what templates
+  and table columns use.
+- `fetch_pim_image()` does the fetch: token only to `settings.PIM_HOST`,
+  redirects followed **by hand** with the same host check on every hop (the live
+  thumbnail answers 302 to a relative `/upload/thumbnails/…`; httpx's own
+  redirect following would carry `Authorization-Token` to any host), bytes
+  cached a day, failures not cached.
+- The live PIM now does send `*ThumbnailUrl` keys; `GetFileUrlTests` still
+  describes the older `downloadUrl`-only shape, which also remains handled.

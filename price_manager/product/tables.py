@@ -131,18 +131,18 @@ class ProductTable(tables.Table):
     # --- необязательные колонки из данных PIM -------------------------------
 
     def render_photo(self, record):
-        """Фото товара — ЕДИНСТВЕННЫЙ сетевой вызов на странице.
+        """Фото товара — ссылка на наш прокси; отрисовка в сеть не ходит.
 
-        Всё остальное здесь локально (R1 закрыт ровно на этом), но ссылку на
-        файл raw_data не хранит — только его id, и адрес приходится спрашивать
-        у PIM. get_file_url кэширует ответ на сутки, так что платит только
-        первый показ. Поэтому колонка и выключена по умолчанию: включивший её
-        соглашается на до 25 запросов к PIM на холодной странице.
+        Прямая ссылка на PIM не годится: PIM отдаёт картинки только с токеном,
+        и браузер получал 401 (см. main_product_manager.utils.fetch_pim_image).
+        За байтами в PIM ходит уже прокси — по запросу <img>, с кэшем на сутки.
+        Колонка по-прежнему выключена по умолчанию: на холодном кэше каждое
+        фото — два запроса к PIM через воркер приложения.
         """
-        from main_product_manager.utils import get_file_url
+        from main_product_manager.utils import pim_image_url
 
         data = record.raw_data or {}
-        url = get_file_url(data.get('mainImageId') or data.get('imageId'))
+        url = pim_image_url(data.get('mainImageId') or data.get('imageId'))
         if not url:
             return '—'
         return format_html(

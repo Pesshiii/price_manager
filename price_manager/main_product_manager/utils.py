@@ -1,7 +1,10 @@
 import logging
+import re
 import time
+from urllib.parse import urljoin, urlsplit
 
 import httpx
+from django.conf import settings
 from django.db.models import Max, F
 from django.core.cache import cache
 from django.db.models import Value, OuterRef, Subquery, Q, F, Sum, IntegerField, Count, Min
@@ -458,10 +461,14 @@ def _absolute_pim_url(value) -> str | None:
 
 
 def get_file_url(file_id: str | None, size: str = 'medium') -> str | None:
-    """Return an image URL for a PIM File record, or None if it has no usable one.
+    """Return the PIM-side image URL for a PIM File record, or None if it has no usable one.
 
-    Tries `{size}ThumbnailUrl`, then `url`, then `downloadUrl` — in practice
-    only the last is populated. size: 'small', 'medium', 'large'.
+    Tries `{size}ThumbnailUrl`, then `url`, then `downloadUrl`. size: 'small',
+    'medium', 'large'. As of 2026-09-21 the live PIM does send the thumbnail
+    keys (earlier samples had only `downloadUrl`).
+
+    The URL needs PIM's Authorization-Token — anonymously it is a 401. Never
+    put it in a template; <img src> gets pim_image_url(), our proxy.
     """
     if not file_id:
         return None
@@ -485,6 +492,87 @@ def get_file_url(file_id: str | None, size: str = 'medium') -> str | None:
         if url:
             return url
     return None
+
+
+# --- Фото из PIM — через наш прокси ------------------------------------------
+#
+# get_file_url возвращает адрес НА СТОРОНЕ PIM, и отдавать его браузеру нельзя:
+# и миниатюры, и оригиналы PIM отдаёт только с Authorization-Token, анонимный
+# запрос получает 401 (проверено на живом PIM 2026-09-21). <img src> на PIM
+# работал лишь у того, кто случайно залогинен в PIM в том же браузере, — у
+# остальных фото «не отображалось». Поэтому браузер ходит к нам
+# (product.views.PimImageView, за LoginRequiredMiddleware), а мы — в PIM с
+# токеном.
+
+PIM_IMAGE_SIZES = ('small', 'medium', 'large')
+_PIM_FILE_ID = re.compile(r'[A-Za-z0-9-]{1,64}')
+_PIM_IMAGE_MAX_BYTES = 5 * 1024 * 1024
+_PIM_IMAGE_MAX_REDIRECTS = 3
+
+
+def _on_pim_host(url: str) -> bool:
+    parts = urlsplit(url)
+    return parts.scheme == 'https' and (parts.hostname or '').lower() == str(settings.PIM_HOST).lower()
+
+
+def _valid_pim_image(file_id, size) -> bool:
+    return bool(file_id) and size in PIM_IMAGE_SIZES and bool(_PIM_FILE_ID.fullmatch(str(file_id)))
+
+
+def pim_image_url(file_id: str | None, size: str = 'medium') -> str | None:
+    """Адрес фото для <img src> — наш прокси, не PIM. Сети не касается."""
+    if not _valid_pim_image(file_id, size):
+        return None
+    from django.urls import reverse
+    return reverse('pim-image', kwargs={'file_id': file_id, 'size': size})
+
+
+def fetch_pim_image(file_id: str | None, size: str = 'medium') -> tuple[bytes, str] | None:
+    """Байты и content-type фото из PIM, либо None.
+
+    Токен уходит ТОЛЬКО на хост из settings.PIM_HOST. Адрес картинки берётся
+    из ответа PIM, и если PIM однажды укажет на внешнее хранилище, отправить
+    туда наш токен значило бы его раздать. Такой адрес отвергается, а не
+    запрашивается без токена: без токена PIM всё равно отвечает 401.
+
+    Редиректы — вручную и с той же проверкой на каждом шаге. Они не
+    исключение, а норма: миниатюра отвечает 302 на относительный
+    /upload/thumbnails/… того же хоста (проверено на живом PIM). httpx с
+    follow_redirects=True пошёл бы за ними сам — и понёс бы токен куда угодно,
+    Authorization-Token он при смене хоста не снимает.
+
+    Неудача не кэшируется: чаще всего она временная, а битая картинка на сутки
+    хуже лишнего запроса.
+    """
+    if not _valid_pim_image(file_id, size):
+        return None
+    cache_key = f'pim_image:{file_id}:{size}'
+    cached = cache.get(cache_key)
+    if cached is not None:
+        return cached
+    url = get_file_url(file_id, size)
+    t0 = time.monotonic()
+    try:
+        for _ in range(_PIM_IMAGE_MAX_REDIRECTS + 1):
+            if not url or not _on_pim_host(url):
+                return None
+            response = httpx.get(url, headers={'Authorization-Token': settings.PIM_TOKEN},
+                                 timeout=15, follow_redirects=False)
+            if not response.is_redirect:
+                break
+            url = urljoin(url, response.headers.get('location', ''))
+        else:
+            return None
+    except httpx.HTTPError as exc:
+        _record_pim_error('fetch_pim_image', exc, int((time.monotonic() - t0) * 1000))
+        return None
+    content_type = response.headers.get('content-type', '').split(';')[0].strip()
+    if (response.status_code != 200 or not content_type.startswith('image/')
+            or len(response.content) > _PIM_IMAGE_MAX_BYTES):
+        return None
+    image = (response.content, content_type)
+    cache.set(cache_key, image, PIM_CACHE_TTL)
+    return image
 
 
 def _cache_key(user_id: int) -> str:

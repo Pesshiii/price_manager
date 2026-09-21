@@ -23,7 +23,7 @@ from .grouping import (
   is_group_member,
   order_by_group,
 )
-from .utils import get_file_url
+from .utils import pim_image_url
 
 import pandas as pd
 from functools import partial
@@ -236,7 +236,7 @@ class MainProductTable(tables.Table):
     if not data:
       return '—'
     image_id = data.get('mainImageId') or data.get('imageId')
-    url = get_file_url(image_id)
+    url = pim_image_url(image_id)
     if not url:
       return '—'
     return format_html(
