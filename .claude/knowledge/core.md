@@ -1,9 +1,10 @@
 # core
 
 The UI hub and shared infrastructure. Largest, most template-heavy app:
-**96 of the repo's 140 templates** live here, including templates owned by
-*other* apps' views (`supplier/`, `manufacturer/`, `currency/`, `category/`,
-`main/`, `upload/`, `registration/`). If you are looking for a template and it
+**81 of the repo's 123 templates** live here, including templates owned by
+*other* apps' views (`supplier/`, `currency/`, `main/`, `upload/`,
+`registration/`). The `category/` and `manufacturer/` folders went with Phase
+2b-3 — they had had no routes for a while. If you are looking for a template and it
 isn't under the app that renders it, look here first.
 
 ## `execute_locked_task` — every Celery task should route through it

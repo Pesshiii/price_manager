@@ -63,7 +63,6 @@ urlpatterns = [
 
     ##################################################################################################
 
-    path('category/autocomplete',sm_views.CategoryAutocomplete.as_view(),name='category-autocomplete'),
     
     path('currency/', sm_views.CurrencyList.as_view(), name='currency'),
     path('currency/create/', sm_views.CurrencyCreate.as_view(), name='currency-create'),

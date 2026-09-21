@@ -1,5 +1,5 @@
 from django import forms
-from .models import Supplier, Manufacturer, ManufacturerDict, Category
+from .models import Supplier
 from django.urls import reverse_lazy
 from crispy_forms.helper import FormHelper
 from crispy_forms.layout import Submit, Layout, Field, Div, HTML
@@ -84,21 +84,3 @@ class SupplierForm(forms.ModelForm):
       HTML('<hr class="my-4 border-secondary col-8">'),
       Submit('action', 'Сохранить', title="Поиск", css_class='btn btn-primary col-5 mt-4 btn-lg')
     )
-
-class ManufacturerDictForm(forms.ModelForm):
-  manufacturer = forms.ModelChoiceField(Manufacturer.objects,
-                                        label='',
-                                        widget=forms.HiddenInput())
-  class Meta:
-    model = ManufacturerDict
-    fields = '__all__'
-
-class CategoryAddForm(forms.Form):
-  # Используется при связке категории с товарами
-  category = forms.ModelChoiceField(
-    Category.objects,
-    label='Категория',
-    widget=forms.Select(attrs={
-      'class':'form-select'
-    })
-  )

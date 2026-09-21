@@ -1,8 +1,4 @@
 from django.db import models
-from django.contrib.postgres.search import SearchVectorField, SearchVector
-from django.contrib.postgres.indexes import GinIndex
-from django.db.models import Value
-from mptt.models import MPTTModel, TreeForeignKey
 
 TIME_FREQ = {
              '': 0,
@@ -143,71 +139,3 @@ class Discount(models.Model):
         return self.name
     class Meta:
         constraints = [models.UniqueConstraint(fields=['name', 'supplier'], name='discount_name_supplier_constraint')]
-
-class Manufacturer(models.Model):
-    name = models.CharField(verbose_name='Производитель',
-                            unique=True)
-    pim_id = models.CharField(verbose_name='Id для системы Pim',
-                              null=True,
-                              blank=True,
-                              unique=True)
-    class Meta:
-        verbose_name = 'Производитель'
-    def __str__(self):
-        return self.name
-  
-class ManufacturerDict(models.Model):
-    '''
-    Подвязывает производителя потом\\
-    По этому словарю выбирается производитель
-    '''
-    manufacturer = models.ForeignKey(Manufacturer,
-                                    verbose_name='Производитель',
-                                    related_name='md_manufacturer_ptr',
-                                    on_delete=models.CASCADE)
-    name = models.CharField(verbose_name='Вариация',
-                            unique=True,
-                            null=False)
-    class Meta:
-        verbose_name = 'Словарь Производителя'
-    def __str__(self):
-        return f'{self.name}({self.manufacturer.name})'
-  
-
-class Category(MPTTModel):
-    parent = TreeForeignKey('self',
-                                on_delete=models.CASCADE,
-                                verbose_name='Подкатегория для',
-                                related_name='children',
-                                null=True,
-                                blank=True)
-    name = models.CharField(verbose_name='Название',
-                            null=False)
-    pim_id = models.CharField(verbose_name='Id для системы Pim',
-                              null=True,
-                              blank=True,
-                              unique=True)
-    search_vector = SearchVectorField(null=True, editable=False, verbose_name='Вектор поиска')
-
-    def __str__(self):
-        if self.parent:
-            return f'{self.parent}>{self.name}'
-        else:
-            return self.name
-
-    def _build_searchvector(self) -> SearchVector:
-        ancestors = self.get_ancestors(include_self=True)
-        full_path = ' '.join(a.name for a in ancestors)
-        return SearchVector(Value(full_path), weight='A', config='russian')
-
-    def rebuild_search_vector(self):
-        Category.objects.filter(pk=self.pk).update(
-            search_vector=self._build_searchvector()
-        )
-
-    class Meta:
-        constraints = [models.UniqueConstraint(fields=['parent', 'name'], name='parent_child_constraint')]
-        indexes = [GinIndex(fields=['search_vector'], name='category_search_vector_gin')]
-    class MPTTMeta:
-        order_insertion_by = ['name']
-    

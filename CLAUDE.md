@@ -114,7 +114,7 @@ There are two product catalogs in the tree. **They are not peers, and the newer 
 **The legacy, supplier-centric stack is the live system. Build here.**
 
 - `core` → the UI hub and the shopping-tab/cart feature (see below)
-- `supplier_manager` → `Supplier`, `Currency`, `Category` (MPTT), `Manufacturer`, `Discount`
+- `supplier_manager` → `Supplier`, `Currency`, `Discount`. Its `Category` and `Manufacturer`/`ManufacturerDict` were retired in the product shift's Phase 2b — categories are `product.Category`, brands `product.Brand`, both from PIM
 - `supplier_product_manager` → `SupplierProduct` (supplier's raw price row), `Setting`/`Link` (column-mapping config for Excel imports), `SupplierFile` (upload queue)
 - `main_product_manager` → `MainProduct` — since the product shift's Phase 2b, a **per-supplier stock + price row** hanging off `product.Product` (multiple price fields, `stock`, logs, the PIM link push). Its own search vector, description, categories, manufacturer and dimensions are gone; search, name, brand and categories live on `product.Product`
 - `product_price_manager` → `PriceManager` (markup rules: source price → dest price, with formula), `PriceTag` (per-product-per-rule snapshot), `update_prices()` (bulk apply)
@@ -138,7 +138,7 @@ A `PreToolUse` hook (`.claude/hooks/guard_retiring_stack.py`) turns an edit unde
 
 `core` is the largest and most active app, and holds most of the front end:
 
-- **96 of the repo's 140 templates** are under `core/templates/`, including templates owned by other apps' views (`supplier/`, `manufacturer/`, `currency/`, `category/`, `main/`, `upload/`, `registration/`).
+- **81 of the repo's 123 templates** are under `core/templates/`, including templates owned by other apps' views (`supplier/`, `currency/`, `main/`, `upload/`, `registration/`).
 - `core/views.py` (~640 lines) owns the **shopping-tab / cart** feature — `ShoppingTab*` (list, detail, delete, export, import + preview/run) and `CartItem*` (detail, quick-add, product select, add, confirm/unconfirm, remove). Templates in `core/templates/shopping_tab/`.
 - `core/models.py` → `CartItem`, `ShoppingTab`, `ShoppingTabExport`, `PersistentNotification`, `TaskRunHistory`.
 - `core/middleware.py` → `LoginRequiredMiddleware` (global login gate; anonymous requests under `/api/` get 401 JSON instead of a redirect) and `toaster_middleware`.
@@ -218,7 +218,7 @@ small to justify one; anything important about them belongs in this file.
 
 PostgreSQL 17 (`pgvector/pgvector:pg17` image). One full-text index type is in use:
 
-- `GinIndex` on `product.Product.search_vector` and `supplier_manager.Category.search_vector` (the latter until that model is retired), built with `config='russian'`. Rank against a stored vector with `SearchRank(F('search_vector'), …)`, never the string `'search_vector'` — the string makes Django re-tokenize the stored vector on every row, with the default config and without the index.
+- `GinIndex` on `product.Product.search_vector`, built with `config='russian'`. (There used to be two more, on `MainProduct` and `supplier_manager.Category`; both went with Phase 2b.) Rank against a stored vector with `SearchRank(F('search_vector'), …)`, never the string `'search_vector'` — the string makes Django re-tokenize the stored vector on every row, with the default config and without the index.
 
 There is **no pgvector/HNSW/embedding usage anywhere in the Python code** — semantic search went away with the API rewrite. The image still ships the extension; nothing depends on it.
 
