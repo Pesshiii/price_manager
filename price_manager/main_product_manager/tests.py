@@ -1063,7 +1063,10 @@ class MainProductExportTests(_PimSearchTestCase):
         )
         product.categories.add(leaf)
         self.product(sku='EXP-1', product=product)
-        self.product(sku='EXP-2')  # без товара — пустые колонки, а не ошибка
+        without_product = self.product(sku='EXP-2')  # без товара — пустые колонки, а не ошибка
+        SupplierProduct.objects.create(main_product=without_product, supplier=self.supplier,
+                                       article=without_product.article, name=without_product.name,
+                                       description='Из прайса')
 
         rows = {row['sku']: row for row in MainProductResource().export(MainProduct.objects.all()).dict}
 
@@ -1071,6 +1074,22 @@ class MainProductExportTests(_PimSearchTestCase):
         self.assertEqual(rows['EXP-1']['Название_группы'], 'Инструмент > Дрели')
         self.assertEqual(rows['EXP-1']['HTML_описание'], '<p>Мощная</p>')
         self.assertEqual((rows['EXP-2']['Производитель'], rows['EXP-2']['Название_группы']), ('', ''))
+        # Описание — прежде всего из строки прайса: именно его хранил удалённый
+        # MainProduct.description. Без этого у товаров без контента PIM (их
+        # большинство) колонка опустела бы.
+        self.assertEqual(rows['EXP-2']['HTML_описание'], 'Из прайса')
+
+    def test_supplier_row_description_wins_over_pim(self):
+        from .resources import MainProductResource
+
+        product = PimProduct.objects.create(number='EXP-3', raw_data={'description': 'Из PIM'})
+        mp = self.product(sku='EXP-3', product=product)
+        SupplierProduct.objects.create(main_product=mp, supplier=self.supplier, article=mp.article,
+                                       name=mp.name, description='Из прайса')
+
+        row = MainProductResource().export(MainProduct.objects.all()).dict[0]
+
+        self.assertEqual(row['HTML_описание'], 'Из прайса')
 
     def test_the_dropped_columns_are_no_longer_importable(self):
         from .resources import MainProductResource

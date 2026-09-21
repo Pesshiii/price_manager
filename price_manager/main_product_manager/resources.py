@@ -147,6 +147,16 @@ class MainProductResource(resources.ModelResource):
         return " > ".join(reversed(path))
 
     def dehydrate_description(self, mainproduct):
+        """Описание строки прайса поставщика, иначе — из PIM.
+
+        Строка прайса — первой: удалённое MainProduct.description копировалось
+        ровно оттуда (copy-to-main), так что колонка сохраняет прежние
+        значения. PIM — запасной источник: контент из PIM есть лишь у части
+        товаров, и брать его первым значило бы потерять большинство описаний.
+        """
+        for supplier_row in mainproduct.supplierproducts.all():
+            if supplier_row.description:
+                return supplier_row.description
         product = mainproduct.product
         return (product.raw_data or {}).get('description') or "" if product else ""
 

@@ -516,12 +516,19 @@ What 2b-2 also had to do, found by consulting the three keepers first:
 - the whole `sync_pim_relations` chain, the «Добавить производителя в ГП» admin
   action, `CategoryFilter`, the PIM-categories import resource and command, and
   `export_manufacturers_for_pim` (P2-G4 done) are deleted;
-- the main-price export keeps «Производитель» / «Название_группы» /
-  «HTML_описание», now filled from PIM, and no longer imports them.
+- the main-price export keeps its «Производитель» / «Название_группы» /
+  «HTML_описание» columns and no longer imports them. **Description** reads the
+  supplier row first (what the dropped column was copied from), then PIM —
+  coverage kept. **Brand** has no other source (D1), so «Производитель» drops
+  from supplier-manufacturer coverage (~76%) to PIM-brand coverage (~15%, §0.4)
+  until PIM is enriched. That is a visible change in a file users download;
+  it was put to the user rather than decided here.
 
 **Deploy note:** the three migrations are independent of each other but all
 run after deploy; run them with the app briefly idle — 0004 is the one that can
-refuse, and if it does, nothing has changed yet.
+refuse, and if it does, nothing has changed yet. Messages still queued in Redis
+for the deleted tasks (`populate_pim_relations`, `recalculate_vectors_missing`)
+are rejected by the worker as `NotRegistered` — expected, harmless, once.
 
 **2b-3 — retire `supplier_manager.Category`, `Manufacturer`, `ManufacturerDict` (item 4).**
 Their tables can only go once every FK and M2M into them is gone (2b-2). Write the
