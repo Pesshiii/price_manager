@@ -26,6 +26,9 @@ const COMMANDS = {
     const context = await browser.newContext();
     page = await context.newPage();
     page.on('console', (msg) => consoleMsgs.push({ type: msg.type(), text: msg.text() }));
+    // Uncaught exceptions (e.g. a SyntaxError in an htmx-swapped inline <script>) arrive as
+    // 'pageerror', never as console messages - without this, `console --errors` reports (none).
+    page.on('pageerror', (err) => consoleMsgs.push({ type: 'error', text: `pageerror: ${err.message}` }));
     console.log('launched. base url:', BASE_URL);
   },
 

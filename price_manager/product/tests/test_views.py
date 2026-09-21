@@ -1,3 +1,5 @@
+import re
+import textwrap
 from decimal import Decimal
 
 from django.contrib.auth.models import User
@@ -179,6 +181,25 @@ class ProductFragmentTests(TestCase):
         response = self.client.get(reverse('products'))
 
         self.assertTemplateUsed(response, 'product/list.html')
+
+    def test_filter_panel_scripts_declare_nothing_at_top_level(self):
+        """Второй чекбокс-фасет не должен повторно объявлять функцию.
+
+        core/includes/checkbox_field.html подключается на каждый фасет (бренд и
+        поставщик), и его <script> выполняется столько же раз. Верхнеуровневый
+        const во второй раз падает в консоли с SyntaxError: Identifier has
+        already been declared — поэтому всё объявляется внутри window-гарда.
+        """
+        response = self.client.get(reverse('product-filter'), HTTP_HX_REQUEST='true')
+        content = response.content.decode()
+
+        self.assertEqual(content.count('data-checkbox-filter>'), 2)
+        scripts = [s for s in re.findall(r'<script[^>]*>(.*?)</script>', content, re.S)
+                   if 'data-checkbox-filter' in s]
+        self.assertEqual(len(scripts), 2)
+        for script in scripts:
+            top_level = re.findall(r'^(?:const|let|class)\s+\w+', textwrap.dedent(script), re.M)
+            self.assertEqual(top_level, [], script)
 
     def test_htmx_fragment_carries_no_second_filter_panel(self):
         """Фрагмент не должен тащить с собой панель фильтров и шапку."""

@@ -129,7 +129,7 @@ For iterative/interactive use, wrap it in tmux and `send-keys` one command at a 
 | `text [css-sel]` | print `innerText` of an element (or the whole body) |
 | `eval <js-expr>` | evaluate JS in the page, print JSON |
 | `url` | print the current page URL |
-| `console [--errors]` | print captured browser console messages |
+| `console [--errors]` | print captured browser console messages, plus uncaught page exceptions (`[error] pageerror: …`) — Playwright reports those separately from the console, e.g. a `SyntaxError` from an htmx-swapped inline `<script>` |
 | `login [user] [pass]` | log in via `/accounts/login/`; defaults to `agent_test` / `agent-test-pass-123` (see below) |
 | `quit` | close the browser, exit |
 
