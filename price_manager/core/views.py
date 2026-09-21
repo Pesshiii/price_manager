@@ -42,6 +42,16 @@ from decimal import Decimal, InvalidOperation
 import pandas as pd
 import re
 import math
+import secrets
+
+from django.conf import settings
+from django.contrib.auth import login
+from django.shortcuts import resolve_url
+from django.utils.http import url_has_allowed_host_and_scheme
+from django.views.decorators.csrf import csrf_exempt
+from django.views.decorators.http import require_http_methods
+
+from core import bitrix24
 
 def toast_messages(request):
     storage = messages.get_messages(request)
@@ -95,9 +105,69 @@ class AppLoginView(LoginView):
             field.widget.attrs['class'] = ' '.join(classes) if classes else 'form-control'
         return form
 
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        context['bitrix24_enabled'] = bitrix24.is_configured()
+        return context
+
 
 class AppLogoutView(LogoutView):
     next_page = 'login'
+
+
+BITRIX24_STATE_KEY = 'bitrix24_oauth_state'
+BITRIX24_NEXT_KEY = 'bitrix24_oauth_next'
+
+
+@require_http_methods(['GET'])
+def bitrix24_login(request):
+    """Send the user to the portal's OAuth page; see core/bitrix24.py."""
+    if not bitrix24.is_configured():
+        raise Http404
+    state = secrets.token_urlsafe(32)
+    request.session[BITRIX24_STATE_KEY] = state
+    next_url = request.GET.get('next', '')
+    if url_has_allowed_host_and_scheme(
+        next_url, allowed_hosts={request.get_host()}, require_https=request.is_secure()
+    ):
+        request.session[BITRIX24_NEXT_KEY] = next_url
+    else:
+        request.session.pop(BITRIX24_NEXT_KEY, None)
+    return redirect(bitrix24.authorize_url(state))
+
+
+@csrf_exempt
+@require_http_methods(['GET', 'POST'])
+def bitrix24_callback(request):
+    """Portal returns here with ?code&state after the user authorizes."""
+    if not bitrix24.is_configured():
+        raise Http404
+    if request.method == 'POST':
+        # Bitrix24 POSTs the install-time tokens to the app's install URL,
+        # which points here. PM stores no tokens, so just acknowledge.
+        return HttpResponse(status=200)
+
+    expected_state = request.session.pop(BITRIX24_STATE_KEY, None)
+    next_url = request.session.pop(BITRIX24_NEXT_KEY, None)
+    state = request.GET.get('state', '')
+    code = request.GET.get('code', '')
+    # Compared as bytes: compare_digest raises TypeError on a non-ASCII str.
+    if not expected_state or not code or not secrets.compare_digest(
+        state.encode(), expected_state.encode()
+    ):
+        messages.error(request, 'Не удалось войти через Bitrix24: сессия входа устарела. Попробуйте ещё раз.')
+        return redirect('login')
+
+    try:
+        user = bitrix24.user_from_code(code)
+    except bitrix24.Bitrix24LoginDenied as exc:
+        messages.error(request, str(exc))
+        return redirect('login')
+
+    # No authenticate() call happened, so login() needs the backend named.
+    user.backend = 'django.contrib.auth.backends.ModelBackend'
+    login(request, user)
+    return redirect(next_url or resolve_url(settings.LOGIN_REDIRECT_URL))
 
 
 class ShoppingTabListView(LoginRequiredMixin, TemplateView):

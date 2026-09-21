@@ -58,6 +58,12 @@ services:
       PIM_HOST: ${PIM_HOST:-http://pim.invalid}
       CSRF_TRUSTED_ORIGINS: ${CSRF_TRUSTED_ORIGINS:-http://localhost,http://127.0.0.1}
       HTTP_X_FORWARDED_PROTO: ${HTTP_X_FORWARDED_PROTO:-https}
+      # Login with Bitrix24; empty = feature off. Secret lives in .env only.
+      # web only on purpose: the worker never serves the login flow.
+      BITRIX24_PORTAL: ${BITRIX24_PORTAL:-}
+      BITRIX24_CLIENT_ID: ${BITRIX24_CLIENT_ID:-}
+      BITRIX24_CLIENT_SECRET: ${BITRIX24_CLIENT_SECRET:-}
+      BITRIX24_AUTO_CREATE_USERS: ${BITRIX24_AUTO_CREATE_USERS:-true}
     ports:
       - "${WEB_PORT:-8000}:8000"
     volumes:

@@ -128,5 +128,11 @@ LOGGING = {
             "level": "INFO",
             "propagate": False,
         },
+        # Why a Bitrix24 login was refused is logged at INFO.
+        "core.bitrix24": {
+            "handlers": ["console"],
+            "level": "INFO",
+            "propagate": False,
+        },
     },
 }
