@@ -250,9 +250,19 @@ measuring on the prod snapshot or driving the page in a browser.
 - **The search widget needs an explicit `id='products-search'`.** Django renders
   `id_search`; `hx-trigger`/`hx-include` select on `#products-search`, and both
   silently matched nothing — search did nothing and every filter wiped the query.
-- **`self.data` is not always a QueryDict** — `ProductFilter._selected()` handles a
-  plain dict. `MainProductFilter` still calls `.getlist()` directly and raises
+- **`self.data` is not always a QueryDict** — `selected_values()` handles a plain
+  dict. The old page's `MainPageFilter` still calls `.getlist()` directly and raises
   `AttributeError` in `__init__` if built from a dict.
+- **Search is shared, not copied.** `filters.py` exposes `matching_product_pks`,
+  `ranked`, `search_rank`, `category_with_descendants` and `selected_values` at
+  module level, because [[main_product_manager]]'s `MainProductFilter` (the cart's
+  picker) searches through `MainProduct.product` with exactly the same definition.
+  Change the search here and the cart changes with it — that is the point.
+- **Column preferences (`columns.py`) are cached per user under
+  `product_page:columns:user:<id>`**, deliberately not the old page's key, whose lists
+  name fields Phase 2b drops. `normalize_columns` keeps catalog order and falls back
+  to `DEFAULT_COLUMNS`; an empty `columns=` in the request is an explicit "nothing",
+  which is why the picker carries a hidden empty input.
 
 ## Filling the mirror from PIM — `load_pim_mirror`
 
