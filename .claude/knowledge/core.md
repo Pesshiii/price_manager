@@ -128,6 +128,40 @@ under `/api/` get a **401 JSON** response rather than a redirect
 `toasts:fetch` client event `after="settle"`. Adapted from Josh Karamuth's
 django-messages-toast-htmx pattern (credited in the docstring).
 
+## `core/templates/core/includes/checkbox_field.html` and `radio_field.html` — shared filter-facet includes
+
+Crispy field templates used by every filter panel at least twice per page —
+one include per facet, e.g. `ProductFilter` brand + supplier
+(`product/filters.py:333,335`). Only `checkbox_field.html` has a swappable
+OOB partial; that asymmetry drives the second point below.
+
+**Their inline `<script>` must be idempotent.** htmx executes inline
+`<script>`s in swapped content, and classic scripts share one global lexical
+scope — a top-level `const`/`let` in an include rendered twice throws
+`SyntaxError: Identifier '…' has already been declared` on the second one.
+Both guard against this: no top-level declarations, everything gated behind
+a `window` flag — `window.__priceManagerCheckboxFilterInit`
+(`checkbox_field.html:74-98`) and `window.__priceManagerRadioFilterInit`
+(`radio_field.html:89-111`). Any new field include used more than once per
+page needs the same guard. Regression test:
+`product/tests/test_views.py:185`
+`test_filter_panel_scripts_declare_nothing_at_top_level`.
+
+**`checkbox_field.html` can't copy `radio_field.html`'s bind-once pattern.**
+Checkbox's `{% partialdef checkboxes %}` (`:37-71`, `#checkboxes_<auto_id>`)
+is OOB-swapped on its own via `OobField` (`core/crispy_fields.py:14`) at
+[[main_product_manager]]'s `MainProductFilter.build_helper`
+(`main_product_manager/filters.py:119-120`, supplier + brand), reached
+when `ResolveMainproduct` renders stripped —
+`main_product_manager/views.py:457`
+(`stripped=bool(self.request.GET.get('bound'))`, not a bare `True`). Radio
+binds once per input and captures `items` at bind time; safe there (no
+partial), stale here — after an OOB swap the already-flagged search input
+keeps filtering detached nodes. So checkbox instead uses one delegated
+`input` listener on `document` (`:90`) that re-queries
+`[data-checkbox-filter-item]` on every keystroke, re-applied on `htmx:load`
+(`:96`) since the script itself lives outside the partial.
+
 ## Views (`core/views.py`, ~640 lines)
 
 The shopping-tab / cart feature is the whole file. `ShoppingTab*` — list, delete,
