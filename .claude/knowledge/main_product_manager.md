@@ -47,10 +47,10 @@ later only surfaces after expiry — or on `refresh=True`, which both detail
 views pass (`views.py:251,267`). **A cold page now costs one PMP call per
 distinct local Product plus one per distinct PIM Product** — more
 round-trips than the old one-hop design, not fewer; don't describe the cost
-as "bounded by distinct pim_ids" anymore. `sync_pim_relations` and
-`_queue_pim_population` are unchanged in shape but key off the PMP id now:
-`sync_pim_relations` filters `MainProduct.objects.filter(product__pim_id=pim_id)`
-(`utils.py:391`).
+as "bounded by distinct pim_ids" anymore. A fetch no longer queues anything:
+`_queue_pim_population` → `sync_pim_relations`, which copied the PIM brand and
+categories onto `MainProduct.manufacturer`/`.categories`, went with those
+columns in Phase 2b. [[product]]'s `sync_product_from_pim` fills `Product`.
 
 ## `_note_pim_404` no longer unlinks MainProducts, fleet-wide or otherwise (`utils.py:166-181`)
 
@@ -68,11 +68,17 @@ the one-hop link it depended on.)
 ## Writing links: `push_pim_links` / `_push_pim_links` / `_take_over_pim_link`
 
 Only `reindex_pim_ids` writes to PIM now. **The render path never searches or
-pushes**: `_link_to_local_product` (`utils.py:47-63`), used by
-`_build_searchvector` (`models.py:151-173`) and `get_pim_data_for_product`
-(`utils.py:307-315`), only links to an *existing* local Product with
-`number=sku` — never creates one, never calls PIM. The Excel import
-(`MainProductPimImportResource`, below) is local-only too.
+pushes**: `_link_to_local_product`, used by `get_pim_data_for_product` and
+«Добавить товар» (`MainProductCreate.form_valid`), and its batched twin
+`link_to_local_products`, used by copy-to-main, only link to an *existing*
+local Product with `number=sku` — never create one, never call PIM.
+
+**Since Phase 2b these links are explicit calls.** They used to happen as a
+side effect of `_build_searchvector`; with the search vector dropped, a new
+MainProduct is linked only because someone asks. A new write path that creates
+MainProducts and forgets to link them produces rows invisible on `/products/`
+until the nightly `reindex_pim_ids` — with no error anywhere. The canary is
+P1-G3's `unlinked_main_product_count()` on `/products/`.
 
 `push_pim_links(pks)` (`utils.py:819-877`), run per-batch as
 `reindex_pim_ids_batch_task` (`tasks.py:192-201`, `atomic=False`):
@@ -207,9 +213,8 @@ only the field definition and its two migrations, no read or write site —
 but that's this app's read, not [[supplier_product_manager]]'s; confirm there
 before relying on it if that app's own code changes.
 
-The copy task still reaches PIM indirectly: `copy_supplier_products_to_main_task`
-→ `recalculate_search_vectors` → `_build_searchvector` → `get_pim_data`, once
-per touched row (read-only now, not a push).
+Since Phase 2b the copy task does not reach PIM at all: its link step is the
+local `link_to_local_products`.
 
 **It does not strip `article` — and that is fine, because PIM does.** On the
 snapshot, **32,123 of 154,168 Product numbers (21%)** carry leading or trailing
@@ -219,16 +224,6 @@ PIM's 178,605 numbers. **PIM strips whitespace from numbers on its side**
 rows link normally in production. Don't "fix" it at import on the strength of
 the 21% figure. It only shows up where matching happens *locally* against PIM's
 numbers — [[product]]'s `load_pim_mirror`, a dev tool, loses ~400 matches to it.
-
-## `MainProductPimImportResource` — `ID` column dropped (`resources.py:256-287`)
-
-Reads only `PriceManagerId` (→ `MainProduct.id`) and `Categories`. The PIM
-export's `ID` column (a PIM Product id) is deliberately not read — comment at
-`:264-266`: the link now lives in the PMP, pushed by `reindex_pim_ids`, and
-`product.Product.pim_id` holds *that* record's id, not a PIM Product id one
-could import directly. `PimProductWidget` (the old
-get-or-create-a-placeholder-Product-from-an-import-row widget) is gone with
-it.
 
 ## Open question with the user — no path left to link different skus onto one Product
 
@@ -250,16 +245,6 @@ unreachable). Only the third state involves a live call — the first two are
 answerable from local FKs alone. Views pass `refresh=True`
 (`views.py:251,267`), so the detail page always bypasses both caches.
 
-## `.save()` deliberately doesn't rebuild the search vector
-
-`MainProduct.save()` (`models.py:180-181`) is a bare `super().save()`.
-`_build_searchvector()` (`models.py:151-173`) makes PIM network calls per row
-via `_link_to_local_product`/`get_pim_data` — adding it to `save()` would
-turn every save in the codebase into an HTTP request. A loop over
-`MainProduct` that calls `rebuild_search_vector()` (`:174-178`) directly
-costs one PIM round-trip per row unless routed through
-`recalculate_search_vectors` (below).
-
 ## PIM scans and `atomic=False`
 
 `reindex_pim_ids_batch_task` (`tasks.py:192-201`) passes `atomic=False` — see
@@ -277,20 +262,12 @@ a PIM outage actually costs something — got no signal. It's throttled per
 user instead (`_PIM_NOTIF_THROTTLE_TTL`, 30 min). `test_notifies_even_though_debug_is_false`
 guards it — don't re-add a DEBUG gate as an easy "fix."
 
-## `recalculate_search_vectors` needs `select_related('product')`
-
-It is the one place that has to `select_related('product')` before calling
-`_build_searchvector` → `_pim_id_of` — a module function, deliberately not a
-`MainProduct` property (a property named `pim_id` would keep working in
-templates and silently break in `.filter()`/annotations, where the lookup is
-`product__pim_id`). Its callers stay correct without adding the
-`select_related` themselves. Phase 2b's column drop removes all of this.
-
 ## `sync_main_products_task` has no `@shared_task` (`tasks.py:146-155`)
 
-It's a plain function that `chain()`s six of the app's ten tasks into one
-`apply_async()` workflow; the task count dropped from 11 to 10 this branch
-(`create_pim_links` is gone). `reindex_pim_ids_batch_task` uniquifies
+It's a plain function that `chain()`s five tasks into one `apply_async()`
+workflow — «Обновить» on `/products/`. `recalculate_vectors_missing` left the
+chain with the search vector in Phase 2b; `rebuild_categories` (the
+`supplier_manager.Category` tree) goes when that model is retired. `reindex_pim_ids_batch_task` uniquifies
 `task_name` per chunk (`tasks.py:195`, `f"...:{pks[0]}-{pks[-1]}"`) so
 batches don't contend on one Redis lock.
 
@@ -307,16 +284,14 @@ observable effect today, and every caller (`render_pim_photo`,
 `downloadUrl` also needs a PIM session — an unauthenticated GET 401s, so a
 logged-out browser shows a broken image rather than a 500.
 
-## `MainProduct.manufacturer` is not raw supplier data
+## Where brand data lives after Phase 2b
 
-`sync_pim_relations` (`utils.py:437-449`) **overwrites
-`MainProduct.manufacturer` with the PIM brand** for linked products, while
-`copy_supplier_products_to_main_task` writes the supplier's value. So the column
-holds whichever of the two ran last. To measure what suppliers actually report,
-use `SupplierProduct.manufacturer`, which only the Excel import writes.
-Comparing a PIM brand against `MainProduct.manufacturer` is partly comparing
-PIM with itself. On raw supplier data the two agree **99.2%** where both exist
-(21,381 of 21,559); see §0.5 of `.claude/shift-to-product-brief.md`.
+`MainProduct.manufacturer` and `SupplierProduct.manufacturer` are gone. Brand is
+`product.Product.brand` (PIM only, D1). Before the drop the supplier-side data
+was exported for PIM enrichment (P2-G4, run in production and handed over).
+Note for anyone reading old analyses: `MainProduct.manufacturer` held
+*whichever ran last* of copy-to-main (supplier value) and `sync_pim_relations`
+(PIM brand), so it was never raw supplier data.
 
 ## `MainProductFilter` is the cart's filter, not a page's
 

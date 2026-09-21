@@ -12,6 +12,23 @@ rewrite product data catalog-wide, not just the rule row.
 `categories`, a `date_from`/`date_to` window, a `price_from`/`price_to` band,
 and `has_rrp`.
 
+**`categories` are `product.Category` since Phase 2b (migration 0004), read
+through `MainProduct.product`.** Three things follow, all deliberate:
+- **An empty `categories` means "every product of the supplier".**
+  `get_fitting_mps` only filters when `categories.exists()`. So anything that
+  empties the field silently widens a rule to the whole catalogue on its next
+  `save()`/`apply()`. Migration 0004 had to recreate the M2M (Django can't
+  retarget one), so it **raises** if any rule has categories instead of
+  wiping them — it was proven on the restored snapshot.
+- **Flat membership, no descendants** — as before the move. Choosing
+  «Инструмент» does not match products filed under «Инструмент > Дрели».
+  (The product page and the cart *do* expand descendants; rules never did.)
+- **A `MainProduct` with no `product` can't match a scoped rule.** The join
+  goes through the nullable FK. Unscoped rules still see it.
+
+The rule form's category picker offers the categories the supplier's products
+have, via `views._supplier_categories()`.
+
 The arithmetic is `source → dest`, where:
 - `source` (`:72`) may be a **supplier** price (`rrp`, `supplier_price` — "в
   валюте поставщика", so currency conversion applies), a **main** price

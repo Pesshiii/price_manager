@@ -15,6 +15,12 @@ those rows. Most of the complexity is in the pipeline, not the model.
 - **`Link`** (`models.py:143`) — maps one spreadsheet column (`value`) to one
   model field (`key`, chosen from the `LINKS` dict at `models.py:100`).
   `initial` holds the original column caption. Unique on `(setting, key)`.
+  `key` is a plain `CharField(choices=LINKS)` — Django only validates
+  `choices` on `full_clean()`, never on `save()`, so a `Link` row with a
+  `key` no longer present in `LINKS` is not rejected by the model layer.
+  That is why `load_setting` filters its links to `LINKS` keys itself: every
+  key becomes a `SupplierProduct(**data)` kwarg, and a key naming a removed
+  field would fail the whole import.
 - **`DictItem`** (`models.py:156`) — per-link value translation, literally
   `key`/`value` with Russian verbose names "Если" / "То" (if/then). This is how
   a supplier's "в наличии" becomes a stock number.
@@ -39,20 +45,30 @@ vocabulary. Adding a price field here means checking that app too.
 
 ## `functions.py` — the pipeline, and it caches aggressively
 
-- `get_df(pk, recache=False)` (`:164`) / `get_df_sheet_names(pk)` (`:150`) read
+- `get_df(pk, recache=False)` (`:170`) / `get_df_sheet_names(pk)` (`:156`) read
   the spreadsheet with pandas.
-- `get_sps(setting_or_pk, recache=False)` (`:331`) is the expensive one. It is
-  keyed by `_get_sps_cache_key(setting, signature)` (`:326`) where the signature
-  comes from `_get_setting_signature(setting)` (`:290`). **If you change what a
+- `get_sps(setting_or_pk, recache=False)` (`:337`) is the expensive one. It is
+  keyed by `_get_sps_cache_key(setting, signature)` (`:332`) where the signature
+  comes from `_get_setting_signature(setting)` (`:296`). **If you change what a
   `Setting` or its `Link`s mean, check that the signature covers your new
-  field** — otherwise edits silently serve a stale parse.
+  field** — otherwise edits silently serve a stale parse. It already covers a
+  `Link` being deleted (the signature hashes `setting.links`), so a data
+  migration that removes `Link` rows correctly busts every affected Setting's
+  sps cache — no manual cache-bump needed for that specific case.
 - `auto_detect_link_keys(columns)` (`:92`) guesses column→field mapping;
   `_normalize_column_name` (`:85`) is its matcher.
-- `resolve_conflicts(qs)` (`:136`), `load_setting(pk)` (`:421`), and the
-  formset builders `get_linkformset` (`:221`) / `get_dictformset` (`:205`) /
-  `get_indicts` (`:248`) back the mapping UI.
+- `resolve_conflicts(qs)` (`:142`), `load_setting(pk)` (`:427`), and the
+  formset builders `get_linkformset` (`:227`) / `get_dictformset` (`:211`) /
+  `get_indicts` (`:254`) back the mapping UI.
 - User column preferences cached per user: `save_user_sp_columns` (`:54`) /
-  `load_user_sp_columns` (`:62`).
+  `load_user_sp_columns` (`:62`). `load_user_sp_columns` returns whatever was
+  cached **without re-validating** against `SP_AVAILABLE_COLUMN_MAP` — the
+  filtering happens downstream in `SupplierProductListTable.__init__`
+  (`tables.py:108`), which drops unknown keys and falls back to
+  `SP_DEFAULT_VISIBLE_COLUMNS` if nothing survives. So a stale cached column
+  name (e.g. from before a field was removed from the table) is inert, not a
+  bug — same self-healing pattern the shift-to-product brief documents for
+  the old main page's column cache.
 
 `SupplierFileStorageMissingError` (`:81`) subclasses `FileNotFoundError` — the
 file row outlived its storage object.
@@ -63,14 +79,14 @@ Both were established deliberately and both had a stale test asserting the
 opposite for months, so read them before "fixing" either.
 
 **A re-upload busts the sps cache, by design.** `_get_setting_signature`
-(`:290`) hashes the newest `SupplierFile`'s **id, name and size** alongside the
+(`:296`) hashes the newest `SupplierFile`'s **id, name and size** alongside the
 setting and its links. So replacing the file — even with an identical-looking
 one — changes the signature and forces a fresh parse. Serving the cached rows
 after an upload would be the bug; the cache exists to skip repeated reads of an
 *unchanged* file, not to pin a snapshot.
 
 **Rows missing from the new file are nulled, not zeroed — absence lives on the
-raw layer and is resolved on the derived one.** `load_setting` (`:490`–`:503`)
+raw layer and is resolved on the derived one.** `load_setting` (`:496`–`:503`)
 runs `missing_sps.update(stock=None)` and, per mapped price column,
 `missing_sps.update(**{column: None})`. A vanished row means the supplier gave
 no figure, so `SupplierProduct` records that absence; it never invents a synced
@@ -112,6 +128,22 @@ first-declared key — required once bare `"цена"` became a `supplier_price`
 alias, since it is a substring of `"ценасоскидкой"` and declaration order alone
 would let it steal a "Цена со скидкой, руб" column from `discount_price`.
 
+**Its alias table is independent of `LINKS` — deleting a `LINKS` entry does
+not stop it being auto-detected.** `AUTO_LINK_ALIASES` (`:67-78`) seeds the
+alias map on its own; the loop over `LINKS.items()` (`:106-110`) only *adds*
+each key's verbose name/own key as extra aliases, it never gates which keys
+exist. So removing `'manufacturer'`/`'category'` from `LINKS` (D11 in the
+shift-to-product brief) leaves `AUTO_LINK_ALIASES["manufacturer"] =
+("manufacturer", "brand", "бренд", "производитель")` live, `auto_detect_link_keys`
+keeps returning `'manufacturer'` for such a column, and `SettingUpdate.form_valid`
+(`views.py:316-333`) will `Link.objects.get_or_create(setting=setting,
+key='manufacturer')` again the next time that Setting's mapping screen is
+saved with no explicit selection — silently recreating the exact orphan `Link`
+rows a cleanup migration just deleted. **Removing a key from `LINKS` alone is
+not enough; its `AUTO_LINK_ALIASES` entry has to go too.** Phase 2b-2 did both
+for `category`/`manufacturer`; `test_brand_and_category_columns_are_left_unmapped`
+pins it.
+
 ## Tasks — the known convention exception
 
 All four `@shared_task`s in `tasks.py` do their work **inline**, not through
@@ -125,7 +157,38 @@ as a new finding, but **new** tasks here should route through it.
 [[main_product_manager]]; it records a `CopySupplierProductsToMainRun` row
 (`models.py:208`) with `processed_count` / `created_count` /
 `updated_links_count`, restores a saved filter via `_restore_querydict`
-(`tasks.py:171`) and batches with `_chunked` (`:183`).
+(`tasks.py:171`) and batches with `_chunked` (`:183`). Since Phase 2b-2 it copies nothing but the row itself: `MainProduct` lost
+`manufacturer`, `description` and `categories`, and `SupplierProduct` lost
+`category` and `manufacturer`. What it still does besides creating rows is
+**link them to `product.Product` — explicitly**, via
+[[main_product_manager]]'s `link_to_local_products(ids)`: one lookup and one
+bulk update per chunk, existing Products only (`number=sku`), never creates one.
+Before 2b-2 the link was a side effect of rebuilding `MainProduct.search_vector`;
+dropping the vector without this step would have left every imported row with
+`product IS NULL`, invisible on `/products/` until the nightly
+`reindex_pim_ids`, with no error. For a brand-new row the matching `Product`
+usually doesn't exist yet (its `sku` was just computed), so the step mostly
+helps rows whose `Product` appeared since; creating Products stays reindex's
+job (`link_unlinked_main_products`, which is unscoped and table-wide).
+
+## Removing a mapped field — the checklist 2b-2 needed
+
+When a `SupplierProduct` field goes away, these all name it as a literal and
+must move in the same change:
+
+- `LINKS` **and** `AUTO_LINK_ALIASES` (see above), plus a data migration
+  deleting the `Link` rows that map it — report the count, don't do it silently.
+- `SP_TABLE_FIELDS`, `SupplierProductListTable.Meta.fields`,
+  `SP_AVAILABLE_COLUMN_GROUPS`/`SP_DEFAULT_VISIBLE_COLUMNS` (stale cached
+  column choices are inert — `tables.py` drops unknown keys at render).
+- `SupplierProductFilter` fields, facet setup and `_apply_current_filters`.
+- `SupplierProductResource` fields.
+- **`admin.py` `list_filter`** — a stale entry fails Django's admin check
+  **E116** at `check`/`migrate`/test startup: the whole suite, not one page.
+  `list_display` (derived from `_meta.fields`) self-heals.
+- `SPS_JSON_FIELDS` (feeds the file-preview headers) — and bump
+  `SPS_JSON_SCHEMA_VERSION`, so a parse cached under the old shape is not
+  served for up to `SPS_CACHE_TTL_SECONDS`.
 
 ## Imports up, not down
 
