@@ -9,7 +9,7 @@ class SupplierProductAdmin(admin.ModelAdmin):
     # делаем кликабельным поле name (или id, если удобнее)
     list_display_links = ['id', 'name']
     search_fields = ['article', 'name', 'stock']
-    list_filter = ['supplier', 'manufacturer']
+    list_filter = ['supplier']
     actions = ['resolve_conflicts']
     
     @admin.action(description="Разрешить конфликты форматирования")

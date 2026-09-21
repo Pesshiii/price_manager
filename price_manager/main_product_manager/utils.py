@@ -9,7 +9,6 @@ from django.db.models import Max, F
 from django.core.cache import cache
 from django.db.models import Value, OuterRef, Subquery, Q, F, Sum, IntegerField, Count, Min
 from django.utils import timezone
-from django.contrib.postgres.search import SearchVectorField, SearchVector
 from django.db.models.functions import Coalesce, Length
 
 from pim_api import EntityList, Entity, Where, FileRecord, upsert_async as _upsert_async
@@ -19,7 +18,6 @@ from product.models import Product as PimProduct
 from .pim_client import site
 
 from supplier_product_manager.models import SupplierProduct
-from supplier_manager.models import Category, Manufacturer
 from core.task_runner import dispatch_after_commit
 
 logger = logging.getLogger(__name__)
@@ -63,6 +61,32 @@ def _link_to_local_product(product) -> bool:
     MainProduct.objects.filter(pk=product.pk, product__isnull=True).update(product=row)
     product.product = row
     return True
+
+
+def link_to_local_products(main_product_ids) -> int:
+    """_link_to_local_product for many rows at once: one lookup, one bulk update.
+
+    For callers that just created or touched MainProducts in bulk — the
+    copy-to-main import. Same rule, deliberately: link to an EXISTING Product
+    with number = sku, never create one, never talk to PIM (creating is
+    reindex's job, link_unlinked_main_products). Until Phase 2b this happened
+    as a side effect of rebuilding search_vector; with that column gone, the
+    link has to be asked for. Returns how many rows got linked.
+    """
+    rows = list(
+        MainProduct.objects.filter(pk__in=list(main_product_ids), product__isnull=True)
+        .exclude(sku__isnull=True).exclude(sku='')
+        .values_list('pk', 'sku')
+    )
+    if not rows:
+        return 0
+    by_number = dict(
+        PimProduct.objects.filter(number__in={sku for _, sku in rows}).values_list('number', 'pk')
+    )
+    to_link = [MainProduct(pk=pk, product_id=by_number[sku]) for pk, sku in rows if sku in by_number]
+    MainProduct.objects.bulk_update(to_link, fields=['product'], batch_size=1000)
+    return len(to_link)
+
 
 CACHE_TTL = 60 * 60 * 24 * 30  # 30 дней
 PIM_CACHE_TTL = 60 * 60 * 24  # 24 часа
@@ -135,29 +159,6 @@ def _fetch_pim_entity(name: str, entity_id: str) -> tuple[dict | None, bool]:
     except Exception as exc:
         _record_pim_error("get_pim_data", exc, int((time.monotonic() - t0) * 1000))
         return None, False
-
-
-def _queue_pim_population(pim_id: str) -> None:
-    """Enqueue the background relation-sync task for a pim_id we just fetched from PIM.
-
-    Deduped via a short-lived cache flag (cache.add is atomic) so a burst of fetches
-    for the same pim_id — e.g. rendering a product list — only fires one task.
-
-    Dispatched via dispatch_after_commit because a caller may still be inside
-    execute_locked_task's transaction: recalculate_vectors_missing_task reaches
-    here through _build_searchvector -> _link_to_local_product, which writes
-    the MainProduct link in that same transaction. sync_pim_relations looks
-    products up through that link, so a task queued before the commit would
-    find none and silently populate nothing.
-    """
-    queued_key = f"pim_populate_queued:{pim_id}"
-    # Flag set before the deferred dispatch on purpose: if the transaction rolls
-    # back, the pim_id write rolls back with it, so there is nothing left to
-    # populate and suppressing the retry for the TTL is the right outcome.
-    if not cache.add(queued_key, True, _PIM_POPULATE_QUEUED_TTL):
-        return
-    from .tasks import populate_pim_relations_task  # local: tasks imports this module
-    dispatch_after_commit(populate_pim_relations_task, pim_id)
 
 
 _PIM_404_COUNT_PREFIX = "pim_404_count:"
@@ -233,22 +234,12 @@ def get_pim_data(pim_id: str | None, refresh: bool = False) -> dict | None:
     data, not_found = _fetch_pim_entity('Product', product_id)
     if data is not None:
         cache.set(cache_key, data, PIM_CACHE_TTL)
-        # Queue on every successful fetch, refresh=True included: whoever warms
-        # this key owns the trigger, because it lasts PIM_CACHE_TTL and every
-        # other caller only queues on a miss. Queueing from the miss branch
-        # instead meant a refreshing caller — the detail views — suppressed
-        # population for the next 24 hours.
-        # After cache.set, so the task's own get_pim_data is a cache hit rather
-        # than a second live fetch inside its transaction.
-        _queue_pim_population(pim_id)
         return data
     if not_found:
         cache.delete(cache_key)
         return None
     return cache.get(cache_key)
 
-
-_PIM_POPULATE_QUEUED_TTL = 60 * 10  # throttle for the post-fetch population trigger
 
 # Outcomes of one _search_pim_product_id() call.
 _SEARCH_FOUND = "found"
@@ -315,99 +306,6 @@ def get_pim_data_for_product(product, refresh: bool = False) -> dict | None:
     if not product.product_id:
         _link_to_local_product(product)
     return get_pim_data(_pim_id_of(product), refresh=refresh)
-
-
-def _resolve_manufacturer(data: dict) -> Manufacturer | None:
-    """Find or create the Manufacturer matching a PIM Product's brandId/brandName."""
-    brand_id = data.get('brandId')
-    if not brand_id:
-        return None
-    manufacturer = Manufacturer.objects.filter(pim_id=brand_id).first()
-    if manufacturer:
-        return manufacturer
-    brand_name = data.get('brandName') or brand_id
-    manufacturer, created = Manufacturer.objects.get_or_create(
-        name=brand_name, defaults={'pim_id': brand_id}
-    )
-    if not created and not manufacturer.pim_id:
-        manufacturer.pim_id = brand_id
-        manufacturer.save(update_fields=['pim_id'])
-    return manufacturer
-
-
-def _fetch_pim_category(pim_category_id: str) -> dict | None:
-    t0 = time.monotonic()
-    try:
-        return site.get(Entity(name='Category', id=pim_category_id))
-    except Exception as exc:
-        _record_pim_error("_ensure_pim_category", exc, int((time.monotonic() - t0) * 1000))
-        return None
-
-
-def _ensure_pim_category(pim_category_id: str) -> Category | None:
-    """Find or create the local Category matching a PIM category id.
-
-    Walks up `parentsIds[0]` (the immediate parent — the local Category tree only
-    supports a single parent) creating any missing ancestors too, so the full
-    branch ends up marked in the tree. Each newly created/linked category gets its
-    search_vector (re)built. Returns None if the category can't be resolved (PIM
-    error) rather than risk misplacing it under the wrong parent.
-    """
-    if not pim_category_id:
-        return None
-    category = Category.objects.filter(pim_id=pim_category_id).first()
-    if category:
-        return category
-
-    data = _fetch_pim_category(pim_category_id)
-    if not data:
-        return None
-
-    parent_ids = data.get('parentsIds') or []
-    parent = None
-    if parent_ids:
-        parent = _ensure_pim_category(parent_ids[0])
-        if parent is None:
-            return None
-
-    category, created = Category.objects.get_or_create(
-        parent=parent, name=data.get('name') or pim_category_id,
-        defaults={'pim_id': pim_category_id},
-    )
-    if not created and not category.pim_id:
-        category.pim_id = pim_category_id
-        category.save(update_fields=['pim_id'])
-    if created or category.search_vector is None:
-        category.rebuild_search_vector()
-    return category
-
-
-def sync_pim_relations(pim_id: str, data: dict) -> int:
-    """Sync manufacturer + categories for every MainProduct under this pim_id.
-
-    pim_id is a PriceManagerProduct id, so it names one local Product, and
-    several MainProducts (from different suppliers) share that Product through
-    a common sku — this updates all of them in one go. `data` is the PIM
-    `Product` the PMP points at (get_pim_data).
-    """
-    products = list(MainProduct.objects.filter(product__pim_id=pim_id))
-    if not products:
-        return 0
-
-    manufacturer = _resolve_manufacturer(data)
-    if manufacturer:
-        MainProduct.objects.filter(product__pim_id=pim_id).update(manufacturer=manufacturer)
-
-    category_ids = data.get('categoriesIds') or []
-    categories = [c for c in (_ensure_pim_category(cid) for cid in category_ids) if c]
-    if categories:
-        through = MainProduct.categories.through
-        through.objects.filter(mainproduct__in=products).delete()
-        through.objects.bulk_create(
-            [through(mainproduct=p, category=c) for p in products for c in categories],
-            ignore_conflicts=True,
-        )
-    return len(products)
 
 
 _PIM_FILE_URL_KEYS = ('url', 'downloadUrl')  # fallbacks, tried after {size}ThumbnailUrl
@@ -553,19 +451,6 @@ def fetch_pim_image(file_id: str | None, size: str = 'medium') -> tuple[bytes, s
     image = (response.content, content_type)
     cache.set(cache_key, image, PIM_CACHE_TTL)
     return image
-
-
-def recalculate_search_vectors(mps):
-    if not mps: return None
-    # 'product' обязателен: _build_searchvector зовёт _pim_id_of, а тот ходит
-    # по FK. Без него каждый уже привязанный товар — лишний запрос; раньше
-    # pim_id лежал в самой строке и доставался даром.
-    mps = mps.select_related('supplier', 'manufacturer', 'product')
-    def build_searchvector(mp):
-      mp.search_vector = mp._build_searchvector()
-      return mp
-    mps = map(build_searchvector, mps)
-    return MainProduct.objects.bulk_update(mps, fields=['search_vector'])
 
 
 def update_stocks(logs: bool = True, batch_size: int = 10000) -> int:
@@ -890,11 +775,14 @@ def push_pim_links(pks: list[int], delay: float = 0.5, batch_size: int = 1000) -
     )
     if not products:
         return 0
+    # Описание — из строки прайса поставщика, а не из MainProduct: своё
+    # description у MainProduct удалено в Phase 2b, а копировалось оно ровно
+    # отсюда (copy-to-main), так что PIM получает то же, что и раньше.
     first_main_product = {}
     for product_id, name, description in (
         MainProduct.objects.filter(product_id__in=[p.pk for p in products])
         .order_by('product_id', 'pk')
-        .values_list('product_id', 'name', 'description')
+        .values_list('product_id', 'name', 'supplierproducts__description')
     ):
         first_main_product.setdefault(product_id, (name, description))
 

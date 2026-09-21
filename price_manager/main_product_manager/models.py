@@ -1,16 +1,10 @@
-from django.contrib.admin import site
 from django.db import models
-from django.contrib.postgres.search import SearchVectorField, SearchVector 
-from django.contrib.postgres.indexes import GinIndex
-from django.db.models import Value, OuterRef, Subquery, Q, F, Sum
-from django.db.models.functions import Concat
 from django.core.validators import MinValueValidator, MaxValueValidator
 from django.utils import timezone
-from supplier_manager.models import Supplier, Category, Manufacturer
+from supplier_manager.models import Supplier
 
 from decimal import Decimal
    
-MP_TABLE_FIELDS = ['article', 'supplier', 'name', 'manufacturer','prime_cost', 'stock']
 MP_PRICES = [
     'prime_cost', 
     'wholesale_price', 
@@ -37,12 +31,15 @@ PRICE_TYPES = {
 
 
 class MainProduct(models.Model):
+    """Строка поставщика: его остаток и цены на товар (product.Product).
+
+    Поиск, название из PIM, бренд и категории живут на Product. Собственные
+    search_vector, description, categories, manufacturer и габариты удалены в
+    Phase 2b (.claude/shift-to-product-brief.md, D12/D13).
+    """
     class Meta:
         verbose_name = 'Главный продукт'
         ordering = ['id']
-        indexes = [
-          GinIndex(fields=['search_vector']),
-        ]
     product = models.ForeignKey('product.Product',
                               verbose_name='Товар PIM',
                               related_name='main_products',
@@ -65,23 +62,8 @@ class MainProduct(models.Model):
     name = models.CharField(verbose_name='Название',
                           null=False,
                           blank=False)
-    categories = models.ManyToManyField(Category,
-                               verbose_name='Категории',
-                               related_name='mainproducts',
-                               blank=True)
-    manufacturer = models.ForeignKey(Manufacturer,
-                                   verbose_name='Производитель',
-                                   related_name='mp_manufacturer_ptr',
-                                   on_delete=models.SET_NULL,
-                                   null=True,
-                                   blank=True)
     stock = models.PositiveIntegerField(verbose_name='Остаток',
                                       null=True)
-    weight = models.DecimalField(
-        verbose_name='Вес',
-        decimal_places=1,
-        max_digits=8,
-        null=True)
     prime_cost = models.DecimalField(
         verbose_name='Себестоимость',
         decimal_places=2,
@@ -117,28 +99,10 @@ class MainProduct(models.Model):
         decimal_places=2,
         max_digits=20,
         null=True)
-    length = models.DecimalField(verbose_name='Длина',
-                                max_digits=10,
-                                decimal_places=2,
-                                default=Decimal(0))
-    width = models.DecimalField(verbose_name='Ширина',
-                                 max_digits=10,
-                                 decimal_places=2,
-                                 default=Decimal(0))
-    depth = models.DecimalField(verbose_name='Глубина',
-                                 max_digits=10,
-                                 decimal_places=2,
-                                 default=Decimal(0))
-  
     price_updated_at = models.DateTimeField(verbose_name='Последнее обновление цены',
                                       null=True)
     stock_updated_at = models.DateTimeField(verbose_name='Последнее обновление остатка',
                                       null=True)
-    search_vector = SearchVectorField(null=True, editable=False, unique=False, verbose_name="Вектор поиска")
-    description = models.TextField(
-      verbose_name="Описание",
-      null=True,
-      blank=True)
     def __str__(self)->str:
         return f'{self.sku}' if self.sku is not None else 'Не указан'
     def price_list(self) -> list[tuple[str, str, Decimal]]:
@@ -148,35 +112,6 @@ class MainProduct(models.Model):
             for name in MP_PRICES
             if getattr(self, name) is not None
         ]
-    def _build_searchvector(self) -> SearchVector:
-        """Собираем строку для поиска без join-ов."""
-        from main_product_manager.utils import _link_to_local_product, _pim_id_of, get_pim_data
-        if self.product_id is None:
-            _link_to_local_product(self)
-        pim_product = get_pim_data(_pim_id_of(self)) or {}
-        # Значения, а не field references ("supplier__name") - bulk_update()/update()
-        # не допускают joined-полей в выражении SET.
-        supplier_name = self.supplier.name if self.supplier_id else ''
-        manufacturer_name = self.manufacturer.name if self.manufacturer_id else ''
-        vector = (
-            SearchVector(Value(''.join(pim_product.get('categoriesNames', {}).values())), weight='A', config='russian') +
-            SearchVector(Value(''.join(pim_product.get('tag', []))), weight='A', config='russian') +
-            SearchVector(Value(pim_product.get('name', '')), weight='A', config='russian') +
-            SearchVector(Value(pim_product.get('description', '')), weight='C', config='russian') +
-            SearchVector(Value(pim_product.get('longDescription', '')), weight='C', config='russian') +
-            SearchVector('sku', weight='B', config='russian')+
-            SearchVector('article', weight='B', config='russian') +
-            SearchVector('description', weight='D', config='russian')+
-            SearchVector(Value(supplier_name), weight='C', config='russian') +
-            SearchVector(Value(manufacturer_name), weight='C', config='russian')
-        )
-        return vector
-    def rebuild_search_vector(self):
-        """Обновляет search_vector без join-полей (через константу)."""
-        MainProduct.objects.filter(pk=self.pk).update(
-            search_vector=self._build_searchvector()
-        )
-    
     def save(self, *args, **kwargs):
         super().save(*args, **kwargs)
   

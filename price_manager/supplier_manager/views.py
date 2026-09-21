@@ -38,7 +38,6 @@ from core.utils import *
 from main_product_manager.models import MainProduct, MP_PRICES
 from .forms import *
 from .tables import *
-from .filters import *
 
 class CategoryAutocomplete(autocomplete.Select2QuerySetView):
     def get_queryset(self):

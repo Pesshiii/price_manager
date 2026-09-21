@@ -4,7 +4,6 @@ from supplier_manager import tasks as sm_tasks
 
 TASKS = {
     'rebuild_categories': tasks.rebuild_categories_task,
-    'recalculate_vectors_missing': tasks.recalculate_vectors_missing_task,
     'update_prices': tasks.update_prices_task,
     'update_stocks': tasks.update_stocks_task,
     'update_logs': tasks.update_logs_task,

@@ -5,11 +5,11 @@ from django.db.models.signals import pre_delete
 from django.dispatch import receiver
 
 from main_product_manager.models import MainProduct
-from supplier_manager.models import Supplier, Discount, Manufacturer, Category
+from supplier_manager.models import Supplier, Discount
 
 from decimal import Decimal
   
-SP_TABLE_FIELDS = ['article', 'name', 'manufacturer', 'supplier_price', 'rrp', 'discount', ]
+SP_TABLE_FIELDS = ['article', 'name', 'supplier_price', 'rrp', 'discount', ]
 SP_PRICES = ['supplier_price', 'rrp', 'discount_price']
 SP_NUMBERS = ['supplier_price', 'rrp', 'stock', 'discount_price']
 
@@ -44,18 +44,6 @@ class SupplierProduct(models.Model):
     verbose_name="Описание",
     null=True,
     blank=True)
-  category = models.ForeignKey(Category,
-                               on_delete=models.SET_NULL,
-                               verbose_name='Категория',
-                               related_name='supplierproducts',
-                               null=True,
-                               blank=True)
-  manufacturer = models.ForeignKey(Manufacturer,
-                                   verbose_name='Производитель',
-                                   related_name='supplierproducts',
-                                   on_delete=models.SET_NULL,
-                                   null=True,
-                                   blank=True)
   discount = models.ForeignKey(Discount,
                                 verbose_name='Группа скидок',
                                 related_name='supplierproducts',
@@ -101,8 +89,6 @@ LINKS = {'': 'Не включать',
          'article': 'Артикул поставщика',
          'name': 'Название',
          'description': 'Описание',
-         'category': 'Категория',
-         'manufacturer': 'Производитель',
          'discount': 'Группа скидок',
          'stock': 'Остаток',
          'supplier_price': 'Цена поставщика в валюте поставщика',

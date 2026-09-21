@@ -13,7 +13,8 @@ from django.test import TestCase, override_settings
 from django.utils import timezone
 
 from main_product_manager.models import MainProduct
-from supplier_manager.models import Category, Currency, Discount, Supplier, Manufacturer
+from product.models import Product
+from supplier_manager.models import Currency, Discount, Supplier
 from supplier_product_manager.filters import SupplierProductFilter
 from supplier_product_manager.functions import (
     auto_detect_link_keys,
@@ -29,11 +30,11 @@ from supplier_product_manager.tasks import copy_supplier_products_to_main_task
 class _PimUnreachable:
     """Заглушка для main_product_manager.utils.site: сеть в тестах запрещена.
 
-    Импорт прайса в PIM больше не пишет, но задача копирования до него
-    доходит: copy_supplier_products_to_main_task — recalculate_search_vectors,
-    тот _build_searchvector, а тот get_pim_data. _fetch_pim_entity ловит
-    Exception и продолжает, поэтому исключение отсюда ничего не ломает, но и
-    в сеть не пускает.
+    С Phase 2b ни импорт, ни копирование в ГП до PIM не доходят: связь с
+    товаром ставится локально (link_to_local_products), а цепочка через
+    search_vector удалена. Заглушка остаётся страховкой: любой будущий путь в
+    сеть из этих тестов упрётся в неё, а не сходит в живой PIM. Громко — не
+    обязательно: _fetch_pim_entity ловит Exception.
     Заглушка ставится в setUp, а не декоратором класса: @patch на классе
     оборачивает только те test_-методы, что видны в момент декорирования, и
     на базовом классе без собственных тестов не защищает ни одного наследника
@@ -82,7 +83,7 @@ class BasicLoadTests(TestCase):
     def _get_asserts_articlename(self, correct_values: list[dict]):
         res = []
         for row in correct_values:
-            for attr in ['supplier_price', 'rrp', 'stock', 'manufacturer']:
+            for attr in ['supplier_price', 'rrp', 'stock']:
                 res.append((getattr(SupplierProduct.objects.get(supplier=self.supplier, article=row['article'], name=row['name']), attr), row[attr], row['article'] + attr))
         return res
 
@@ -98,7 +99,6 @@ class BasicLoadTests(TestCase):
         Link.objects.create(setting=setting, key="supplier_price", value="Цена")
         Link.objects.create(setting=setting, key="rrp", value="РРЦ")
         Link.objects.create(setting=setting, key="stock", value="Остаток")
-        Link.objects.create(setting=setting, key="manufacturer", value="Производитель")
 
 
         
@@ -115,12 +115,12 @@ class BasicLoadTests(TestCase):
             )
         
         correct_values = [
-                {"article": "А-1", "name": "Товар 1", "supplier_price": 1, "rrp":1, "discount_price":1, "stock":1, "manufacturer": Manufacturer.objects.get_or_create(name="Производитель 1")[0]},
-                {"article": "А-2", "name": "Товар 2", "supplier_price": 2, "rrp":2, "discount_price":2, "stock":2, "manufacturer": None},
-                {"article": "А-3", "name": "Товар 3", "supplier_price": 3, "rrp":3, "discount_price":3, "stock":None, "manufacturer": Manufacturer.objects.get_or_create(name="Производитель 3")[0]},
-                {"article": "А-4", "name": "Товар 4", "supplier_price": 4, "rrp":4, "discount_price":None, "stock":4, "manufacturer": Manufacturer.objects.get_or_create(name="Производитель 4")[0]},
-                {"article": "А-5", "name": "Товар 5", "supplier_price": 5, "rrp":None, "discount_price":5, "stock":5, "manufacturer": Manufacturer.objects.get_or_create(name="Производитель 5")[0]},
-                {"article": "А-6", "name": "Товар 6", "supplier_price": None, "rrp":6, "discount_price":6, "stock":6, "manufacturer": Manufacturer.objects.get_or_create(name="Производитель 6")[0]},
+                {"article": "А-1", "name": "Товар 1", "supplier_price": 1, "rrp":1, "discount_price":1, "stock":1},
+                {"article": "А-2", "name": "Товар 2", "supplier_price": 2, "rrp":2, "discount_price":2, "stock":2},
+                {"article": "А-3", "name": "Товар 3", "supplier_price": 3, "rrp":3, "discount_price":3, "stock":None},
+                {"article": "А-4", "name": "Товар 4", "supplier_price": 4, "rrp":4, "discount_price":None, "stock":4},
+                {"article": "А-5", "name": "Товар 5", "supplier_price": 5, "rrp":None, "discount_price":5, "stock":5},
+                {"article": "А-6", "name": "Товар 6", "supplier_price": None, "rrp":6, "discount_price":6, "stock":6},
             ]
         self._create_supplier_file(
             setting,
@@ -141,6 +141,30 @@ class BasicLoadTests(TestCase):
         self.assertIsNotNone(self.supplier.price_updated_at)
 
 
+    def test_link_to_a_dropped_column_is_ignored_not_a_crash(self):
+        """Миграция 0010 удаляет сопоставления на category/manufacturer, но если
+        такое переживёт её (или появится до неё), load_setting не должен
+        передавать его в SupplierProduct(**data) — поля больше нет, и упал бы
+        весь импорт прайса поставщика."""
+        setting = Setting.objects.create(
+            name="Устаревшее сопоставление",
+            supplier=self.supplier,
+            sheet_name="Sheet1",
+            create_new=True,
+        )
+        Link.objects.create(setting=setting, key="article", value="Артикул")
+        Link.objects.create(setting=setting, key="name", value="Название")
+        Link.objects.create(setting=setting, key="supplier_price", value="Цена")
+        Link.objects.create(setting=setting, key="manufacturer", value="Производитель")
+        self._create_supplier_file(setting, pd.DataFrame([
+            {"Артикул": "А-1", "Название": "Товар 1", "Цена": "7", "Производитель": "Бренд"},
+        ]))
+
+        load_setting(setting.pk)
+
+        row = SupplierProduct.objects.get(supplier=self.supplier, article="А-1")
+        self.assertEqual(row.supplier_price, Decimal("7"))
+
     def test_basicupload_article(self):
         setting = Setting.objects.create(
             name="Загрузка артикул",
@@ -153,7 +177,6 @@ class BasicLoadTests(TestCase):
         Link.objects.create(setting=setting, key="supplier_price", value="Цена")
         Link.objects.create(setting=setting, key="rrp", value="РРЦ")
         Link.objects.create(setting=setting, key="stock", value="Остаток")
-        Link.objects.create(setting=setting, key="manufacturer", value="Производитель")
 
         uppload_df_initial = pd.DataFrame(
                 [
@@ -189,12 +212,12 @@ class BasicLoadTests(TestCase):
             )
         
         correct_values = [
-                {"article": "А-1", "name": "Товар 1", "supplier_price": 1, "rrp":1, "stock":1, "manufacturer": Manufacturer.objects.get_or_create(name="Производитель 1")[0]},
-                {"article": "А-2", "name": "Товар 2", "supplier_price": 2, "rrp":2, "stock":2, "manufacturer": None},
-                {"article": "А-3", "name": "Товар 3", "supplier_price": 3, "rrp":3, "stock":None, "manufacturer": Manufacturer.objects.get_or_create(name="Производитель 3")[0]},
-                {"article": "А-4", "name": "Товар 4", "supplier_price": 4, "rrp":None, "stock":4, "manufacturer": Manufacturer.objects.get_or_create(name="Производитель 4")[0]},
-                {"article": "А-5", "name": "Товар 5", "supplier_price": None, "rrp":5, "stock":5, "manufacturer": Manufacturer.objects.get_or_create(name="Производитель 5")[0]},
-                {"article": "А-5", "name": "Товар 6", "supplier_price": None, "rrp":5, "stock":5, "manufacturer": Manufacturer.objects.get_or_create(name="Производитель 5")[0]},
+                {"article": "А-1", "name": "Товар 1", "supplier_price": 1, "rrp":1, "stock":1},
+                {"article": "А-2", "name": "Товар 2", "supplier_price": 2, "rrp":2, "stock":2},
+                {"article": "А-3", "name": "Товар 3", "supplier_price": 3, "rrp":3, "stock":None},
+                {"article": "А-4", "name": "Товар 4", "supplier_price": 4, "rrp":None, "stock":4},
+                {"article": "А-5", "name": "Товар 5", "supplier_price": None, "rrp":5, "stock":5},
+                {"article": "А-5", "name": "Товар 6", "supplier_price": None, "rrp":5, "stock":5},
             ]
         
 
@@ -227,7 +250,6 @@ class BasicLoadTests(TestCase):
         Link.objects.create(setting=setting, key="supplier_price", value="Цена", initial="100")
         Link.objects.create(setting=setting, key="rrp", value="РРЦ", initial="100")
         Link.objects.create(setting=setting, key="stock", value="Остаток", initial="100")
-        Link.objects.create(setting=setting, key="manufacturer", value="Производитель", initial="Производитель 100")
 
 
         uppload_df = pd.DataFrame(
@@ -241,11 +263,11 @@ class BasicLoadTests(TestCase):
             )
         
         correct_values = [
-                {"article": "А-1", "name": "Товар 1", "supplier_price": 1, "rrp":1, "stock":1, "manufacturer": Manufacturer.objects.get_or_create(name="Производитель 1")[0]},
-                {"article": "А-2", "name": "Товар 2", "supplier_price": 2, "rrp":2, "stock":2, "manufacturer": Manufacturer.objects.get_or_create(name="Производитель 100")[0]},
-                {"article": "А-3", "name": "Товар 3", "supplier_price": 3, "rrp":3, "stock":100, "manufacturer": Manufacturer.objects.get_or_create(name="Производитель 3")[0]},
-                {"article": "А-4", "name": "Товар 4", "supplier_price": 4, "rrp":100, "stock":4, "manufacturer": Manufacturer.objects.get_or_create(name="Производитель 4")[0]},
-                {"article": "А-5", "name": "Товар 5", "supplier_price": 100, "rrp":5, "stock":5, "manufacturer": Manufacturer.objects.get_or_create(name="Производитель 5")[0]},
+                {"article": "А-1", "name": "Товар 1", "supplier_price": 1, "rrp":1, "stock":1},
+                {"article": "А-2", "name": "Товар 2", "supplier_price": 2, "rrp":2, "stock":2},
+                {"article": "А-3", "name": "Товар 3", "supplier_price": 3, "rrp":3, "stock":100},
+                {"article": "А-4", "name": "Товар 4", "supplier_price": 4, "rrp":100, "stock":4},
+                {"article": "А-5", "name": "Товар 5", "supplier_price": 100, "rrp":5, "stock":5},
             ]
         self._create_supplier_file(
             setting,
@@ -276,7 +298,6 @@ class BasicLoadTests(TestCase):
         Link.objects.create(setting=setting, key="supplier_price", value=None, initial="100")
         Link.objects.create(setting=setting, key="rrp", value=None, initial="100")
         Link.objects.create(setting=setting, key="stock", value=None, initial="100")
-        Link.objects.create(setting=setting, key="manufacturer", value=None, initial="Производитель 100")
 
 
         uppload_df = pd.DataFrame(
@@ -290,11 +311,11 @@ class BasicLoadTests(TestCase):
             )
         
         correct_values = [
-                {"article": "А-1", "name": "Товар 1", "supplier_price": 100, "rrp":100, "stock":100, "manufacturer": Manufacturer.objects.get_or_create(name="Производитель 100")[0]},
-                {"article": "А-2", "name": "Товар 2", "supplier_price": 100, "rrp":100, "stock":100, "manufacturer": Manufacturer.objects.get_or_create(name="Производитель 100")[0]},
-                {"article": "А-3", "name": "Товар 3", "supplier_price": 100, "rrp":100, "stock":100, "manufacturer": Manufacturer.objects.get_or_create(name="Производитель 100")[0]},
-                {"article": "А-4", "name": "Товар 4", "supplier_price": 100, "rrp":100, "stock":100, "manufacturer": Manufacturer.objects.get_or_create(name="Производитель 100")[0]},
-                {"article": "А-5", "name": "Товар 5", "supplier_price": 100, "rrp":100, "stock":100, "manufacturer": Manufacturer.objects.get_or_create(name="Производитель 100")[0]},
+                {"article": "А-1", "name": "Товар 1", "supplier_price": 100, "rrp":100, "stock":100},
+                {"article": "А-2", "name": "Товар 2", "supplier_price": 100, "rrp":100, "stock":100},
+                {"article": "А-3", "name": "Товар 3", "supplier_price": 100, "rrp":100, "stock":100},
+                {"article": "А-4", "name": "Товар 4", "supplier_price": 100, "rrp":100, "stock":100},
+                {"article": "А-5", "name": "Товар 5", "supplier_price": 100, "rrp":100, "stock":100},
             ]
         self._create_supplier_file(
             setting,
@@ -325,7 +346,6 @@ class BasicLoadTests(TestCase):
         Link.objects.create(setting=setting, key="supplier_price", value="Цена", initial="100")
         Link.objects.create(setting=setting, key="rrp", value="РРЦ", initial="100")
         Link.objects.create(setting=setting, key="stock", value="Остаток", initial="100")
-        Link.objects.create(setting=setting, key="manufacturer", value="Производитель", initial="Производитель 100")
 
 
         uppload_df = pd.DataFrame(
@@ -337,9 +357,9 @@ class BasicLoadTests(TestCase):
             )
         
         correct_values = [
-                {"article": "А-1", "name": "Товар 1", "supplier_price": None, "rrp":1, "stock":1, "manufacturer": Manufacturer.objects.get_or_create(name="Производитель 1")[0]},
-                {"article": "А-2", "name": "Товар 2", "supplier_price": 2, "rrp":None, "stock":2, "manufacturer": Manufacturer.objects.get_or_create(name="Производитель 100")[0]},
-                {"article": "А-3", "name": "Товар 3", "supplier_price": 3, "rrp":3, "stock":None, "manufacturer": Manufacturer.objects.get_or_create(name="Производитель 3")[0]},
+                {"article": "А-1", "name": "Товар 1", "supplier_price": None, "rrp":1, "stock":1},
+                {"article": "А-2", "name": "Товар 2", "supplier_price": 2, "rrp":None, "stock":2},
+                {"article": "А-3", "name": "Товар 3", "supplier_price": 3, "rrp":3, "stock":None},
             ]
         self._create_supplier_file(
             setting,
@@ -371,7 +391,6 @@ class BasicLoadTests(TestCase):
         Link.objects.create(setting=setting, key="supplier_price", value="Цена")
         Link.objects.create(setting=setting, key="rrp", value="РРЦ")
         Link.objects.create(setting=setting, key="stock", value="Остаток")
-        Link.objects.create(setting=setting, key="manufacturer", value="Производитель")
 
         uppload_df_initial = pd.DataFrame(
                 [
@@ -397,9 +416,9 @@ class BasicLoadTests(TestCase):
             )
         
         correct_values = [
-                {"article": "А-1", "name": "Товар 1", "supplier_price": 0, "rrp":1, "stock":1, "manufacturer": Manufacturer.objects.get_or_create(name="Производитель 1")[0]},
-                {"article": "А-1", "name": "Товар 3", "supplier_price": 0, "rrp":1, "stock":1, "manufacturer": Manufacturer.objects.get_or_create(name="Производитель 1")[0]},
-                {"article": "А-2", "name": "Товар 2", "supplier_price": 1, "rrp":1, "stock":1, "manufacturer": Manufacturer.objects.get_or_create(name="Производитель 1")[0]},
+                {"article": "А-1", "name": "Товар 1", "supplier_price": 0, "rrp":1, "stock":1},
+                {"article": "А-1", "name": "Товар 3", "supplier_price": 0, "rrp":1, "stock":1},
+                {"article": "А-2", "name": "Товар 2", "supplier_price": 1, "rrp":1, "stock":1},
             ]
         
 
@@ -443,7 +462,6 @@ class BasicLoadTests(TestCase):
         Link.objects.create(setting=setting, key="supplier_price", value="Цена")
         Link.objects.create(setting=setting, key="rrp", value="РРЦ")
         Link.objects.create(setting=setting, key="stock", value="Остаток")
-        Link.objects.create(setting=setting, key="manufacturer", value="Производитель")
 
         uppload_df_initial = pd.DataFrame(
                 [
@@ -466,7 +484,7 @@ class BasicLoadTests(TestCase):
             )
         
         correct_values = [
-                {"article": "А-1", "name": "Товар 1", "supplier_price": 1, "rrp":None, "stock":None, "manufacturer": Manufacturer.objects.get_or_create(name="Производитель 1")[0]},
+                {"article": "А-1", "name": "Товар 1", "supplier_price": 1, "rrp":None, "stock":None},
             ]
         
 
@@ -604,11 +622,18 @@ class SupplierFileSelectionTests(TestCase):
 
 class AutoDetectLinkKeysTests(TestCase):
     def test_detects_standard_ru_columns(self):
-        detected = auto_detect_link_keys(["Артикул", "Название", "Цена", "РРЦ", "Остаток", "Производитель"])
+        detected = auto_detect_link_keys(["Артикул", "Название", "Цена", "РРЦ", "Остаток"])
         self.assertEqual(
             detected,
-            ["article", "name", "supplier_price", "rrp", "stock", "manufacturer"],
+            ["article", "name", "supplier_price", "rrp", "stock"],
         )
+
+    def test_brand_and_category_columns_are_left_unmapped(self):
+        """AUTO_LINK_ALIASES живёт отдельно от LINKS: оставь там «производитель»
+        и «категория» — экран сопоставления пересоздавал бы ровно те Link,
+        которые удаляет миграция 0010."""
+        detected = auto_detect_link_keys(["Артикул", "Производитель", "Бренд", "Категория", "Группа"])
+        self.assertEqual(detected, ["article", None, None, None, None])
 
     def test_does_not_duplicate_same_target_key(self):
         detected = auto_detect_link_keys(["Цена", "Цена со скидкой"])
@@ -626,10 +651,6 @@ class SupplierProductFilterTests(TestCase):
             delivery_days_available=1,
             delivery_days_navailable=3,
         )
-        self.category_a = Category.objects.create(name="Категория A")
-        self.category_b = Category.objects.create(name="Категория B")
-        self.manufacturer_a = Manufacturer.objects.create(name="Производитель A")
-        self.manufacturer_b = Manufacturer.objects.create(name="Производитель B")
         self.discount_a = Discount.objects.create(name="Скидка A", supplier=self.supplier)
         self.discount_b = Discount.objects.create(name="Скидка B", supplier=self.supplier)
 
@@ -637,8 +658,6 @@ class SupplierProductFilterTests(TestCase):
             supplier=self.supplier,
             article="A1",
             name="Товар A1",
-            category=self.category_a,
-            manufacturer=self.manufacturer_a,
             discount=self.discount_a,
             updated_at=timezone.now(),
         )
@@ -646,25 +665,33 @@ class SupplierProductFilterTests(TestCase):
             supplier=self.supplier,
             article="B1",
             name="Товар B1",
-            category=self.category_b,
-            manufacturer=self.manufacturer_b,
             discount=self.discount_b,
             updated_at=timezone.now(),
         )
 
     def test_related_querysets_are_limited_by_other_filters(self):
-        data = QueryDict("category=%s" % self.category_a.pk, mutable=True)
+        data = QueryDict("article=A1", mutable=True)
         filterset = SupplierProductFilter(
             data=data,
             queryset=SupplierProduct.objects.all(),
             pk=self.supplier.pk,
         )
 
-        manufacturer_ids = list(filterset.filters["manufacturer"].field.queryset.values_list("pk", flat=True))
         discount_ids = list(filterset.filters["discount"].field.queryset.values_list("pk", flat=True))
 
-        self.assertEqual(manufacturer_ids, [self.manufacturer_a.pk])
         self.assertEqual(discount_ids, [self.discount_a.pk])
+
+    def test_category_and_manufacturer_filters_are_gone(self):
+        """Колонки удалены в Phase 2b; фильтр по ним уронил бы страницу поставщика."""
+        filterset = SupplierProductFilter(
+            data=QueryDict("category=1&manufacturer=1", mutable=True),
+            queryset=SupplierProduct.objects.all(),
+            pk=self.supplier.pk,
+        )
+
+        self.assertNotIn("category", filterset.filters)
+        self.assertNotIn("manufacturer", filterset.filters)
+        self.assertEqual(filterset.qs.count(), 2)
 
     def test_filter_uses_checkbox_widgets_for_dict_filters(self):
         filterset = SupplierProductFilter(
@@ -672,7 +699,6 @@ class SupplierProductFilterTests(TestCase):
             queryset=SupplierProduct.objects.filter(supplier=self.supplier),
             pk=self.supplier.pk,
         )
-        self.assertIsInstance(filterset.filters["manufacturer"].field.widget, forms.CheckboxSelectMultiple)
         self.assertIsInstance(filterset.filters["discount"].field.widget, forms.CheckboxSelectMultiple)
 
 
@@ -696,10 +722,8 @@ class CopySupplierProductsToMainTaskTests(TestCase):
         self.user = get_user_model().objects.create_user(username="copytaskuser", password="p")
 
     def test_each_unlinked_supplier_product_gets_its_own_main_product(self):
-        manufacturer = Manufacturer.objects.create(name="Copy task manufacturer")
         sp1 = SupplierProduct.objects.create(
-            supplier=self.supplier, article="CT-1", name="Товар 1",
-            manufacturer=manufacturer, description="Desc 1",
+            supplier=self.supplier, article="CT-1", name="Товар 1", description="Desc 1",
         )
         sp2 = SupplierProduct.objects.create(supplier=self.supplier, article="CT-2", name="Товар 2")
 
@@ -714,45 +738,55 @@ class CopySupplierProductsToMainTaskTests(TestCase):
         mp1 = MainProduct.objects.get(pk=sp1.main_product_id)
         self.assertEqual(mp1.article, "CT-1")
         self.assertEqual(mp1.name, "Товар 1")
-        self.assertEqual(mp1.manufacturer_id, manufacturer.id)
-        self.assertEqual(mp1.description, "Desc 1")
         self.assertEqual(mp1.sku, "CT-1")
 
         self.assertEqual(result["created_count"], 2)
         self.assertEqual(result["updated_links_count"], 2)
 
-    def test_already_linked_supplier_product_refreshes_its_main_product_without_creating_a_new_one(self):
-        mp = MainProduct.objects.create(supplier=self.supplier, article="CT-3", name="Товар 3")
-        manufacturer = Manufacturer.objects.create(name="Refreshed manufacturer")
+    def test_new_row_is_linked_to_the_existing_product_with_its_sku(self):
+        """Та тихая поломка, ради которой шаг и существует: до Phase 2b связь
+        ставилась побочным эффектом пересборки search_vector. Без явного шага
+        строка ложилась бы с product IS NULL — невидимой на /products/."""
+        product = Product.objects.create(number="CT-5")
+        sp = SupplierProduct.objects.create(supplier=self.supplier, article="CT-5", name="Товар 5")
+
+        copy_supplier_products_to_main_task(self.supplier.id, None, self.user.id)
+
+        sp.refresh_from_db()
+        self.assertEqual(MainProduct.objects.get(pk=sp.main_product_id).product_id, product.pk)
+
+    def test_copy_never_creates_a_product(self):
+        """Создание Product — работа ночного reindex_pim_ids, не импорта."""
+        SupplierProduct.objects.create(supplier=self.supplier, article="CT-6", name="Товар 6")
+
+        copy_supplier_products_to_main_task(self.supplier.id, None, self.user.id)
+
+        self.assertEqual(Product.objects.count(), 0)
+        self.assertIsNone(MainProduct.objects.get(article="CT-6").product_id)
+
+    def test_already_linked_row_gets_its_product_link_without_a_new_main_product(self):
+        product = Product.objects.create(number="CT-3")
+        mp = MainProduct.objects.create(supplier=self.supplier, article="CT-3", name="Товар 3", sku="CT-3")
         SupplierProduct.objects.create(
-            supplier=self.supplier, article="CT-3", name="Товар 3",
-            main_product=mp, manufacturer=manufacturer, description="Refreshed description",
+            supplier=self.supplier, article="CT-3", name="Товар 3", main_product=mp,
         )
 
         result = copy_supplier_products_to_main_task(self.supplier.id, None, self.user.id)
 
         mp.refresh_from_db()
-        self.assertEqual(mp.manufacturer_id, manufacturer.id)
-        self.assertEqual(mp.description, "Refreshed description")
+        self.assertEqual(mp.product_id, product.pk)
         self.assertEqual(result["created_count"], 0)
         self.assertEqual(result["updated_links_count"], 0)
         self.assertEqual(MainProduct.objects.filter(supplier=self.supplier, article="CT-3").count(), 1)
 
-    def test_running_task_twice_does_not_duplicate_category_links(self):
-        category = Category.objects.create(name="Категория для копирования")
-        sp = SupplierProduct.objects.create(
-            supplier=self.supplier, article="CT-4", name="Товар 4", category=category,
-        )
+    def test_running_task_twice_creates_nothing_the_second_time(self):
+        sp = SupplierProduct.objects.create(supplier=self.supplier, article="CT-4", name="Товар 4")
 
         copy_supplier_products_to_main_task(self.supplier.id, None, self.user.id)
-        sp.refresh_from_db()
-        mp = MainProduct.objects.get(pk=sp.main_product_id)
-        self.assertEqual(list(mp.categories.all()), [category])
-
         second_result = copy_supplier_products_to_main_task(self.supplier.id, None, self.user.id)
 
-        mp.refresh_from_db()
-        self.assertEqual(mp.categories.count(), 1)
+        sp.refresh_from_db()
+        self.assertEqual(MainProduct.objects.filter(article="CT-4").count(), 1)
         self.assertEqual(second_result["created_count"], 0)
         self.assertEqual(second_result["updated_links_count"], 0)
 

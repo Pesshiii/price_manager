@@ -1,46 +1,6 @@
 from django.test import TestCase
 
-from supplier_manager.models import Manufacturer, ManufacturerDict
-from .resources import ManufacturerWidget
 
-
-class ManufacturerWidgetTests(TestCase):
-    def setUp(self):
-        self.widget = ManufacturerWidget(Manufacturer, "name")
-
-    def test_clean_uses_existing_manufacturer_case_insensitive(self):
-        manufacturer = Manufacturer.objects.create(name="Bosch")
-
-        result = self.widget.clean("bosch")
-
-        self.assertEqual(result, manufacturer)
-        self.assertEqual(Manufacturer.objects.count(), 1)
-
-    def test_clean_uses_dictionary_mapping(self):
-        manufacturer = Manufacturer.objects.create(name="DeWALT")
-        ManufacturerDict.objects.create(name="Dewalt tools", manufacturer=manufacturer)
-
-        result = self.widget.clean("dewalt tools")
-
-        self.assertEqual(result, manufacturer)
-        self.assertEqual(Manufacturer.objects.count(), 1)
-
-    def test_clean_autobinds_close_name_to_existing_manufacturer(self):
-        manufacturer = Manufacturer.objects.create(name="Makita")
-
-        result = self.widget.clean("Makitta")
-
-        self.assertEqual(result, manufacturer)
-        self.assertTrue(
-            ManufacturerDict.objects.filter(name="Makitta", manufacturer=manufacturer).exists()
-        )
-        self.assertEqual(Manufacturer.objects.count(), 1)
-
-    def test_clean_creates_new_manufacturer_when_no_match(self):
-        result = self.widget.clean("Completely New Brand")
-
-        self.assertEqual(result.name, "Completely New Brand")
-        self.assertEqual(Manufacturer.objects.count(), 1)
 
 from supplier_manager.models import Currency, Supplier
 from supplier_product_manager.models import SupplierProduct
@@ -239,10 +199,8 @@ from django.test import override_settings
 from core.task_runner import dispatch_after_commit
 from . import tasks as mp_tasks
 from . import utils as mp_utils
-from .utils import _queue_pim_population
-
-# execute_locked_task's lock and _queue_pim_population's dedup flag both live in
-# the cache; keep them off the shared Redis the worker container points at.
+# execute_locked_task's lock lives in the cache; keep it off the shared Redis
+# the worker container points at.
 LOCMEM_CACHE = {
     'default': {
         'BACKEND': 'django.core.cache.backends.locmem.LocMemCache',
@@ -344,32 +302,6 @@ class ReindexPimIdsDispatchTests(TestCase):
         placeholder.refresh_from_db()
         self.assertEqual(placeholder.number, 'RX-SKU-0')
         self.assertEqual(unlinked.product_id, placeholder.pk)
-
-
-@override_settings(CACHES=LOCMEM_CACHE)
-class QueuePimPopulationDispatchTests(TestCase):
-    """_queue_pim_population is reached from inside execute_locked_task's
-    transaction via _build_searchvector -> _link_to_local_product, which writes
-    the link sync_pim_relations then looks products up by."""
-
-    def setUp(self):
-        cache.clear()
-
-    def test_population_task_is_held_until_the_pim_id_write_commits(self):
-        with patch.object(mp_tasks.populate_pim_relations_task, 'delay') as delay:
-            with self.captureOnCommitCallbacks(execute=True):
-                _queue_pim_population('pim-1')
-                delay.assert_not_called()
-
-            delay.assert_called_once_with('pim-1')
-
-    def test_dedup_flag_still_collapses_a_burst_of_cache_misses(self):
-        with patch.object(mp_tasks.populate_pim_relations_task, 'delay') as delay:
-            with self.captureOnCommitCallbacks(execute=True):
-                _queue_pim_population('pim-2')
-                _queue_pim_population('pim-2')
-
-            delay.assert_called_once_with('pim-2')
 
 
 from .utils import get_file_url
@@ -514,6 +446,7 @@ from .utils import (
     backfill_product_numbers,
     get_pim_data,
     iter_unpushed_product_pk_batches,
+    link_to_local_products,
     link_unlinked_main_products,
     push_pim_links,
 )
@@ -733,9 +666,16 @@ class IterUnpushedProductPkBatchesTests(_PimSearchTestCase):
 class PushPimLinksTests(_PimSearchTestCase):
     """The PIM half of reindex: search the PIM Product, push the PriceManagerProduct, store its id."""
 
-    def waiting_product(self, number, **main_product_kwargs):
+    def waiting_product(self, number, description=None, **main_product_kwargs):
         product = PimProduct.objects.create(number=number)
-        self.product(sku=number, product=product, **main_product_kwargs)
+        main_product = self.product(sku=number, product=product, **main_product_kwargs)
+        if description is not None:
+            # Описание живёт в строке прайса поставщика: собственное у
+            # MainProduct удалено в Phase 2b.
+            SupplierProduct.objects.create(
+                main_product=main_product, supplier=self.supplier,
+                article=main_product.article, name=main_product.name, description=description,
+            )
         return product
 
     def _site_by_number(self, responses):
@@ -903,14 +843,12 @@ class GetPimDataTests(_PimSearchTestCase):
         return httpx.HTTPStatusError('404', request=request, response=httpx.Response(404, request=request))
 
     def test_two_hops_return_the_pim_product(self):
-        with patch.object(mp_utils, 'site') as site, patch.object(mp_utils, '_queue_pim_population') as queue:
+        with patch.object(mp_utils, 'site') as site:
             site.get.side_effect = self._site(
                 links={'pmp-1': {'id': 'pmp-1', 'productId': 'prod-1'}},
                 products={'prod-1': {'id': 'prod-1', 'name': 'Дрель'}},
             )
             self.assertEqual(get_pim_data('pmp-1'), {'id': 'prod-1', 'name': 'Дрель'})
-
-        queue.assert_called_once_with('pmp-1')
 
     def test_link_without_product_id_has_no_data(self):
         with patch.object(mp_utils, 'site') as site:
@@ -920,7 +858,7 @@ class GetPimDataTests(_PimSearchTestCase):
         self.assertEqual([c.args[0].name for c in site.get.call_args_list], ['PriceManagerProduct'])
 
     def test_links_sharing_a_pim_product_share_one_product_fetch(self):
-        with patch.object(mp_utils, 'site') as site, patch.object(mp_utils, '_queue_pim_population'):
+        with patch.object(mp_utils, 'site') as site:
             site.get.side_effect = self._site(
                 links={
                     'pmp-1': {'id': 'pmp-1', 'productId': 'prod-1'},
@@ -983,6 +921,63 @@ class LinkToLocalProductTests(_PimSearchTestCase):
 
         site.get.assert_not_called()
         self.assertEqual(PimProduct.objects.count(), 0)
+
+
+class LinkToLocalProductsTests(_PimSearchTestCase):
+    """Batched link for copy-to-main: existing Products only, one lookup for the lot."""
+
+    def test_links_every_row_whose_sku_names_an_existing_product(self):
+        first = PimProduct.objects.create(number='SKU-1')
+        second = PimProduct.objects.create(number='SKU-2')
+        rows = [self.product(sku='SKU-1'), self.product(sku='SKU-2'), self.product(sku='SKU-NONE')]
+
+        with patch.object(mp_utils, 'site') as site:
+            linked = link_to_local_products([row.pk for row in rows])
+
+        self.assertEqual(linked, 2)
+        site.get.assert_not_called()
+        self.assertEqual(PimProduct.objects.count(), 2)
+        self.assertEqual(
+            {row.sku: row.product_id for row in MainProduct.objects.filter(pk__in=[r.pk for r in rows])},
+            {'SKU-1': first.pk, 'SKU-2': second.pk, 'SKU-NONE': None},
+        )
+
+    def test_an_existing_link_is_never_overwritten(self):
+        mine = PimProduct.objects.create(number='OTHER')
+        PimProduct.objects.create(number='SKU-1')
+        row = self.product(sku='SKU-1', product=mine)
+
+        self.assertEqual(link_to_local_products([row.pk]), 0)
+        row.refresh_from_db()
+        self.assertEqual(row.product_id, mine.pk)
+
+    def test_query_count_does_not_grow_with_the_rows(self):
+        for n in range(5):
+            PimProduct.objects.create(number=f'SKU-{n}')
+        rows = [self.product(sku=f'SKU-{n}') for n in range(5)]
+
+        with self.assertNumQueries(3):  # rows, products, one bulk update
+            link_to_local_products([row.pk for row in rows])
+
+
+class CreateLinksToProductTests(_PimSearchTestCase):
+    """«Добавить товар»: the new row is linked explicitly, not as a vector side effect."""
+
+    def test_created_row_is_linked_to_the_product_with_its_sku(self):
+        from django.contrib.auth.models import User
+        from django.urls import reverse
+
+        product = PimProduct.objects.create(number='NEW-1')
+        self.client.force_login(User.objects.create_user(username='creator', password='pw'))
+
+        with patch.object(mp_utils, 'site'):
+            response = self.client.post(reverse('mainproduct-create'), {
+                'mpcreate-supplier': self.supplier.pk, 'mpcreate-article': 'A-NEW',
+                'mpcreate-name': 'Новый', 'mpcreate-sku': 'NEW-1', 'mpcreate-stock': 3,
+            }, HTTP_HX_REQUEST='true')
+
+        self.assertEqual(response.status_code, 200, response.content[:300])
+        self.assertEqual(MainProduct.objects.get(article='A-NEW').product_id, product.pk)
 
 
 from django.contrib.auth.models import User
@@ -1050,3 +1045,37 @@ class SyncButtonTests(TestCase):
         # товарной странице уводила бы на старую главную.
         self.assertEqual(response.headers.get('HX-Refresh'), 'true')
         self.assertNotIn('HX-Redirect', response.headers)
+
+
+class MainProductExportTests(_PimSearchTestCase):
+    """Выгрузка главного прайса: колонки прежние, значения — из PIM (Product)."""
+
+    def test_brand_group_and_description_come_from_the_product(self):
+        from product.models import Brand, Category
+
+        from .resources import MainProductResource
+
+        root = Category.objects.create(name='Инструмент')
+        leaf = Category.objects.create(name='Дрели', parent=root)
+        product = PimProduct.objects.create(
+            number='EXP-1', brand=Brand.objects.create(pim_id='b-1', name='Bosch'),
+            raw_data={'description': '<p>Мощная</p>'},
+        )
+        product.categories.add(leaf)
+        self.product(sku='EXP-1', product=product)
+        self.product(sku='EXP-2')  # без товара — пустые колонки, а не ошибка
+
+        rows = {row['sku']: row for row in MainProductResource().export(MainProduct.objects.all()).dict}
+
+        self.assertEqual(rows['EXP-1']['Производитель'], 'Bosch')
+        self.assertEqual(rows['EXP-1']['Название_группы'], 'Инструмент > Дрели')
+        self.assertEqual(rows['EXP-1']['HTML_описание'], '<p>Мощная</p>')
+        self.assertEqual((rows['EXP-2']['Производитель'], rows['EXP-2']['Название_группы']), ('', ''))
+
+    def test_the_dropped_columns_are_no_longer_importable(self):
+        from .resources import MainProductResource
+
+        imported = [field.column_name for field in MainProductResource().get_import_fields()]
+
+        self.assertNotIn('Производитель', imported)
+        self.assertNotIn('Название_группы', imported)

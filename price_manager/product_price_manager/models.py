@@ -1,6 +1,7 @@
 from django.db import models
 from django.core.validators import (MinValueValidator, MaxValueValidator)
-from supplier_manager.models import Supplier, Discount, Category
+from supplier_manager.models import Supplier, Discount
+from product.models import Category
 from supplier_product_manager.models import SupplierProduct, SP_PRICES
 from main_product_manager.models import MainProduct, PRICE_TYPES, MP_PRICES, MainProductLog
 from django.db.models import (F, ExpressionWrapper, 
@@ -53,6 +54,10 @@ class PriceManager(models.Model):
     verbose_name='Группы скидок',
     blank=True
   )
+  # Категории товара из PIM (product.Category), а не supplier_manager.Category:
+  # MainProduct.categories удалены в Phase 2b (D4). Пустой выбор — правило на
+  # все товары поставщика; см. миграцию 0004, которая этого не допускает
+  # молча.
   categories = models.ManyToManyField(
     Category,
     related_name='pricemanagers',
@@ -185,7 +190,11 @@ class PriceManager(models.Model):
     
     mps = MainProduct.objects.filter(pk__in=products.values_list('main_product', flat=True))
     if price_manager.categories.exists():
-      mps = mps.filter(categories__in=price_manager.categories.all()).distinct()
+      # Как и раньше — ровно выбранные узлы, без разворота на потомков. Через
+      # product: строка без привязки к Product под правило с категориями не
+      # попадает. distinct — товар в двух выбранных категориях дал бы строку
+      # дважды.
+      mps = mps.filter(product__categories__in=price_manager.categories.all()).distinct()
     source = price_manager.source
     if price_manager.source in SP_PRICES:
       filtered_source_price = (

@@ -13,7 +13,6 @@ urlpatterns = [
     path('', RedirectView.as_view(pattern_name='products', permanent=True), name='mainproducts'),
 
     path('create', MainProductCreate.as_view(), name='mainproduct-create'),
-    path('create/categories', MainProductCreateCategoryTree.as_view(), name='mainproduct-create-categories'),
 
     path('<int:pk>/update', MainProductUpdate.as_view(), name='main-product-update'),
     path('sync', sync_main_products, name='mainproducts-sync'),

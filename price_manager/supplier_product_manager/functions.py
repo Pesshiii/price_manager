@@ -5,11 +5,10 @@ from django.core.cache import cache
 from django.conf import settings
 
 from .models import (SupplierFile, Setting, Link, 
-                     SupplierProduct, Manufacturer, Discount, Category,
+                     SupplierProduct, Discount,
                      SP_NUMBERS, SP_PRICES)
 from .tables import SP_AVAILABLE_COLUMN_MAP, SP_DEFAULT_VISIBLE_COLUMNS
 from main_product_manager.models import MainProduct
-from main_product_manager.utils import recalculate_search_vectors
 
 from .forms import (DictFormset, LinkFormset,
                     InitialForm,
@@ -24,13 +23,13 @@ import logging
 
 SPS_CACHE_TTL_SECONDS = 60 * 30
 CACHE_TTL = 60 * 60 * 24 * 30  # 30 дней
-SPS_JSON_SCHEMA_VERSION = "1.0"
+# 1.1: без category и manufacturer (Phase 2b). Смена версии меняет ключ кэша
+# get_sps, так что разбор, закэшированный до удаления колонок, не всплывёт.
+SPS_JSON_SCHEMA_VERSION = "1.1"
 SPS_JSON_FIELDS = (
     "article",
     "name",
     "description",
-    "category",
-    "manufacturer",
     "discount",
     "stock",
     "supplier_price",
@@ -68,8 +67,6 @@ AUTO_LINK_ALIASES = {
     "article": ("article", "артикул", "код", "sku", "vendorcode"),
     "name": ("name", "название", "наименование", "товар"),
     "description": ("description", "описание"),
-    "category": ("category", "категория", "группа", "раздел"),
-    "manufacturer": ("manufacturer", "brand", "бренд", "производитель"),
     "discount": ("discount", "скидка", "группа скидок"),
     "stock": ("stock", "остаток", "количество", "наличие", "qty"),
     "supplier_price": ("supplierprice", "supplier_price", "цена", "цена поставщика", "закупочная цена", "price"),
@@ -338,7 +335,7 @@ def get_sps(setting_or_pk: Setting | int, recache: bool = False) -> list[dict] |
     """
     Возвращает каноничные товары поставщика в JSON-виде:
     required: article(str), name(str)
-    optional: description(str|null), category(str|null), manufacturer(str|null), discount(str|null),
+    optional: description(str|null), discount(str|null),
               stock(int|null), supplier_price(str|null), rrp(str|null), discount_price(str|null)
     """
     setting = (
@@ -430,7 +427,10 @@ def load_setting(pk):
         Если не найден файл возвращает None
     '''
     setting = Setting.objects.get(pk=pk)
-    links = Link.objects.filter(setting=setting)
+    # Только ключи из LINKS: каждый ключ ниже становится полем SupplierProduct.
+    # Ссылка на удалённое поле (category и manufacturer до Phase 2b) иначе
+    # роняла бы весь импорт прайса, а не пропускалась.
+    links = [link for link in Link.objects.filter(setting=setting) if link.key in LINKS]
     sps_payload = get_sps(setting)
     if sps_payload is None:
         return None
@@ -438,29 +438,10 @@ def load_setting(pk):
     df = df.dropna(subset=['name'])
     df = df.replace({pd.NA: None, float('nan'): None, '': None, 'NaN': None})
 
-    if 'manufacturer' in df.columns:
-        df['manufacturer'] = df['manufacturer'].apply(
-            lambda s: Manufacturer.objects.get_or_create(name=s)[0] if s else None
-        )
     if 'discount' in df.columns:
         df['discount'] = df['discount'].apply(
             lambda s: Discount.objects.get_or_create(supplier=setting.supplier, name=s)[0] if s else None
         )
-    if 'category' in df.columns:
-        def _get_category(value):
-            if not value:
-                return None
-            parts = [p.strip() for p in str(value).split(">") if p and str(p).strip()]
-            parent = None
-            node = None
-            if Category.objects.filter(name=parts[-1]).count() == 1:
-                return Category.objects.filter(name=parts[-1]).first()
-            for name in parts[:10]:
-                node, _ = Category.objects.get_or_create(name=name, parent=parent)
-                parent = node
-            return node
-    
-        df['category'] = df['category'].apply(_get_category)
 
     def get_spmodel(row):
         data = {
