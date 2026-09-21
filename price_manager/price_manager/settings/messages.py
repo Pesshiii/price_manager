@@ -16,6 +16,8 @@ LOGOUT_REDIRECT_URL = 'login'
 LOGIN_EXEMPT_URLS = (
     'login',
     'logout',
+    'bitrix24-login',
+    'bitrix24-callback',
     'admin:login',
     'admin:logout',
     'admin:password_reset',

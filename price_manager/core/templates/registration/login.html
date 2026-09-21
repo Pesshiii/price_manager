@@ -6,6 +6,12 @@
 <div class="row justify-content-center">
   <div class="col-md-5 col-lg-4">
     <h1 class="h3 mb-4 text-center">Вход в систему</h1>
+    {% if bitrix24_enabled %}
+      <a class="btn btn-outline-primary w-100" href="{% url 'bitrix24-login' %}{% if next %}?next={{ next|urlencode }}{% endif %}">Войти через Bitrix24</a>
+      <div class="d-flex align-items-center my-3 text-body-secondary small">
+        <hr class="flex-grow-1 my-0"><span class="px-2">или</span><hr class="flex-grow-1 my-0">
+      </div>
+    {% endif %}
     <form method="post" novalidate>
       {% csrf_token %}
       {% if form.non_field_errors %}

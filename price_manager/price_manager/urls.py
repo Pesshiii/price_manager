@@ -18,6 +18,8 @@ urlpatterns = [
     path('api/', include('api_urls')),
     path('accounts/login/', views.AppLoginView.as_view(), name='login'),
     path('accounts/logout/', views.AppLogoutView.as_view(), name='logout'),
+    path('accounts/bitrix24/login/', views.bitrix24_login, name='bitrix24-login'),
+    path('accounts/bitrix24/callback/', views.bitrix24_callback, name='bitrix24-callback'),
 
     path('', views.mainpage, name='mainpage'),
 

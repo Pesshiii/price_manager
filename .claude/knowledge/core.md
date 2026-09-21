@@ -124,6 +124,12 @@ login**. Exemptions: `STATIC_URL`/`MEDIA_URL` prefixes, `settings.LOGIN_URL`,
 under `/api/` get a **401 JSON** response rather than a redirect
 (`middleware.py:46`) — worth knowing when an API client reports a redirect loop.
 
+`LOGIN_EXEMPT_URLS` entries are **URL names**, not raw paths: the middleware
+resolves each via `resolve_url()` once at `__init__` into a path set
+(`middleware.py:21-24,69-79`), then does an exact `path in self.exempt_paths`
+check per request (`:57`). `'bitrix24-login'`/`'bitrix24-callback'` were added
+here (`settings/messages.py:19-20`) alongside `'login'`/`'logout'`/`'admin:*'`.
+
 `toaster_middleware` — if the messages storage is non-empty, fires a
 `toasts:fetch` client event `after="settle"`. Adapted from Josh Karamuth's
 django-messages-toast-htmx pattern (credited in the docstring).
@@ -162,13 +168,14 @@ keeps filtering detached nodes. So checkbox instead uses one delegated
 `[data-checkbox-filter-item]` on every keystroke, re-applied on `htmx:load`
 (`:96`) since the script itself lives outside the partial.
 
-## Views (`core/views.py`, ~640 lines)
+## Views (`core/views.py`, ~711 lines)
 
 The shopping-tab / cart feature is the whole file. `ShoppingTab*` — list, delete,
-detail, export, export-download, import + preview + run (`:103`–`:364`).
+detail, export, export-download, import + preview + run (`:173`–`:471`).
 `CartItem*` — add, detail, quick-add, confirm, unconfirm, remove, product-select,
-add-products (`:365`–`:634`). Plus `PersistentNotification*` (`:55`, `:71`),
-auth views (`:84`, `:99`), `InstructionsView` and `mainpage`.
+add-products (`:472`–`:705`). Plus `PersistentNotification*` (`:65`, `:81`),
+auth views (`:94`, `:114`), Bitrix24 login (`:123`, `:141`, mechanism below),
+`InstructionsView` and `mainpage`.
 
 Templates in `core/templates/shopping_tab/` use the **`hx-swap-oob`** convention
 throughout, not the modal-CRUD one — one action refreshes a status chip, a
@@ -200,6 +207,29 @@ conflation the template comment gestures at when it says the texts are «те
 badge is explicitly out of that issue's scope** and stays as-is. If the cart
 is ever revisited, it needs its own decision about what a null stock should
 say — it isn't inherited for free from whatever #155 lands on.
+
+## Bitrix24 login — mechanism (CLAUDE.md's `core` bullet covers purpose/policy)
+
+`core/bitrix24.py` + `bitrix24_login`/`bitrix24_callback` (`core/views.py:123`,`:141`).
+
+- `login()` after the hand-rolled exchange needs `user.backend` set by hand
+  (`views.py:168`) — no `authenticate()` call happened, so Django can't infer
+  it; omitting it raises `ValueError`.
+- OAuth `state` is compared as **bytes** —
+  `secrets.compare_digest(state.encode(), expected_state.encode())`
+  (`views.py:155-157`) — because `compare_digest` raises `TypeError` on a
+  non-ASCII `str`; pinned by `test_non_ascii_state_is_refused_not_a_500`
+  (`tests.py:283`).
+- `_get_json` (`bitrix24.py:49-76`) logs only `type(exc).__name__`, never
+  `str(exc)`, on a `requests.RequestException` — urllib3's message embeds the
+  full request URL, and the query string carries `client_secret`/`access_token`.
+- The callback URL doubles as the Bitrix app's **install URL**
+  (`views.py:145-148`): Bitrix POSTs install-time tokens there; the view
+  answers 200 and stores nothing — why it's `@csrf_exempt` (`:139`).
+- Tests fake the network with a URL-dispatching `side_effect` on
+  `core.bitrix24.requests.get` (`_fake_bitrix24`, `tests.py:190-204`) rather
+  than patching `exchange_code`/`fetch_current_user` — so the portal-endpoint
+  check and request params get exercised, not assumed.
 
 ## `core/templates/core/includes/table_htmx.html` — shared by four tables
 
