@@ -65,7 +65,7 @@ squash-merges, so they do not survive onto `main`.*
 | §4 P2-G4 — manufacturer export | ✅ **Run in prod and handed over** (user, 2026-09-21) |
 | §4.0b 2b-1 — retire the old main page (item 5, code only) | ✅ **Done** |
 | §4.0b 2b-2 — the column drops (items 1–3) | ✅ **Done** — validated on the restored snapshot, see §4.0b |
-| §4.0b 2b-3 — retire `supplier_manager` Category/Manufacturer (item 4) | ❌ Next |
+| §4.0b 2b-3 — retire `supplier_manager` Category/Manufacturer (item 4) | ✅ **Done** — **Phase 2 complete** |
 
 Full suite green (428 tests). Verified end to end on a restore of the production snapshot
 with content loaded from the live PIM.
@@ -531,10 +531,27 @@ refuse, and if it does, nothing has changed yet. Messages still queued in Redis
 for the deleted tasks (`populate_pim_relations`, `recalculate_vectors_missing`)
 are rejected by the worker as `NotRegistered` — expected, harmless, once.
 
-**2b-3 — retire `supplier_manager.Category`, `Manufacturer`, `ManufacturerDict` (item 4).**
-Their tables can only go once every FK and M2M into them is gone (2b-2). Write the
-cross-app `dependencies` explicitly — a fresh-DB `migrate` passes regardless of order, the
-FK constraint only fires on a populated database.
+**2b-3 — retire `supplier_manager.Category`, `Manufacturer`, `ManufacturerDict` (item 4).
+✅ Done.** Their tables could only go once every FK and M2M into them was gone (2b-2), so
+`supplier_manager.0011` declares those three migrations as dependencies — the autodetector
+cannot see the link, and a fresh-DB `migrate` passes in any order; only a populated database
+fails. Validated on the snapshot (816 categories, 632 manufacturers dropped; `/products/`,
+all 118 rules, supplier pages, admin render) and on an empty database from zero.
+
+- **R5 was checked first, as this brief required** — see R5 below. It materialised mildly;
+  the user chose to retire `ManufacturerDict` anyway and fix duplicates in PIM. `0011`
+  exports the alias table to `media/exports/manufacturer_aliases.csv` before dropping it
+  (empty on production, so it only reports that).
+- User-visible: «Категории» and «Производители» of the old catalog leave `/admin/`. Their
+  pages had already lost their routes; the category autocomplete had no callers.
+- The «Обновить» chain loses `rebuild_categories`; beat loses `sync-categories`.
+
+**A lesson from 2b-2 that belongs here:** CI's first run of 2b-2 failed on a fresh-database
+`migrate` that every local check had passed — `supplier_product_manager.0008` read
+`PriceTag` without declaring the dependency, and 2b-2's new edge shifted the plan order.
+`--keepdb` and the snapshot both start migrated, so neither can see this. **Run a
+fresh-database `migrate` locally before pushing any migration change** (create a scratch DB,
+`migrate` with `POSTGRES_DB` pointed at it, drop it).
 
 
 Separate PR. Each item is irreversible on prod. Unchanged from the original spec except
@@ -772,10 +789,14 @@ and never call it inside a `transaction.atomic()` runner.
   the prefixed `sku` they see. If a supplier has `sku_type` set **and** users search by raw
   article, search silently stops finding those rows. *Partly mitigated:* the page also
   matches the linked MainProduct's `name`, so such a product is still reachable by name.
-- **R5 — D3 assumes PIM brands are a controlled vocabulary.** If brand is free text the
-  facet list shows duplicate spellings. `ManufacturerDict` solved exactly this and is
-  scheduled for deletion in Phase 2 — if R5 materialises, reconsider that deletion rather
-  than rebuilding it.
+- **R5 — ✅ checked 2026-09-21, materialised mildly, resolved on the PIM side.** Of 321
+  PIM brands, 14 names exist as two separate brand *records* differing only by case or
+  punctuation (28 records — STAYER/Stayer, DENZEL/Denzel, Sturm/Sturm!, …), so the brand
+  facet lists both. They are duplicate entities, not free-text variants, so an alias layer
+  here would be papering over PIM data. The user chose: retire `ManufacturerDict` as
+  planned (it mapped supplier spellings, not PIM brands, and was empty on production) and
+  merge the duplicates in PIM. *Original text:* D3 assumes PIM brands are a controlled
+  vocabulary; if not, reconsider deleting `ManufacturerDict` rather than rebuilding it.
 - **R6 — `product.Category` becomes mixed-provenance if D8 is softened.** `pim_sync`'s
   `_ensure_pim_category` does `get_or_create(parent=…, name=…)`; carrying non-PIM categories
   across would collide. D8 keeps the tree pure — keep it that way.

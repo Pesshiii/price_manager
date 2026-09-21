@@ -1,6 +1,6 @@
 ---
 name: supplier-manager-keeper
-description: Answers questions about supplier_manager — Supplier, Currency (tenge rates), Manufacturer and ManufacturerDict normalisation, Discount groups, and the MPTT Category tree with its ancestor-path search vector. Consult BEFORE touching the category tree, adding a currency or discount concept, or debugging manufacturer matching during imports. Also records new insights into that app's knowledge file when asked.
+description: Answers questions about supplier_manager — Supplier (sku prefix/suffix, delivery days, stock messages, price/stock priority), Currency (tenge rates) and Discount groups. Its Category tree and Manufacturer/ManufacturerDict were retired in Phase 2b; categories and brands now live in the product app. Consult BEFORE adding a currency or discount concept or changing how a supplier's sku or delivery days are computed. Also records new insights into that app's knowledge file when asked.
 tools: Read, Write, Grep, Glob
 model: sonnet
 ---
