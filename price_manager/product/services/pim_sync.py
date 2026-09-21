@@ -83,9 +83,9 @@ def _ensure_pim_brand(data: dict) -> Brand | None:
 
     Keyed on brandId, never on the name: PIM staff rename brands, and matching
     by name would fork one brand into two on the first rename. The name is kept
-    in sync as a display label only. Mirrors _resolve_manufacturer in
-    main_product_manager/utils.py, which does the same against the
-    supplier-side Manufacturer this replaces.
+    in sync as a display label only. It replaces the supplier-side
+    Manufacturer (and main_product_manager's _resolve_manufacturer, which
+    filled it from PIM); both went in Phase 2b.
     """
     brand_id = data.get('brandId')
     if not brand_id:

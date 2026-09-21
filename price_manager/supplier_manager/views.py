@@ -39,19 +39,6 @@ from main_product_manager.models import MainProduct, MP_PRICES
 from .forms import *
 from .tables import *
 
-class CategoryAutocomplete(autocomplete.Select2QuerySetView):
-    def get_queryset(self):
-        
-        qs = Category.objects.all()
-
-        if self.q:
-            qs = qs.filter(name__icontains=self.q)
-
-        return qs
-
-
-# Обработка поставщика
-
 class SupplierList(TemplateView):
   '''Список поставщиков на <<supplier/>>'''
   template_name = 'supplier/list.html'
@@ -172,46 +159,6 @@ class SupplierUpdate(UpdateView):
     messages.success(self.request, 'Настройки поставщика сохранены.')
     return super().form_valid(form)
   
-
-class ManufacturerList(SingleTableView):
-  '''Отображение производителей <<manufacturer/>>'''
-  model = Manufacturer
-  table_class = ManufacturerListTable
-  template_name = 'manufacturer/list.html'
-
-class ManufacturerDetail(SingleTableView):
-  '''Отображение словоря производителя <<manufacturer/<int:id>/>>'''
-  model = ManufacturerDict
-  table_class = ManufacturerDictListTable
-  template_name = 'manufacturer/dict.html'
-  def get_table_data(self):
-    return ManufacturerDict.objects.filter(manufacturer_id=self.kwargs['id'])
-  def get_context_data(self, **kwargs):
-    context = super().get_context_data(**kwargs)
-    context['manufacturer_id'] = self.kwargs['id']
-    context['manufacturer'] = Manufacturer.objects.get(id=context['manufacturer_id'])
-    return context
-
-class ManufacturerCreate(CreateView):
-  '''Создание Производителя <<manufacturer/create/>>'''
-  model = Manufacturer
-  fields = '__all__'
-  success_url = '/manufacturer/'
-  template_name = 'manufacturer/create.html'
-
-class ManufacturerDictCreate(CreateView):
-  '''Обновление словаря Производителя <<manufacturer/<int:id>/add-alt/>>'''
-  model = ManufacturerDict
-  form_class = ManufacturerDictForm
-  template_name = 'manufacturer/create.html'
-  def get_form(self):
-    form = super().get_form()
-    form.fields['manufacturer'].initial = Manufacturer.objects.get(id=self.kwargs['id'])
-    return form
-  def get_success_url(self):
-    return reverse('manufacturer-detail',kwargs={'id':self.kwargs['id']})
-
-# Обработка валюты
 
 class CurrencyList(SingleTableView):
   '''Отображает валюты <</currency/>>'''

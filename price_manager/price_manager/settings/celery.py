@@ -19,7 +19,6 @@ CELERY_PRICE_UPDATE_MINUTES = int(os.environ.get('CELERY_PRICE_UPDATE_MINUTES', 
 CELERY_STOCK_UPDATE_MINUTES = int(os.environ.get('CELERY_STOCK_UPDATE_MINUTES', 15))
 CELERY_LOG_UPDATE_MINUTES = int(os.environ.get('CELERY_LOG_UPDATE_MINUTES', 60))
 CELERY_SUPPLIER_FILES_CLEANUP_MINUTES = int(os.environ.get('CELERY_SUPPLIER_FILES_CLEANUP_MINUTES', 30))
-CELERY_CATEGORY_SYNC_MINUTES = int(os.environ.get('CELERY_CATEGORY_SYNC_MINUTES', 360))
 CELERY_NOTIFICATION_CLEANUP_MINUTES = int(os.environ.get('CELERY_NOTIFICATION_CLEANUP_MINUTES', 60))
 
 SUPPLIER_FILES_KEEP_LAST = int(os.environ.get('SUPPLIER_FILES_KEEP_LAST', 0))
@@ -50,10 +49,6 @@ CELERY_BEAT_SCHEDULE = {
     'reindex-pim-ids': {
         'task': 'main_product_manager.reindex_pim_ids',
         'schedule': crontab(hour=3, minute=0),
-    },
-    'sync-categories': {
-        'task': 'supplier_manager.sync_categories',
-        'schedule': CELERY_CATEGORY_SYNC_MINUTES * 60,
     },
     'cleanup-persistent-notifications': {
         'task': 'core.cleanup_persistent_notifications',

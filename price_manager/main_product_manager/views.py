@@ -38,7 +38,6 @@ from crispy_forms.utils import render_crispy_form
 # Импорты моделей, функций, форм, таблиц
 from .models import *
 from supplier_product_manager.models import SupplierProduct
-from supplier_manager.models import Category
 from file_manager.models import FileModel
 from core.utils import *
 from .forms import *

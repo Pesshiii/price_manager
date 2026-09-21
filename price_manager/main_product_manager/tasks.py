@@ -5,7 +5,6 @@ from celery import chain, shared_task
 from core.models import PersistentNotification
 from core.task_runner import dispatch_after_commit, execute_locked_task
 from django.contrib.auth import get_user_model
-from supplier_manager.models import Category
 from product_price_manager.models import update_prices
 
 from .utils import (
@@ -33,16 +32,6 @@ def _append_step(stats: dict | None, step_name: str, payload: dict | None) -> di
     steps[step_name] = _build_step_result(payload)
     next_stats["steps"] = steps
     return next_stats
-
-
-@shared_task(name="main_product_manager.rebuild_categories")
-def rebuild_categories_task(stats: dict | None = None) -> dict:
-    payload = execute_locked_task(
-        task_name="main_product_manager.rebuild_categories",
-        lock_ttl=60 * 10,
-        runner=Category.objects.rebuild,
-    )
-    return _append_step(stats, "rebuild_categories", payload)
 
 
 @shared_task(name="main_product_manager.update_prices")
@@ -130,7 +119,6 @@ def notify_sync_main_products_task(stats: dict, user_id: int) -> dict:
 
 def sync_main_products_task(user_id: int):
     workflow = chain(
-        rebuild_categories_task.s(),
         update_prices_task.s(),
         update_stocks_task.s(),
         delete_outdated_logs_task.s(),

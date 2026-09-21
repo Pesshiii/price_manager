@@ -72,28 +72,6 @@ class SupplierListTable(tables.Table):
     return f'{mps.count()-n_mps.count()} / {n_mps.count()}'
   
 
-class ManufacturerListTable(tables.Table):
-  '''Таблица Производителей отображаемая на странице Производители'''
-  name = tables.LinkColumn('manufacturer-detail', args=[tables.A('pk')])
-  class Meta:
-    model = Manufacturer
-    fields = [field for field, value in get_field_details(model).items()
-              if not '_ptr' in field]
-    template_name = 'django_tables2/bootstrap5.html'
-    attrs = {
-      'class': 'table table-auto table-stripped table-hover clickable-rows'
-      }
-    
-class ManufacturerDictListTable(tables.Table):
-  '''Таблица Словаря отображаемая на странице Производитель/Словарь'''
-  class Meta:
-    model = ManufacturerDict
-    fields = [field for field, value in get_field_details(model).items() if not value['is_relation']]
-    template_name = 'django_tables2/bootstrap5.html'
-    attrs = {
-      'class': 'table table-auto table-stripped table-hover clickable-rows'
-      }
-
 class CurrencyListTable(tables.Table):
   '''Отображает таблицу Валют на странице Валюта'''
   
@@ -105,20 +83,3 @@ class CurrencyListTable(tables.Table):
     attrs = {
       'class': 'table table-auto table-stripped table-hover clickable-rows'
       }
-
-class CategoryListTable(tables.Table):
-  '''Таблица Категорий отображаемая на странице Производители'''
-  # actions = tables.TemplateColumn(
-  #   template_name='manufacturer/actions.html',
-  #   orderable=False,
-  #   verbose_name='Действия',
-  #   attrs = {'td': {'class': 'text-right'}}
-  # )
-  class Meta:
-    model = Category
-    fields = ['parent', 'name']
-    template_name = 'django_tables2/bootstrap5.html'
-    attrs = {
-      'class': 'table table-auto table-stripped table-hover clickable-rows'
-      }
-    

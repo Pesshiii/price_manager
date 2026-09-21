@@ -1,15 +1,12 @@
 from django.core.management.base import BaseCommand
 from main_product_manager import tasks
-from supplier_manager import tasks as sm_tasks
 
 TASKS = {
-    'rebuild_categories': tasks.rebuild_categories_task,
     'update_prices': tasks.update_prices_task,
     'update_stocks': tasks.update_stocks_task,
     'update_logs': tasks.update_logs_task,
     'delete_outdated_logs': tasks.delete_outdated_logs_task,
     'reindex_pim_ids': tasks.reindex_pim_ids_task,
-    'sync_categories': sm_tasks.sync_categories_task,
 }
 
 
