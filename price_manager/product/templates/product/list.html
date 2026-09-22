@@ -530,6 +530,90 @@
     color: #15803d;
   }
 
+  /* --- Заголовки категорий в выдаче по категориям ---------------------- */
+
+  .products-table > tbody > tr.product-group-row > td {
+    padding: 1.1rem 0.75rem 0.35rem;
+    border-bottom: 1px solid var(--pm-line-soft);
+  }
+
+  .products-table > tbody > tr.product-group-row:first-child > td {
+    padding-top: 0.6rem;
+  }
+
+  .products-table .product-group-path {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.1rem 0.4rem;
+    font-size: 0.8125rem;
+    color: var(--pm-muted);
+  }
+
+  .products-table .product-group-path .bi {
+    font-size: 0.6rem;
+    opacity: 0.7;
+  }
+
+  .products-table .product-group-path span:last-child {
+    font-weight: 600;
+    color: var(--bs-body-color);
+  }
+
+  .products-sort-reset {
+    margin-left: 0.75rem;
+    color: var(--pm-muted);
+    text-decoration: none;
+    white-space: nowrap;
+  }
+
+  .products-sort-reset:hover {
+    color: var(--bs-body-color);
+  }
+
+  .products-sort-reset .bi {
+    font-size: 0.65rem;
+  }
+
+  /* --- Увеличение фото при наведении ------------------------------------ */
+
+  .products-table .product-photo {
+    cursor: zoom-in;
+  }
+
+  {% comment %}
+    Превью живёт на body, а не в ячейке, поэтому переменные .products-page до
+    него не доходят — цвета здесь заданы напрямую.
+  {% endcomment %}
+  .products-photo-zoom {
+    position: fixed;
+    top: 0;
+    left: 0;
+    z-index: 1080;
+    width: 20rem;
+    height: 20rem;
+    padding: 0.5rem;
+    background: #fff;
+    border: 1px solid #e4e7ec;
+    border-radius: 0.75rem;
+    box-shadow: 0 12px 32px rgba(16, 24, 40, 0.18);
+    pointer-events: none;
+    opacity: 0;
+    visibility: hidden;
+    transition: opacity 0.12s ease, visibility 0.12s;
+  }
+
+  .products-photo-zoom.is-visible {
+    opacity: 1;
+    visibility: visible;
+  }
+
+  .products-photo-zoom img {
+    width: 100%;
+    height: 100%;
+    object-fit: contain;
+  }
+
   /* --- Строки поставщиков под товаром ------------------------------------ */
 
   .products-table > tbody > tr.product-suppliers-row > td {
@@ -832,6 +916,66 @@
       }
       toggleSuppliers(button);
     });
+
+    // Увеличение фото при наведении. Превью — один fixed-элемент на body, а не
+    // всплывашка в ячейке: .has-hscroll даёт обёртке таблицы overflow-x, и всё,
+    // что выходит за ячейку, она обрезала бы. pointer-events: none (CSS) —
+    // строка товара кликабельна целиком, превью не должно забирать клик.
+    // Пока грузится крупный размер, показана уже загруженная миниатюра.
+    // Только для мыши: на тач-экране «наведение» — это тап, и он же
+    // раскрывает поставщиков.
+    if (window.matchMedia('(hover: hover) and (pointer: fine)').matches) {
+      const zoom = document.createElement('div');
+      zoom.className = 'products-photo-zoom';
+      zoom.setAttribute('aria-hidden', 'true');
+      const zoomImage = document.createElement('img');
+      zoomImage.alt = '';
+      zoom.appendChild(zoomImage);
+      document.body.appendChild(zoom);
+      let current = null;
+
+      const placeZoom = function (thumb) {
+        const rect = thumb.getBoundingClientRect();
+        const gap = 12;
+        const margin = 8;
+        let left = rect.right + gap;
+        if (left + zoom.offsetWidth > window.innerWidth - margin) {
+          left = Math.max(margin, rect.left - gap - zoom.offsetWidth);
+        }
+        const top = Math.min(
+          Math.max(margin, rect.top + rect.height / 2 - zoom.offsetHeight / 2),
+          window.innerHeight - zoom.offsetHeight - margin);
+        zoom.style.left = left + 'px';
+        zoom.style.top = top + 'px';
+      };
+      const showZoom = function (thumb) {
+        current = thumb;
+        zoomImage.src = thumb.currentSrc || thumb.src;
+        const large = thumb.dataset.zoomSrc;
+        if (large) {
+          const loader = new Image();
+          loader.onload = function () { if (current === thumb) zoomImage.src = large; };
+          loader.src = large;
+        }
+        placeZoom(thumb);
+        zoom.classList.add('is-visible');
+      };
+      const hideZoom = function () {
+        current = null;
+        zoom.classList.remove('is-visible');
+      };
+
+      document.body.addEventListener('mouseover', function (event) {
+        const thumb = event.target.closest('.products-table .product-photo');
+        if (thumb && thumb !== current) showZoom(thumb);
+      });
+      document.body.addEventListener('mouseout', function (event) {
+        if (event.target.closest('.products-table .product-photo')) hideZoom();
+      });
+      // capture — чтобы поймать и собственную горизонтальную прокрутку таблицы.
+      window.addEventListener('scroll', hideZoom, { capture: true, passive: true });
+      document.body.addEventListener('htmx:beforeSwap', hideZoom);
+    }
 
     // «Применить» на телефоне закрывает панель — иначе результат остаётся под ней.
     document.body.addEventListener('submit', function (event) {

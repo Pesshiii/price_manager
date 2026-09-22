@@ -10,6 +10,15 @@
   Счётчик результатов и заметка о покрытии живут ВНУТРИ #products-table: этот
   блок целиком заменяется ответом на поиск, фильтр и выбор колонок, и цифры
   должны меняться вместе с выдачей.
+
+  Строки идут парами из product_rows (ProductPage.get_context_data), а не из
+  table.paginated_rows: в выдаче по категориям над первой строкой группы стоит
+  заголовок с путём категории. Решает это представление, не шаблон — он же
+  отдаётся и HTMX-фрагментом, и оба ответа должны совпадать.
+
+  «Сбросить сортировку» — единственный путь назад к порядку по умолчанию:
+  ссылки в шапке django-tables2 только переключают направление и сортировку
+  не снимают.
 {% endcomment %}
 <div id="products-table">
   <div class="products-resultbar">
@@ -17,6 +26,11 @@
       {% if table.page %}
         Показаны <strong>{{ table.page.start_index|floatformat:"g" }}–{{ table.page.end_index|floatformat:"g" }}</strong>
         из <strong>{{ table.paginator.count|floatformat:"g" }}</strong>
+      {% endif %}
+      {% if table.order_by %}
+        <a class="products-sort-reset" href="{% querystring without table.prefixed_order_by_field table.prefixed_page_field %}">
+          <i class="bi bi-x-lg" aria-hidden="true"></i> Сбросить сортировку
+        </a>
       {% endif %}
     </div>
     {% include 'product/partials/coverage_note.html' %}
@@ -48,7 +62,19 @@
             </tr>
           </thead>
           <tbody>
-            {% for row in table.paginated_rows %}
+            {% for header, row in product_rows %}
+              {% if header %}
+                <tr class="product-group-row">
+                  <td colspan="{{ table.columns|length }}">
+                    <div class="product-group-path">
+                      {% for name in header %}
+                        {% if not forloop.first %}<i class="bi bi-chevron-right" aria-hidden="true"></i>{% endif %}
+                        <span>{{ name }}</span>
+                      {% endfor %}
+                    </div>
+                  </td>
+                </tr>
+              {% endif %}
               <tr {{ row.attrs.as_html }}>
                 {% for column, cell in row.items %}
                   <td {{ column.attrs.td.as_html }}>{{ cell }}</td>

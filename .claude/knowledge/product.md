@@ -333,6 +333,37 @@ measuring on the prod snapshot or driving the page in a browser.
   «Применить». A tick auto-applies via `hx-trigger` `change delay:600ms` (`filters.py:315`),
   which fires no `submit`, so the drawer stays open over the refreshed results.
 
+### Default order is by category — `annotate_product_rows(by_category=True)`
+
+With no `sort` and no search term, rows are ordered by category tree position and
+`table.html` puts a breadcrumb header row over each group (and over row 1 of every page).
+`ProductPage.groups_by_category()` is the one switch. The view decides it, not the
+template, because `table.html` is also the HTMX fragment. The key is chosen by
+measurement on the snapshot:
+
+- **Not a correlated subquery.** `ORDER BY (SELECT … FROM categories WHERE product_id = p.id …)`
+  runs on all 158k rows: 8 s with the m2m seq-scanned, ~1.1 s when forced onto the index.
+  The key is instead `Min(ARRAY[tree_id, lft])` over a join on `categories`: 0.6–0.7 s,
+  against 0.42 s for the old `-updated_at` default, with ~54k m2m rows seeded in a
+  rolled-back transaction (the snapshot itself has only 383).
+- **An array, not `Min(tree_id)` + `Min(lft)`.** For a product with two categories those
+  come from different categories, so the key names neither one. `primary_category()`
+  in `tables.py` must apply the same rule in Python (first category in tree order), or a
+  row sorts under one group and shows another group's header.
+- **That join doubles `Sum`.** `Count(distinct)` and `Min`/`Max` survive it, but
+  `total_stock` would count stock once per category. So in this mode `total_stock` is a
+  `Subquery`. Postgres evaluates a target-list subplan after the `LIMIT` (`loops=25`),
+  so it costs nothing. **Don't make it a Subquery always:** «Остаток» is sortable, and
+  sorted by it the subquery runs for every row (2.6 s against 0.48 s).
+  `test_product_with_two_categories_is_listed_once_and_its_stock_is_not_doubled`
+  guards this. The snapshot cannot, because it has zero multi-category products.
+- ~64% of `Product`s have no PIM category (coverage above). All of them are one
+  «Без категории» group at the tail, ordered by stored `name`, which unsynced rows
+  may lack.
+- Header paths come from the categories prefetch, now
+  `Prefetch(..., Category.objects.select_related(CATEGORY_LABEL_DEPTH))` in
+  `_base_queryset`. Walking `parent` without it is a query per level.
+
 ## Filling the mirror from PIM — `load_pim_mirror`
 
 `services/pim_sync.py`: `sync_category_tree_from_pim()` and

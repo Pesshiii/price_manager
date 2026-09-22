@@ -1,5 +1,6 @@
 import django_tables2 as tables
-from django.db.models import Count, Max, Min, Q, Sum
+from django.contrib.postgres.fields import ArrayField
+from django.db.models import Count, F, Func, IntegerField, Max, Min, OuterRef, Q, Subquery, Sum
 from django.template.loader import render_to_string
 from django.urls import reverse
 from django.utils.formats import number_format
@@ -14,6 +15,9 @@ from .models import Product
 # третье состояние, а не ноль.
 NO_STOCK_DATA = 'Нет данных'
 
+# Заголовок группы товаров, у которых нет ни одной категории из PIM.
+UNCATEGORIZED = 'Без категории'
+
 
 def _money(value):
     """Цена в ячейке; ноль приглушён — он чаще значит «цены нет», чем «бесплатно»."""
@@ -23,7 +27,7 @@ def _money(value):
     return format_html('{}', text)
 
 
-def annotate_product_rows(queryset):
+def annotate_product_rows(queryset, by_category=False):
     """Агрегаты по связанным MainProduct для строки товара.
 
     Настоящая агрегация по Product.main_products, а не оконные функции. Старая
@@ -31,12 +35,36 @@ def annotate_product_rows(queryset):
     потому, что её корнем был плоский MainProduct и группы приходилось
     изображать. Здесь группа это строка, поэтому окна не нужны.
 
-    distinct=True у Count обязателен: параллельно висит join на categories из
-    фильтра, и без него поставщики посчитались бы с кратностью категорий.
+    distinct=True у Count обязателен: при by_category к выборке присоединены
+    categories, и без него поставщики посчитались бы с кратностью категорий.
+
+    by_category — выдача по категориям (см. ProductPage.groups_by_category):
+    товары упорядочены по положению своей категории в дереве, внутри неё — по
+    названию, товары без категорий в конце. Ключ — агрегат по join на
+    categories, а не коррелированный подзапрос: подзапрос в ORDER BY
+    считается на каждой из 158 тыс. строк, и на снапшоте прода это 8 с на
+    страницу против ~0,5 с сейчас; join укладывается в те же ~0,5–0,7 с.
+
+    Join на categories размножает строки MainProduct на число категорий
+    товара. Count(distinct) и Min/Max это переживают, Sum — нет: остаток
+    товара с двумя категориями удвоился бы. Поэтому в этом режиме total_stock
+    считается подзапросом. Он не в ORDER BY, и Postgres вычисляет его уже после
+    LIMIT — для 25 строк страницы, а не для всех. Вне этого режима остаток
+    остаётся Sum: по нему можно сортировать, и тогда подзапрос считался бы на
+    каждой строке (2,6 с против 0,5 с).
     """
-    return queryset.annotate(
+    total_stock = Sum('main_products__stock')
+    extra = {}
+    if by_category:
+        total_stock = Subquery(
+            MainProduct.objects.filter(product=OuterRef('pk'))
+            .order_by().values('product').annotate(total=Sum('stock')).values('total')
+        )
+        extra['category_key'] = Min(_category_tree_position(), filter=Q(categories__isnull=False))
+
+    queryset = queryset.annotate(
         supplier_count=Count('main_products__supplier', distinct=True),
-        total_stock=Sum('main_products__stock'),
+        total_stock=total_stock,
         min_prime_cost=Min('main_products__prime_cost'),
         max_prime_cost=Max('main_products__prime_cost'),
         in_stock_count=Count('main_products', filter=Q(main_products__stock__gt=0), distinct=True),
@@ -47,7 +75,71 @@ def annotate_product_rows(queryset):
         # product.md документирует историю). Min, а не First: агрегация, без
         # доп. запроса на строку.
         number_fallback=Min('main_products__sku'),
+        **extra,
     )
+    if by_category:
+        queryset = queryset.order_by(
+            F('category_key').asc(nulls_last=True), F('name').asc(nulls_last=True), 'pk')
+    return queryset
+
+
+def _category_tree_position():
+    """ARRAY[tree_id, lft] — место категории в обходе дерева MPTT.
+
+    Массив, а не два отдельных Min(tree_id) и Min(lft): у товара с двумя
+    категориями они взялись бы от разных категорий, и ключ не указывал бы ни
+    на одну из них — товар встал бы в чужую группу. Массивы Postgres
+    сравнивает поэлементно, так что Min(массива) — это ровно первая категория
+    в порядке дерева (корни — по tree_id, внутри корня — по lft).
+    """
+    return Func(F('categories__tree_id'), F('categories__lft'), function='ARRAY',
+                template='%(function)s[%(expressions)s]',
+                output_field=ArrayField(IntegerField()))
+
+
+def primary_category(product):
+    """Категория, под заголовком которой товар стоит в выдаче по категориям.
+
+    Правило обязано совпадать с category_key из annotate_product_rows — первая
+    категория в порядке дерева. Разойдись они, товар встал бы по одной
+    категории, а заголовок над ним показал бы другую. Категории берутся из
+    предзагрузки (_base_queryset), без запросов.
+    """
+    return min(product.categories.all(), key=lambda category: (category.tree_id, category.lft),
+               default=None)
+
+
+def category_path(category):
+    """Путь от корня до категории: ['Крепеж', 'Нержавеющий крепеж', …].
+
+    Родители уже загружены — предзагрузка категорий в _base_queryset идёт с
+    select_related на всю глубину дерева (CATEGORY_LABEL_DEPTH).
+    """
+    names = []
+    while category is not None:
+        names.append(category.name)
+        category = category.parent
+    return names[::-1]
+
+
+def with_category_headers(rows):
+    """Пары (заголовок, строка) для страницы в выдаче по категориям.
+
+    Заголовок — путь категории — стоит над первой строкой каждой группы и над
+    первой строкой страницы: группа, начатая на предыдущей странице, без него
+    читалась бы как часть той, что выше. У остальных строк заголовок None.
+    """
+    result = []
+    previous = object()
+    for row in rows:
+        category = primary_category(row.record)
+        key = category.pk if category else None
+        header = None
+        if key != previous:
+            header = category_path(category) if category else [UNCATEGORIZED]
+        previous = key
+        result.append((header, row))
+    return result
 
 
 class ProductTable(tables.Table):
@@ -181,17 +273,22 @@ class ProductTable(tables.Table):
         За байтами в PIM ходит уже прокси — по запросу <img>, с кэшем на сутки.
         Колонка по-прежнему выключена по умолчанию: на холодном кэше каждое
         фото — два запроса к PIM через воркер приложения.
+
+        data-zoom-src — крупный размер для увеличения при наведении (скрипт в
+        product/list.html). Его грузит только наведение, а не отрисовка
+        страницы.
         """
         from main_product_manager.utils import pim_image_url
 
         data = record.raw_data or {}
-        url = pim_image_url(data.get('mainImageId') or data.get('imageId'))
+        file_id = data.get('mainImageId') or data.get('imageId')
+        url = pim_image_url(file_id)
         if not url:
             return '—'
         return format_html(
-            '<img src="{}" alt="" style="max-height:50px;max-width:80px;object-fit:contain"'
-            ' loading="lazy">',
-            url,
+            '<img src="{}" data-zoom-src="{}" alt="" class="product-photo"'
+            ' style="max-height:50px;max-width:80px;object-fit:contain" loading="lazy">',
+            url, pim_image_url(file_id, 'large'),
         )
 
     def render_tags(self, record):
