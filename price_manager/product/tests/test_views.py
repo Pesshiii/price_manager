@@ -213,12 +213,40 @@ class ProductCategoryGroupingTests(TestCase):
         self.assertContains(response, 'Сбросить сортировку')
         self.assertNotContains(self.client.get(reverse('products')), 'Сбросить сортировку')
 
-    def test_search_turns_grouping_off(self):
-        response = self.client.get(reverse('products'), {'search': 'F-'})
+    def test_search_keeps_grouping_and_puts_the_group_with_the_best_match_first(self):
+        """Три порядка здесь дают три разных ответа, и тест различает их все:
+        по релевантности вышло бы K-1, R-1, K-2 (группы вперемешку), по
+        категориям в дереве — «Инструмент › Пилы» первой. Нужный — группа
+        лучшего совпадения первой, внутри неё по релевантности, а товар,
+        найденный только по номеру (rank NULL), — в конце."""
+        def searchable(number, name, *categories):
+            product = self._product(number, name, *categories)
+            product.raw_data = {'name': name}
+            product.save()
+            product.rebuild_search_vector()
 
-        self.assertFalse(response.context['group_by_category'])
-        self.assertEqual(sorted(number for _, number in self._rows(response)), ['F-1', 'F-2'])
-        self.assertNotContains(response, 'class="product-group-row"')
+        searchable('R-1', 'Ручка молоток молоток', self.saws)
+        searchable('K-2', 'Гвоздь молоток', self.fasteners)
+        searchable('K-1', 'Молоток молоток молоток', self.fasteners)
+        self._product('МОЛОТОК-9', 'Без данных PIM')
+
+        response = self.client.get(reverse('products'), {'search': 'молоток'})
+
+        self.assertTrue(response.context['group_by_category'])
+        self.assertEqual(self._rows(response), [
+            (['Крепеж'], 'K-1'),
+            (None, 'K-2'),
+            (['Инструмент', 'Пилы'], 'R-1'),
+            (['Без категории'], 'МОЛОТОК-9'),
+        ])
+
+    def test_search_form_sends_the_filters_along(self):
+        """Без hx-include поиск уносил только строку поиска: галочки в панели
+        оставались, а выдача и адрес их уже не учитывали."""
+        html = self.client.get(reverse('products')).content.decode()
+
+        search_form = re.search(r'<form id="products-search-form".*?>', html, re.S).group(0)
+        self.assertIn('hx-include="#product-filter"', search_form)
 
     def test_facet_filter_keeps_grouping(self):
         response = self.client.get(reverse('products'), {'categories': [self.tools.pk]})

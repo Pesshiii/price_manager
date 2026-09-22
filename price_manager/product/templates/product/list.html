@@ -777,6 +777,14 @@
         </div>
       </div>
 
+      {% comment %}
+        hx-include="#product-filter" — зеркало hx-include="#products-search" у
+        формы фильтров (filters.build_helper). Без него запрос поиска уносил
+        только строку поиска: отмеченные фильтры оставались отмеченными в
+        панели, но выдача и адрес (hx-push-url) их уже не учитывали. Панель
+        грузится отдельным запросом сразу за страницей; в этот короткий миг
+        селектор ничего не находит, и поиск ушёл бы без фильтров из адреса.
+      {% endcomment %}
       <form id="products-search-form"
             class="products-search"
             role="search"
@@ -784,6 +792,7 @@
             hx-target="#products-table"
             hx-swap="outerHTML"
             hx-push-url="true"
+            hx-include="#product-filter"
             hx-indicator="#products-results"
             hx-trigger="input changed delay:500ms from:#products-search, submit">
         <div class="input-group">
