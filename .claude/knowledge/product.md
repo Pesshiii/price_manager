@@ -31,9 +31,9 @@ the live legacy stack — treat anything here as in-motion; check
   **scalar**, hence FK not M2M), `raw_data` JSON, `search_vector` + GIN
   (`product_search_vector_gin`, `config='russian'`), timestamps.
   `ordering = ['-updated_at']`.
-- `Product.display_name` — `name`, else the first linked MainProduct's name,
-  else `number`. Needed because `name` comes from PIM and ~64% of Products have
-  no PIM counterpart at all.
+- `Product.display_name` (`models.py:113-126`) — `name`, else the first linked
+  MainProduct's name, else (none linked) `number`, else `pim_id`. Needed because
+  `name` comes from PIM and ~64% of Products have no PIM counterpart at all.
 - `Product._build_searchvector()` builds **only from `raw_data`** — no network
   call. That is the defect `MainProduct._build_searchvector()` has, and the
   reason search moved here. Joins with `' '`, not `''`: the MainProduct version
@@ -221,8 +221,7 @@ measuring on the prod snapshot or driving the page in a browser.
   With a string, Django treats it as a text field to vectorize and emits
   `ts_rank(to_tsvector(search_vector::text), …)`: the stored tsvector is cast to
   text and re-tokenized on every row, with the default config instead of
-  `russian`, bypassing the GIN index. Copied from [[main_product_manager]]'s
-  `MainProductFilter.search_rank`, which had the same bug (now also fixed).
+  `russian`, bypassing the GIN index.
 - **Rank order needs `nulls_last=True`.** `'-rank'` compiles to
   `ORDER BY rank DESC`, and Postgres puts NULLs *first* on DESC. Products with no
   PIM data have no vector, so their rank is NULL, and they filled **all 25 rows of
@@ -240,9 +239,9 @@ measuring on the prod snapshot or driving the page in a browser.
   real tree, versus 1 query and 36ms. Same labels byte for byte.
 - **The category facet is a tree, not a checkbox list.** 668 flat checkboxes with
   full paths up to 126 chars was unusable. `product/partials/category_tree_*.html`
-  is a copy of `supplier_manager`'s MPTT accordion — a *copy*, because Phase 2
-  retires that app. Showing only categories that have products does **not** help:
-  633 of 668 do.
+  is the only `{% recursetree %}` template left — its `supplier_manager` original
+  went with `supplier_manager.Category` in Phase 2b — and it is shared (below).
+  Showing only categories that have products does **not** help: 633 of 668 do.
 - **`ProductPage.get_template_names()` must return the table fragment for HTMX.**
   Filter and search both `hx-get` back to `products`; without the branch, the whole
   page is rendered inside `#products-table`. Don't "fix" it with a separate fragment
@@ -250,19 +249,89 @@ measuring on the prod snapshot or driving the page in a browser.
 - **The search widget needs an explicit `id='products-search'`.** Django renders
   `id_search`; `hx-trigger`/`hx-include` select on `#products-search`, and both
   silently matched nothing — search did nothing and every filter wiped the query.
-- **`self.data` is not always a QueryDict** — `selected_values()` handles a plain
-  dict. The old page's `MainPageFilter` still calls `.getlist()` directly and raises
-  `AttributeError` in `__init__` if built from a dict.
+- **`self.data` is not always a QueryDict** — `selected_values()` (`filters.py:26-39`)
+  handles a plain dict. django-filter 25.1 swaps only a *falsy* `data` for an empty
+  `QueryDict` (`filterset.py:199`), so a non-empty dict from a test or from code
+  stays one. [[supplier_product_manager]]'s `SupplierProductFilter` calls
+  `self.data.getlist()` bare (`supplier_product_manager/filters.py:146,164`) and
+  raises `AttributeError` from `__init__` if built from one.
 - **Search is shared, not copied.** `filters.py` exposes `matching_product_pks`,
   `ranked`, `search_rank`, `category_with_descendants` and `selected_values` at
   module level, because [[main_product_manager]]'s `MainProductFilter` (the cart's
   picker) searches through `MainProduct.product` with exactly the same definition.
   Change the search here and the cart changes with it — that is the point.
 - **Column preferences (`columns.py`) are cached per user under
-  `product_page:columns:user:<id>`**, deliberately not the old page's key, whose lists
-  name fields Phase 2b drops. `normalize_columns` keeps catalog order and falls back
-  to `DEFAULT_COLUMNS`; an empty `columns=` in the request is an explicit "nothing",
-  which is why the picker carries a hidden empty input.
+  `product_page:columns:user:<id>`** (`:94-95`) — a separate key from the
+  supplier-detail page's `supplierdetail:selected_columns:user:<id>`
+  ([[supplier_product_manager]], `functions.py:44-45`). `normalize_columns` keeps
+  catalog order and turns an empty choice into `DEFAULT_COLUMNS`, never into zero
+  columns. The picker's hidden empty `columns=` (`columns_picker.html:32`) is there so
+  that «снял всё» still sends the key: with no `columns` in the request the view
+  loads the saved choice instead of saving (`views.py:92-96`), and unticking
+  everything would do nothing.
+
+### Rendering — found by driving the page in a browser
+
+- **The filter partials are shared: an edit lands on every screen that renders
+  them.** `category_tree_field.html` (+ `category_tree_node.html`):
+  `product/filters.py:335` and `main_product_manager/filters.py:117,134`
+  ([[main_product_manager]]'s `MainProductFilter` — the cart's product picker and
+  «Привязать из ГП»). `core/includes/checkbox_field.html`: `product/filters.py:337-339`,
+  `main_product_manager/filters.py:138,142` (`:118-119` render its `#checkboxes`
+  partialdef on the OOB path — see [[core]]) and `supplier_product_manager/filters.py:108`
+  ([[supplier_product_manager]]'s supplier detail). `radio_field.html` emits the same
+  classes (`:50,54`) via `CustomRadio('supplier')` in the «Добавить товар» form
+  (`main_product_manager/forms.py:43`). The tree also needs an ancestor-closed queryset —
+  `recursetree` takes an orphaned node for a root and mptt raises, a 500 in the cart
+  modal — so `MainProductFilter` adds `get_ancestors(include_self=True)`
+  (`main_product_manager/filters.py:194-205`); `ProductFilter` passes the whole tree
+  (`filters.py:175`). The tree's root id `div_<auto_id>` (`category_tree_field.html:20`) is
+  also the OOB-swap target for that stripped render (`main_product_manager/filters.py:117`):
+  rename it and the refresh silently stops. Only the checkbox half of that is in [[core]].
+- **`/products/`'s CSS is scoped by page-specific class names, and the facet-list
+  classes have exactly one stylesheet.** Every selector in `list.html`'s
+  `{% block style %}` is anchored on a class only this page emits (`.products-*`,
+  `#products-results`, …); what touches the shared filter markup sits behind
+  `.products-sidebar`. No bare `.form-check` / `.accordion`: `base.html` reaches every
+  page (`list.html:9-17`). `.filter-scroll-list` / `.filter-check-item` /
+  `.filter-actions` are styled **only** at `list.html:137,147,209` — per that comment the
+  old main page carried the rules, and Phase 2b-1
+  (`.claude/shift-to-product-brief.md:465-470`) deleted it, leaving the markup with none:
+  unbounded facet lists, «Применить/Сбросить» unreachable. By grep, not rendered: the
+  other emitters still go without (the tree keeps an inline `max-height`,
+  `category_tree_field.html:24`; the «Добавить товар» modal sits outside
+  `.products-sidebar`, `list.html:693`). Unbounded facet list? Check the page carries
+  these rules before debugging the markup.
+- **A multi-line `{# … #}` is not a comment in Django — it renders as text.** The
+  lexer matches `{#.*?#}` without `DOTALL` (`django/template/base.py:89`), so a `{#`
+  whose `#}` is on a later line is literal, and any tag inside it is *executed*.
+  `category_tree_node.html` had one in its leaf branch: the developer's note printed
+  inside «Категории» for every category without children, on `/products/` and both
+  `MainProductFilter` screens, with the suite green — nothing asserted on rendered
+  text beyond category names. Now `{% comment %}` (`category_tree_node.html:33-41`),
+  guarded by `test_filter_fragment_does_not_leak_template_comments`
+  (`test_views.py:185-200`: a root leaf and a nested leaf, the template's two branches;
+  reported to fail on the old template) and, for the suppliers fragment, `:158-167`.
+  A comment that spans lines is `{% comment %}`; `rg '\{#[^}]*$' --glob '*.html'` was
+  empty when this was recorded.
+- **The name column cannot sort — by construction — and there is no sort by brand.**
+  `ProductTable.display_name` is `orderable=False` (`tables.py:54`) and has to stay so:
+  `Product.display_name` (`models.py:113-126`) is a `@property`, not a column, so the
+  database cannot order by it, and the stored `name` would sort most rows as blank
+  while the cell shows supplier names (a sortable name needs an annotation reproducing
+  the fallback — `Coalesce`, untried). Sort links come from `column.orderable`
+  (`partials/table.html:33`): only `number`, `supplier_count`, `total_stock` sort. Brand
+  and categories are a `brand · category · …` line under the name (`tables.py:111-116`),
+  not columns (`Meta.sequence`, `:76-79`) — hence no brand sort. `_base_queryset`
+  (`views.py:30-32`) keeps `select_related('brand')` and the categories prefetch for that
+  cell: drop either and it is N+1, and no `assertNumQueries` guards it. `display_name`
+  itself runs `main_products.first()` (`models.py:125`) per row without a PIM name,
+  outside both — by reading, not measured.
+- **Known gap, not fixed — the mobile filter drawer stays open after a checkbox tick.**
+  Below `lg` the filters sit in an offcanvas (`#products-filters`, `list.html:605`)
+  closed only by a `submit` listener on `#product-filter` (`list.html:767-773`), i.e. by
+  «Применить». A tick auto-applies via `hx-trigger` `change delay:600ms` (`filters.py:315`),
+  which fires no `submit`, so the drawer stays open over the refreshed results.
 
 ## Filling the mirror from PIM — `load_pim_mirror`
 
