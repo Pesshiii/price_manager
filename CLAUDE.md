@@ -126,9 +126,9 @@ There are two product catalogs in the tree. **They are not peers, and the newer 
 
 **`product` is the exception, and it has moved further than the other four.** The API-first rewrite did not work out, and `product` was recreated as a **PIM-linked mirror** reconnected to the legacy stack: `pim_id`, `number` (= `MainProduct.sku`), `name`, `categories` as MPTT, `brand`, `raw_data` JSON, and a local `search_vector`. Since the product-shift Phase 1 it is the **root of search and filtering**, served at `/products/`; Phase 2b retired the old main page (`/mainproduct/` redirects there) — the design and every decision behind it are in `.claude/shift-to-product-brief.md`. Build there when the work serves that shift; do not grow it into anything independent of PIM and the legacy stack. There is no embedding, no characteristics JSONB, and no `ImportJob`/`CharacteristicMutationJob` — earlier revisions of this file described those; they no longer exist.
 
-**Nothing outside this repo calls them — confirmed by the owner on 2026-09-19.** They are wired into `api_urls.py` (`/api/dataframe/`, `/api/supplier-feed/`, `/api/suppliers/`, `/api/pricing/`) behind token auth, and those routes have no external consumer, so the four apps can be removed. That used to be an open question; it is not any more, so don't ask again.
+**Nothing outside this repo calls them — confirmed by the owner on 2026-09-19.** They are wired into `api_urls.py` (`/api/dataframe/`, `/api/supplier-feed/`, `/api/suppliers/`, `/api/pricing/`) behind session auth, and those routes have no external consumer, so the four apps can be removed. That used to be an open question; it is not any more, so don't ask again.
 
-**Removing them is not just deleting directories — `product`'s migrations depend on them.** `product/migrations/0007_product_pim_id_is_price_manager_product.py` declares `('supplier_feed', '0001_initial')` as a dependency and loads `SupplierFeedEntry`/`SupplierLink` in its `RunPython`, while `supplier_feed.0001` depends on `dataframe.0001`, `pricing.0001` and `product.0001` and holds FKs into `product.Product`. Delete the apps without first cutting that edge — drop the dependency and the two `get_model` calls from `0007`, or squash `product`'s migrations — and every `migrate` fails on a missing parent node, including CI's fresh database. Production has already applied `0007`, so editing it changes nothing there; the edit only has to keep a fresh database migrating.
+**Removing them is not just deleting directories — `product`'s migrations depend on them.** `product/migrations/0007_product_pim_id_is_price_manager_product.py` declares `('supplier_feed', '0001_initial')` as a dependency and loads `SupplierFeedEntry`/`SupplierLink` in its `RunPython`, while `supplier_feed.0001` depends on `dataframe.0001`, `pricing.0001`, `product.0001` and `supplier.0001` and holds FKs into `product.Product`. Delete the apps without first cutting that edge — drop the dependency and the two `get_model` calls from `0007`, or squash `product`'s migrations — and every `migrate` fails on a missing parent node, including CI's fresh database. Production has already applied `0007`, so editing it changes nothing there; the edit only has to keep a fresh database migrating.
 
 Retirement status of the other four is clean: nothing in the legacy apps imports `pricing`, `supplier`, `supplier_feed` or `dataframe`; they reference only each other and are reachable only via `/api/`. `product` differs on both counts — `MainProduct.product` is an FK to it, and it is served at `/products/`.
 
@@ -139,7 +139,7 @@ A `PreToolUse` hook (`.claude/hooks/guard_retiring_stack.py`) turns an edit unde
 `core` is the largest and most active app, and holds most of the front end:
 
 - **81 of the repo's 123 templates** are under `core/templates/`, including templates owned by other apps' views (`supplier/`, `currency/`, `main/`, `upload/`, `registration/`).
-- `core/views.py` (~640 lines) owns the **shopping-tab / cart** feature — `ShoppingTab*` (list, detail, delete, export, import + preview/run) and `CartItem*` (detail, quick-add, product select, add, confirm/unconfirm, remove). Templates in `core/templates/shopping_tab/`.
+- `core/views.py` (~710 lines) owns the **shopping-tab / cart** feature — `ShoppingTab*` (list, detail, delete, export, import + preview/run) and `CartItem*` (detail, quick-add, product select, add, confirm/unconfirm, remove). Templates in `core/templates/shopping_tab/`.
 - `core/models.py` → `CartItem`, `ShoppingTab`, `ShoppingTabExport`, `PersistentNotification`, `TaskRunHistory`.
 - `core/middleware.py` → `LoginRequiredMiddleware` (global login gate; anonymous requests under `/api/` get 401 JSON instead of a redirect) and `toaster_middleware`.
 - `core/utils.py` → shopping-tab spreadsheet reading (pandas) and export helpers.
@@ -154,11 +154,11 @@ A `PreToolUse` hook (`.claude/hooks/guard_retiring_stack.py`) turns an edit unde
 
 **Celery:** Worker runs as the `celery_worker` container, broker/backend via Redis. Tasks are `@shared_task` in each app's `tasks.py`.
 
-**REST API:** DRF, mounted at `/api/` via `api_urls.py`. Auth via `api_auth` (token-based). Only the retiring apps expose API routes.
+**REST API:** DRF, mounted at `/api/` via `api_urls.py`. Auth via `api_auth` is session-based — DRF `SessionAuthentication` + `IsAuthenticated` (`settings/api.py`), and `api_auth/views.py` logs in with `django.contrib.auth.login` behind a CSRF cookie. There is no token auth: `rest_framework.authtoken` isn't installed and nothing uses `TokenAuthentication`. Only the retiring apps expose API routes.
 
 **Frontend:** Django templates + HTMX for partial updates, django-tables2 for tables, django-crispy-forms + Bootstrap, django-autocomplete-light for select widgets.
 
-**The Bootstrap version is split — know this before touching a form.** `settings/third_party.py:27-28` sets `CRISPY_TEMPLATE_PACK = 'bootstrap4'` (and pins `CRISPY_ALLOWED_TEMPLATE_PACKS` to the same), while `core/templates/base.html:12,62` loads Bootstrap **5.3.0** from jsdelivr. So the ~30 crispy-rendered templates emit BS4 markup into a BS5 stylesheet.
+**The Bootstrap version is split — know this before touching a form.** `settings/third_party.py:29-30` sets `CRISPY_TEMPLATE_PACK = 'bootstrap4'` (and pins `CRISPY_ALLOWED_TEMPLATE_PACKS` to the same), while `core/templates/base.html:12,62` loads Bootstrap **5.3.0** from jsdelivr. So the ~30 crispy-rendered templates emit BS4 markup into a BS5 stylesheet.
 
 This is less dramatic than it sounds, and the nuance is the useful part: BS5 dropped `form-group`, `form-row`, `custom-select` and `form-control-file`, but kept `form-control`. Inputs therefore stay styled and most forms look right — the «Новый товар» modal renders 8 dead `.form-group` wrappers alongside 10 live `.form-control`s and looks fine. Visible breakage is confined to the four dropped classes: an unstyled dropdown, a collapsed two-column row, a file input rendered as bare text. **Count them on the screen before blaming this mismatch for a layout bug** — `document.querySelectorAll('.custom-select, .form-row, .form-control-file').length`.
 
@@ -215,14 +215,14 @@ What we learn about *our* integration still goes to `main-product-keeper` /
 ## Conventions
 
 - **UI strings are Russian.** Model `verbose_name`s, `Meta.verbose_name`, form labels, and template copy are all Russian — match that when adding models or screens. Code identifiers and comments are English.
-- **Routes are registered centrally** in `price_manager/price_manager/urls.py`, not in per-app `urls.py`. Only `main_product_manager` and `blogapp` are `include()`d.
+- **Routes are registered centrally** in `price_manager/price_manager/urls.py`, not in per-app `urls.py`. Only `main_product_manager`, `blogapp` and `api_urls` (the retiring stack's `/api/` mount) are `include()`d — `api_urls` currently appears twice in that file, which looks like an uncleaned duplicate rather than a deliberate double-mount.
 - **Always commit migrations.** They are tracked normally. (`.gitignore` used to carry a `*/migrations/*.py` line; it was a no-op — it matched only depth-2 paths while migrations sit at depth 3 — and has been removed.)
 
 ## Key cross-app dependencies
 
 - `product_price_manager` imports from both `main_product_manager` and `supplier_product_manager` — pricing logic bridges them.
 - Nothing on the `MainProduct` save path calls PIM any more — `_build_searchvector()` and its network call went with the search vector in Phase 2b. PIM is reached from `main_product_manager/utils.py` (card views' `get_pim_data`, the photo proxy `fetch_pim_image`, `push_pim_links`) and from `product/services/pim_sync.py`.
-- **`main_product_manager/pim_client.py` instantiates `SiteAPI(token=settings.PIM_TOKEN, host=settings.PIM_HOST)` at import time**, and `supplier_product_manager/admin.py` imports it transitively. If `PIM_TOKEN`/`PIM_HOST` are unset, the *entire app* fails to boot with a pydantic `ValidationError` — not just PIM features. `docker-compose.yml` supplies placeholder defaults.
+- **`main_product_manager/pim_client.py` instantiates `SiteAPI(token=settings.PIM_TOKEN, host=settings.PIM_HOST)` at import time**, and the root URLconf reaches it transitively — `supplier_product_manager/views.py` (imported by `price_manager/urls.py`) imports `.tasks`, which imports `main_product_manager.utils`, which imports `.pim_client` (`supplier_product_manager/admin.py` does **not** reach it — it only imports `.models`/`.functions`). If `PIM_TOKEN`/`PIM_HOST` are unset, the *entire app* fails to boot with a pydantic `ValidationError` — not just PIM features. `docker-compose.yml` supplies placeholder defaults.
 
 ## Database
 

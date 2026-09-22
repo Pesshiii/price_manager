@@ -8,7 +8,7 @@ rewrite product data catalog-wide, not just the rule row.
 
 ## Two models
 
-**`PriceManager:20`** — the rule. Scoped by `supplier`, M2M `discounts` and
+**`PriceManager:21`** — the rule. Scoped by `supplier`, M2M `discounts` and
 `categories`, a `date_from`/`date_to` window, a `price_from`/`price_to` band,
 and `has_rrp`.
 
@@ -27,27 +27,27 @@ through `MainProduct.product`.** Three things follow, all deliberate:
   goes through the nullable FK. Unscoped rules still see it.
 
 The rule form's category picker offers the categories the supplier's products
-have, via `views._supplier_categories()`.
+have, via `views._supplier_categories()` (`views.py:52`).
 
 The arithmetic is `source → dest`, where:
-- `source` (`:72`) may be a **supplier** price (`rrp`, `supplier_price` — "в
+- `source` (`:77`) may be a **supplier** price (`rrp`, `supplier_price` — "в
   валюте поставщика", so currency conversion applies), a **main** price
   (`basic_price`, `prime_cost`, `m_price`, `wholesale_price`,
   `wholesale_price_extra`, `discount_price`), or the literal `fixed_price`.
-- `dest` (`:84`) is main-product only — you can read from a supplier price but
+- `dest` (`:90`) is main-product only — you can read from a supplier price but
   never write back to one.
 - Modifiers: `markup` (multiplier), `increase` (additive), `fixed_price`.
 
-**`PriceTag:326`** — the per-product-per-rule **snapshot**. It copies `source`,
+**`PriceTag:339`** — the per-product-per-rule **snapshot**. It copies `source`,
 `dest`, `markup`, `increase`, `fixed_price` off the rule at write time. So a
 `PriceTag` records what the rule said *then*, not what it says now. Unique on
 `(mp, p_manager, dest)` — that triple is the identity used by every upsert.
 
-## `get_fitting_mps()` (`:135`) — one supplier row per product, by construction
+## `get_fitting_mps()` (`:140`) — one supplier row per product, by construction
 
 Returns the matching `MainProduct` queryset **annotated with `changed_price`**,
-the post-markup value, computed via a `Subquery` over `_changed_price`
-(`:248`).
+the post-markup value, computed via a `Subquery` (`_changed_price`, built at
+`:216`/`:231`/`:246` depending on the source branch) over `calc_qs`.
 
 Until #142 the docstring promised that supplier-price sourcing "takes the
 minimum" across a product's supplier rows — verbatim: `(при подсечете от цен
@@ -60,20 +60,21 @@ did, and could not since `supplier_product_manager` made
 be sourced from at most one `SupplierProduct`, from at most one supplier,
 globally. There is nothing left to minimise over, and only one `PriceManager`
 (via its `supplier` scope) can ever reach a given product through SP_PRICES.
-The docstring (`:137`–`:142`) now records the real behaviour; any other doc or
+The docstring (`:142`–`:147`) now records the real behaviour; any other doc or
 comment promising a minimum predates #142.
 
-The SP_PRICES branch (`:191`–`:202`) takes the **latest row by `updated_at`**:
+The SP_PRICES branch (`:199`–`:211`) takes the **latest row by `updated_at`**:
 `products.filter(main_product=OuterRef('pk')).order_by('-updated_at')
 .values(source)[:1]`, wrapped in `Coalesce(..., Decimal('0'))` — a tie-break
 that can no longer tie now that the FK is unique. `PriceTag.get_sprice()`
-(`:407`–`:418`) does the identical latest-row lookup on the instance side
+(`:416`–`:427`) does the identical latest-row lookup on the instance side
 (`self.mp.supplierproducts.order_by('-updated_at').first()`) before multiplying
 by `self.mp.supplier.currency.value`.
 
 `PriceTag.get_aggfunc()` — a same-era leftover returning a bare `max` that
 nothing but its own test ever called — was deleted in #142, together with
-`test_pricetag_get_aggfunc_callable`.
+`test_pricetag_get_aggfunc_callable`. Confirmed gone (no `get_aggfunc` anywhere
+in the app).
 
 **Don't write code or tests that assume several `SupplierProduct` rows feed
 one `MainProduct`'s price** — that shape is no longer reachable at the DB
@@ -82,32 +83,37 @@ level. See [[supplier_product_manager]] for the constraint itself and why it's
 reason, documented in a comment right above the field).
 
 Everything downstream — `save`, `apply`, `delete`, `deprecate` — calls this.
-`get_price_querry` (`:144`) has a commented-out earlier version directly above
-the live one; don't mistake the dead block for the implementation.
+`get_price_querry` (`:149`) has a commented-out earlier version directly above
+the live one (`:150`–`:157`); don't mistake the dead block for the
+implementation.
 
 ## Lifecycle methods have side effects — all four of them
 
-- **`save():273`** calls `super().save()` then immediately **bulk-upserts
+- **`save():286`** calls `super().save()` then immediately **bulk-upserts
   PriceTags** for every fitting product (`update_conflicts=True`,
   `unique_fields=['mp','p_manager','dest']`). Saving a rule is a catalog-wide
   write. It short-circuits when `deprecated`.
-- **`apply():298`** is the one that moves money: filters to products whose dest
+- **`apply():311`** is the one that moves money: filters to products whose dest
   differs from `changed_price`, bulk-creates `MainProductLog` rows, refreshes
-  pricetags, then `.update(dest=F('changed_price'), price_updated_at=now)`.
-  Contains leftover `print()` debugging (`:306`–`:309`) that fires on every
-  non-empty apply — noise in worker logs, not an error.
-- **`delete():312`** **nulls the dest price on every fitting product** before
+  pricetags via `update_pricetags()`, then `.update(dest=F('changed_price'),
+  price_updated_at=now)`. Contains leftover `print()` debugging (`:319`–`:322`,
+  four statements) that fires on every non-empty apply — noise in worker logs,
+  not an error.
+- **`delete():325`** **nulls the dest price on every fitting product** before
   deleting the rule. Deleting a rule is destructive to product data.
-- **`deprecate():317`** — deletes the rule's pricetags, sets `deprecated=True`,
-  nulls dest prices. The soft-delete counterpart to `delete()`.
+- **`deprecate():330`** — deletes the rule's pricetags, sets `deprecated=True`,
+  nulls dest prices. The soft-delete counterpart to `delete()`. Note it computes
+  `get_fitting_mps()` *before* deleting the pricetags, which is safe since that
+  query doesn't depend on pricetag rows.
 
-`update_pricetags():253` is the incremental version of the `save()` upsert — it
-only creates tags for products that don't have one yet.
+`update_pricetags():262` is the incremental version of the `save()` upsert — it
+only creates tags for products that don't already have one from this rule
+(`~Q(pk__in=self.pricetags.values_list('mp', flat=True))`).
 
-## `update_prices()` (`models.py:455`)
+## `update_prices()` (`models.py:464`)
 
 The bulk entry point, wrapped by `product_price_manager.update_prices`
-(`tasks.py:9`). Its inner `get_updated_mps(pricetags)` (`:456`) **merges by
+(`tasks.py:9`). Its inner `get_updated_mps(pricetags)` (`:465`) **merges by
 product pk**: when several pricetags touch the same `MainProduct` with different
 `dest` fields, it accumulates each `dest` onto one instance so a single write
 carries all of them. Keep that merge if you refactor — dropping it means later
@@ -128,3 +134,7 @@ Test suite trap: any test that creates two `SupplierProduct` rows against one
 `MainProduct` to exercise "minimum across rows" behaviour will fail with
 `IntegrityError` on the unique constraint, not with a wrong price — the
 constraint fires before any pricing code runs.
+
+Line numbers throughout this file drift with every edit to `models.py` (the
+whole file shifted ~9-13 lines since the last audit, 2026-09-22) — treat them
+as approximate and re-grep before quoting one in an answer.
