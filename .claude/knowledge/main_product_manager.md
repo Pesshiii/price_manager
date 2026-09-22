@@ -1,366 +1,283 @@
 # main_product_manager
 
-`MainProduct` — the canonical product record. Owns the PIM integration.
-Re-verified against `feat/pim-pmp-through-link` (PR #184, unmerged) on
-2026-09-14 — this branch replaced the whole link/push design described in
-earlier revisions of this file. Re-verify again once PR #184 merges or moves
-further, before trusting these refs.
+`MainProduct` — the canonical product record: a per-supplier stock+price row
+hanging off `product.Product`. Owns the PIM integration. Full audit pass
+against current `main` on 2026-09-22: the PMP through-link design (originally
+PR #184) is merged, so it's simply how the code reads now. Every line ref
+below was re-checked in this pass — most had drifted tens of lines from
+docstring/refactor churn. This file rots fast; re-verify before trusting.
 
-## The PIM link chain (new this branch)
+## The PIM link chain
 
-MainProduct → `product.Product` (a **local** match, `Product.number =
+MainProduct → `product.Product` (**local** match, `Product.number =
 MainProduct.sku`) → `Product.pim_id` = id of a PIM **`PriceManagerProduct`**
 (PMP) — a through record, `platformID` = `str(local Product pk)`, `productId`
-= the PIM `Product` → the PIM `Product` itself. **Two PIM hops per read now,
-not one.** Refs: `_pim_id_of` (`utils.py:29-44`), `get_pim_data`
-(`utils.py:207-246`), `PIM_LINK_ENTITY = 'PriceManagerProduct'`
-(`utils.py:116`). The Product model side (nullable `pim_id`, non-unique
-`name`, migration `0007_product_pim_id_is_price_manager_product` which zeroes
-every pre-existing `pim_id` because its meaning changed from "PIM Product id"
-to "PriceManagerProduct id") belongs to [[product]] — don't restate it here.
+= the PIM `Product` → the PIM `Product` itself. **Two PIM hops per read.**
+Refs: `_pim_id_of` (`utils.py:29-44`), `get_pim_data` (`utils.py:210-241`),
+`PIM_LINK_ENTITY = 'PriceManagerProduct'` (`utils.py:142`). The Product
+model side (nullable `pim_id`, migration `0007` which zeroes every
+pre-existing `pim_id`) belongs to [[product]].
 
-**The user decided the old "wrong entity" behaviour is now the intended
-design.** Earlier revisions flagged `_push_pim_products` for storing a
-PriceManagerProduct id where every read path expected a PIM `Product` id,
-marked "open decision with the user." Decided: correct, and the surrounding
-mechanism was rebuilt to make the two hops explicit. Removed (grepped clean;
-historical mention only survives in `migrations/0011`): `_push_pim_products`,
-`_link_main_products`, `_link_supplier_products`, `_pim_product_row`,
-`push_missing_pim_products`, `push_supplier_products_to_pim`,
-`create_pim_links` (+ its 30-min beat entry, `run_task --skip-non-empty`),
-`_search_pim_id_result`, `_resolve_pim_id`, `_search_pim_id`,
-`PimSearchError`, the `pim_no_match:{pk}` cache, `PimProductWidget`.
+This "PMP, not PIM Product, is what pim_id names" design is deliberate, not
+legacy confusion. Grepped clean out of `utils.py`/`tasks.py` (survives only
+as a historical mention in `migrations/0011_mainproduct_product_fk.py`):
+`_push_pim_products`, `_link_main_products`, `_link_supplier_products`,
+`_pim_product_row`, `push_missing_pim_products`,
+`push_supplier_products_to_pim`, `create_pim_links`, `_search_pim_id_result`,
+`_resolve_pim_id`, `_search_pim_id`, `PimSearchError`, the
+`pim_no_match:{pk}` cache, `PimProductWidget`.
 
-## Read path — two hops, two caches (`get_pim_data`, `utils.py:207-246`)
+## Read path — two hops, two caches (`get_pim_data`, `utils.py:210-241`)
 
-1. `_get_pim_link(pim_id)` (`:188-204`) fetches the PMP, cached
-   `pim_link:{pim_id}` — one call per distinct **local Product** (`pim_id`
-   here names a Product, since it lives on `product.Product.pim_id`).
+1. `_get_pim_link(pim_id)` (`utils.py:191-207`) fetches the PMP, cached
+   `pim_link:{pim_id}` — one call per distinct **local Product**.
 2. If the PMP has a `productId`, fetch the PIM `Product`, cached
-   `pim_product:{productId}` (`:226`) — *this* hop dedupes across local
-   Products whose PMPs happen to point at one PIM Product.
-3. A PMP with no `productId` yet → `get_pim_data` returns `None` (PIM staff
-   haven't linked it, or reindex's search hasn't found one).
+   `pim_product:{productId}` (`utils.py:229`) — dedupes across local
+   Products whose PMPs point at one PIM Product.
+3. No `productId` yet → `None` (PIM staff haven't linked it, or reindex's
+   search hasn't found one).
 
-Both caches sit at `PIM_CACHE_TTL` = 24h, so a `productId` PIM staff set
-later only surfaces after expiry — or on `refresh=True`, which both detail
-views pass (`views.py:251,267`). **A cold page now costs one PMP call per
-distinct local Product plus one per distinct PIM Product** — more
-round-trips than the old one-hop design, not fewer; don't describe the cost
-as "bounded by distinct pim_ids" anymore. A fetch no longer queues anything:
-`_queue_pim_population` → `sync_pim_relations`, which copied the PIM brand and
-categories onto `MainProduct.manufacturer`/`.categories`, went with those
-columns in Phase 2b. [[product]]'s `sync_product_from_pim` fills `Product`.
+Both caches sit at `PIM_CACHE_TTL` = 24h, bypassed by `refresh=True`, which
+both detail views pass (`views.py:85,102`). A fetch no longer queues
+anything — `sync_pim_relations` (copied PIM brand/categories onto
+`MainProduct.manufacturer`/`.categories`) went with those columns in Phase
+2b; [[product]]'s `sync_product_from_pim` fills `Product` instead.
 
-## `_note_pim_404` no longer unlinks MainProducts, fleet-wide or otherwise (`utils.py:166-181`)
-
-It counts consecutive 404s on the **PMP fetch only**
-(`pim_404_count:{pim_id}`). At `_PIM_404_THRESHOLD=3` it runs
-`PimProduct.objects.filter(pim_id=pim_id).update(pim_id=None)` — clears the
-local Product's PMP link, nothing else. `MainProduct.product` (the local,
-sku-based link) is untouched, and the next `reindex_pim_ids` pushes a fresh
-PMP. A 404 on the PIM `Product` behind a PMP never reaches this function —
-`get_pim_data`'s second hop just returns `None` on that 404 (`:243-245`),
-changing nothing locally. (The pre-#184 design unlinked every MainProduct
-sharing a dead pim_id fleet-wide, possibly inside one page render — gone with
-the one-hop link it depended on.)
+**`_note_pim_404`** (`utils.py:169-184`) no longer unlinks MainProducts
+fleet-wide. Counts consecutive 404s on the **PMP fetch only**; at threshold 3
+it clears `product.Product.pim_id`, nothing else — `MainProduct.product`
+(local, sku-based) is untouched, next reindex pushes a fresh PMP. A 404 on
+the PIM `Product` behind a PMP never reaches this — `get_pim_data`'s second
+hop just returns `None` (`utils.py:238-240`).
 
 ## Writing links: `push_pim_links` / `_push_pim_links` / `_take_over_pim_link`
 
-Only `reindex_pim_ids` writes to PIM now. **The render path never searches or
-pushes**: `_link_to_local_product`, used by `get_pim_data_for_product` and
-«Добавить товар» (`MainProductCreate.form_valid`), and its batched twin
-`link_to_local_products`, used by copy-to-main, only link to an *existing*
-local Product with `number=sku` — never create one, never call PIM.
+Only `reindex_pim_ids` writes to PIM. **The render path never searches or
+pushes**: `_link_to_local_product` (`utils.py:47-63`, used by
+`get_pim_data_for_product` and «Добавить товар», `views.py:118-124`) and its
+batched twin `link_to_local_products` (`utils.py:66-88`, used by
+copy-to-main) only link to an *existing* local Product with `number=sku` —
+never create, never call PIM. Since Phase 2b these are explicit calls (used
+to be a side effect of the now-removed `_build_searchvector`); forgetting to
+link a newly-created MainProduct makes it invisible on `/products/` until
+the nightly reindex, no error anywhere. Canary:
+`unlinked_main_product_count()` in `product/views.py`.
 
-**Since Phase 2b these links are explicit calls.** They used to happen as a
-side effect of `_build_searchvector`; with the search vector dropped, a new
-MainProduct is linked only because someone asks. A new write path that creates
-MainProducts and forgets to link them produces rows invisible on `/products/`
-until the nightly `reindex_pim_ids` — with no error anywhere. The canary is
-P1-G3's `unlinked_main_product_count()` on `/products/`.
+`push_pim_links(pks)` (`utils.py:755-816`), run per-batch as
+`reindex_pim_ids_batch_task` (`tasks.py:166-175`, `atomic=False` — see
+CLAUDE.md's shared-infra note; wrapping this in a transaction would turn
+"skip this chunk on error" into "lose everything since the last commit"):
 
-`push_pim_links(pks)` (`utils.py:819-877`), run per-batch as
-`reindex_pim_ids_batch_task` (`tasks.py:192-201`, `atomic=False`):
+- Per local Product `pim_id__isnull=True` with a `number`: search PIM by
+  `number` via `_search_pim_product_id`. FOUND → push with `productId`;
+  ABSENT/AMBIGUOUS → push without it; ERROR → skip (an unanswered search
+  must not drop a `productId` it might have found).
+- Payload name/description come from the **lowest-pk MainProduct** on that
+  Product (`utils.py:781-807`) — description off that MainProduct's first
+  `SupplierProduct.description` (MainProduct's own field is gone).
+- `_push_pim_links` (`utils.py:678-752`) `upsertAsync`s the batch, matching
+  PIM's live behaviour on the PMP's two unique fields (`number`,
+  `platformID`): both match one record → `NotModified`/`Updated` with its
+  id; only one matches → per-item `Failed` (unique violation; job still ends
+  `Success`). A `Failed`/id-less item goes to `_take_over_pim_link`
+  (`utils.py:637-675`): GET the PMP holding `number`, upsert
+  `{...payload, id: that_id}` to repoint its `platformID`. What even that
+  can't place is logged, not raised.
+- Before `bulk_update`, any other local Product still holding a
+  newly-linked PMP id gets `pim_id=None` first (`utils.py:741-749`) —
+  `Product.pim_id` is `unique=True`.
+- Result shape/length validated before zipping against the input chunk
+  (`utils.py:708-721`) — results tie back by *position only*.
+- Never sends `productId: null`, omits the key on no match
+  (`utils.py:806-807`) — a push can never clear a link PIM staff set by hand.
+- Raises `PimScanError` (`utils.py:811-815`) *after* all writes on any
+  unanswered search or rejected push, so `TaskRunHistory` records an error
+  even though committed progress survives. **Returns a plain `int`** — must
+  stay scalar: `core/task_runner.py`'s `_normalize_updated_count` (`:14-21`)
+  sums every numeric element of a *tuple* return, so `(linked, rejected)`
+  would silently inflate `TaskRunHistory.updated_count`.
 
-- For each local Product still `pim_id__isnull=True` with a `number`, search
-  PIM `Product` by `number` via `_search_pim_product_id` (below). FOUND →
-  push with `productId`; ABSENT/AMBIGUOUS → push without it; ERROR → skip
-  that Product (pushing on an unanswered search would drop a `productId` the
-  search might have found).
-- Payload: `{'platformID': str(pk), 'number', 'name', 'description'}`,
-  name/description from the **lowest-pk MainProduct** on that Product
-  (`:842-848`).
-- `_push_pim_links` (`:742-816`) sends the batch through `upsertAsync`,
-  matching PIM's live behaviour on the PMP's two unique fields (`number`,
-  `platformID`): both match one record → `NotModified`/`Updated` with its id
-  (how a PMP whose id never got saved locally recovers it just by being
-  re-pushed); only one matches → per-item `Failed` (Postgres unique
-  violation; the job itself still ends `Success`).
-- A `Failed`/id-less item goes to `_take_over_pim_link` (`:701-739`): GET the
-  PMP currently holding `number`, then upsert `{...payload, id: that_id}` to
-  repoint its `platformID` at our pk. What even that can't place (our
-  `platformID` already sits on a PMP with a *different* `number` too) is
-  logged and counted, not raised per-item.
-- Before `bulk_update`, any *other* local Product still holding one of the
-  newly-linked PMP ids gets `pim_id=None` first (`:805-813`) — a taken-over
-  PMP is being reassigned, and `Product.pim_id` is `unique=True`, so the old
-  owner must give it up before the new one can take it.
-- Result shape/length is validated before zipping against the input chunk
-  (`:772-785`) — `Job.message` ties results back to inputs by *position
-  only*, so a short/malformed list would silently write ids onto the wrong
-  Products. Same reasoning the old `_push_pim_products` validation used to
-  need; it now lives here.
-- Never sends `productId: null`, omits the key entirely on no match
-  (`:867-868`) — a push can never clear a link PIM staff set by hand.
-- Raises `PimScanError` (`:258-259`) *after* all its writes if any search was
-  unanswered or any push stayed rejected, so `TaskRunHistory` records the
-  batch as an error even though committed progress survives. **Returns a
-  plain `int` (linked count)** — must stay scalar: `core/task_runner.py`'s
-  `_normalize_updated_count` (`:14-21`) sums every numeric element of a
-  *tuple* return, so returning `(linked, rejected)` instead would silently
-  inflate `TaskRunHistory.updated_count`.
+PIM's own metadata doesn't declare `Product.name`/`number` unique, so
+`_SEARCH_AMBIGUOUS` is reachable in principle (no duplicates in a 2400-row
+sample so far).
 
-**PIM behaviour, measured against live PIM** (a metadata read, plus write
-tests against a fake record): PMP fields are `name`/`description`/`number`
-(required, unique)/`platformID` (required, unique, spelled exactly that)/the
-product link (JSON key `productId`). PIM `Product.name`/`Product.number` are
-*not* declared unique in PIM's own metadata (`GET /api/metadata`, lowercase —
-`/api/Metadata` and `/api/v1/Metadata` 404), so `_SEARCH_AMBIGUOUS` is
-reachable in principle even though a 2400-row sample showed no duplicate
-`number`s.
+## `_search_pim_product_id`: one `equals`, four outcomes, no cache (`utils.py:255-297`)
 
-## `_search_pim_product_id`: one `equals`, four outcomes, no cache (`utils.py:262-304`)
+No cache — a scan re-searches a known-bad row every time it's due. Outcomes:
+`_SEARCH_FOUND` (exactly one), `_SEARCH_ABSENT` (zero), `_SEARCH_AMBIGUOUS`
+(>1, links nothing), `_SEARCH_ERROR`.
 
-Replaces `_search_pim_id_result`/`_resolve_pim_id`/`_search_pim_id` and the
-`pim_no_match:{pk}` cache — there is **no cache here at all**; a scan
-re-searches a known-bad row every time it's due. Query:
-`EntityList(name='Product', select=['id'], where=[Where(attribute='number',
-type='equals', value=number)])`. Outcomes: `_SEARCH_FOUND` (exactly one),
-`_SEARCH_ABSENT` (zero), `_SEARCH_AMBIGUOUS` (>1, logs and links nothing),
-`_SEARCH_ERROR` (request raised). No `_SEARCH_NO_SKU` — callers only invoke
-this with a real `number` in hand (`push_pim_links` filters
-`number__isnull=False` first).
-
-**Must stay `equals`, measured not reasoned** (this finding predates #184 and
-still holds): AtroPIM feeds a `like` value straight into SQL LIKE — live,
-`like '2001_-04_z01'` returns the differently-numbered `20015-04_z01`, and
-`like '%'` returns all 36k rows. PIM numbers routinely contain `_`, sku is
-supplier-supplied, so under `like` a sku can match the *wrong* product and
-land as `_SEARCH_FOUND` — `_SEARCH_AMBIGUOUS` only fires on >1 match and
-would not catch it.
+**Must stay `equals`, measured not reasoned**: AtroPIM feeds a `like` value
+straight into SQL LIKE — live, `like '2001_-04_z01'` returns the
+differently-numbered `20015-04_z01`, `like '%'` returns all 36k rows. PIM
+numbers routinely contain `_`, sku is supplier-supplied, so `like` risks
+matching the *wrong* product and landing as `_SEARCH_FOUND`.
 
 **Rendering the table in a test makes live PIM calls unless patched — and
-"live" can mean production**, since the repo-root `.env` (gitignored) carries
-real PIM creds; `test_grouping.py`'s module docstring has the full story
-(three unpatched 404s trip `_note_pim_404` mid-suite-run). `site` is bound
-into `utils`'s own namespace, so tests patch `main_product_manager.utils.site`,
-not `pim_client.site`. `_PimSearchTestCase` (`tests.py:540-566`) is the
-shared PIM-link fixture; `SearchPimProductIdTests`, `PushPimLinksTests`,
-`GetPimDataTests` etc. (`tests.py:570+`) are the current pattern, all under
-`@override_settings(CACHES=LOCMEM_CACHE)` so cache assertions see the same
-cache the code under test wrote to.
+"live" can mean production** (repo-root `.env`, gitignored, carries real PIM
+creds). `site` is bound into `utils`'s own namespace — patch
+`main_product_manager.utils.site`, not `pim_client.site`.
+`_PimSearchTestCase` (`tests.py:473-499`) is the shared fixture;
+`SearchPimProductIdTests`/`PushPimLinksTests`/`GetPimDataTests`
+(`tests.py:503`/`666`/`825`) are the current pattern, under
+`@override_settings(CACHES=LOCMEM_CACHE)`.
 
-## `reindex_pim_ids` — order matters (`tasks.py:157-189`)
+## `reindex_pim_ids` — order matters (`tasks.py:129-163`)
 
-Inside the parent task's transaction, `backfill_product_numbers()`
-(`utils.py:576-620`) runs **before** `link_unlinked_main_products()`
-(`utils.py:623-679`) — deliberately (`tasks.py:166-168`). Placeholder
-Products seeded by `product.0005`/`main_product_manager.0011` have
-`number=NULL`. If linking ran first, an unlinked MainProduct with a matching
-sku would get its own new Product, permanently blocking the placeholder's
-backfill ("number taken"). Backfill only assigns a number when every linked
-MainProduct sharing that Product agrees on `sku`, the sku fits `number`'s
-`max_length`, and no other Product already holds it — otherwise it logs and
-moves on; it never touches an *existing* link.
+`backfill_product_numbers()` (`utils.py:512-556`) runs **before**
+`link_unlinked_main_products()` (`utils.py:559-615`) inside the parent
+task's transaction — deliberately. Placeholder Products seeded by
+`product.0005`/`main_product_manager.0011` have `number=NULL`; linking first
+would let an unlinked MainProduct with a matching sku claim its own new
+Product, permanently blocking the placeholder's backfill. Backfill only
+assigns a number when every linked MainProduct on that Product agrees on
+`sku`, it fits `max_length`, and no other Product holds it already;
+otherwise logs and moves on, never touching an *existing* link.
 
 `link_unlinked_main_products` counts linked rows as `before - after`, not
-`update()`'s row count, because its last step is one correlated `UPDATE ...
-SET product_id = (subquery)` that also "updates" already-NULL rows with NULL.
-A sku longer than `PRODUCT_NUMBER_MAX_LENGTH` (`utils.py:25`, from PIM
-`Product.number`'s `max_length`) stays unlinked and is only logged.
+`update()`'s count — its last step is one correlated `UPDATE ... SET
+product_id = (subquery)` that also "updates" already-NULL rows with NULL. A
+sku longer than `PRODUCT_NUMBER_MAX_LENGTH` (`utils.py:25`) stays unlinked,
+only logged.
 
-The PIM-facing half fans out via `iter_unpushed_product_pk_batches`
-(`utils.py:682-698`, replaces `iter_pim_id_pk_batches`) — Products with
-`pim_id__isnull=True`, a `number`, and `main_products__isnull=False` —
-dispatched through `dispatch_after_commit` (`tasks.py:174-178`; see
-CLAUDE.md's Shared infrastructure section for the general rule).
-
-**The two halves are not equally safe to run.** `backfill_product_numbers()`
-and `link_unlinked_main_products()` are purely local — call them directly on a
-prod snapshot to give Products their numbers. The fan-out **writes to PIM**
-(creates and repoints `PriceManagerProduct` records), so **never run the task
-itself against a snapshot with real credentials**. To fill Product content
-read-only, use [[product]]'s `load_pim_mirror` instead. Measured on the
-2026-09-03 snapshot: backfill numbered 154,050 Products and left 919 unnumbered
-(their MainProducts disagree on `sku`); linking picked up 122 stragglers.
+PIM-facing half fans out via `iter_unpushed_product_pk_batches`
+(`utils.py:618-634`), dispatched through `dispatch_after_commit`
+(`tasks.py:146-150`). **The two halves are not equally safe on a snapshot.**
+`backfill_product_numbers()`/`link_unlinked_main_products()` are purely
+local — safe directly on prod data. The fan-out **writes to PIM**, so
+**never run the task itself against a snapshot with real credentials**; use
+[[product]]'s `load_pim_mirror` for read-only Product content. Measured on
+the 2026-09-03 snapshot: backfill numbered 154,050 Products, left 919
+unnumbered (sku disagreement); linking picked up 122 stragglers.
 
 ## `compute_supplier_sku` — the only thing left tying import to PIM
 
-`compute_supplier_sku(article, supplier)` (`utils.py:564-573`) still applies
-`supplier.sku_type`/`sku_value` as prefix/suffix and still feeds
+`compute_supplier_sku(article, supplier)` (`utils.py:500-509`) applies
+`supplier.sku_type`/`sku_value` as prefix/suffix, feeds
 `copy_supplier_products_to_main_task`'s `MainProduct.sku`
-(`supplier_product_manager/tasks.py:255`). What changed: the pre-copy push
-(`push_supplier_products_to_pim`, the second caller that used to need this to
-agree with) is gone — `supplier_product_manager/functions.py` is grepped
-clean of any PIM reference now. **The Excel upload no longer talks to PIM at
-all.** It only has to produce the right `sku`, because that `sku` becomes
-`product.Product.number` via `link_unlinked_main_products`, and `number` is
-reindex's only search key into PIM. `SupplierProduct.pim_id` (plain
-CharField, `supplier_product_manager/models.py:17`) is dead weight from the
-old design — grepping `pim_id` across `supplier_product_manager/` turns up
-only the field definition and its two migrations, no read or write site —
-but that's this app's read, not [[supplier_product_manager]]'s; confirm there
-before relying on it if that app's own code changes.
+(`supplier_product_manager/tasks.py:244`). The pre-copy PIM push this used to
+agree with is gone. **The Excel upload no longer talks to PIM at all** — it
+only has to produce the right `sku`, which becomes `product.Product.number`
+via `link_unlinked_main_products` (the copy task's own link step,
+`supplier_product_manager/tasks.py:263`), and `number` is reindex's only
+search key into PIM. `SupplierProduct.pim_id`
+(`supplier_product_manager/models.py:17`) is dead weight — only the field
+def and its migrations reference it, no read/write site (confirm with
+[[supplier_product_manager]] if its code changes).
 
-Since Phase 2b the copy task does not reach PIM at all: its link step is the
-local `link_to_local_products`.
+**It doesn't strip `article` — fine, because PIM does.** On the snapshot,
+21% of Product numbers carry leading/trailing whitespace vs. 3 of PIM's
+178,605; PIM strips whitespace on its side (confirmed by the user), so these
+link normally in production. Don't "fix" it at import — the gap only shows
+where matching happens *locally* against PIM's numbers
+([[product]]'s `load_pim_mirror` loses ~400 matches to it).
 
-**It does not strip `article` — and that is fine, because PIM does.** On the
-snapshot, **32,123 of 154,168 Product numbers (21%)** carry leading or trailing
-whitespace (supplier articles land in `sku` verbatim), against **3** in all of
-PIM's 178,605 numbers. **PIM strips whitespace from numbers on its side**
-(confirmed by the user), and `reindex_pim_ids` matches by asking PIM, so these
-rows link normally in production. Don't "fix" it at import on the strength of
-the 21% figure. It only shows up where matching happens *locally* against PIM's
-numbers — [[product]]'s `load_pim_mirror`, a dev tool, loses ~400 matches to it.
+## Open question — no path left to link different skus onto one Product
 
-## Open question with the user — no path left to link different skus onto one Product
+Dropping the Excel `ID` mapping removed the only way to put MainProducts
+with **different** skus onto one Product — a new multi-supplier group now
+only forms when two MainProducts share an identical `sku`. (The old main
+page's `grouping.py`/`group_key()` that partitioned on this is gone entirely
+with Phase 2b; whatever grouping `/products/` does now is [[product]]'s to
+document.) Existing cross-sku links survive — migration `0007` touches only
+`product.Product.pim_id`/`number`/`name`, never `MainProduct.product` — but
+nothing creates new ones. **Not decided**; don't build a replacement
+unilaterally.
 
-Dropping the Excel `ID` mapping removed the only way to put MainProducts with
-**different** skus onto one Product. `group_key()` (`grouping.py:50-79`)
-partitions the main page by `product_id`, so a new multi-supplier group can
-now only form when two MainProducts happen to share an identical `sku`.
-Existing cross-sku links survive — migration `0007` touches
-`product.Product.pim_id`/`number`/`name` only, never `MainProduct.product` —
-but nothing currently creates new ones. **Not decided**; don't build a
-replacement unilaterally.
+## Detail page — three PIM states (`templates/mainproduct/partials/detail.html:65-84`)
 
-## Detail page — three PIM states, not two (`templates/mainproduct/partials/detail.html:65-84`)
+No `product` → «Не привязан». `product` set, no `pim_id` → «Не отправлен в
+PIM». `pim_id` set, `pim_data` empty → «Нет данных» (PMP exists with no
+`productId` yet, or PIM unreachable). Only the third state is a live call.
 
-No `product` → «Не привязан». `product` set but no `pim_id` yet → «Не
-отправлен в PIM» (waiting on nightly reindex). `pim_id` set but `pim_data`
-still empty → «Нет данных» (PMP exists with no `productId` yet, or PIM is
-unreachable). Only the third state involves a live call — the first two are
-answerable from local FKs alone. Views pass `refresh=True`
-(`views.py:251,267`), so the detail page always bypasses both caches.
+## `maybe_notify_pim_error` deliberately not gated on `settings.DEBUG` (`utils.py:109-139`)
 
-## PIM scans and `atomic=False`
+DEBUG defaults false, so gating on it meant production — the environment a
+PIM outage actually costs something — got no signal. Throttled per user
+instead (`_PIM_NOTIF_THROTTLE_TTL`, 30 min).
+`test_notifies_even_though_debug_is_false` (`tests.py:1006`) guards it.
 
-`reindex_pim_ids_batch_task` (`tasks.py:192-201`) passes `atomic=False` — see
-CLAUDE.md's Shared infrastructure section for why (the transaction opens
-before the runner is called; write placement doesn't change that). Don't
-wrap `push_pim_links` in a transaction "to compensate": a chunk whose
-transport/job call fails is recorded and skipped without aborting the rest
-(`utils.py:769-771`), and a transaction would turn "skip this chunk" into
-"lose everything since the last commit."
+## `sync_main_products_task` has no `@shared_task` (`tasks.py:120-127`)
 
-## `maybe_notify_pim_error` is deliberately not gated on `settings.DEBUG` (`utils.py:83-113`)
+Plain function `chain()`ing **four** tasks into one `apply_async()` — «Обновить»
+on `/products/`: `update_prices_task`, `update_stocks_task`,
+`delete_outdated_logs_task`, `notify_sync_main_products_task` (each passes
+its `stats` payload along via `_append_step`). `recalculate_vectors_missing`
+and `rebuild_categories` are gone from the whole repo now, not just this
+chain. `reindex_pim_ids` is a **separate** scheduled task, not part of this
+chain. `reindex_pim_ids_batch_task` uniquifies `task_name` per chunk
+(`tasks.py:169`) so batches don't contend on one Redis lock.
 
-DEBUG defaults false, so gating on it meant production — the one environment
-a PIM outage actually costs something — got no signal. It's throttled per
-user instead (`_PIM_NOTIF_THROTTLE_TTL`, 30 min). `test_notifies_even_though_debug_is_false`
-guards it — don't re-add a DEBUG gate as an easy "fix."
+## PIM photos — `get_file_url` vs `pim_image_url` (`utils.py:341-405`)
 
-## `sync_main_products_task` has no `@shared_task` (`tasks.py:146-155`)
+`get_file_url()` (`:341-372`) loops `(f'{size}ThumbnailUrl', 'url',
+'downloadUrl')` through `_absolute_pim_url` (`:314-338`). Live PIM: thumbnail
+keys/`url` don't exist on File records; `downloadUrl` is the only populated
+key, always scheme-less, so `size` has no observable effect. It returns the
+**PIM-side** URL — server use only, and every PIM image URL answers
+anonymous with 401, so this must never reach a template.
 
-It's a plain function that `chain()`s five tasks into one `apply_async()`
-workflow — «Обновить» on `/products/`. `recalculate_vectors_missing` left the
-chain with the search vector in Phase 2b; `rebuild_categories` (the
-`supplier_manager.Category` tree) goes when that model is retired. `reindex_pim_ids_batch_task` uniquifies
-`task_name` per chunk (`tasks.py:195`, `f"...:{pks[0]}-{pks[-1]}"`) so
-batches don't contend on one Redis lock.
-
-## `get_file_url`'s PIM File payload — precedence bug stays fixed
-
-`get_file_url` (`utils.py:460-487`) loops
-`(f'{size}ThumbnailUrl', 'url', 'downloadUrl')`, normalizing each through
-`_absolute_pim_url` (`:433-457`). Sampled against live PIM: the thumbnail
-keys and `url` don't exist on File records at all; `downloadUrl` is the only
-populated key, always scheme-less (`host/path`), which is why the scheme is
-decided per-value rather than prepended unconditionally. So `size` has no
-observable effect today, and every caller (`render_pim_photo`,
-`tables.py:234-245`) renders a full-size image, not a thumbnail.
-`downloadUrl` also needs a PIM session — an unauthenticated GET 401s, so a
-logged-out browser shows a broken image rather than a 500.
+Templates get `pim_image_url(file_id, size)` (`:400-405`) instead — our
+proxy path (`product.views.PimImageView`, behind `LoginRequiredMiddleware`),
+no network touched. `fetch_pim_image()` (`:408-453`) does the actual fetch:
+token only to `settings.PIM_HOST`, redirects followed **by hand** with the
+same host check each hop (httpx's own redirect-follow would carry the token
+to any host off a relative 302), bytes cached a day, failures not cached.
+Callers of `get_file_url` render full-size, not thumbnail: `render_photo` in
+[[product]]'s `ProductTable` (`product/tables.py:176-188`, imports
+`pim_image_url` from here) and `mainproduct/partials/detail.html`.
+`GetFileUrlTests` (`tests.py:311`) still describes the older
+`downloadUrl`-only shape, which also remains handled.
 
 ## Where brand data lives after Phase 2b
 
-`MainProduct.manufacturer` and `SupplierProduct.manufacturer` are gone. Brand is
-`product.Product.brand` (PIM only, D1). Before the drop the supplier-side data
-was exported for PIM enrichment (P2-G4, run in production and handed over).
-Note for anyone reading old analyses: `MainProduct.manufacturer` held
-*whichever ran last* of copy-to-main (supplier value) and `sync_pim_relations`
-(PIM brand), so it was never raw supplier data.
+`MainProduct.manufacturer`/`SupplierProduct.manufacturer` are gone (confirmed
+absent from both models). Brand is `product.Product.brand` (PIM only). If
+reading an old analysis: `MainProduct.manufacturer` used to hold *whichever
+ran last* of copy-to-main (supplier value) or `sync_pim_relations` (PIM
+brand) — never raw supplier data.
 
-## `MainProductFilter` is the cart's filter, not a page's
+## `MainProductFilter` is the cart's filter, not a page's (`filters.py`)
 
 Since Phase 2a it serves the cart's «Добавить товары» modal
-(`core/views.py` `CartItemProductSelectView`), the shopping-tab import
-auto-match (`core/utils.py` `find_main_products`) and «Привязать из ГП»
-(`ResolveMainproduct`). Rows are MainProduct, but search, brand and categories
-go **through `MainProduct.product`**, using [[product]]'s shared
-`matching_product_pks`. It must not touch `MainProduct.search_vector`,
-`.categories` or `.manufacturer`, and `core/views.py` imports it at module
-scope — a stale field reference stops the whole app booting. Rows without a
-Product are still found by own `sku`/`name`/`article`: in the cart, invisible
-would mean unbuyable.
+(`core/views.py` `CartItemProductSelectView`), shopping-tab import
+auto-match (`core/utils.py` `find_main_products`), «Привязать из ГП»
+(`ResolveMainproduct`). Rows are MainProduct, but search/brand/categories go
+**through `MainProduct.product`** via [[product]]'s shared
+`matching_product_pks`. Must not touch `MainProduct.search_vector`/
+`.categories`/`.manufacturer` (removed from the model, confirmed absent from
+`filters.py`); `core/views.py` imports it at module scope
+(`core/views.py:33`) — a stale field reference stops the whole app booting.
+Rows without a Product are still found by own `sku`/`name`/`article` (in the
+cart, invisible would mean unbuyable).
 
-The old main page, its `MainPageFilter`, `MainProductTable`, `grouping.py`,
-`columns.py` and the column-preference cache were deleted in Phase 2b; the
-page's address now redirects to `/products/`, whose own column picker lives
-in [[product]] `columns.py`.
+The old main page — `MainPageFilter`, `MainProductTable`, `grouping.py`,
+`columns.py`, the column-preference cache — was deleted in Phase 2b
+(confirmed gone repo-wide); `/mainproduct/` permanently redirects to
+`/products/` (`urls.py:13`, no query params carried over). This app's own
+`urls.py` still owns the per-row routes: create/update/info/detail/resolve/
+logs and the pricetag-list proxy (`urls.py:15-24`). This app's `tables.py` is
+tiny now too — `MainProductResolveTable`/`MainProductLogTable` only.
 
 ## Three columns that look like fields but aren't
 
-`MainProductLog` has three writers: `utils.update_logs()`, and
+`MainProductLog` has three writers: `utils.update_logs()` (`utils.py:819-853`
+— has leftover `print()` debug calls in its body) and
 [[product_price_manager]]'s `PriceManager.apply(logs=True)` /
-`PriceTag.get_mp()`, the latter reached unconditionally every run via
-`update_prices()`.
+`PriceTag.get_mp()` (the latter reached unconditionally every run via
+`update_prices()`).
 `supplier_product_price`/`supplier_product_rrp`/`supplier_product_discount_price`
 are not `MainProduct` fields but correlated Subqueries over the latest
-`SupplierProduct` row — now built in [[product]]'s
-`views._latest_supplier_prices()` for the supplier rows on `/products/`.
+`SupplierProduct` row, now built in [[product]]'s
+`views._latest_supplier_prices()`.
 
-## `render_<column>` is silently skipped when the cell value is empty
+## `update_stocks` — NULL vs `0`, and its batching trap (`utils.py:456-498`)
 
-django-tables2 skips a column's renderer for `None`/`""` and returns the
-column's `default` instead — which reads like a data problem, not a wiring one.
-Every branching renderer must declare `empty_values=()`; [[product]]'s
-`SupplierRowTable` does for `actions`, `stock`, `stock_msg` and
-`delivery_days`.
-
-## `update_stocks` — NULL vs `0`, and its batching trap
-
-`update_stocks` (`utils.py:520-562`) tests `stock__isnull` separately rather
-than coalescing both sides — coalescing would compare NULL=0 as equal and
-never update never-synced products. Batches over a
-`pks = list(...values_list('pk', ...))` snapshot rather than
-`range(0, count(), batch_size)`: `MainProduct.pk` is a never-reset
-`BigAutoField`, so a single deleted row makes an offset-derived range stop
-short and silently skip the tail. `timezone.now()` is read once above the
+Tests `stock__isnull` separately rather than coalescing both sides —
+coalescing would compare NULL=0 as equal and never update never-synced
+products. Batches over a `pks = list(...values_list('pk', ...))` snapshot
+rather than `range(0, count(), batch_size)`: `MainProduct.pk` is a
+never-reset `BigAutoField`, so one deleted row makes an offset-derived range
+stop short and silently skip the tail. `timezone.now()` read once above the
 loop so one run stamps one `stock_updated_at`. Same gap-safe idiom as
-`iter_unpushed_product_pk_batches` (`utils.py:682-698`, feeding
-`push_pim_links`'s `pk__in=pks`, `utils.py:838`).
-
-## PIM photos need the token — templates get `pim_image_url`, never `get_file_url`
-
-Found 2026-09-21 when photos "did not display" on `/products/`. Every PIM image
-URL — `*ThumbnailUrl`, `downloadUrl`, `mainImagePathsData.download` alike —
-answers an anonymous request with **401** and a request carrying
-`Authorization-Token` with the image. An `<img src>` pointing at PIM therefore
-worked only for someone who happened to be logged into PIM in the same browser,
-which is why it looked flaky rather than broken.
-
-- `get_file_url()` returns the **PIM-side** URL. Server use only.
-- `pim_image_url(file_id, size)` returns our proxy path
-  (`product.views.PimImageView`, `/products/pim-image/<id>/<size>/`, behind
-  `LoginRequiredMiddleware`) and touches no network — this is what templates
-  and table columns use.
-- `fetch_pim_image()` does the fetch: token only to `settings.PIM_HOST`,
-  redirects followed **by hand** with the same host check on every hop (the live
-  thumbnail answers 302 to a relative `/upload/thumbnails/…`; httpx's own
-  redirect following would carry `Authorization-Token` to any host), bytes
-  cached a day, failures not cached.
-- The live PIM now does send `*ThumbnailUrl` keys; `GetFileUrlTests` still
-  describes the older `downloadUrl`-only shape, which also remains handled.
+`iter_unpushed_product_pk_batches`.

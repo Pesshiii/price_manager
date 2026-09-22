@@ -30,7 +30,8 @@ The skipped path `return`s at `:84`, **before** the `try` — so the `finally` a
 
 Errors are logged **and re-raised** (`:131`-`:132`) — it is not a swallow-all
 wrapper. A task that wants to notify on failure must wrap the call itself;
-see `core/tasks.py:52`–`58`.
+see `core/tasks.py:51`–`59` (`update_cart_items_task`'s `try`/`except` around
+the `execute_locked_task()` call).
 
 `_normalize_updated_count` (`task_runner.py:14`) decides what `updated_count`
 becomes: an int/float is cast, a tuple is **summed over its numeric members**,
@@ -47,10 +48,10 @@ is correct. [[main_product_manager]]'s `reindex_pim_ids_task` shows the trap
 from the other side: it used to return `(numbered, linked)` — Products
 numbered and MainProducts linked, not the same unit — and was changed to a
 bare `linked`, with a comment at the call site naming this exact trap
-(`main_product_manager/tasks.py:183-185`); the function its batch task runs,
-`push_pim_links` (`main_product_manager/utils.py:819`), returns a plain int
-and raises on failure rather than folding a failure count into the total.
-**Return the one bare int you actually want counted.**
+(`main_product_manager/tasks.py:155-157`); the function its batch task runs,
+`push_pim_links` (`main_product_manager/utils.py:755`), returns a plain int
+and raises `PimScanError` on failure rather than folding a failure count into
+the total. **Return the one bare int you actually want counted.**
 
 The rest of a dict return is not lost: the success path writes
 `details={"result": str(result)}` (`:108`). That is a Python **repr string**
@@ -67,18 +68,18 @@ Three consequences worth remembering:
   runner is ever entered, so it is held for the whole loop no matter where the
   write sits. `atomic=False` is the only thing that actually drops it. In
   [[main_product_manager]] that's `reindex_pim_ids_batch_task`
-  (`tasks.py:194-203`), the HTTP-bound batch — its parent `reindex_pim_ids_task`
+  (`tasks.py:166-175`), the HTTP-bound batch — its parent `reindex_pim_ids_task`
   stays atomic on purpose, since its own runner does only local DB work
   (backfill numbers, link/create `product.Product` rows) before dispatching.
 - A runner that `.delay()`s subtasks inside the transaction queues them on
   Redis **immediately**, while its own DB writes can still roll back. Use
   `dispatch_after_commit()` (`task_runner.py:24`) instead — CLAUDE.md's
   "Dispatching a subtask" paragraph has the why. The `reindex_pim_ids_task`
-  fan-out in `main_product_manager/tasks.py:174-178` is the worked example.
+  fan-out in `main_product_manager/tasks.py:145-150` is the worked example.
 
 ## Trap: running `core` empties the DB for every later `--keepdb` run
 
-`ExecuteLockedTaskAtomicTests` (`core/tests.py:21`) must stay a
+`ExecuteLockedTaskAtomicTests` (`core/tests.py:35`) must stay a
 `TransactionTestCase` — `TestCase` wraps each test in a transaction, which
 would make `connection.in_atomic_block` true regardless of `atomic=`. Django
 truncates **every table** at a `TransactionTestCase`'s teardown and only
@@ -95,12 +96,13 @@ in fixtures rather than assertions.
 
 The fix is on the consuming side — no fixture may read a migration-seeded
 row. Use `Currency.objects.get_or_create(name="KZT", defaults={"value":
-Decimal("1")})`, as `supplier_product_manager/tests.py` (`:30`, `:494`,
-`:571`, `:637`, `:715`) and `product_price_manager/tests.py:15` do. The
+Decimal("1")})`, as `supplier_product_manager/tests.py` (`:60`, `:561`,
+`:645`, `:713`, `:799`) and `product_price_manager/tests.py:15` do. The
 inline `get_or_create(name='KZT', value=1)` still at
-`main_product_manager/tests.py:53`/`:199` is fragile: inline kwargs are
-*lookups*, so a KZT row carrying any other value makes it attempt an INSERT
-and die on the unique `name`. `Currency` is the only static seed in the tree.
+`main_product_manager/tests.py:14`/`:106`/`:255`/`:478` is fragile: inline
+kwargs are *lookups*, so a KZT row carrying any other value makes it attempt
+an INSERT and die on the unique `name`. `Currency` is the only static seed in
+the tree.
 
 ## Models (`core/models.py`)
 
@@ -112,9 +114,6 @@ and die on the unique `name`. `Currency` is the only static seed in the tree.
   (`LevelChoices:93`), optional `link`/`link_text`.
 - `TaskRunHistory:131` — written by `execute_locked_task`, never by hand.
   `status` from `StatusChoices:126`.
-- Gotcha: `core/models/` (empty dir, no `__init__.py`) sits next to this
-  file; Python resolves the module first, so `core/models.py` loads — don't
-  add files there expecting them to be picked up.
 
 ## Middleware (`core/middleware.py`)
 
@@ -139,7 +138,7 @@ django-messages-toast-htmx pattern (credited in the docstring).
 
 Crispy field templates used by every filter panel at least twice per page —
 one include per facet, e.g. `ProductFilter` brand + supplier
-(`product/filters.py:333,335`). Only `checkbox_field.html` has a swappable
+(`product/filters.py:337,339`). Only `checkbox_field.html` has a swappable
 OOB partial; that asymmetry drives the second point below.
 
 **Their inline `<script>` must be idempotent.** htmx executes inline
@@ -151,16 +150,16 @@ a `window` flag — `window.__priceManagerCheckboxFilterInit`
 (`checkbox_field.html:74-98`) and `window.__priceManagerRadioFilterInit`
 (`radio_field.html:89-111`). Any new field include used more than once per
 page needs the same guard. Regression test:
-`product/tests/test_views.py:185`
+`product/tests/test_views.py:220`
 `test_filter_panel_scripts_declare_nothing_at_top_level`.
 
 **`checkbox_field.html` can't copy `radio_field.html`'s bind-once pattern.**
 Checkbox's `{% partialdef checkboxes %}` (`:37-71`, `#checkboxes_<auto_id>`)
 is OOB-swapped on its own via `OobField` (`core/crispy_fields.py:14`) at
 [[main_product_manager]]'s `MainProductFilter.build_helper`
-(`main_product_manager/filters.py:119-120`, supplier + brand), reached
+(`main_product_manager/filters.py:118-119`, supplier + brand), reached
 when `ResolveMainproduct` renders stripped —
-`main_product_manager/views.py:457`
+`main_product_manager/views.py:238`
 (`stripped=bool(self.request.GET.get('bound'))`, not a bare `True`). Radio
 binds once per input and captures `items` at bind time; safe there (no
 partial), stale here — after an OOB swap the already-flagged search input
@@ -173,7 +172,7 @@ keeps filtering detached nodes. So checkbox instead uses one delegated
 
 The shopping-tab / cart feature is the whole file. `ShoppingTab*` — list, delete,
 detail, export, export-download, import + preview + run (`:173`–`:471`).
-`CartItem*` — add, detail, quick-add, confirm, unconfirm, remove, product-select,
+`CartItem*` — detail, quick-add, confirm, unconfirm, remove, product-select,
 add-products (`:472`–`:705`). Plus `PersistentNotification*` (`:65`, `:81`),
 auth views (`:94`, `:114`), Bitrix24 login (`:123`, `:141`, mechanism below),
 `InstructionsView` and `mainpage`.
@@ -181,7 +180,7 @@ auth views (`:94`, `:114`), Bitrix24 login (`:123`, `:141`, mechanism below),
 Templates in `core/templates/shopping_tab/` use the **`hx-swap-oob`** convention
 throughout, not the modal-CRUD one — one action refreshes a status chip, a
 summary panel and a list together without a reload. See the `htmx-oob-fragments`
-skill. `_shopping_tab_summary` (`:176`) and `_get_shopping_tab_items` (`:168`)
+skill. `_get_shopping_tab_items` (`:238`) and `_shopping_tab_summary` (`:247`)
 are the helpers those fragments render from.
 
 **The shopping-tab stock badge cannot distinguish "out of stock" from "never
@@ -190,24 +189,27 @@ branches on `{% if product.stock %}`, and Django template truthiness makes
 both `None` and `0` falsy, so a `MainProduct` whose stock has never been
 synchronised renders identically to one genuinely out of stock — it shows
 `product.supplier.msg_navailable` (default «Нет в наличии»,
-`supplier_manager/models.py:90`).
+`supplier_manager/models.py:85-86`).
 
 This matters because [[main_product_manager]] treats `stock IS NULL` as a
 distinct third state and defends it deliberately on the write path:
 `update_stocks` filters on `Q(stock__isnull=True) | ~Q(stock=F('new_stock'))`
-(`main_product_manager/utils.py:407`) precisely so never-synced products are
+(`main_product_manager/utils.py:493`) precisely so never-synced products are
 not permanently skipped, and the rule is pinned by
-`UpdateStocksNullSafeTests` (`main_product_manager/tests.py:51`). The
-distinction is enforced on the write path and dropped on every read path: the
-two equivalent renderers on the read side —
-`render_stock_msg` in `main_product_manager/tables.py:117-123` and
-`Supplier.get_delivery_days_for_stock` in `supplier_manager/models.py:97-100`
-— carry the same `if not record.stock` / `if stock and stock > 0`
-conflation the template comment gestures at when it says the texts are «те
-же, что в главном прайсе». Those two are being fixed under issue #155; **this
-badge is explicitly out of that issue's scope** and stays as-is. If the cart
-is ever revisited, it needs its own decision about what a null stock should
-say — it isn't inherited for free from whatever #155 lands on.
+`UpdateStocksNullSafeTests` (`main_product_manager/tests.py:12`). The two
+read-side renderers that used to conflate `None` and `0` the same way — the
+old `main_product_manager/tables.py` `render_stock_msg` and
+`Supplier.get_delivery_days_for_stock` — were **fixed under issue #155**:
+the table moved to `product/tables.py:261-271`
+(`SupplierRowTable.render_stock_msg`, now branches on `record.stock is None`
+before touching the supplier) and `Supplier.get_delivery_days_for_stock`
+(`supplier_manager/models.py:105-118`) now has an explicit `if stock is None`
+branch with a docstring explaining why that is a third state, not a synonym
+for "no stock". **This cart badge was out of that issue's scope and was not
+touched** — it still conflates `None` and `0` via the plain-truthy
+`{% if product.stock %}`. If the cart is ever revisited, it needs its own
+fix; it doesn't inherit one for free from what #155 already shipped
+elsewhere.
 
 ## Bitrix24 login — mechanism (CLAUDE.md's `core` bullet covers purpose/policy)
 
@@ -239,7 +241,8 @@ Not `core`-only: `core/tables.py` (cart picker), `main_product_manager/tables.py
 `supplier_product_manager/tables.py` all set
 `template_name = 'core/includes/table_htmx.html'` (`django-tables2==2.7.5`).
 A change here touches all four. (Five until Phase 2b deleted the old main
-page's table.)
+page's table; `product/tables.py` — the table behind `/products/` — uses
+`django_tables2/bootstrap5.html` directly, not this template.)
 
 **Infinite scroll dies on a hidden last row.** The next-page fetch is wired to
 the *last* `<tr>` of the page (`table_htmx.html:40-45`):
@@ -250,9 +253,7 @@ conditionally (row grouping, collapse/expand, client-side filtering) will
 silently stall pagination the moment a page's last row happens to be one of
 the hidden ones — no error, no spinner, the list just appears to end. Check
 whether the last row of a page can ever be hidden before shipping row-hiding
-on any of the five tables — this is exactly the trap issue #155
-([[main_product_manager]], collapsing `MainProduct` rows by `pim_id`) has to
-navigate.
+on any of the four tables.
 
 **Next-page rows land adjacent to the last row, not appended to `<tbody>`.**
 `hx-target="this"` + `hx-swap="afterend"` (`table_htmx.html:43-44`) insert
@@ -268,7 +269,7 @@ record=self._record))` (`django_tables2/rows.py:111-113`) — the callable
 gets both `record` and `table`, and via `table` can reach
 `table.page.object_list` to know a record's page position (e.g. whether
 it's the last row, relevant to the trap above), without touching the shared
-template that all five tables depend on.
+template that all four tables depend on.
 
 **Column sorting flips the whole declared `order_by` tuple, tie-breakers
 included — unless the column defines an `order_FOO` escape hatch.** The `<th>`
@@ -285,16 +286,17 @@ getattr(table, "order_" + name, column.order)`
 calls that hook for the column(s) actually named in the current sort
 (`aliases`, `data.py:200-201,211`) — using its queryset directly, skipping
 the flip, whenever it returns `(queryset, True)` (`data.py:210-219`; default
-`Column.order`, `columns/base.py:388-399`, is a no-op). So `def
+`Column.order`, `columns/base.py:388-399`, is a no-op). So a `def
 order_pim_id(self, qs, desc): return qs.order_by(('-' if desc else '') +
-'pim_id', 'pk'), True` on the `Table` is a tie-break, but it only fires when
-the user sorts **by `pim_id` itself** — it does nothing while sorting by any
-other column. `modified_any` (`data.py:198,215,218`) is table-wide too: one
-hook returning `True` skips traditional ordering for every column in that
-sort, not just its own (moot here since this template only ever sorts by one
-column at a time). Sorting also re-renders the whole table (`hx-target=
-"closest div.table-container"`, `hx-swap="outerHTML"`, `table_htmx.html:21-22`)
-and always lands on page 1.
+'pim_id', 'pk'), True` hook on a `Table` would be a tie-break, but it would
+only fire when the user sorts **by `pim_id` itself** — it would do nothing
+while sorting by any other column (no table in the tree defines this hook
+today; it's the shape any future one would need). `modified_any`
+(`data.py:198,215,218`) is table-wide too: one hook returning `True` skips
+traditional ordering for every column in that sort, not just its own (moot
+here since this template only ever sorts by one column at a time). Sorting
+also re-renders the whole table (`hx-target= "closest div.table-container"`,
+`hx-swap="outerHTML"`, `table_htmx.html:21-22`) and always lands on page 1.
 
 ## Dead code
 
