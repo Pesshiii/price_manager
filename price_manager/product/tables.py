@@ -15,6 +15,14 @@ from .models import Product
 NO_STOCK_DATA = 'Нет данных'
 
 
+def _money(value):
+    """Цена в ячейке; ноль приглушён — он чаще значит «цены нет», чем «бесплатно»."""
+    text = number_format(value, decimal_pos=2)
+    if not value:
+        return format_html('<span class="text-body-tertiary">{}</span>', text)
+    return format_html('{}', text)
+
+
 def annotate_product_rows(queryset):
     """Агрегаты по связанным MainProduct для строки товара.
 
@@ -32,24 +40,40 @@ def annotate_product_rows(queryset):
         min_prime_cost=Min('main_products__prime_cost'),
         max_prime_cost=Max('main_products__prime_cost'),
         in_stock_count=Count('main_products', filter=Q(main_products__stock__gt=0), distinct=True),
+        # Резерв для артикула, если у самого Product number=NULL (см.
+        # render_number) — на проде это не только «ещё не синхронизировался»:
+        # часть таких строк — Product-дубликаты с привязанным MainProduct,
+        # чей sku давно занят другим Product.number (главный keeper-файл
+        # product.md документирует историю). Min, а не First: агрегация, без
+        # доп. запроса на строку.
+        number_fallback=Min('main_products__sku'),
     )
 
 
 class ProductTable(tables.Table):
     """Товарная таблица: строка — Product, поставщики раскрываются под ней."""
 
-    expand = tables.Column(verbose_name='', empty_values=(), orderable=False)
-    display_name = tables.Column(verbose_name='Название', accessor='display_name', orderable=False)
-    number = tables.Column(verbose_name='Артикул')
-    brand = tables.Column(verbose_name='Бренд', default='—')
-    product_categories = tables.Column(
-        verbose_name='Категории', accessor='pk', orderable=False, empty_values=(),
-    )
-    supplier_count = tables.Column(verbose_name='Поставщиков', default='—')
+    expand = tables.Column(verbose_name='', empty_values=(), orderable=False,
+                           attrs={'th': {'class': 'col-expand'}, 'td': {'class': 'col-expand'}})
+    # Бренд и категории — не отдельные колонки, а строка под названием: у товаров
+    # без данных PIM (а это почти весь каталог, пока идёт бэкфилл) обе были бы
+    # столбцами прочерков, отнимающими ширину у названия.
+    display_name = tables.Column(verbose_name='Название', accessor='display_name', orderable=False,
+                                 attrs={'td': {'class': 'col-name'}})
+    # empty_values=() обязателен: иначе django-tables2 при number=NULL не
+    # дойдёт до render_number вовсе, а тихо подставит свой дефолтный «—» —
+    # ровно то, что скрывало number_fallback ниже (тот же приём уже нужен
+    # prime_cost_range).
+    number = tables.Column(verbose_name='Артикул', empty_values=(),
+                           attrs={'td': {'class': 'col-number'}})
+    supplier_count = tables.Column(verbose_name='Поставщиков', default='—',
+                                   attrs={'th': {'class': 'text-end'}, 'td': {'class': 'col-num'}})
     prime_cost_range = tables.Column(
         verbose_name='Себестоимость', accessor='pk', orderable=False, empty_values=(),
+        attrs={'th': {'class': 'text-end'}, 'td': {'class': 'col-num'}},
     )
-    total_stock = tables.Column(verbose_name='Остаток', default=NO_STOCK_DATA)
+    total_stock = tables.Column(verbose_name='Остаток', default=NO_STOCK_DATA,
+                                attrs={'th': {'class': 'text-end'}, 'td': {'class': 'col-num'}})
 
     # Необязательные колонки — включаются в выборе колонок (product/columns.py).
     photo = tables.Column(verbose_name=COLUMN_LABELS['photo'], empty_values=(), orderable=False)
@@ -62,11 +86,11 @@ class ProductTable(tables.Table):
         model = Product
         fields = ()
         sequence = (
-            'expand', 'photo', 'display_name', 'number', 'brand', 'product_categories',
+            'expand', 'photo', 'display_name', 'number',
             'supplier_count', 'prime_cost_range', 'total_stock', 'tags', 'ean', 'pim_status',
         )
-        attrs = {'class': 'table table-hover align-middle'}
-        row_attrs = {'data-product-pk': lambda record: record.pk}
+        attrs = {'class': 'table products-table align-middle mb-0'}
+        row_attrs = {'class': 'product-row', 'data-product-pk': lambda record: record.pk}
 
     def __init__(self, *args, **kwargs):
         self.request = kwargs.pop('request', None)
@@ -87,18 +111,37 @@ class ProductTable(tables.Table):
         тестах обе половины по отдельности проходят.
         """
         return format_html(
-            '<button type="button" class="btn btn-sm btn-outline-secondary product-expand"'
+            '<button type="button" class="btn btn-sm btn-expand product-expand"'
             ' data-suppliers-url="{}" data-suppliers-target="#product-suppliers-{}"'
             ' aria-expanded="false"'
             ' aria-label="Показать поставщиков" title="Показать поставщиков">'
-            '<i class="bi bi-chevron-down"></i></button>',
+            '<i class="bi bi-chevron-right" aria-hidden="true"></i></button>',
             reverse('product-suppliers', kwargs={'pk': record.pk}),
             record.pk,
         )
 
-    def render_product_categories(self, record):
-        names = [c.name for c in record.categories.all()]
-        return ', '.join(names) if names else '—'
+    def render_number(self, value, record):
+        """У части Product с number=NULL уже есть привязанный MainProduct с
+        непустым sku (number_fallback, см. annotate_product_rows) — тогда
+        строка не должна выглядеть так, будто артикула нет вовсе. Приглушён,
+        как и «нет данных» в других колонках: это не настоящий Product.number,
+        а то, что видно у поставщика.
+        """
+        if value:
+            return value
+        fallback = getattr(record, 'number_fallback', None)
+        if fallback:
+            return format_html(
+                '<span class="text-body-tertiary" title="Артикул из привязанного поставщика, '
+                'у самого товара он не заполнен">{}</span>', fallback)
+        return format_html('<span class="text-body-tertiary">—</span>')
+
+    def render_display_name(self, value, record):
+        """Название и под ним — бренд и категории из PIM, если они уже есть."""
+        meta = [record.brand.name] if record.brand else []
+        meta += [category.name for category in record.categories.all()]
+        meta_html = format_html('<div class="product-meta">{}</div>', ' · '.join(meta)) if meta else ''
+        return format_html('<div class="product-name" title="{}">{}</div>{}', value, value, meta_html)
 
     def render_prime_cost_range(self, record):
         """Диапазон себестоимости по поставщикам товара.
@@ -110,10 +153,10 @@ class ProductTable(tables.Table):
         low = getattr(record, 'min_prime_cost', None)
         high = getattr(record, 'max_prime_cost', None)
         if low is None and high is None:
-            return '—'
+            return format_html('<span class="text-body-tertiary">{}</span>', '—')
         if low == high:
-            return number_format(low, decimal_pos=2)
-        return f'{number_format(low, decimal_pos=2)} — {number_format(high, decimal_pos=2)}'
+            return _money(low)
+        return format_html('<span class="text-nowrap">{} – {}</span>', _money(low), _money(high))
 
     def render_total_stock(self, record):
         """NULL и 0 — разные вещи.
@@ -123,8 +166,10 @@ class ProductTable(tables.Table):
         """
         total = getattr(record, 'total_stock', None)
         if total is None:
-            return NO_STOCK_DATA
-        return total
+            return format_html('<span class="text-body-tertiary">{}</span>', NO_STOCK_DATA)
+        if total > 0:
+            return format_html('<span class="stock-in">{}</span>', total)
+        return format_html('<span class="text-body-tertiary">{}</span>', total)
 
     # --- необязательные колонки из данных PIM -------------------------------
 
@@ -170,7 +215,10 @@ class SupplierRowTable(tables.Table):
     actions = tables.Column(verbose_name='', empty_values=(), orderable=False)
     name = tables.Column(verbose_name=COLUMN_LABELS['name'])
     stock = tables.Column(verbose_name=COLUMN_LABELS['stock'], empty_values=())
-    stock_msg = tables.Column(verbose_name=COLUMN_LABELS['stock_msg'], empty_values=())
+    # Единственная колонка, которой разрешён перенос строк: сообщение о наличии
+    # у поставщиков бывает в целое предложение. Остальные ячейки — в одну строку.
+    stock_msg = tables.Column(verbose_name=COLUMN_LABELS['stock_msg'], empty_values=(),
+                              attrs={'td': {'class': 'col-wrap'}})
     delivery_days = tables.Column(verbose_name=COLUMN_LABELS['delivery_days'], empty_values=())
 
     DECLARED = ('actions', 'name', 'stock', 'stock_msg', 'delivery_days')
@@ -180,7 +228,7 @@ class SupplierRowTable(tables.Table):
         fields = ()
         orderable = False
         template_name = 'django_tables2/bootstrap5.html'
-        attrs = {'class': 'table table-sm align-middle mb-0'}
+        attrs = {'class': 'table table-sm align-middle mb-0 suppliers-table'}
 
     def __init__(self, *args, **kwargs):
         self.request = kwargs.pop('request', None)

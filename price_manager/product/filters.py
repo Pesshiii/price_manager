@@ -306,12 +306,16 @@ class ProductFilter(FilterSet):
         helper.form_id = 'product-filter'
         helper.form_method = 'GET'
         helper.label_class = 'mt-2'
+        # Задержки хватает, чтобы успеть отметить несколько галочек одним
+        # заходом; больше — и страница кажется зависшей. Пока запрос идёт,
+        # #products-results приглушён (см. product/list.html).
         helper.attrs = {
             'hx-get': url,
             'hx-swap': 'outerHTML',
-            'hx-trigger': 'input changed delay:2s, change delay:2s, submit',
+            'hx-trigger': 'input changed delay:600ms, change delay:600ms, submit',
             'hx-push-url': 'true',
             'hx-include': '#products-search',
+            'hx-indicator': '#products-results',
         }
         if hx_target:
             helper.attrs['hx-target'] = hx_target
@@ -326,7 +330,7 @@ class ProductFilter(FilterSet):
             Div(Field('available', template='core/includes/switch_field.html'),
                 css_class='filter-section'),
             Div(HTML('<div class="filter-section-title">Себестоимость</div>'),
-                Div(Field('price_from'), Field('price_to'), css_class='d-flex gap-2'),
+                Div(Field('price_from'), Field('price_to'), css_class='d-flex gap-2 price-range'),
                 css_class='filter-section'),
             Div(Field('categories', template='product/partials/category_tree_field.html'),
                 css_class='filter-section'),

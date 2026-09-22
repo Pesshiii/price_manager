@@ -6,23 +6,24 @@
   прайса не видна, и страница будет выглядеть полной. То же про строки, до
   которых ещё не дошёл бэкфилл: у них нет ни названия, ни категорий, ни
   бренда, и выглядит это как поломка, а не как незавершённая загрузка.
+
+  Одна приглушённая строка в полосе результатов, а не алерт над таблицей:
+  цифры нужны, чтобы невидимое оставалось наблюдаемым, но это не то, что
+  человек пришёл сюда читать. Пояснение — в подсказке.
 {% endcomment %}
 {% if unlinked_main_products or unsynced_products %}
-  <div class="alert alert-light border coverage-note d-flex align-items-start gap-2 py-2">
-    <i class="bi bi-info-circle text-secondary mt-1"></i>
-    <div>
-      {% if unlinked_main_products %}
-        <div>
-          Строк поставщиков без товара PIM: <strong>{{ unlinked_main_products }}</strong> —
-          на этой странице они не показываются.
-        </div>
-      {% endif %}
-      {% if unsynced_products %}
-        <div>
-          Товаров без данных из PIM: <strong>{{ unsynced_products }}</strong> —
-          у них пока нет названия, категорий и бренда, поиск по ним ограничен артикулом.
-        </div>
-      {% endif %}
-    </div>
+  <div class="coverage-note">
+    <i class="bi bi-info-circle" aria-hidden="true"></i>
+    {% if unsynced_products %}
+      <span title="У них пока нет названия, категорий и бренда из PIM — поиск по ним ограничен артикулом и названием у поставщика.">
+        Без данных PIM: <strong>{{ unsynced_products|floatformat:"g" }}</strong>
+      </span>
+    {% endif %}
+    {% if unlinked_main_products %}
+      {% if unsynced_products %}<span class="coverage-sep" aria-hidden="true">·</span>{% endif %}
+      <span title="Строки прайсов поставщиков, не привязанные ни к одному товару PIM, — на этой странице они не показываются.">
+        Строк поставщиков без товара: <strong>{{ unlinked_main_products|floatformat:"g" }}</strong>
+      </span>
+    {% endif %}
   </div>
 {% endif %}

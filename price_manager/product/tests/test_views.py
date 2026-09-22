@@ -46,6 +46,24 @@ class ProductPageTests(TestCase):
         self.assertContains(response, 'SKU-1')
         self.assertContains(response, 'Grohe')
 
+    def test_brand_and_categories_are_shown_under_the_name(self):
+        """Отдельных колонок у них нет — они строкой под названием."""
+        response = self.client.get(reverse('products'))
+
+        self.assertContains(response, 'Grohe · Сантехника')
+
+    def test_pagination_elides_the_middle_pages(self):
+        Product.objects.bulk_create(
+            Product(pim_id=f'pmp-bulk-{i}', number=f'BULK-{i}', name=f'Товар {i}')
+            for i in range(200)
+        )
+
+        response = self.client.get(reverse('products'))
+
+        self.assertEqual(response.context['table'].paginator.num_pages, 9)
+        self.assertContains(response, '<span class="page-link">…</span>', html=True)
+        self.assertContains(response, 'page=9')
+
     def test_row_shows_aggregates_over_its_main_products(self):
         other = Supplier.objects.create(name='Второй')
         MainProduct.objects.create(
@@ -163,6 +181,23 @@ class ProductFragmentTests(TestCase):
 
         self.assertEqual(response.status_code, 200)
         self.assertTemplateUsed(response, 'product/partials/filter.html')
+
+    def test_filter_fragment_does_not_leak_template_comments(self):
+        """Многострочный {# #} Django комментарием не считает и отдаёт как текст.
+
+        Так в дереве категорий у каждого листа печаталось пояснение
+        разработчика. Корневой лист и вложенный — обе ветки шаблона.
+        """
+        root = Category.objects.create(name='Сантехника')
+        Category.objects.create(name='Смесители', parent=root)
+        Category.objects.create(name='Свет')
+
+        response = self.client.get(reverse('product-filter'), HTTP_HX_REQUEST='true')
+
+        self.assertContains(response, 'Смесители')
+        self.assertContains(response, 'Свет')
+        self.assertNotContains(response, '{#')
+        self.assertNotContains(response, 'Отступ только у вложенного листа')
 
     def test_htmx_request_returns_only_the_table_fragment(self):
         """Иначе в #products-table вставляется list.html целиком.
