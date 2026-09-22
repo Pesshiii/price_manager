@@ -1,6 +1,6 @@
 import logging
 
-from django.db.models import OuterRef, Subquery
+from django.db.models import OuterRef, Prefetch, Subquery
 from django.http import Http404, HttpResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse_lazy
@@ -13,22 +13,28 @@ from main_product_manager.utils import fetch_pim_image
 from supplier_product_manager.models import SupplierProduct
 
 from .columns import PRODUCT_COLUMN_GROUPS, load_columns, save_columns
-from .filters import ProductFilter
-from .models import Product
-from .tables import ProductTable, SupplierRowTable, annotate_product_rows
+from .filters import CATEGORY_LABEL_DEPTH, ProductFilter, search_terms
+from .models import Category, Product
+from .tables import ProductTable, SupplierRowTable, annotate_product_rows, with_category_headers
 
 logger = logging.getLogger(__name__)
 
 
-def _base_queryset():
+def _base_queryset(by_category=False):
     """Товары для страницы.
 
     select_related('brand') и prefetch категорий — ячейка названия выводит под
     ним бренд и категории (ProductTable.render_display_name) на каждой строке,
-    без этого страница даёт N+1 на обеих связях.
+    без этого страница даёт N+1 на обеих связях. Категории предзагружаются
+    вместе с предками: из них строится путь в заголовке группы
+    (tables.category_path), и без select_related каждый шаг к корню был бы
+    запросом.
     """
+    categories = Category.objects.select_related(CATEGORY_LABEL_DEPTH)
     return annotate_product_rows(
-        Product.objects.select_related('brand').prefetch_related('categories')
+        Product.objects.select_related('brand')
+        .prefetch_related(Prefetch('categories', queryset=categories)),
+        by_category=by_category,
     )
 
 
@@ -80,7 +86,22 @@ class ProductPage(SingleTableMixin, FilterView):
         return [self.template_name]
 
     def get_queryset(self):
-        return _base_queryset()
+        return _base_queryset(by_category=self.groups_by_category())
+
+    def groups_by_category(self):
+        """Выдача по категориям — порядок по умолчанию.
+
+        Выключается сортировкой по колонке и поиском: у обоих свой порядок
+        (выбранный пользователем и по релевантности), и заголовки категорий
+        посреди него резали бы выдачу на куски. Поиск свой порядок наводит сам
+        (filters.ranked), сортировка по колонке — тоже (django-tables2), так
+        что здесь решается только одно: считать ли ключ категории и рисовать
+        ли заголовки. Имя параметра сортировки — из Meta таблицы: таблицы в
+        момент get_queryset ещё нет.
+        """
+        sort_field = ProductTable._meta.prefix + ProductTable._meta.order_by_field
+        return (not self.request.GET.get(sort_field)
+                and not search_terms(self.request.GET.get('search')))
 
     def selected_columns(self):
         """Выбор колонок: из запроса — сохраняется, иначе — сохранённый ранее.
@@ -114,6 +135,13 @@ class ProductPage(SingleTableMixin, FilterView):
         if table.page:
             context['page_range'] = table.paginator.get_elided_page_range(
                 table.page.number, on_each_side=1, on_ends=1)
+        # Строки страницы парами (заголовок категории или None, строка): шаблон
+        # один и тот же для обоих режимов и сам ничего не решает.
+        grouped = self.groups_by_category()
+        context['group_by_category'] = grouped
+        rows = table.paginated_rows
+        context['product_rows'] = (with_category_headers(rows) if grouped
+                                   else [(None, row) for row in rows])
         return context
 
 

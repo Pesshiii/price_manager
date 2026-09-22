@@ -10,6 +10,7 @@ from main_product_manager.models import MainProduct
 from supplier_manager.models import Supplier
 
 from product.models import Brand, Category, Product
+from product.tables import ProductTable
 
 
 class ProductPageTests(TestCase):
@@ -132,6 +133,136 @@ class ProductPageTests(TestCase):
 
         self.assertEqual(len(response.context['table'].rows), 1)
         self.assertEqual(response.context['filter'].data.get('search'), 'SKU-1')
+
+
+class ProductCategoryGroupingTests(TestCase):
+    """Выдача по категориям — порядок по умолчанию, с заголовком над группой."""
+
+    def setUp(self):
+        self.user = User.objects.create_user(username='tester', password='pw')
+        self.client.force_login(self.user)
+
+        # Корни в дереве идут по имени (order_insertion_by): «Инструмент» раньше
+        # «Крепежа», «Пилы» — внутри «Инструмента».
+        self.tools = Category.objects.create(name='Инструмент')
+        self.saws = Category.objects.create(name='Пилы', parent=self.tools)
+        self.fasteners = Category.objects.create(name='Крепеж')
+
+        self._product('F-2', 'Шуруп', self.fasteners)
+        self._product('S-1', 'Пила', self.saws)
+        self._product('F-1', 'Саморез', self.fasteners)
+        self._product('L-1', 'Лампа')
+        self._product('H-1', 'Молоток', self.tools)
+
+    def _product(self, number, name, *categories):
+        product = Product.objects.create(number=number, name=name)
+        product.categories.add(*categories)
+        return product
+
+    def _rows(self, response):
+        return [(header, row.record.number) for header, row in response.context['product_rows']]
+
+    def test_products_are_ordered_by_category_with_a_header_over_each_group(self):
+        response = self.client.get(reverse('products'))
+
+        self.assertTrue(response.context['group_by_category'])
+        self.assertEqual(self._rows(response), [
+            (['Инструмент'], 'H-1'),
+            (['Инструмент', 'Пилы'], 'S-1'),
+            (['Крепеж'], 'F-1'),
+            (None, 'F-2'),
+            (['Без категории'], 'L-1'),
+        ])
+
+    def test_headers_render_as_rows_with_the_category_path(self):
+        response = self.client.get(reverse('products'))
+
+        self.assertContains(response, 'class="product-group-row"', count=4)
+        self.assertContains(response, '<span>Пилы</span>', html=True)
+
+    def test_htmx_fragment_carries_the_same_headers(self):
+        response = self.client.get(reverse('products'), HTTP_HX_REQUEST='true')
+
+        self.assertTemplateUsed(response, 'product/partials/table.html')
+        self.assertContains(response, 'class="product-group-row"', count=4)
+
+    def test_first_row_of_a_page_repeats_the_header_of_a_continuing_group(self):
+        """Группа, начатая на прошлой странице, без заголовка читалась бы как
+        продолжение чужой."""
+        for i in range(30):
+            self._product(f'F-BULK-{i:02}', f'Саморез {i:02}', self.fasteners)
+
+        response = self.client.get(reverse('products'), {'page': 2})
+
+        first_header, first_row = response.context['product_rows'][0]
+        self.assertEqual(first_header, ['Крепеж'])
+        self.assertIn(self.fasteners, first_row.record.categories.all())
+
+    def test_column_sort_turns_grouping_off(self):
+        response = self.client.get(reverse('products'), {'sort': 'number'})
+
+        self.assertFalse(response.context['group_by_category'])
+        self.assertEqual([header for header, _ in response.context['product_rows']], [None] * 5)
+        self.assertNotContains(response, 'class="product-group-row"')
+        self.assertEqual([number for _, number in self._rows(response)],
+                         ['F-1', 'F-2', 'H-1', 'L-1', 'S-1'])
+
+    def test_column_sort_offers_a_way_back_to_the_default_order(self):
+        response = self.client.get(reverse('products'), {'sort': 'number'})
+
+        self.assertContains(response, 'Сбросить сортировку')
+        self.assertNotContains(self.client.get(reverse('products')), 'Сбросить сортировку')
+
+    def test_search_turns_grouping_off(self):
+        response = self.client.get(reverse('products'), {'search': 'F-'})
+
+        self.assertFalse(response.context['group_by_category'])
+        self.assertEqual(sorted(number for _, number in self._rows(response)), ['F-1', 'F-2'])
+        self.assertNotContains(response, 'class="product-group-row"')
+
+    def test_facet_filter_keeps_grouping(self):
+        response = self.client.get(reverse('products'), {'categories': [self.tools.pk]})
+
+        self.assertEqual(self._rows(response), [
+            (['Инструмент'], 'H-1'),
+            (['Инструмент', 'Пилы'], 'S-1'),
+        ])
+
+    def test_product_with_two_categories_is_listed_once_and_its_stock_is_not_doubled(self):
+        """Ключ категории — агрегат по join на categories. Join размножает
+        строки поставщиков на число категорий, и Sum по ним удвоил бы остаток —
+        поэтому в этом режиме остаток считается подзапросом."""
+        product = self._product('M-1', 'Набор', self.fasteners, self.saws)
+        first, second = Supplier.objects.create(name='Первый'), Supplier.objects.create(name='Второй')
+        MainProduct.objects.create(product=product, supplier=first, article='M1', name='Набор',
+                                   stock=4, prime_cost=Decimal('10.00'))
+        MainProduct.objects.create(product=product, supplier=second, article='M2', name='Набор',
+                                   stock=6, prime_cost=Decimal('12.00'))
+
+        response = self.client.get(reverse('products'))
+        rows = [row for _, row in response.context['product_rows'] if row.record.number == 'M-1']
+
+        self.assertEqual(len(rows), 1)
+        record = rows[0].record
+        self.assertEqual(record.total_stock, 10)
+        self.assertEqual(record.supplier_count, 2)
+        self.assertEqual(record.in_stock_count, 2)
+        # Стоит под первой из своих категорий в порядке дерева — «Пилами»,
+        # сразу за «Пилой», а не под «Крепежом».
+        self.assertEqual(self._rows(response)[:3], [
+            (['Инструмент'], 'H-1'),
+            (['Инструмент', 'Пилы'], 'M-1'),
+            (None, 'S-1'),
+        ])
+
+
+class ProductPhotoTests(TestCase):
+    def test_photo_carries_a_large_size_for_hover_zoom(self):
+        html = ProductTable([]).render_photo(Product(raw_data={'mainImageId': 'img-1'}))
+
+        self.assertIn('src="/products/pim-image/img-1/medium/"', html)
+        self.assertIn('data-zoom-src="/products/pim-image/img-1/large/"', html)
+        self.assertIn('class="product-photo"', html)
 
 
 class ProductFragmentTests(TestCase):
