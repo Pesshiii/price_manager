@@ -1,6 +1,8 @@
 import django_tables2 as tables
 from django.contrib.postgres.fields import ArrayField
-from django.db.models import Count, F, Func, IntegerField, Max, Min, OuterRef, Q, Subquery, Sum
+from django.db.models import (
+    Count, F, Func, IntegerField, Max, Min, OuterRef, Q, Subquery, Sum, Window,
+)
 from django.template.loader import render_to_string
 from django.urls import reverse
 from django.utils.formats import number_format
@@ -81,6 +83,28 @@ def annotate_product_rows(queryset, by_category=False):
         queryset = queryset.order_by(
             F('category_key').asc(nulls_last=True), F('name').asc(nulls_last=True), 'pk')
     return queryset
+
+
+def best_match_groups_first(queryset):
+    """Порядок поиска в выдаче по категориям.
+
+    Группы — по лучшему совпадению в них, внутри группы — по релевантности.
+    Нужны обе аннотации: rank (filters.ranked) и category_key
+    (annotate_product_rows(by_category=True)). Второй ключ — category_key:
+    при равном лучшем совпадении две группы всё равно не перемешаются.
+
+    nulls_last везде по той же причине, что в filters.ranked: у товаров без
+    данных PIM вектора нет и rank — NULL, а DESC ставит NULL первыми. Группа,
+    где все совпадения такие (по номеру или названию у поставщика), уходит в
+    конец.
+    """
+    group_rank = Window(Max('rank'), partition_by=[F('category_key')])
+    return queryset.order_by(
+        group_rank.desc(nulls_last=True),
+        F('category_key').asc(nulls_last=True),
+        F('rank').desc(nulls_last=True),
+        'pk',
+    )
 
 
 def _category_tree_position():

@@ -335,11 +335,23 @@ measuring on the prod snapshot or driving the page in a browser.
 
 ### Default order is by category — `annotate_product_rows(by_category=True)`
 
-With no `sort` and no search term, rows are ordered by category tree position and
-`table.html` puts a breadcrumb header row over each group (and over row 1 of every page).
-`ProductPage.groups_by_category()` is the one switch. The view decides it, not the
-template, because `table.html` is also the HTMX fragment. The key is chosen by
-measurement on the snapshot:
+With no `sort`, rows are ordered by category tree position and `table.html` puts a
+breadcrumb header row over each group (and over row 1 of every page).
+`ProductPage.groups_by_category()` is the one switch, and only a column sort turns it
+off. The view decides it, not the template, because `table.html` is also the HTMX
+fragment.
+
+**Search keeps the groups** (the owner's call, 2026-09-22):
+`ProductPage.get_table_data` reorders the ranked queryset with
+`best_match_groups_first` — groups by `MAX(rank) OVER (PARTITION BY category_key)`,
+then `category_key`, then `rank`, all `nulls_last`. Plain relevance order would put a
+header over nearly every row, and plain tree order would push the best match onto a
+later page. The trade-off is accepted: a group's weak matches come before a stronger
+match from the next group. `search_method` still ranks through `filters.ranked`
+unchanged — the cart's `MainProductFilter` shares it. The regrouping happens only on
+this page, after the filterset. About 110–130 ms per page on the snapshot.
+
+The key is chosen by measurement on the snapshot:
 
 - **Not a correlated subquery.** `ORDER BY (SELECT … FROM categories WHERE product_id = p.id …)`
   runs on all 158k rows: 8 s with the m2m seq-scanned, ~1.1 s when forced onto the index.
@@ -363,6 +375,22 @@ measurement on the snapshot:
 - Header paths come from the categories prefetch, now
   `Prefetch(..., Category.objects.select_related(CATEGORY_LABEL_DEPTH))` in
   `_base_queryset`. Walking `parent` without it is a query per level.
+- **The paginator's `count()` keeps the `total_stock` subquery** in its inner select,
+  because it is a non-aggregate annotation. Postgres drops the unused output, so the
+  count stays at ~70–120 ms. Time the SQL Django actually emits
+  (`CaptureQueriesContext`), not a hand-written count — a hand-written one is how
+  this went unchecked.
+
+### Search and filters have to include each other
+
+The filter form carries `hx-include="#products-search"` (`filters.py` `build_helper`),
+and the search form carries `hx-include="#product-filter"` (`list.html`). The second
+half was missing until 2026-09-22: typing a search sent only `search=`, so the panel
+still showed ticked filters while the results and the pushed URL ignored them.
+`test_search_form_sends_the_filters_along` guards it. Any new control that `hx-get`s
+`products` needs both selectors, as `columns_picker.html` already does. Neither form
+carries `sort`, so a search or a filter change drops a column sort and grouping comes
+back — an existing behaviour, left alone.
 
 ## Filling the mirror from PIM — `load_pim_mirror`
 

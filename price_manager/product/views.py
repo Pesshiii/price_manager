@@ -15,7 +15,10 @@ from supplier_product_manager.models import SupplierProduct
 from .columns import PRODUCT_COLUMN_GROUPS, load_columns, save_columns
 from .filters import CATEGORY_LABEL_DEPTH, ProductFilter, search_terms
 from .models import Category, Product
-from .tables import ProductTable, SupplierRowTable, annotate_product_rows, with_category_headers
+from .tables import (
+    ProductTable, SupplierRowTable, annotate_product_rows, best_match_groups_first,
+    with_category_headers,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -91,17 +94,28 @@ class ProductPage(SingleTableMixin, FilterView):
     def groups_by_category(self):
         """Выдача по категориям — порядок по умолчанию.
 
-        Выключается сортировкой по колонке и поиском: у обоих свой порядок
-        (выбранный пользователем и по релевантности), и заголовки категорий
-        посреди него резали бы выдачу на куски. Поиск свой порядок наводит сам
-        (filters.ranked), сортировка по колонке — тоже (django-tables2), так
-        что здесь решается только одно: считать ли ключ категории и рисовать
-        ли заголовки. Имя параметра сортировки — из Meta таблицы: таблицы в
-        момент get_queryset ещё нет.
+        Выключает её только сортировка по колонке: пользователь выбрал свой
+        порядок, и заголовки категорий посреди него резали бы выдачу на куски.
+        Поиск её не выключает — он лишь переставляет группы по лучшему
+        совпадению (get_table_data). Имя параметра сортировки — из Meta
+        таблицы: таблицы в момент get_queryset ещё нет.
         """
         sort_field = ProductTable._meta.prefix + ProductTable._meta.order_by_field
-        return (not self.request.GET.get(sort_field)
-                and not search_terms(self.request.GET.get('search')))
+        return not self.request.GET.get(sort_field)
+
+    def get_table_data(self):
+        """Поиск в выдаче по категориям: группа с лучшим совпадением — первой.
+
+        search_method уже заменил порядок по категориям порядком по
+        релевантности (filters.ranked), и заголовки над ним пошли бы почти над
+        каждой строкой. Порядок по категориям в дереве, наоборот, увёл бы
+        лучшее совпадение на дальнюю страницу. Здесь — середина: группы по
+        лучшему совпадению, внутри группы — по релевантности.
+        """
+        data = super().get_table_data()
+        if self.groups_by_category() and search_terms(self.request.GET.get('search')):
+            data = best_match_groups_first(data)
+        return data
 
     def selected_columns(self):
         """Выбор колонок: из запроса — сохраняется, иначе — сохранённый ранее.
