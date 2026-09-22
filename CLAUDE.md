@@ -203,6 +203,15 @@ worth having.
 Apps with no keeper (`file_manager`, `api_auth`, `pim_api`, `blogapp`) are too
 small to justify one; anything important about them belongs in this file.
 
+**The PIM itself has a consultant, not a keeper.** `pim-docs` answers what
+AtroCore/AtroPIM *documents* and what *our instance's* schema says: it reads
+help.atrocore.com as markdown from the public GitHub mirror, pinned to
+`DOCS_REF` in `.claude/tools/pim_docs.py`, and makes read-only GETs of the
+instance's `/api/metadata` and `/openapi.json`. It keeps no knowledge file.
+What we learn about *our* integration still goes to `main-product-keeper` /
+`product-keeper`. **When the PIM is upgraded, bump `DOCS_REF`.**
+`pim_docs.py instance version` reports a mismatch.
+
 ## Conventions
 
 - **UI strings are Russian.** Model `verbose_name`s, `Meta.verbose_name`, form labels, and template copy are all Russian — match that when adding models or screens. Code identifiers and comments are English.
