@@ -7,7 +7,10 @@
       "Bash(docker compose config)",
       "Bash(docker compose config *)",
       "Bash(docker info)",
-      "Bash(docker info *)"
+      "Bash(docker info *)",
+      "Bash(python .claude/tools/pim_docs.py *)",
+      "Bash(python */.claude/tools/pim_docs.py *)",
+      "WebFetch(domain:help.atrocore.com)"
     ],
     "deny": [
       "Read(.env)",
