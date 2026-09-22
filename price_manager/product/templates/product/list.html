@@ -6,135 +6,724 @@
 {% endblock %}
 
 {% block style %}
-  #products-block {
-    --bs-gutter-x: 0;
+  {% comment %}
+    Все правила — под .products-page. Панель фильтров и её поля (checkbox_field,
+    category_tree_field) общие с корзиной и «Привязать из ГП», а base.html
+    подключается всеми страницами: глобальное правило отсюда перекрасило бы и
+    их. Классы filter-scroll-list / filter-check-item / filter-actions
+    стилизовала старая главная; с её удалением в Phase 2b они остались в
+    разметке без единого правила — отсюда неограниченные списки фасетов и
+    скрытая половина панели.
+  {% endcomment %}
+  .products-page {
+    --pm-nav-h: 57px;
+    --pm-page-bg: #f4f5f7;
+    --pm-surface: #fff;
+    --pm-line: #e4e7ec;
+    --pm-line-soft: #eef0f3;
+    --pm-muted: #667085;
+    --pm-hover: #f6f8fb;
+    --pm-selected: #eef3ff;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    gap: 1.5rem;
+    padding: 1rem 1rem 2rem;
+    min-height: calc(100vh - var(--pm-nav-h));
+    background: var(--pm-page-bg);
   }
 
-  .product-filters-card {
-    position: sticky;
-    top: 88px;
-    max-height: calc(100vh - 120px);
-    overflow: auto;
-    scrollbar-width: none;
-    -ms-overflow-style: none;
+  @media (min-width: 992px) {
+    .products-page {
+      grid-template-columns: 300px minmax(0, 1fr);
+      padding: 1.5rem;
+    }
   }
 
-  .product-filters-card::-webkit-scrollbar {
-    display: none;
+  /* --- Панель фильтров ------------------------------------------------- */
+
+  @media (min-width: 992px) {
+    .products-sidebar .offcanvas-body {
+      height: 100%;
+      align-items: flex-start;
+    }
+
+    .products-sidebar .product-filters-card {
+      position: sticky;
+      top: calc(var(--pm-nav-h) + 1.5rem);
+      width: 100%;
+      max-height: calc(100vh - var(--pm-nav-h) - 3rem);
+      overflow-y: auto;
+      scrollbar-width: thin;
+      scrollbar-color: #cdd2da transparent;
+      border-radius: 0.75rem;
+    }
   }
 
-  .product-filters-card .card {
-    border: 1px solid #e9ecef;
-    border-radius: 1rem;
-    box-shadow: 0 0.5rem 1.5rem rgba(15, 23, 42, 0.06);
+  .products-sidebar .product-filters-card {
+    width: 100%;
   }
 
-  .filter-header h5 {
+  .products-sidebar .card {
+    padding: 1rem !important;
+    border: 1px solid var(--pm-line);
+    border-radius: 0.75rem;
+    background: var(--pm-surface);
+  }
+
+  @media (max-width: 991.98px) {
+    .products-sidebar .card {
+      border: 0;
+      padding: 0 !important;
+    }
+
+    .products-sidebar .filter-header {
+      display: none !important;
+    }
+  }
+
+  .products-sidebar .filter-header h5 {
+    font-size: 1rem;
     font-weight: 600;
   }
 
-  .filter-section {
-    padding: 0.9rem 0;
-    border-bottom: 1px solid #f1f3f5;
+  .products-sidebar .filter-section {
+    padding: 0.85rem 0;
+    border-bottom: 1px solid var(--pm-line-soft);
   }
 
-  .filter-section-last {
-    border-bottom: none;
+  .products-sidebar .filter-section-last {
+    border-bottom: 0;
   }
 
-  .filter-section-title {
-    font-size: 0.8rem;
-    font-weight: 600;
-    text-transform: uppercase;
-    letter-spacing: 0.03em;
-    color: #6c757d;
-    margin-bottom: 0.6rem;
-  }
-
-  .product-suppliers-row > td {
-    background-color: #f8f9fa;
+  .products-sidebar .filter-section-title {
+    float: none;
+    width: auto;
+    margin-bottom: 0.5rem;
     padding: 0;
+    border: 0;
+    font-size: 0.72rem;
+    font-weight: 600;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    color: var(--pm-muted);
   }
 
-  .product-suppliers-row table {
-    margin-bottom: 0;
+  .products-sidebar .filter-switch .form-check-input {
+    width: 2.25em;
+    cursor: pointer;
+  }
+
+  .products-sidebar .filter-switch .form-check-label {
+    font-weight: 500;
+    cursor: pointer;
+  }
+
+  .products-sidebar .price-range > * {
+    flex: 1 1 0;
+    min-width: 0;
+  }
+
+  .products-sidebar .price-range label {
+    margin: 0 0 0.25rem !important;
+    font-size: 0.8rem;
+    color: var(--pm-muted);
+  }
+
+  .products-sidebar .price-range .form-control {
+    padding: 0.3rem 0.6rem;
+    font-size: 0.875rem;
+  }
+
+  .products-sidebar .filter-scroll-list {
+    max-height: 13.5rem;
+    overflow-y: auto;
+    padding: 0.25rem;
+    border: 1px solid var(--pm-line-soft);
+    border-radius: 0.5rem;
+    background: #fafbfc;
+    scrollbar-width: thin;
+  }
+
+  .products-sidebar .filter-check-item {
+    display: flex;
+    align-items: flex-start;
+    gap: 0.5rem;
+    margin: 0 !important;
+    padding: 0.25rem 0.4rem;
+    min-height: 0;
+    border-radius: 0.375rem;
+  }
+
+  .products-sidebar .filter-check-item:hover {
+    background: var(--pm-selected);
+  }
+
+  .products-sidebar .filter-check-item .form-check-input {
+    float: none;
+    flex-shrink: 0;
+    margin: 0.15em 0 0;
+    cursor: pointer;
+  }
+
+  .products-sidebar .filter-check-item .form-check-label,
+  .products-sidebar .accordion .form-check-label {
+    font-size: 0.875rem;
+    line-height: 1.3;
+    cursor: pointer;
+  }
+
+  .products-sidebar .filter-check-item:has(.form-check-input:checked) .form-check-label {
+    font-weight: 600;
+  }
+
+  .products-sidebar .accordion {
+    --bs-accordion-bg: transparent;
+    --bs-accordion-active-bg: transparent;
+    --bs-accordion-active-color: inherit;
+    --bs-accordion-btn-focus-box-shadow: none;
+    --bs-accordion-btn-padding-y: 0.35rem;
+    --bs-accordion-body-padding-y: 0.15rem;
+    --bs-accordion-body-padding-x: 0.75rem;
+  }
+
+  .products-sidebar .accordion-header .form-check {
+    flex: 1 1 auto;
+    min-width: 0;
+    padding-top: 0.2rem;
+    padding-bottom: 0.2rem;
+  }
+
+  .products-sidebar .accordion-header .accordion-button.flex-grow-1 {
+    flex: 0 0 auto !important;
+    width: auto;
+    padding: 0.35rem 0.4rem;
+    background: transparent;
+  }
+
+  .products-sidebar .accordion-header .accordion-button::after {
+    width: 1rem;
+    height: 1rem;
+    background-size: 1rem;
+  }
+
+  .products-sidebar .filter-actions {
+    position: sticky;
+    bottom: 0;
+    z-index: 3;
+    margin: 0.75rem -1rem -1rem;
+    padding: 0.75rem 1rem 1rem;
+    background: var(--pm-surface);
+    border-top: 1px solid var(--pm-line);
+    border-radius: 0 0 0.75rem 0.75rem;
+  }
+
+  /* --- Шапка, поиск, полоса результатов -------------------------------- */
+
+  .products-header {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.75rem 1rem;
+    margin-bottom: 1rem;
+  }
+
+  .products-header h1 {
+    margin: 0;
+    font-size: 1.5rem;
+    font-weight: 600;
+  }
+
+  .products-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+  }
+
+  .products-search .input-group-text {
+    padding-left: 0.9rem;
+    background: var(--pm-surface);
+    border-right: 0;
+    color: var(--pm-muted);
+  }
+
+  .products-search .form-control {
+    padding: 0.65rem 0.75rem 0.65rem 0.25rem;
+    border-left: 0;
+    font-size: 1rem;
+  }
+
+  .products-search .form-control:focus {
+    box-shadow: none;
+  }
+
+  .products-search .input-group {
+    border-radius: 0.6rem;
+    box-shadow: 0 1px 2px rgba(16, 24, 40, 0.05);
+  }
+
+  .products-search .input-group:focus-within {
+    box-shadow: 0 0 0 0.2rem rgba(13, 110, 253, 0.15);
+  }
+
+  .products-search .input-group:focus-within > * {
+    border-color: #86b7fe;
+  }
+
+  {% comment %}
+    Крестик очистки. type="text", а не "search": у type="search" крестик есть
+    только в Chrome/Edge и без стилизации, здесь — свой, одинаковый везде.
+    Скрыт, пока поле пустое (.has-value ставит скрипт), border-radius: inherit
+    берёт готовое значение с .input-group, а не дублирует 0.6rem руками.
+  {% endcomment %}
+  .products-search .search-clear {
+    display: none;
+    align-items: center;
+    padding: 0 0.9rem;
+    border: 0;
+    border-top-right-radius: inherit;
+    border-bottom-right-radius: inherit;
+    background: var(--pm-surface);
+    color: var(--pm-muted);
+  }
+
+  .products-search .search-clear:hover {
+    color: var(--bs-body-color);
+  }
+
+  .products-search.has-value .search-clear {
+    display: inline-flex;
+  }
+
+  .products-resultbar {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.25rem 1rem;
+    margin: 0.85rem 0 0.6rem;
+    font-size: 0.8125rem;
+    color: var(--pm-muted);
+  }
+
+  .products-resultbar strong {
+    font-weight: 600;
+    color: var(--bs-body-color);
   }
 
   .coverage-note {
-    font-size: 0.85rem;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.35rem;
+  }
+
+  .coverage-note [title] {
+    cursor: help;
+    text-decoration: underline dotted;
+    text-underline-offset: 3px;
+  }
+
+  #products-results {
+    position: relative;
+  }
+
+  #products-results::before {
+    content: '';
+    position: absolute;
+    top: -0.35rem;
+    left: 0;
+    width: 0;
+    height: 2px;
+    border-radius: 2px;
+    background: var(--bs-primary);
+    opacity: 0;
+  }
+
+  #products-results.htmx-request::before {
+    opacity: 1;
+    animation: products-progress 1.1s ease-in-out infinite;
+  }
+
+  #products-results.htmx-request #products-table {
+    opacity: 0.5;
+    pointer-events: none;
+    transition: opacity 0.15s ease;
+  }
+
+  @keyframes products-progress {
+    0% { left: 0; width: 0; }
+    50% { left: 20%; width: 60%; }
+    100% { left: 100%; width: 0; }
+  }
+
+  /* --- Таблица товаров --------------------------------------------------- */
+
+  .products-table-card {
+    container-type: inline-size;
+    background: var(--pm-surface);
+    border: 1px solid var(--pm-line);
+    border-radius: 0.75rem;
+  }
+
+  {% comment %}
+    .has-hscroll — не медиа-запрос по ширине экрана (было @media (max-width:
+    1199.98px)), а класс, который скрипт ставит по факту: table.scrollWidth >
+    wrap.clientWidth. Ширина таблицы зависит от того, сколько необязательных
+    колонок выбрано (product/columns.py), а не от экрана — при нескольких
+    включённых колонках таблица не помещалась и ВЫШЕ 1200px, где медиа-запрос
+    уже не действовал, и она вылезала за карточку на страницу без прокрутки.
+  {% endcomment %}
+  .products-table-wrap.has-hscroll {
+    overflow-x: auto;
+    border-radius: 0.75rem;
+  }
+
+  .products-table {
+    --bs-table-bg: transparent;
+    font-size: 0.875rem;
+  }
+
+  .products-table > thead > tr > th {
+    padding: 0.6rem 0.75rem;
+    background: #f8f9fb;
+    border-bottom: 1px solid var(--pm-line);
+    font-size: 0.72rem;
+    font-weight: 600;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    white-space: nowrap;
+    color: var(--pm-muted);
+  }
+
+  .products-table > thead > tr > th:first-child {
+    border-top-left-radius: 0.75rem;
+  }
+
+  .products-table > thead > tr > th:last-child {
+    border-top-right-radius: 0.75rem;
+  }
+
+  {% comment %}
+    Липкая шапка — только пока у таблицы нет своей горизонтальной прокрутки
+    (.has-hscroll, см. выше): overflow-x делает обёртку контейнером прокрутки,
+    и sticky тогда отсчитывается от неё, а не от окна — шапка съезжает на строки.
+  {% endcomment %}
+  .products-table-wrap:not(.has-hscroll) .products-table > thead > tr > th {
+    position: sticky;
+    top: var(--pm-nav-h);
+    z-index: 2;
+  }
+
+  .products-table .sort-link {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.3rem;
+    color: inherit;
+    text-decoration: none;
+  }
+
+  .products-table .sort-link:hover,
+  .products-table .sort-link.is-active {
+    color: var(--bs-body-color);
+  }
+
+  .products-table .sort-link .bi {
+    font-size: 0.7rem;
+    opacity: 0.5;
+  }
+
+  .products-table .sort-link.is-active .bi {
+    color: var(--bs-primary);
+    opacity: 1;
+  }
+
+  .products-table > tbody > tr.product-row > td {
+    padding: 0.55rem 0.75rem;
+    border-bottom: 1px solid var(--pm-line-soft);
+  }
+
+  .products-table > tbody > tr.product-row {
+    cursor: pointer;
+  }
+
+  .products-table > tbody > tr.product-row:hover > td {
+    background: var(--pm-hover);
+  }
+
+  .products-table > tbody > tr.product-row.is-expanded > td {
+    background: var(--pm-selected);
+    border-bottom-color: transparent;
+  }
+
+  .products-table > tbody > tr.product-row:nth-last-child(2) > td {
+    border-bottom: 0;
+  }
+
+  .products-table .col-expand {
+    width: 2.5rem;
+    padding-right: 0 !important;
+    padding-left: 0.5rem !important;
+  }
+
+  .products-table .btn-expand {
+    --bs-btn-padding-x: 0.35rem;
+    --bs-btn-padding-y: 0.1rem;
+    border: 0;
+    color: var(--pm-muted);
+  }
+
+  .products-table .btn-expand:hover,
+  .products-table .btn-expand:focus-visible {
+    background: #e6ebf3;
+    color: var(--bs-body-color);
+  }
+
+  .products-table .btn-expand .bi {
+    display: inline-block;
+    transition: transform 0.15s ease;
+  }
+
+  .products-table .btn-expand[aria-expanded="true"] .bi {
+    transform: rotate(90deg);
+    color: var(--bs-primary);
+  }
+
+  .products-table .col-name {
+    min-width: 16rem;
+  }
+
+  .products-table .product-name {
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+    line-height: 1.35;
+    font-weight: 500;
+  }
+
+  .products-table .product-meta {
+    max-width: 40rem;
+    margin-top: 0.1rem;
+    overflow: hidden;
+    font-size: 0.75rem;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+    color: var(--pm-muted);
+  }
+
+  .products-table .col-number {
+    font-family: var(--bs-font-monospace);
+    font-size: 0.8125rem;
+    white-space: nowrap;
+    color: #344054;
+  }
+
+  .products-table .col-num {
+    text-align: right;
+    white-space: nowrap;
+    font-variant-numeric: tabular-nums;
+  }
+
+  .products-table .stock-in {
+    font-weight: 600;
+    color: #15803d;
+  }
+
+  /* --- Строки поставщиков под товаром ------------------------------------ */
+
+  .products-table > tbody > tr.product-suppliers-row > td {
+    padding: 0 !important;
+    background: var(--pm-selected);
+    border-bottom: 1px solid var(--pm-line-soft);
+  }
+
+  {% comment %}
+    max-width от ширины карточки (100cqi): ячейка с colspan не ограничивает
+    своё содержимое, и широкая таблица поставщиков иначе растягивала всю
+    таблицу товаров за край карточки. Так она прокручивается внутри себя.
+  {% endcomment %}
+  .product-suppliers-panel {
+    max-width: calc(100cqi - 3.25rem - 2px);
+    margin: 0 0.75rem 0.75rem 2.5rem;
+    overflow-x: auto;
+    background: var(--pm-surface);
+    border: 1px solid #d9e2f3;
+    border-radius: 0.5rem;
+  }
+
+  .product-suppliers-panel:empty::before {
+    content: 'Загрузка поставщиков…';
+    display: block;
+    padding: 0.75rem 1rem;
+    font-size: 0.8125rem;
+    color: var(--pm-muted);
+  }
+
+  .product-suppliers-panel .suppliers-table {
+    --bs-table-bg: transparent;
+    font-size: 0.8125rem;
+  }
+
+  .product-suppliers-panel .suppliers-table > thead > tr > th {
+    padding: 0.45rem 0.6rem;
+    background: #fafbfd;
+    font-size: 0.68rem;
+    font-weight: 600;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    white-space: nowrap;
+    color: var(--pm-muted);
+  }
+
+  .product-suppliers-panel .suppliers-table > tbody > tr > td {
+    padding: 0.45rem 0.6rem;
+    white-space: nowrap;
+  }
+
+  .product-suppliers-panel .suppliers-table > tbody > tr > td.col-wrap {
+    min-width: 14rem;
+    white-space: normal;
+  }
+
+  .product-suppliers-panel .suppliers-table > tbody > tr:last-child > td {
+    border-bottom: 0;
+  }
+
+  /* --- Пагинация и пустое состояние ------------------------------------- */
+
+  .products-pagination {
+    display: flex;
+    justify-content: center;
+    margin-top: 1rem;
+  }
+
+  .products-pagination .page-link {
+    min-width: 2.1rem;
+    margin: 0 0.125rem;
+    border-color: var(--pm-line);
+    border-radius: 0.375rem !important;
+    text-align: center;
+    color: var(--bs-body-color);
+  }
+
+  .products-pagination .page-item.active .page-link {
+    color: #fff;
+  }
+
+  .products-pagination .page-item.disabled .page-link {
+    background: transparent;
+    color: var(--pm-muted);
+  }
+
+  .products-empty {
+    padding: 3.5rem 1rem;
+    text-align: center;
+    color: var(--pm-muted);
   }
 {% endblock %}
 
 {% block body %}
-  <div id="products-block" class="row gap-2 p-4">
+  <div class="products-page">
 
-    <div class="col-12 col-lg-3">
-      <div id="product-filters-card" class="product-filters-card"
-           hx-get="{% url 'product-filter' %}{% querystring %}"
-           hx-trigger="load"
-           hx-swap="innerHTML">
-        <div class="card p-3 pe-1">
-          <div class="placeholder-glow">
-            <span class="placeholder col-7 mb-2"></span>
-            <span class="placeholder col-10 mb-2"></span>
-            <span class="placeholder col-8"></span>
+    {% comment %}
+      На широком экране — липкая колонка слева, на узком — выезжающая панель
+      за кнопкой «Фильтры»: иначе на телефоне все фасеты стоят перед первым
+      товаром.
+    {% endcomment %}
+    <aside id="products-filters" class="products-sidebar offcanvas-lg offcanvas-start"
+           tabindex="-1" aria-labelledby="products-filters-title">
+      <div class="offcanvas-header border-bottom">
+        <h2 class="offcanvas-title h5 mb-0" id="products-filters-title">Фильтры</h2>
+        <button type="button" class="btn-close" data-bs-dismiss="offcanvas"
+                data-bs-target="#products-filters" aria-label="Закрыть"></button>
+      </div>
+      <div class="offcanvas-body">
+        <div id="product-filters-card" class="product-filters-card"
+             hx-get="{% url 'product-filter' %}{% querystring %}"
+             hx-trigger="load"
+             hx-swap="innerHTML">
+          <div class="card">
+            <div class="placeholder-glow">
+              <span class="placeholder col-7 mb-3"></span>
+              <span class="placeholder col-10 mb-2"></span>
+              <span class="placeholder col-8 mb-2"></span>
+              <span class="placeholder col-9"></span>
+            </div>
           </div>
         </div>
       </div>
-    </div>
+    </aside>
 
-    <div class="col-12 col-lg-8 ps-lg-4">
-      <div class="d-flex align-items-center justify-content-between flex-wrap gap-2 mb-3">
-        <h1 class="h2 fw-semibold mb-0">Товары</h1>
-        <div class="d-flex gap-2">
-          {% include 'product/partials/columns_picker.html' %}
+    <section class="products-main">
+      <div class="products-header">
+        <h1>Товары</h1>
+        <div class="products-actions">
           <button type="button"
-                  class="btn btn-outline-primary"
-                  title="Добавить товар"
+                  class="btn btn-outline-secondary d-lg-none"
+                  data-bs-toggle="offcanvas"
+                  data-bs-target="#products-filters"
+                  aria-controls="products-filters">
+            <i class="bi bi-sliders" aria-hidden="true"></i> Фильтры
+          </button>
+          {% include 'product/partials/columns_picker.html' %}
+          {% comment %}
+            hx-swap="none": ответ — HX-Refresh, страница перезагрузится сама,
+            а сообщение «Синхронизация запущена» покажет django.contrib.messages.
+            Вторичная кнопка, а не primary: это фоновая работа над всем
+            прайсом, а не действие, ради которого приходят на страницу.
+          {% endcomment %}
+          <button type="button"
+                  class="btn btn-outline-secondary"
+                  title="Обновить цены, остатки и векторы"
+                  aria-label="Синхронизировать"
+                  hx-get="{% url 'mainproducts-sync' %}"
+                  hx-swap="none">
+            <i class="bi bi-arrow-repeat" aria-hidden="true"></i><span class="d-none d-sm-inline"> Синхронизировать</span>
+          </button>
+          <button type="button"
+                  class="btn btn-primary"
                   data-bs-toggle="modal"
                   data-bs-target="#modal-container"
                   hx-get="{% url 'mainproduct-create' %}"
                   hx-target="#modal-container .modal-content"
                   hx-swap="innerHTML">
-            Добавить товар
-          </button>
-          {% comment %}
-            hx-swap="none": ответ — HX-Refresh, страница перезагрузится сама,
-            а сообщение «Синхронизация запущена» покажет django.contrib.messages.
-          {% endcomment %}
-          <button type="button"
-                  class="btn btn-primary"
-                  title="Обновить цены, остатки и векторы"
-                  hx-get="{% url 'mainproducts-sync' %}"
-                  hx-swap="none">
-            Обновить
+            <i class="bi bi-plus-lg" aria-hidden="true"></i> Добавить товар
           </button>
         </div>
       </div>
 
       <form id="products-search-form"
+            class="products-search"
+            role="search"
             hx-get="{% url 'products' %}"
             hx-target="#products-table"
             hx-swap="outerHTML"
             hx-push-url="true"
+            hx-indicator="#products-results"
             hx-trigger="input changed delay:500ms from:#products-search, submit">
-        <div class="input-group mb-3">
-          <span class="input-group-text"><i class="bi bi-search"></i></span>
+        <div class="input-group">
+          <span class="input-group-text"><i class="bi bi-search" aria-hidden="true"></i></span>
           {{ filter.form.search }}
+          <button type="button" class="search-clear" aria-label="Очистить поиск" title="Очистить поиск">
+            <i class="bi bi-x-lg" aria-hidden="true"></i>
+          </button>
         </div>
       </form>
 
-      {% include 'product/partials/coverage_note.html' %}
-      {% include 'product/partials/table.html' %}
-    </div>
+      <div id="products-results">
+        {% include 'product/partials/table.html' %}
+      </div>
+    </section>
   </div>
 
   {% comment %}
     Контейнер модалок: «Добавить товар» и «В заявку» из строк поставщиков
-    открываются в нём. На старой главной он жил в её list.html.
+    открываются в нём. modal-xl — модификатор .modal-dialog, а не .modal:
+    на .modal он ничего не делает, и окно открывалось стандартной ширины.
   {% endcomment %}
-  <div id="modal-container" class="modal modal-xl fade" tabindex="-1" aria-hidden="true">
-    <div class="modal-dialog">
+  <div id="modal-container" class="modal fade" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-xl">
       <div class="modal-content">
         <div class="container d-flex justify-content-center mb-4 mt-4">
           <div class="spinner-grow" role="status"></div>
@@ -148,43 +737,109 @@
 
 {% block script %}
 <script>
-  // Раскрытие поставщиков. Строка-контейнер уже лежит в разметке сразу за
-  // строкой товара и пуста — наполняем её по требованию.
-  //
-  // Запрос делается ЗДЕСЬ, а не через hx-get на кнопке. hx-get сработал бы на
-  // каждый клик, включая сворачивающий: строка честно пряталась, но следом
-  // приходил ответ и наполнял её заново. Лишний запрос на каждое сворачивание
-  // и контент, живущий в скрытой строке.
-  //
-  // Сворачивание чистит контейнер, чтобы следующее раскрытие сходило за
-  // свежими ценами: их меняют прайсы поставщиков, и показать устаревшие хуже,
-  // чем сходить второй раз.
-  document.body.addEventListener('click', function (event) {
-    const button = event.target.closest('.product-expand');
-    if (!button) return;
+  (function () {
+    // Высота липкой навигации — отступ для липких панели фильтров и шапки
+    // таблицы. Меряется, а не зашивается: меню переносится на узких экранах.
+    const page = document.querySelector('.products-page');
+    const nav = document.querySelector('nav.navbar.sticky-top');
+    const syncNavHeight = function () {
+      if (page && nav) page.style.setProperty('--pm-nav-h', nav.offsetHeight + 'px');
+    };
+    syncNavHeight();
+    window.addEventListener('resize', syncNavHeight);
 
-    const suppliersRow = button.closest('tr').nextElementSibling;
-    if (!suppliersRow || !suppliersRow.classList.contains('product-suppliers-row')) return;
+    // Прокрутка таблицы товаров — по факту её ширины, не по ширине экрана:
+    // сколько колонок включено, решает выбор колонок, а не экран. Класс
+    // .has-hscroll (CSS выше) даёт таблице свою прокрутку и глушит sticky-шапку
+    // только когда она правда не помещается — иначе шапка остаётся липкой.
+    const syncTableScroll = function () {
+      document.querySelectorAll('.products-table-wrap').forEach(function (wrap) {
+        const table = wrap.querySelector('.products-table');
+        if (!table) return;
+        wrap.classList.toggle('has-hscroll', table.scrollWidth > wrap.clientWidth + 1);
+      });
+    };
+    syncTableScroll();
+    window.addEventListener('resize', syncTableScroll);
+    document.body.addEventListener('htmx:afterSettle', function (event) {
+      if (event.target.id === 'products-table' || event.target.closest('#products-table')) {
+        syncTableScroll();
+      }
+    });
 
-    const container = suppliersRow.querySelector('div');
-    const icon = button.querySelector('i');
-    const collapsed = suppliersRow.classList.contains('d-none');
+    // Крестик очистки поиска — виден сразу при открытии страницы по ссылке с
+    // ?search=…, не только после первого ввода.
+    const searchForm = document.getElementById('products-search-form');
+    const searchInput = document.getElementById('products-search');
+    const syncSearchClear = function () {
+      if (searchForm && searchInput) {
+        searchForm.classList.toggle('has-value', searchInput.value.trim() !== '');
+      }
+    };
+    syncSearchClear();
+    if (searchInput) searchInput.addEventListener('input', syncSearchClear);
+    document.body.addEventListener('click', function (event) {
+      if (!event.target.closest('.search-clear') || !searchInput) return;
+      searchInput.value = '';
+      searchInput.dispatchEvent(new Event('input', { bubbles: true }));
+      searchInput.focus();
+    });
 
-    if (collapsed) {
-      suppliersRow.classList.remove('d-none');
-      icon.classList.replace('bi-chevron-down', 'bi-chevron-up');
-      button.setAttribute('aria-expanded', 'true');
-      button.setAttribute('title', 'Скрыть поставщиков');
-      button.setAttribute('aria-label', 'Скрыть поставщиков');
-      htmx.ajax('GET', button.dataset.suppliersUrl, { target: container, swap: 'innerHTML' });
-    } else {
-      suppliersRow.classList.add('d-none');
-      container.innerHTML = '';
-      icon.classList.replace('bi-chevron-up', 'bi-chevron-down');
-      button.setAttribute('aria-expanded', 'false');
-      button.setAttribute('title', 'Показать поставщиков');
-      button.setAttribute('aria-label', 'Показать поставщиков');
+    // Раскрытие поставщиков. Строка-контейнер уже лежит в разметке сразу за
+    // строкой товара и пуста — наполняем её по требованию.
+    //
+    // Запрос делается ЗДЕСЬ, а не через hx-get на кнопке. hx-get сработал бы на
+    // каждый клик, включая сворачивающий: строка честно пряталась, но следом
+    // приходил ответ и наполнял её заново. Лишний запрос на каждое сворачивание
+    // и контент, живущий в скрытой строке.
+    //
+    // Сворачивание чистит контейнер, чтобы следующее раскрытие сходило за
+    // свежими ценами: их меняют прайсы поставщиков, и показать устаревшие хуже,
+    // чем сходить второй раз.
+    function toggleSuppliers(button) {
+      const productRow = button.closest('tr');
+      const suppliersRow = productRow.nextElementSibling;
+      if (!suppliersRow || !suppliersRow.classList.contains('product-suppliers-row')) return;
+
+      const container = suppliersRow.querySelector('.product-suppliers-panel');
+      const collapsed = suppliersRow.classList.contains('d-none');
+      const label = collapsed ? 'Скрыть поставщиков' : 'Показать поставщиков';
+
+      suppliersRow.classList.toggle('d-none', !collapsed);
+      productRow.classList.toggle('is-expanded', collapsed);
+      button.setAttribute('aria-expanded', collapsed ? 'true' : 'false');
+      button.setAttribute('title', label);
+      button.setAttribute('aria-label', label);
+
+      if (collapsed) {
+        htmx.ajax('GET', button.dataset.suppliersUrl, { target: container, swap: 'innerHTML' });
+      } else {
+        container.innerHTML = '';
+      }
     }
-  });
+
+    // Раскрывается вся строка, не только шеврон. Кроме кликов по ссылкам и
+    // кнопкам в ней — и кроме выделения текста: артикул копируют мышью, и
+    // отпускание кнопки после выделения — тоже click.
+    document.body.addEventListener('click', function (event) {
+      let button = event.target.closest('.product-expand');
+      if (!button) {
+        const row = event.target.closest('tr.product-row');
+        if (!row || event.target.closest('a, button, input, label, select, textarea')) return;
+        if (String(window.getSelection())) return;
+        button = row.querySelector('.product-expand');
+        if (!button) return;
+      }
+      toggleSuppliers(button);
+    });
+
+    // «Применить» на телефоне закрывает панель — иначе результат остаётся под ней.
+    document.body.addEventListener('submit', function (event) {
+      if (event.target.id !== 'product-filter') return;
+      const panel = document.getElementById('products-filters');
+      const offcanvas = window.bootstrap && bootstrap.Offcanvas.getInstance(panel);
+      if (offcanvas) offcanvas.hide();
+    });
+  })();
 </script>
 {% endblock %}

@@ -23,8 +23,9 @@ logger = logging.getLogger(__name__)
 def _base_queryset():
     """Товары для страницы.
 
-    select_related('brand') и prefetch категорий — колонки таблицы ходят в обе
-    связи на каждой строке, без этого страница даёт N+1 на обеих.
+    select_related('brand') и prefetch категорий — ячейка названия выводит под
+    ним бренд и категории (ProductTable.render_display_name) на каждой строке,
+    без этого страница даёт N+1 на обеих связях.
     """
     return annotate_product_rows(
         Product.objects.select_related('brand').prefetch_related('categories')
@@ -107,6 +108,12 @@ class ProductPage(SingleTableMixin, FilterView):
         context['selected_columns'] = self.selected_columns()
         context['unlinked_main_products'] = unlinked_main_product_count()
         context['unsynced_products'] = Product.objects.filter(raw_data={}).count()
+        # Номера страниц с многоточиями (1 … 4 5 6 … 6314): в шаблоне вызвать
+        # метод с аргументами нельзя, поэтому диапазон считается здесь.
+        table = context['table']
+        if table.page:
+            context['page_range'] = table.paginator.get_elided_page_range(
+                table.page.number, on_each_side=1, on_ends=1)
         return context
 
 

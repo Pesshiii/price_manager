@@ -6,66 +6,104 @@
 
   Блочный {% comment %}, а не {# #}: однострочный комментарий не закрывается
   переносом строки, и теги внутри него разбираются как настоящие.
+
+  Счётчик результатов и заметка о покрытии живут ВНУТРИ #products-table: этот
+  блок целиком заменяется ответом на поиск, фильтр и выбор колонок, и цифры
+  должны меняться вместе с выдачей.
 {% endcomment %}
 <div id="products-table">
+  <div class="products-resultbar">
+    <div class="products-count">
+      {% if table.page %}
+        Показаны <strong>{{ table.page.start_index|floatformat:"g" }}–{{ table.page.end_index|floatformat:"g" }}</strong>
+        из <strong>{{ table.paginator.count|floatformat:"g" }}</strong>
+      {% endif %}
+    </div>
+    {% include 'product/partials/coverage_note.html' %}
+  </div>
+
   {% if table.paginated_rows %}
-    <div class="table-responsive">
-      <table {{ table.attrs.as_html }}>
-        <thead>
-          <tr>
-            {% for column in table.columns %}
-              <th {{ column.attrs.th.as_html }}>
-                {% if column.orderable %}
-                  <a href="{% querystring table.prefixed_order_by_field=column.order_by_alias.next %}">{{ column.header }}</a>
-                {% else %}
-                  {{ column.header }}
-                {% endif %}
-              </th>
-            {% endfor %}
-          </tr>
-        </thead>
-        <tbody>
-          {% for row in table.paginated_rows %}
-            <tr {{ row.attrs.as_html }}>
-              {% for column, cell in row.items %}
-                <td {{ column.attrs.td.as_html }}>{{ cell }}</td>
+    <div class="products-table-card">
+      <div class="products-table-wrap">
+        <table {{ table.attrs.as_html }}>
+          <thead>
+            <tr>
+              {% for column in table.columns %}
+                <th {{ column.attrs.th.as_html }}>
+                  {% if column.orderable %}
+                    <a class="sort-link{% if column.is_ordered %} is-active{% endif %}"
+                       href="{% querystring table.prefixed_order_by_field=column.order_by_alias.next %}">
+                      {{ column.header }}
+                      {% if column.is_ordered %}
+                        <i class="bi {% if column.order_by_alias.is_descending %}bi-caret-down-fill{% else %}bi-caret-up-fill{% endif %}" aria-hidden="true"></i>
+                      {% else %}
+                        <i class="bi bi-chevron-expand" aria-hidden="true"></i>
+                      {% endif %}
+                    </a>
+                  {% else %}
+                    {{ column.header }}
+                  {% endif %}
+                </th>
               {% endfor %}
             </tr>
-            <tr class="product-suppliers-row d-none">
-              <td colspan="{{ table.columns|length }}">
-                <div id="product-suppliers-{{ row.record.pk }}"></div>
-              </td>
-            </tr>
-          {% endfor %}
-        </tbody>
-      </table>
+          </thead>
+          <tbody>
+            {% for row in table.paginated_rows %}
+              <tr {{ row.attrs.as_html }}>
+                {% for column, cell in row.items %}
+                  <td {{ column.attrs.td.as_html }}>{{ cell }}</td>
+                {% endfor %}
+              </tr>
+              <tr class="product-suppliers-row d-none">
+                <td colspan="{{ table.columns|length }}">
+                  <div id="product-suppliers-{{ row.record.pk }}" class="product-suppliers-panel"></div>
+                </td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
     </div>
 
     {% if table.page and table.paginator.num_pages > 1 %}
-      <nav aria-label="Постраничная навигация">
-        <ul class="pagination">
-          {% if table.page.has_previous %}
-            <li class="page-item">
-              <a class="page-link" href="{% querystring table.prefixed_page_field=table.page.previous_page_number %}">Назад</a>
-            </li>
-          {% endif %}
-          <li class="page-item disabled">
-            <span class="page-link">
-              Страница {{ table.page.number }} из {{ table.paginator.num_pages }}
-            </span>
+      <nav class="products-pagination" aria-label="Постраничная навигация">
+        <ul class="pagination pagination-sm mb-0">
+          <li class="page-item{% if not table.page.has_previous %} disabled{% endif %}">
+            {% if table.page.has_previous %}
+              <a class="page-link" href="{% querystring table.prefixed_page_field=table.page.previous_page_number %}" aria-label="Предыдущая страница">
+                <i class="bi bi-chevron-left" aria-hidden="true"></i>
+              </a>
+            {% else %}
+              <span class="page-link" aria-hidden="true"><i class="bi bi-chevron-left"></i></span>
+            {% endif %}
           </li>
-          {% if table.page.has_next %}
-            <li class="page-item">
-              <a class="page-link" href="{% querystring table.prefixed_page_field=table.page.next_page_number %}">Вперёд</a>
-            </li>
-          {% endif %}
+          {% for number in page_range %}
+            {% if number == table.paginator.ELLIPSIS %}
+              <li class="page-item disabled"><span class="page-link">…</span></li>
+            {% elif number == table.page.number %}
+              <li class="page-item active" aria-current="page"><span class="page-link">{{ number|floatformat:"g" }}</span></li>
+            {% else %}
+              <li class="page-item">
+                <a class="page-link" href="{% querystring table.prefixed_page_field=number %}">{{ number|floatformat:"g" }}</a>
+              </li>
+            {% endif %}
+          {% endfor %}
+          <li class="page-item{% if not table.page.has_next %} disabled{% endif %}">
+            {% if table.page.has_next %}
+              <a class="page-link" href="{% querystring table.prefixed_page_field=table.page.next_page_number %}" aria-label="Следующая страница">
+                <i class="bi bi-chevron-right" aria-hidden="true"></i>
+              </a>
+            {% else %}
+              <span class="page-link" aria-hidden="true"><i class="bi bi-chevron-right"></i></span>
+            {% endif %}
+          </li>
         </ul>
       </nav>
     {% endif %}
   {% else %}
-    <div class="text-center text-muted py-5">
-      <i class="bi bi-inbox fs-1 d-block mb-2"></i>
-      <p class="mb-1">Ничего не нашлось</p>
+    <div class="products-table-card products-empty">
+      <i class="bi bi-search fs-2 d-block mb-2" aria-hidden="true"></i>
+      <p class="fw-semibold mb-1">Ничего не нашлось</p>
       <p class="small mb-0">Попробуйте изменить запрос или снять часть фильтров.</p>
     </div>
   {% endif %}

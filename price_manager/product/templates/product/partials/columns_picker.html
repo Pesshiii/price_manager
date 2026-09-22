@@ -18,20 +18,28 @@
           data-bs-toggle="dropdown"
           data-bs-auto-close="outside"
           aria-expanded="false">
-    Столбцы
+    <i class="bi bi-layout-three-columns" aria-hidden="true"></i> Столбцы
   </button>
-  <div class="dropdown-menu dropdown-menu-end p-3" style="min-width: 360px; max-height: 55vh; overflow-y: auto;">
+  <div class="dropdown-menu dropdown-menu-end p-3" style="min-width: 360px; max-height: 60vh; overflow-y: auto;">
     <form id="product-columns"
           hx-get="{% url 'products' %}"
           hx-target="#products-table"
           hx-swap="outerHTML"
           hx-push-url="false"
           hx-include="#product-filter, #products-search"
+          hx-indicator="#products-results"
           hx-trigger="change delay:1s">
       <input type="hidden" name="columns" value="">
       {% for group_label, group_choices in column_groups %}
         <div class="mb-2 {% if not forloop.last %}border-bottom pb-2{% endif %}">
-          <div class="small fw-semibold text-muted mb-1">{{ group_label }}</div>
+          {% comment %}
+            Все группы, кроме первой, — колонки таблицы поставщиков, которая
+            видна только в раскрытой строке. Без пометки отметка такой колонки
+            выглядит так, будто ничего не произошло.
+          {% endcomment %}
+          <div class="small fw-semibold text-muted mb-1">
+            {{ group_label }}{% if not forloop.first %} <span class="fw-normal">— в раскрытой строке</span>{% endif %}
+          </div>
           {% for value, label in group_choices %}
             <div class="form-check">
               <input class="form-check-input"
