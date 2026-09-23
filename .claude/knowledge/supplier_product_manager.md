@@ -47,21 +47,25 @@ source-price vocabulary. Adding a price field here means checking that app too.
 
 ## `functions.py` — the pipeline, and it caches aggressively
 
-- `get_df(pk, recache=False)` (`:167`) / `get_df_sheet_names(pk)` (`:153`) read
-  the spreadsheet with pandas.
-- `get_sps(setting_or_pk, recache=False)` (`:334`) is the expensive one. It is
-  keyed by `_get_sps_cache_key(setting, signature)` (`:329`) where the signature
-  comes from `_get_setting_signature(setting)` (`:293`). **If you change what a
+- `get_df(pk, recache=False)` (`:198`) / `get_df_sheet_names(pk)` (`:177`) read
+  the spreadsheet with pandas. `get_df` caches the DataFrame under
+  `_df_cache_key(setting, sf)` (`:191`): setting pk, file pk, **the instance's**
+  `sheet_name` and `index_row`. Until #202 the key interpolated the class
+  attribute `Setting.sheet_name` — one key for every sheet — so switching the
+  sheet served the old sheet's columns until the entry expired.
+- `get_sps(setting_or_pk, recache=False)` (`:365`) is the expensive one. It is
+  keyed by `_get_sps_cache_key(setting, signature)` (`:360`) where the signature
+  comes from `_get_setting_signature(setting)` (`:324`). **If you change what a
   `Setting` or its `Link`s mean, check that the signature covers your new
   field** — otherwise edits silently serve a stale parse. It already covers a
   `Link` being deleted (the signature hashes `setting.links`), so a data
   migration that removes `Link` rows correctly busts every affected Setting's
   sps cache — no manual cache-bump needed for that specific case.
-- `auto_detect_link_keys(columns)` (`:89`) guesses column→field mapping;
-  `_normalize_column_name` (`:82`) is its matcher.
-- `resolve_conflicts(qs)` (`:139`), `load_setting(pk)` (`:424`), and the
-  formset builders `get_linkformset` (`:224`) / `get_dictformset` (`:208`) /
-  `get_indicts` (`:251`) back the mapping UI.
+- `auto_detect_link_keys(columns)` (`:113`) guesses column→field mapping;
+  `_normalize_column_name` (`:106`) is its matcher.
+- `resolve_conflicts(qs)` (`:163`), `load_setting(pk)` (`:482`), and the
+  formset builders `get_linkformset` (`:255`) / `get_dictformset` (`:239`) /
+  `get_indicts` (`:282`) back the mapping UI.
 - User column preferences cached per user: `save_user_sp_columns` (`:53`) /
   `load_user_sp_columns` (`:61`). `load_user_sp_columns` returns whatever was
   cached **without re-validating** against `SP_AVAILABLE_COLUMN_MAP` — the
@@ -81,14 +85,14 @@ Both were established deliberately and both had a stale test asserting the
 opposite for months, so read them before "fixing" either.
 
 **A re-upload busts the sps cache, by design.** `_get_setting_signature`
-(`:293`) hashes the newest `SupplierFile`'s **id, name and size** alongside the
+(`:324`) hashes the newest `SupplierFile`'s **id, name and size** alongside the
 setting and its links. So replacing the file — even with an identical-looking
 one — changes the signature and forces a fresh parse. Serving the cached rows
 after an upload would be the bug; the cache exists to skip repeated reads of an
 *unchanged* file, not to pin a snapshot.
 
 **Rows missing from the new file are nulled, not zeroed — absence lives on the
-raw layer and is resolved on the derived one.** `load_setting` (`:477`–`:484`)
+raw layer and is resolved on the derived one.** `load_setting` (`:536`–`:543`)
 runs `missing_sps.update(stock=None)` and, per mapped price column,
 `missing_sps.update(**{column: None})`. A vanished row means the supplier gave
 no figure, so `SupplierProduct` records that absence; it never invents a synced
@@ -122,7 +126,7 @@ Verify a cited test still exists before you trust it — `git log --all -S`
 distinguishes "never existed" from "deleted last hour", and here the two led
 to different conclusions.
 
-**`auto_detect_link_keys` (`:89`) matches in two passes**, and only the second
+**`auto_detect_link_keys` (`:113`) matches in two passes**, and only the second
 is order-sensitive: exact normalized-name match first across all columns, then a
 substring sweep for whatever is left, with each key claimable once. The
 substring pass picks the **longest** matching alias rather than the
@@ -132,12 +136,12 @@ would let it steal a "Цена со скидкой, руб" column from `discoun
 
 **Its alias table is independent of `LINKS` — deleting a `LINKS` entry does
 not stop it being auto-detected.** `AUTO_LINK_ALIASES` (`:66-75`) seeds the
-alias map on its own; the loop over `LINKS.items()` (`:103-107`) only *adds*
+alias map on its own; the loop over `LINKS.items()` (`:127-131`) only *adds*
 each key's verbose name/own key as extra aliases, it never gates which keys
 exist. So removing a key from `LINKS` (e.g. `'manufacturer'`/`'category'` in
 Phase 2b) without also removing it from `AUTO_LINK_ALIASES` would leave it
 live, `auto_detect_link_keys` would keep returning it for a matching column,
-and `SettingUpdate.form_valid` (`views.py:315-333`) would
+and `SettingUpdate.form_valid` (`views.py:338-356`) would
 `Link.objects.get_or_create(setting=setting, key=<removed key>)` again the
 next time that Setting's mapping screen is saved with no explicit
 selection — silently recreating orphan `Link` rows a cleanup migration just
@@ -146,12 +150,103 @@ deleted. **Removing a key from `LINKS` alone is not enough; its
 `category`/`manufacturer`, and current `AUTO_LINK_ALIASES`
 (`functions.py:66-75`) has no entries for either — confirmed clean.
 
+## `get_sps` never returns nothing — it refuses with a reason
+
+Since #202 `get_sps` returns a non-empty list or raises `SupplierImportError`
+(`functions.py:82`) whose message is a Russian, user-facing reason: no file,
+empty sheet, no article column (listing the columns the file does have), no
+name column while `create_new`, no values in any mapped column, or no row
+matching the supplier's existing products. `_empty_result_reason` (`:93`)
+picks among the last three by counting rows after each filter stage.
+
+**Do not reintroduce a `None`/`[]` return "for convenience".** An empty payload
+is the one input that turns `load_setting` destructive: every existing row of
+the supplier lands in `missing_sps` (`:528`) and has its stock and mapped prices
+set to NULL. Before #202 that path was blocked only by accident — `[]` became a
+column-less DataFrame and `df.dropna(subset=['name'])` raised `KeyError
+['name']`, which users saw as an unexplained failed import. Removing that crash
+without the explicit refusal would have wiped a supplier on any file that
+matched nothing (typically `create_new=False` plus a renamed article column or
+whitespace drift in names).
+
+Consumers rely on the exception:
+
+- `process_supplier_file_import` (`tasks.py:81`) catches `SupplierImportError`
+  together with `SupplierFileStorageMissingError` as **expected refusals**:
+  notification «Импорт … не выполнен, данные не изменены. Причина: …», the same
+  line in `SupplierFile.logs`, status `STATUS_ERROR`, and **no re-raise**. Any
+  other exception is still re-raised (`:107`) — and there the "data unchanged"
+  claim would not hold, since `load_setting` is not atomic.
+- The mapping screen's preview, `SettingSPSTableView` (`views.py:229`), already
+  rendered `str(ex)` for any exception, so it shows the same reason with no
+  change of its own.
+
+**A mapped column missing from the file** is handled per case in `get_sps`:
+the article column raises; a column whose `Link` has an `initial` falls back to
+that constant (it used to raise a bare `KeyError` from `fillna`); any other
+missing column is still silently skipped. Making the last case an error was
+considered and left out on purpose — it would start failing imports that
+succeed today.
+
+## Upload and cleanup — the file a setting depends on
+
+- **`UploadSupplierFile.form_valid`** (`views.py:145`) reads the workbook's
+  sheet names **before** creating anything. It used to create the `Setting`
+  first and read the file inside a `while not created` loop with `except
+  BaseException`, so a corrupt or password-protected file was taken for a name
+  clash and the loop kept creating `name(1)`, `name(2)`, … until gunicorn killed
+  the worker. Name suffixing is now bounded by `MAX_SETTING_NAME_ATTEMPTS`
+  (`views.py:51`) and catches only `IntegrityError` inside a savepoint. Empty
+  `Setting`s with a `(N)` suffix, no file and no links are likely leftovers of
+  the old loop.
+- **`cleanup_supplier_files_task`** (`tasks.py:131`) never deletes a setting's
+  newest file: `keep_last` is clamped to at least 1 and
+  `SUPPLIER_FILES_KEEP_LAST` defaults to 1 (`settings/celery.py`). It used to
+  default to 0, which on a 30-minute beat deleted every file — including the
+  one being mapped or waiting in the import queue. Files in
+  `STATUS_QUEUED`/`STATUS_RUNNING` are skipped too. Note the upload view itself
+  already deletes all previous files of the setting, so in practice there is
+  one file per setting and the cleanup mostly handles orphans.
+
+## Known open problems in the import (not fixed yet)
+
+Recorded so the next person does not rediscover them; each needs a design
+decision, not a quick patch.
+
+- **`missing_sps` is supplier-wide, not setting-wide** (`functions.py:528`).
+  Two settings of one supplier that both map `stock` or a price (e.g. two
+  warehouses, or stock and prices in separate files) null each other's rows on
+  every import. Production has such a supplier. A `SupplierProduct` does not
+  record which setting last loaded it, so there is nothing to scope by yet.
+- **Identity is `(supplier, article, name)`** (`models.py:78-83`). A supplier
+  fixing a typo in a name creates a new row and nulls the old one, which loses
+  its `main_product` link. Many articles in production already carry more than
+  one name per supplier.
+- **Stored articles and names carry leading/trailing whitespace** — common in
+  production. `get_df` collapses runs of whitespace but does not strip. Adding a
+  `strip()` to the parser alone would re-key every such row on the next import
+  (new row created, old one nulled); it needs a data migration that trims
+  stored values and resolves the rows that collide after trimming, some of
+  them linked to a `MainProduct`.
+- **Numbers**: only `','→'.'` before `pd.to_numeric(errors='coerce')`
+  (`get_sps`), so `1 234,50`, `1,234.50`, currency signs, `>10`, `10+` become
+  NaN; a row whose every mapped value is NaN is dropped and then nulled as
+  "missing". A non-integer `stock` value fails the whole import.
+- **`DictItem` replacement is substring-based** (`str.replace`), so «в
+  наличии → 10» also rewrites «нет в наличии».
+- **NULL source price is not "no price" downstream**: [[product_price_manager]]'s
+  `get_fitting_mps` coalesces it to 0, so a rule without `price_from`/`price_to`
+  sets the product's price to the rule's `increase`.
+- **`resolve_conflicts` runs inside `get_sps`**, so even the read-only preview
+  may create duplicate `SupplierProduct`s for names containing non-space
+  whitespace; and the name lookups in `get_sps` are one query per file row.
+
 ## Tasks — the known convention exception
 
 All four `@shared_task`s in `tasks.py` do their work **inline**, not through
-`execute_locked_task`: `process_supplier_file_import` (`:31`),
-`process_setting_upload` (`:135`), `cleanup_supplier_files_task` (`:140`),
-`copy_supplier_products_to_main_task` (`:194`). This is pre-existing and
+`execute_locked_task`: `process_supplier_file_import` (`:32`),
+`process_setting_upload` (`:126`), `cleanup_supplier_files_task` (`:131`),
+`copy_supplier_products_to_main_task` (`:191`). This is pre-existing and
 documented as a known exception in the convention reviewer — do not report it
 as a new finding, but **new** tasks here should route through it.
 
@@ -159,7 +254,7 @@ as a new finding, but **new** tasks here should route through it.
 [[main_product_manager]]; it records a `CopySupplierProductsToMainRun` row
 (`models.py:194`) with `processed_count` / `created_count` /
 `updated_links_count`, restores a saved filter via `_restore_querydict`
-(`tasks.py:171`) and batches with `_chunked` (`:183`). Since Phase 2b-2 it
+(`tasks.py:167`) and batches with `_chunked` (`:179`). Since Phase 2b-2 it
 copies nothing but the row itself: `MainProduct` lost `manufacturer`,
 `description` and `categories`, and `SupplierProduct` lost `category` and
 `manufacturer`. What it still does besides creating rows is **link them to
@@ -220,7 +315,7 @@ this app" when touching either side.
 host=…)` at module import — per CLAUDE.md, unset `PIM_TOKEN`/`PIM_HOST` breaks
 whatever imports it. Within this app that is **not** `admin.py` (checked: it
 only imports `.models` and `.functions`, neither of which reach
-`main_product_manager.utils`/`pim_client`) — it is `views.py:42`
+`main_product_manager.utils`/`pim_client`) — it is `views.py:44`
 (`from .tasks import ...`) → `tasks.py:7`
 (`from main_product_manager.utils import ...`) → `main_product_manager/utils.py:18`
 (`from .pim_client import site`). So loading `views.py` (which Django's URL
