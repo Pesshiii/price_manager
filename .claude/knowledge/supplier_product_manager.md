@@ -200,8 +200,14 @@ without recording a run.
 
 - The counters come from `get_sps_result` (`functions.py`), which returns
   `(payload, stats)`; `get_sps` is its payload-only wrapper. Stage counters are
-  listed in `SPS_STAT_FIELDS`. Payload and stats are cached **together** under
-  schema version `1.2` — a bare-list entry from `1.1` would break the unpack, so
+  listed in `SPS_STAT_FIELDS`. Two of them are warnings, not losses:
+  `duplicates` (exact `(article, name)` repeats — the first row wins) and
+  `article_conflicts` (articles appearing in the file with several names —
+  loaded as separate products; counted only when names come from the file).
+  `duplicate_warning(stats)` turns them into the «Внимание: …» sentence the
+  import notification carries, and a notification with it is `warning`, not
+  `success`. Payload and stats are cached **together** under
+  schema version `1.3` — a bare-list entry from `1.1` would break the unpack, so
   changing the cached shape again means bumping `SPS_JSON_SCHEMA_VERSION`.
 - **Price and stock coverage are separate on purpose** (`covered_price`,
   `covered_stock`, `_coverage`): a stock column can stop parsing, or lose its
@@ -287,8 +293,16 @@ decision, not a quick patch.
   record which setting last loaded it, so there is nothing to scope by yet.
 - **Identity is `(supplier, article, name)`** (`models.py:78-83`). A supplier
   fixing a typo in a name creates a new row and nulls the old one, which loses
-  its `main_product` link. Many articles in production already carry more than
-  one name per supplier.
+  its `main_product` link. **Do not "fix" this by switching the key to
+  `(supplier, article)` for everyone.** Checked on the production snapshot:
+  renames are almost nonexistent, while thousands of articles legitimately
+  carry several *live* rows with different names **and different prices** —
+  variants (length, size, colour) sold under one supplier article, most of them
+  already linked to separate `MainProduct`s. An article-only key would keep one
+  variant per article and null the rest on the next import. If a
+  by-article key is wanted, it must be an opt-in per `Setting` for suppliers
+  whose articles are unique. Meanwhile the import **warns** instead: see
+  `article_conflicts` below.
 - **Stored articles and names carry leading/trailing whitespace** — common in
   production. `get_df` collapses runs of whitespace but does not strip. Adding a
   `strip()` to the parser alone would re-key every such row on the next import

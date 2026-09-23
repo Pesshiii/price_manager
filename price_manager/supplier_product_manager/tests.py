@@ -1429,3 +1429,74 @@ class ImportGuardTests(TestCase):
                 self._import()
 
         self._assert_data_unchanged()
+
+
+@override_settings(SUPPLIER_IMPORT_GUARD_MIN_HISTORY=0)
+class DuplicateWarningTests(TestCase):
+    """Повторы строк и артикулы с разными названиями не останавливают импорт,
+    но о них предупреждают."""
+
+    _create_supplier_file = BasicLoadTests._create_supplier_file
+    _setting = ImportRefusalReasonTests._setting
+
+    def setUp(self):
+        BasicLoadTests.setUp(self)
+        self.user = get_user_model().objects.create_user(username="dups", password="x")
+
+    def _messy_file(self, setting):
+        return self._create_supplier_file(setting, pd.DataFrame([
+            {"Артикул": "А-1", "Название": "Кабель 1 м", "Остаток": "1"},
+            {"Артикул": "А-1", "Название": "Кабель 2 м", "Остаток": "2"},   # артикул с другим названием
+            {"Артикул": "Б-2", "Название": "Розетка", "Остаток": "3"},
+            {"Артикул": "Б-2", "Название": "Розетка", "Остаток": "9"},      # точный повтор
+            {"Артикул": "В-3", "Название": "Выключатель", "Остаток": "4"},
+        ]))
+
+    def test_counters(self):
+        setting = self._setting(create_new=True, article="Артикул", name="Название", stock="Остаток")
+        self._messy_file(setting)
+
+        _, stats = get_sps_result(setting.pk)
+
+        self.assertEqual(stats["article_conflicts"], 1)
+        self.assertEqual(stats["article_conflict_examples"], ["А-1"])
+        self.assertEqual(stats["duplicates"], 1)
+
+    def test_import_applies_everything_and_warns(self):
+        setting = self._setting(create_new=True, article="Артикул", name="Название", stock="Остаток")
+        self._messy_file(setting)
+
+        result = process_supplier_file_import(setting.pk, self.user.pk)
+
+        self.assertEqual(result["status"], "ok")
+        self.assertEqual(SupplierProduct.objects.filter(supplier=self.supplier, article="А-1").count(), 2)
+        self.assertEqual(SupplierProduct.objects.get(supplier=self.supplier, article="Б-2").stock, 3)
+        notification = PersistentNotification.objects.get(user=self.user)
+        self.assertEqual(notification.level, "warning")
+        self.assertIn("повторов строк: 1 (взята первая из повторяющихся)", notification.message)
+        self.assertIn("артикулов с разными названиями: 1 (например: А-1)", notification.message)
+        run = ImportRun.objects.get(setting=setting)
+        self.assertEqual((run.duplicates, run.article_conflicts), (1, 1))
+
+    def test_clean_file_reports_success_without_warning(self):
+        setting = self._setting(create_new=True, article="Артикул", name="Название", stock="Остаток")
+        self._create_supplier_file(setting, pd.DataFrame([
+            {"Артикул": "А-1", "Название": "Кабель", "Остаток": "1"},
+        ]))
+
+        process_supplier_file_import(setting.pk, self.user.pk)
+
+        notification = PersistentNotification.objects.get(user=self.user)
+        self.assertEqual(notification.level, "success")
+        self.assertNotIn("Внимание", notification.message)
+
+    def test_names_taken_from_the_database_are_not_a_file_conflict(self):
+        SupplierProduct.objects.create(supplier=self.supplier, article="А-1", name="Кабель 1 м")
+        SupplierProduct.objects.create(supplier=self.supplier, article="А-1", name="Кабель 2 м")
+        setting = self._setting(article="Артикул", stock="Остаток")
+        self._create_supplier_file(setting, pd.DataFrame([{"Артикул": "А-1", "Остаток": "5"}]))
+
+        _, stats = get_sps_result(setting.pk)
+
+        self.assertEqual(stats["article_conflicts"], 0)
+        self.assertEqual(stats["covered"], 2)

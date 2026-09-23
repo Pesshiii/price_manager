@@ -29,15 +29,17 @@ CACHE_TTL = 60 * 60 * 24 * 30  # 30 дней
 # 1.1: без category и manufacturer (Phase 2b). Смена версии меняет ключ кэша
 # get_sps, так что разбор, закэшированный до удаления колонок, не всплывёт.
 # 1.2: в кэше лежит {'payload', 'stats'}, а не голый список.
-SPS_JSON_SCHEMA_VERSION = "1.2"
+# 1.3: в stats появились article_conflicts и article_conflict_examples.
+SPS_JSON_SCHEMA_VERSION = "1.3"
 # Счётчики разбора, которые get_sps_result отдаёт вместе с payload, по этапам.
 SPS_STAT_FIELDS = (
     "rows_in_sheet",      # непустые строки листа
     "rows_with_article",  # из них с артикулом
     "rows_with_values",   # из них хоть одно значение распозналось
+    "article_conflicts",  # артикулов, которые в файле встречаются с разными названиями
     "rows_without_name",  # отброшены: нет названия
     "rows_unmatched",     # отброшены: не совпали с товарами поставщика (create_new выключен)
-    "duplicates",         # отброшены: повтор артикула и названия в файле
+    "duplicates",         # отброшены: повтор артикула и названия в файле (взята первая строка)
     "covered",            # будут записаны
     "covered_price",      # из них с ценой
     "covered_stock",      # из них с остатком
@@ -487,6 +489,7 @@ def _parse_sps(setting: Setting, links, stats: dict) -> list[dict]:
         how='all'
     )
     rows_with_values = stats['rows_with_values'] = len(df)
+    stats.update(_article_conflicts(df))
     rows_unmatched = 0
 
     if not 'name' in df.columns:
@@ -533,6 +536,44 @@ def _parse_sps(setting: Setting, links, stats: dict) -> list[dict]:
     if df.empty:
         raise SupplierImportError(_empty_result_reason(setting, rows_with_article, rows_with_values))
     return df.to_dict(orient="records")
+
+
+ARTICLE_CONFLICT_EXAMPLES = 5
+
+
+def _article_conflicts(df: pd.DataFrame) -> dict:
+    """Артикулы, которые в файле встречаются с разными названиями.
+
+    Товар определяется парой (артикул, название), так что такие строки
+    загружаются как разные товары. Обычно это варианты одного товара под общим
+    артикулом, но бывает и ошибка в прайсе — поэтому о них предупреждаем, а не
+    отбрасываем. Считается только по названиям из файла: если названия берутся
+    из базы (столбец названия не сопоставлен), файл их не задаёт.
+    """
+    if 'name' not in df.columns:
+        return {'article_conflicts': 0, 'article_conflict_examples': []}
+    names_per_article = df.groupby('article', sort=False)['name'].nunique()
+    conflicting = names_per_article[names_per_article > 1]
+    return {
+        'article_conflicts': int(len(conflicting)),
+        'article_conflict_examples': [str(a) for a in conflicting.index[:ARTICLE_CONFLICT_EXAMPLES]],
+    }
+
+
+def duplicate_warning(stats: dict) -> str:
+    """Предупреждение о повторах в файле для уведомления об импорте; '' — если их нет."""
+    parts = []
+    duplicates = stats.get('duplicates') or 0
+    if duplicates:
+        parts.append(f'повторов строк: {duplicates} (взята первая из повторяющихся)')
+    conflicts = stats.get('article_conflicts') or 0
+    if conflicts:
+        examples = ', '.join(stats.get('article_conflict_examples') or [])
+        parts.append(
+            f'артикулов с разными названиями: {conflicts}'
+            + (f' (например: {examples})' if examples else '')
+            + ' — загружены как разные товары')
+    return ('Внимание: ' + '; '.join(parts) + '.') if parts else ''
 
 
 def _coverage(df: pd.DataFrame) -> dict:
