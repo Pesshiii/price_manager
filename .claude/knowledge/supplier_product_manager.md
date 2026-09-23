@@ -254,7 +254,14 @@ Confirmation mechanics — each piece closes a specific race:
 - A new import of the setting, or a new upload, marks a pending run
   `superseded`. Cleanup skips files in `STATUS_NEEDS_CONFIRMATION`.
 - `load_setting` writes inside `transaction.atomic()` (`_apply`): upsert,
-  clearing of missing rows and `supplier.save()` land together or not at all.
+  clearing of missing rows and the supplier's `stock_updated_at` /
+  `price_updated_at` land together or not at all.
+- **The supplier is stamped with a queryset `update()`** (`_stamp_supplier`),
+  never `setting.supplier.save()`. The `Supplier` object is loaded early in
+  the import; a full `save()` wrote back every field a manager changed in the
+  meantime, and `Supplier.save()` renumbers priorities whenever the in-memory
+  number differs from the database — so the import put the supplier back on
+  its old priority and shifted the others.
 
 UI: `SettingListTable.last_import` (annotated by `SettingList.get_queryset`,
 one subquery, no N+1) shows the last run; a pending one is a button opening
@@ -342,9 +349,16 @@ Migration 0014 turned `ignore_name AND create_new` into `match_by_article`
   `SUPPLIER_FILES_KEEP_LAST` defaults to 1 (`settings/celery.py`). It used to
   default to 0, which on a 30-minute beat deleted every file — including the
   one being mapped or waiting in the import queue. Files in
-  `STATUS_QUEUED`/`STATUS_RUNNING` are skipped too. Note the upload view itself
-  already deletes all previous files of the setting, so in practice there is
-  one file per setting and the cleanup mostly handles orphans.
+  `STATUS_QUEUED`/`STATUS_RUNNING` are skipped too.
+- **The upload view does not delete older files.** It used to, immediately —
+  including the file an import was reading at that moment. The run's in-memory
+  `supplier_file` FK then pointed at a deleted row, the full `run.save()` in
+  `_finish_run` failed after the data was committed, and the run stayed
+  «Выполняется» with no notification. Now the import always takes the newest
+  file, the upload only marks older `QUEUED`/`NEEDS_CONFIRMATION` files
+  `ERROR` (they will never be imported), and the cleanup deletes them. As a
+  second line, `_finish_run` and the file log/status helpers write with
+  queryset `update()`s, so a row deleted mid-import no longer fails the task.
 
 ## Known open problems in the import (not fixed yet)
 
@@ -378,18 +392,33 @@ decision, not a quick patch.
   "missing". A non-integer `stock` value fails the whole import.
 - **`DictItem` replacement is substring-based** (`str.replace`), so «в
   наличии → 10» also rewrites «нет в наличии».
-- **`resolve_conflicts` runs inside `get_sps`**, so even the read-only preview
-  may create duplicate `SupplierProduct`s for names containing non-space
-  whitespace; and the name lookups in `get_sps` are one query per file row.
+- **Parsing is read-only.** `resolve_conflicts` used to run inside `get_sps`:
+  before the guard, and even for an import that was then refused or held, it
+  created a whitespace-cleaned copy of every row with a tab, line break or NBSP
+  in the name. The file's cleaned name then matched the copy, and the
+  original — the row linked to a `MainProduct` — was nulled as missing. It
+  survives only as the admin action.
 
 ## Tasks — the known convention exception
 
-All four `@shared_task`s in `tasks.py` do their work **inline**, not through
-`execute_locked_task`: `process_supplier_file_import` (`:32`),
-`process_setting_upload` (`:126`), `cleanup_supplier_files_task` (`:131`),
-`copy_supplier_products_to_main_task` (`:191`). This is pre-existing and
-documented as a known exception in the convention reviewer — do not report it
-as a new finding, but **new** tasks here should route through it.
+`process_supplier_file_import` runs through `execute_locked_task` with a lock
+**per setting** (`supplier_import:setting:<pk>`, `IMPORT_LOCK_TTL_SECONDS`) and
+`atomic=False` — `load_setting` commits the data in its own transaction, and
+the run, file status and notification must be written whatever happens. A
+second import of a busy setting (double click, a new file uploaded mid-import)
+is not started: the user gets «уже импортируется», a confirmed run goes back to
+pending, and a queued file nobody will read is marked `ERROR`. The import is
+started only by POST (`setting_upload`, `load_partial.html` uses `hx-post`).
+
+The other three `@shared_task`s still work **inline**: `process_setting_upload`
+(a compatibility alias of the import), `cleanup_supplier_files_task`,
+`copy_supplier_products_to_main_task`. This is pre-existing and documented as a
+known exception in the convention reviewer — do not report it as a new
+finding, but **new** tasks here should route through it.
+
+The mapping screen (`SettingUpdate.form_valid`) is `@transaction.atomic`: it
+saves the mapping by deleting every `Link` and recreating it, and a failure
+halfway used to leave the setting with no mapping.
 
 `copy_supplier_products_to_main_task` is the bridge into
 [[main_product_manager]]; it records a `CopySupplierProductsToMainRun` row

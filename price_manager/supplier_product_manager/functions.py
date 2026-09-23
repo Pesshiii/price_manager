@@ -10,6 +10,7 @@ from .models import (SupplierFile, Setting, Link,
                      SP_NUMBERS, SP_PRICES)
 from .tables import SP_AVAILABLE_COLUMN_MAP, SP_DEFAULT_VISIBLE_COLUMNS
 from main_product_manager.models import MainProduct
+from supplier_manager.models import Supplier
 
 from .forms import (DictFormset, LinkFormset,
                     InitialForm,
@@ -440,8 +441,13 @@ def get_sps_result(setting_or_pk: Setting | int, recache: bool = False) -> tuple
 def _parse_sps(setting: Setting, links, stats: dict) -> list[dict]:
     df = get_df(setting.pk)
     sps = SupplierProduct.objects.filter(supplier=setting.supplier)
+    # Parsing never writes. It used to call resolve_conflicts(sps) here, which
+    # created a whitespace-cleaned copy of rows with tabs or line breaks in the
+    # name — before the guard and even for an import that was then refused or
+    # held. The file's cleaned name then matched the copy, and the original row,
+    # the one linked to the catalog, was cleared as missing. The admin action
+    # is still there for a deliberate cleanup.
     s_values = map(tuple, sps.values_list('article', 'name'))
-    resolve_conflicts(sps)
     if df is None:
         if not setting.supplierfiles.exists():
             raise SupplierImportError('Для настройки не загружен файл')
@@ -790,11 +796,13 @@ def _apply(setting: Setting, links, sps_payload: list[dict], stats: dict) -> Imp
     # (product_price_manager.clear_unsourced_prices). Only columns the setting
     # still maps are cleared, so deleting a Link freezes its field at the last
     # imported value.
+    now = timezone.now()
+    stamps = {}
     if 'stock' in df.columns:
-        setting.supplier.stock_updated_at = timezone.now()
+        stamps['stock_updated_at'] = now
         missing_sps.update(stock=None)
     if not set(SP_PRICES).intersection(set(df.columns)) == set():
-        setting.supplier.price_updated_at = timezone.now()
+        stamps['price_updated_at'] = now
         for column in df.columns:
            if column in SP_PRICES:
               missing_sps.update(**{column:None})
@@ -806,5 +814,18 @@ def _apply(setting: Setting, links, sps_payload: list[dict], stats: dict) -> Imp
     through.objects.bulk_create(
         [through(supplierproduct_id=pk, setting_id=setting.pk) for pk in written_pks],
         ignore_conflicts=True)
-    setting.supplier.save()
+    _stamp_supplier(setting.supplier_id, stamps)
     return ImportOutcome(sps=sps, stats=stats)
+
+
+def _stamp_supplier(supplier_id: int, stamps: dict) -> None:
+    """Отметить время обновления цен и остатков поставщика.
+
+    Только эти поля и не через save(): объект поставщика загружен в начале
+    импорта, и полный save() записывал бы обратно всё, что менеджер успел
+    поменять за время импорта. Supplier.save() к тому же перенумеровывает
+    приоритеты, если номер в памяти не совпал с базой, — импорт возвращал
+    бы старый приоритет поставщика и сдвигал остальных.
+    """
+    if stamps:
+        Supplier.objects.filter(pk=supplier_id).update(**stamps)

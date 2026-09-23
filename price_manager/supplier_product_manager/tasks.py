@@ -5,6 +5,7 @@ from django.utils import timezone
 from django.conf import settings
 
 from core.models import PersistentNotification
+from core.task_runner import execute_locked_task
 from main_product_manager.utils import compute_supplier_sku, link_to_local_products
 from main_product_manager.models import MainProduct
 
@@ -29,6 +30,11 @@ from .models import (
 )
 
 
+# Imports of one setting never overlap (process_supplier_file_import). An
+# import that outlives this loses its lock, so it is generous.
+IMPORT_LOCK_TTL_SECONDS = 60 * 30
+
+
 def _append_supplier_file_log(supplier_file: SupplierFile | None, message: str) -> None:
     if supplier_file is None:
         return
@@ -36,7 +42,20 @@ def _append_supplier_file_log(supplier_file: SupplierFile | None, message: str) 
     current_logs = supplier_file.logs or ""
     next_line = f"[{timestamp}] {message}"
     supplier_file.logs = f"{current_logs}\n{next_line}".strip()
-    supplier_file.save(update_fields=["logs"])
+    # A queryset update, not save(update_fields=...): the file may have been
+    # deleted while the import ran, and a log line must not fail the import.
+    SupplierFile.objects.filter(pk=supplier_file.pk).update(logs=supplier_file.logs)
+
+
+def _set_file_status(supplier_file: SupplierFile | None, status: int) -> None:
+    if supplier_file is None:
+        return
+    supplier_file.status = status
+    SupplierFile.objects.filter(pk=supplier_file.pk).update(status=status)
+
+
+_RUN_OUTCOME_FIELDS = ("status", "message", "finished_at", "guard_reasons", "mapped_keys",
+                       *ImportRun.COUNTER_FIELDS)
 
 
 def _finish_run(run: ImportRun, status: str, stats: dict, message: str = "") -> None:
@@ -44,7 +63,12 @@ def _finish_run(run: ImportRun, status: str, stats: dict, message: str = "") -> 
     run.status = status
     run.message = message
     run.finished_at = timezone.now()
-    run.save()
+    # Only the outcome fields. A full save() wrote back supplier_file too, and
+    # once that file was deleted mid-run the stale FK failed the save — after
+    # the data was already committed, leaving the run "running" for good and
+    # the user without a notification.
+    ImportRun.objects.filter(pk=run.pk).update(
+        **{name: getattr(run, name) for name in _RUN_OUTCOME_FIELDS})
 
 
 def _hold_for_confirmation(run, setting, supplier_file, user_id, stats, verdict) -> dict:
@@ -57,9 +81,7 @@ def _hold_for_confirmation(run, setting, supplier_file, user_id, stats, verdict)
     if warning:
         message = f"{message} {warning}"
     _append_supplier_file_log(supplier_file, message)
-    if supplier_file:
-        supplier_file.status = SupplierFile.STATUS_NEEDS_CONFIRMATION
-        supplier_file.save(update_fields=["status"])
+    _set_file_status(supplier_file, SupplierFile.STATUS_NEEDS_CONFIRMATION)
     PersistentNotification.objects.create(
         user_id=user_id,
         level="warning",
@@ -84,19 +106,69 @@ def process_supplier_file_import(setting_id: int, user_id: int, confirmed_run_id
     подозрительно низком покрытии не применяется, а ждёт подтверждения.
     С confirmed_run_id применяется ровно тот файл и то сопоставление, что
     были показаны пользователю в окне подтверждения, — без повторной проверки.
-    """
-    started_at = timezone.now()
 
+    Импорты одной настройки не идут параллельно: пока один выполняется,
+    следующий не запускается, а пользователь получает уведомление.
+    """
     try:
         setting = Setting.objects.get(pk=setting_id)
     except Setting.DoesNotExist:
         return {"status": "error", "message": f"Настройка #{setting_id} не найдена"}
 
+    result = {}
+
+    def runner():
+        result.update(_import_setting(setting, user_id, confirmed_run_id))
+        return result.get("processed_rows", 0)
+
+    # Not atomic: load_setting commits the data in its own transaction, and
+    # the run, file status and notification must be written whatever happens.
+    lock = execute_locked_task(
+        task_name=f"supplier_import:setting:{setting.pk}",
+        lock_ttl=IMPORT_LOCK_TTL_SECONDS,
+        runner=runner,
+        atomic=False,
+    )
+    if lock["status"] == "skipped":
+        return _refuse_busy(setting, user_id, confirmed_run_id)
+    return result
+
+
+def _refuse_busy(setting: Setting, user_id: int, confirmed_run_id: int | None) -> dict:
+    """Импорт этой настройки уже выполняется: второй не запускается.
+
+    Двойной клик или новый файл, загруженный во время импорта, раньше давали
+    два параллельных применения одной настройки.
+    """
+    reason = "эта настройка уже импортируется. Дождитесь окончания и запустите снова"
+    if confirmed_run_id:
+        # The user confirmed it, the apply just could not start: back to
+        # pending, so "Применить" in the dialog works again.
+        ImportRun.objects.filter(pk=confirmed_run_id, status=ImportRun.STATUS_RUNNING).update(
+            status=ImportRun.STATUS_NEEDS_CONFIRMATION, confirmed_by=None, confirmed_at=None)
+    else:
+        supplier_file = setting.supplierfiles.order_by("-pk").first()
+        in_progress = supplier_file is not None and ImportRun.objects.filter(
+            setting=setting, supplier_file=supplier_file, status=ImportRun.STATUS_RUNNING,
+        ).exists()
+        # The view marked the latest file queued. If the running import is
+        # not reading that very file, it will never be processed.
+        if supplier_file is not None and not in_progress:
+            _append_supplier_file_log(supplier_file, f"Импорт не запущен: {reason}")
+            _set_file_status(supplier_file, SupplierFile.STATUS_ERROR)
+    message = f"Импорт «{setting.name}» не запущен: {reason}."
+    PersistentNotification.objects.create(user_id=user_id, level="warning", message=message)
+    return {"status": "busy", "message": message}
+
+
+def _import_setting(setting: Setting, user_id: int, confirmed_run_id: int | None) -> dict:
+    started_at = timezone.now()
+    setting_id = setting.pk
+
     supplier_file = setting.supplierfiles.order_by("-pk").first()
     if supplier_file:
-        supplier_file.status = SupplierFile.STATUS_RUNNING
-        supplier_file.logs = ""
-        supplier_file.save(update_fields=["status", "logs"])
+        supplier_file.status, supplier_file.logs = SupplierFile.STATUS_RUNNING, ""
+        SupplierFile.objects.filter(pk=supplier_file.pk).update(status=supplier_file.status, logs="")
 
     _append_supplier_file_log(
         supplier_file,
@@ -159,9 +231,7 @@ def process_supplier_file_import(setting_id: int, user_id: int, confirmed_run_id
 
         _finish_run(run, ImportRun.STATUS_APPLIED, stats)
         _append_supplier_file_log(supplier_file, message)
-        if supplier_file:
-            supplier_file.status = SupplierFile.STATUS_SUCCESS
-            supplier_file.save(update_fields=["status"])
+        _set_file_status(supplier_file, SupplierFile.STATUS_SUCCESS)
 
         PersistentNotification.objects.create(
             user_id=user_id,
@@ -187,9 +257,7 @@ def process_supplier_file_import(setting_id: int, user_id: int, confirmed_run_id
         )
         _finish_run(run, ImportRun.STATUS_REFUSED, getattr(exc, "stats", {}), reason)
         _append_supplier_file_log(supplier_file, f"{error_message} ({exc})" if storage_missing else error_message)
-        if supplier_file:
-            supplier_file.status = SupplierFile.STATUS_ERROR
-            supplier_file.save(update_fields=["status"])
+        _set_file_status(supplier_file, SupplierFile.STATUS_ERROR)
         PersistentNotification.objects.create(
             user_id=user_id,
             level="danger",
@@ -210,9 +278,7 @@ def process_supplier_file_import(setting_id: int, user_id: int, confirmed_run_id
         )
         _finish_run(run, ImportRun.STATUS_FAILED, {}, str(exc))
         _append_supplier_file_log(supplier_file, error_message)
-        if supplier_file:
-            supplier_file.status = SupplierFile.STATUS_ERROR
-            supplier_file.save(update_fields=["status"])
+        _set_file_status(supplier_file, SupplierFile.STATUS_ERROR)
         PersistentNotification.objects.create(
             user_id=user_id,
             level="danger",
