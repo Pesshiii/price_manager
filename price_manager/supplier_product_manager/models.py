@@ -74,6 +74,14 @@ class SupplierProduct(models.Model):
   updated_at = models.DateTimeField(verbose_name='Последнее обновление',
                                     auto_now=True,
       blank=True)
+  # Settings whose latest import contained this row. An import clears the
+  # fields its setting maps only on rows linked to that setting, and unlinks
+  # them as it does — so a row moved to another file of the same supplier is
+  # cleared once, not on every import of the old setting.
+  source_settings = models.ManyToManyField('Setting',
+                                           verbose_name='Поставляют настройки',
+                                           related_name='supplied_products',
+                                           blank=True)
   class Meta:
     constraints = [
       models.UniqueConstraint(
@@ -120,6 +128,14 @@ class Setting(models.Model):
     constraints = [models.UniqueConstraint(fields=['name', 'supplier'], name='name_supplier_constraint')]
   def __str__(self):
     return self.name
+  def clearable_fields(self) -> list[str]:
+    """Остаток и цены, которые настройка сопоставляет — только их она очищает."""
+    mapped = (self.links.filter(key__in=['stock', *SP_PRICES])
+              .filter(models.Q(value__isnull=False) & ~models.Q(value='')
+                      | models.Q(initial__isnull=False) & ~models.Q(initial=''))
+              .values_list('key', flat=True))
+    return sorted(set(mapped))
+
   def is_bound(self) -> bool:
     for link in self.links.filter(value=''):
       link.value = None
@@ -195,6 +211,23 @@ class SupplierFile(models.Model):
 def document_pre_delete(sender, instance, **kwargs):
     """Clean up file before model deletion"""
     instance.file.delete(save=False)
+
+
+@receiver(pre_delete, sender=Setting)
+def release_supplied_products(sender, instance, **kwargs):
+    """Удаляемая настройка очищает свои поля у товаров, которые поставляла только она.
+
+    Иначе их остаток и цены застыли бы навсегда: ни одна настройка их больше
+    не обновит и не очистит. Пустой остаток безопаснее застывшего. Товары,
+    которые поставляет и другая настройка, не трогаются. Сигнал, а не код во
+    вьюхе: настройку удаляют и с её экрана, и из админки, и вместе с поставщиком.
+    """
+    fields = instance.clearable_fields()
+    if not fields:
+        return
+    SupplierProduct.objects.filter(source_settings=instance).exclude(
+        source_settings__in=Setting.objects.exclude(pk=instance.pk),
+    ).update(**{field: None for field in fields})
 
 
 def format_count(value) -> str:

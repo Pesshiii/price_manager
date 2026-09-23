@@ -1100,8 +1100,9 @@ class ImportStatsTests(TestCase):
 
     def test_load_setting_reports_created_updated_missing(self):
         SupplierProduct.objects.create(supplier=self.supplier, article="А-1", name="Товар 1", stock=1)
-        SupplierProduct.objects.create(supplier=self.supplier, article="СТАРЫЙ", name="Старый", stock=9)
+        old = SupplierProduct.objects.create(supplier=self.supplier, article="СТАРЫЙ", name="Старый", stock=9)
         setting = self._setting(create_new=True, article="Артикул", name="Название", stock="Остаток")
+        old.source_settings.add(setting)  # loaded by an earlier import of this setting
         self._create_supplier_file(setting, pd.DataFrame([
             {"Артикул": "А-1", "Название": "Товар 1", "Остаток": "2"},
             {"Артикул": "А-2", "Название": "Товар 2", "Остаток": "3"},
@@ -1211,6 +1212,9 @@ class ImportGuardTests(TestCase):
         )
         self.setting = self._setting(create_new=True, article="Артикул", name="Название",
                                      supplier_price="Цена", stock="Остаток")
+        # As if loaded by an earlier import of this setting: only such rows are
+        # cleared when they vanish from its file.
+        self.existing.source_settings.add(self.setting)
 
     def _history(self, *pairs):
         """Применённые импорты настройки: пары (covered_price, covered_stock), от старых к новым."""
@@ -1608,3 +1612,103 @@ class MatchByArticleTests(TestCase):
         self._import(setting)
 
         self.assertEqual(SupplierProduct.objects.filter(supplier=self.supplier, article="А-1").count(), 2)
+
+
+class SettingOwnedRowsTests(TestCase):
+    """Импорт очищает только строки своей настройки и только поля, которые она сопоставляет."""
+
+    _create_supplier_file = BasicLoadTests._create_supplier_file
+    _setting = ImportRefusalReasonTests._setting
+
+    def setUp(self):
+        BasicLoadTests.setUp(self)
+        self.warehouse_a = self._setting(create_new=True, article="Артикул", name="Название",
+                                         stock="Остаток", supplier_price="Цена")
+        self.warehouse_b = self._setting(create_new=True, article="Артикул", name="Название",
+                                         stock="Остаток", supplier_price="Цена")
+
+    def _load(self, setting, *rows):
+        self._create_supplier_file(setting, pd.DataFrame([
+            {"Артикул": article, "Название": article, "Остаток": stock, "Цена": "10"} for article, stock in rows
+        ]))
+        return load_setting(setting.pk)
+
+    def _row(self, article):
+        return SupplierProduct.objects.get(supplier=self.supplier, article=article)
+
+    def test_two_settings_of_one_supplier_do_not_clear_each_other(self):
+        self._load(self.warehouse_a, ("А-1", "1"), ("А-2", "2"))
+        self._load(self.warehouse_b, ("Б-1", "5"))
+        self._load(self.warehouse_a, ("А-1", "1"), ("А-2", "2"))
+
+        self.assertEqual([self._row(a).stock for a in ("А-1", "А-2", "Б-1")], [1, 2, 5])
+        self.assertEqual(self._row("Б-1").supplier_price, Decimal("10"))
+
+    def test_row_vanished_from_its_file_is_cleared_once_and_released(self):
+        self._load(self.warehouse_a, ("А-1", "1"), ("П-1", "3"))
+        outcome = self._load(self.warehouse_a, ("А-1", "1"))
+
+        self.assertEqual(outcome.stats["missing"], 1)
+        moved = self._row("П-1")
+        self.assertIsNone(moved.stock)
+        self.assertFalse(moved.source_settings.filter(pk=self.warehouse_a.pk).exists())
+
+        # The product moved to the other file: the old setting no longer clears it.
+        self._load(self.warehouse_b, ("П-1", "7"))
+        outcome = self._load(self.warehouse_a, ("А-1", "1"))
+        self.assertEqual(outcome.stats["missing"], 0)
+        self.assertEqual(self._row("П-1").stock, 7)
+
+    def test_only_fields_the_setting_maps_are_cleared(self):
+        stock_only = self._setting(create_new=True, article="Артикул", name="Название", stock="Остаток")
+        self._load(self.warehouse_a, ("А-1", "1"))
+        self._create_supplier_file(stock_only, pd.DataFrame([{"Артикул": "А-1", "Название": "А-1", "Остаток": "4"}]))
+        load_setting(stock_only.pk)
+        self._create_supplier_file(stock_only, pd.DataFrame([{"Артикул": "Х-1", "Название": "Х-1", "Остаток": "1"}]))
+
+        load_setting(stock_only.pk)
+
+        row = self._row("А-1")
+        self.assertEqual((row.stock, row.supplier_price), (None, Decimal("10")))
+
+    def test_apply_counts_counts_only_own_rows_as_missing(self):
+        from supplier_product_manager.functions import apply_counts
+        self._load(self.warehouse_a, ("А-1", "1"))
+        self._load(self.warehouse_b, ("Б-1", "5"))
+
+        counts = apply_counts(self.warehouse_a, [{"article": "А-2", "name": "А-2"}])
+
+        self.assertEqual((counts["created"], counts["missing"]), (1, 1))
+
+    def test_deleting_a_setting_clears_rows_only_it_supplied(self):
+        self._load(self.warehouse_a, ("А-1", "1"), ("О-1", "2"))
+        self._load(self.warehouse_b, ("О-1", "2"))
+
+        self.warehouse_a.delete()
+
+        only_a = self._row("А-1")
+        self.assertEqual((only_a.stock, only_a.supplier_price), (None, None))
+        shared = self._row("О-1")
+        self.assertEqual((shared.stock, shared.supplier_price), (2, Decimal("10")))
+
+    def test_rows_no_setting_supplies_are_handled_by_any_import_of_the_supplier(self):
+        vanished = SupplierProduct.objects.create(supplier=self.supplier, article="Н-1", name="Н-1", stock=5)
+        kept = SupplierProduct.objects.create(supplier=self.supplier, article="Н-2", name="Н-2", stock=5)
+
+        outcome = self._load(self.warehouse_a, ("Н-2", "6"))
+
+        self.assertEqual(outcome.stats["missing"], 1)
+        vanished.refresh_from_db()
+        self.assertIsNone(vanished.stock)
+        self.assertEqual(list(kept.source_settings.all()), [self.warehouse_a])
+        # Claimed by warehouse A now: warehouse B's import leaves it alone.
+        self._load(self.warehouse_b, ("Б-1", "1"))
+        self.assertEqual(self._row("Н-2").stock, 6)
+
+    def test_deleting_a_setting_without_mapped_fields_changes_nothing(self):
+        self._load(self.warehouse_a, ("А-1", "1"))
+        self.warehouse_a.links.all().delete()
+
+        self.warehouse_a.delete()
+
+        self.assertEqual(self._row("А-1").stock, 1)
