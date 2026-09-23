@@ -191,7 +191,8 @@ detail, export, export-download, import + preview + run (`:173`–`:471`).
 `CartItem*` — detail, quick-add, confirm, unconfirm, remove, product-select,
 add-products (`:472`–`:705`). Plus `PersistentNotification*` (`:65`, `:81`),
 auth views (`:94`, `:114`), Bitrix24 login (`:123`, `:141`, mechanism below),
-`InstructionsView` and `mainpage`.
+and `mainpage`. The user guide is not a page here any more — it is
+release 0.0 in `releases` (data migration `0002`).
 
 Templates in `core/templates/shopping_tab/` use the **`hx-swap-oob`** convention
 throughout, not the modal-CRUD one — one action refreshes a status chip, a

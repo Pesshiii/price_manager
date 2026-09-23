@@ -208,8 +208,7 @@ a per-screen review structurally cannot see. `ShoppingTab` is called **«Зая�
 in the model (`core/models.py:62`), the nav
 (`core/templates/includes/header.html:19`), and the breadcrumbs and title
 (`core/templates/shopping_tab/detail.html:3,12,21`) — and **«Корзина»** in the
-toasts (`core/views.py:155,164,212`), the add button in `base.html`, the modals,
-and `main/instructions.html`. A user adds to a корзина and lands on a заявка.
+toasts (`core/views.py:155,164,212`), the add button in `base.html`, and the modals. A user adds to a корзина and lands on a заявка.
 
 Report this as **one finding**: the decision (which word wins) plus a mechanical
 edit list. Do not file nine findings that share a cause — the same collapsing

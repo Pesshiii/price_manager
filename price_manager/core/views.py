@@ -750,9 +750,5 @@ class CartItemAddProductsView(LoginRequiredMixin, View):
         })
 
 
-class InstructionsView(LoginRequiredMixin, TemplateView):
-    template_name = 'main/instructions.html'
-
-
 def mainpage(request):
     return redirect('products')
