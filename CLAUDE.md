@@ -119,6 +119,7 @@ There are two product catalogs in the tree. **They are not peers, and the newer 
 - `main_product_manager` → `MainProduct` — since the product shift's Phase 2b, a **per-supplier stock + price row** hanging off `product.Product` (multiple price fields, `stock`, logs, the PIM link push). Its own search vector, description, categories, manufacturer and dimensions are gone; search, name, brand and categories live on `product.Product`
 - `product_price_manager` → `PriceManager` (markup rules: source price → dest price, with formula), `PriceTag` (per-product-per-rule snapshot), `update_prices()` (bulk apply)
 - `file_manager`, `blogapp`, `api_auth`, `pim_api` → supporting
+- `developers` («Разработчикам») → `Feedback`: the navbar feedback modal. Each message is its own Bitrix24 task (`tasks.task.add` via the inbound webhook `BITRIX24_FEEDBACK_WEBHOOK`, responsible `BITRIX24_FEEDBACK_RESPONSIBLE_ID`), sent by `developers.send_feedback` with a lock *per message*; the row stays in the admin whether or not the task got created, with a «resend» action. The webhook is separate from the OAuth login app in `core/bitrix24.py`.
 
 **The API-driven stack is being retired. Do not build new features here.**
 

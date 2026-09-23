@@ -1,0 +1,21 @@
+{% load crispy_forms_tags %}
+<form hx-post="{% url 'developers-feedback' %}"
+      hx-target="#developersFeedbackModal .modal-content"
+      hx-swap="innerHTML">
+  {% csrf_token %}
+  <div class="modal-header">
+    <h5 class="modal-title" id="developersFeedbackModalLabel">Сообщение разработчикам</h5>
+    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Закрыть"></button>
+  </div>
+  <div class="modal-body">
+    <p class="text-muted small">
+      Каждое сообщение становится отдельной задачей у разработчика в Bitrix24.
+      Адрес текущей страницы прикрепится автоматически.
+    </p>
+    {{ form|crispy }}
+  </div>
+  <div class="modal-footer">
+    <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Отмена</button>
+    <button type="submit" class="btn btn-primary">Отправить</button>
+  </div>
+</form>

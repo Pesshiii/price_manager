@@ -604,7 +604,10 @@ class Bitrix24LinkRequiredMiddlewareTests(TestCase):
 
     def test_link_page_drops_a_foreign_next(self):
         response = self.client.get(reverse('bitrix24-link'), {'next': 'https://evil.example/'})
-        self.assertNotContains(response, 'evil.example')
+        # Only the link button is checked: the navbar's feedback button carries
+        # the current URL, query included, as its own (encoded) page parameter.
+        self.assertContains(response, f'href="{reverse("bitrix24-login")}"')
+        self.assertEqual(response.context['next'], '')
 
     def test_link_page_says_when_already_linked(self):
         Bitrix24Account.objects.create(user=self.user, bitrix_user_id=42)

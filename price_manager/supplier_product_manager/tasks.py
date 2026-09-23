@@ -1,5 +1,6 @@
 from celery import shared_task
 from django.http import QueryDict
+from django.urls import reverse
 from django.utils import timezone
 from django.conf import settings
 
@@ -7,7 +8,15 @@ from core.models import PersistentNotification
 from main_product_manager.utils import compute_supplier_sku, link_to_local_products
 from main_product_manager.models import MainProduct
 
-from .functions import load_setting, SupplierFileStorageMissingError, SupplierImportError
+from . import guard
+from .functions import (
+    SupplierFileStorageMissingError,
+    SupplierImportError,
+    _get_setting_signature,
+    apply_counts,
+    get_sps_result,
+    load_setting,
+)
 from .filters import SupplierProductFilter
 from .models import (
     CopySupplierProductsToMainRun,
@@ -37,10 +46,40 @@ def _finish_run(run: ImportRun, status: str, stats: dict, message: str = "") -> 
     run.save()
 
 
+def _hold_for_confirmation(run, setting, supplier_file, user_id, stats, verdict) -> dict:
+    """Не применять: сохранить счётчики и причины и попросить подтверждения."""
+    run.guard_reasons = verdict.reasons
+    _finish_run(run, ImportRun.STATUS_NEEDS_CONFIRMATION, stats)
+    reasons = "; ".join(run.reason_lines())
+    message = f"Импорт «{setting.name}» ждёт подтверждения: {reasons}."
+    _append_supplier_file_log(supplier_file, message)
+    if supplier_file:
+        supplier_file.status = SupplierFile.STATUS_NEEDS_CONFIRMATION
+        supplier_file.save(update_fields=["status"])
+    PersistentNotification.objects.create(
+        user_id=user_id,
+        level="warning",
+        message=message,
+        link=import_confirmation_link(run),
+        link_text="Проверить",
+    )
+    return {"status": "needs_confirmation", "run_id": run.pk, "message": message}
+
+
+def import_confirmation_link(run: ImportRun) -> str:
+    """Страница поставщика, которая сразу открывает окно подтверждения этого импорта."""
+    return f"{reverse('supplier-detail', kwargs={'pk': run.supplier_id})}?import_run={run.pk}#settings"
+
+
 @shared_task
-def process_supplier_file_import(setting_id: int, user_id: int) -> dict:
+def process_supplier_file_import(setting_id: int, user_id: int, confirmed_run_id: int | None = None) -> dict:
     """
     Асинхронная обработка файла поставщика по настройке.
+
+    Без confirmed_run_id файл сначала проверяется (guard.evaluate) и при
+    подозрительно низком покрытии не применяется, а ждёт подтверждения.
+    С confirmed_run_id применяется ровно тот файл и то сопоставление, что
+    были показаны пользователю в окне подтверждения, — без повторной проверки.
     """
     started_at = timezone.now()
 
@@ -59,17 +98,43 @@ def process_supplier_file_import(setting_id: int, user_id: int) -> dict:
         supplier_file,
         f"Запущена обработка настройки «{setting.name}» (ID={setting_id})",
     )
-    run = ImportRun.objects.create(
-        setting=setting,
-        supplier_id=setting.supplier_id,
-        supplier_file=supplier_file,
-        file_name=supplier_file.file.name if supplier_file and supplier_file.file else "",
-        user_id=user_id,
-    )
+    if confirmed_run_id:
+        run = ImportRun.objects.get(pk=confirmed_run_id, setting=setting)
+        if (run.supplier_file_id != (supplier_file.pk if supplier_file else None)
+                or run.signature != _get_setting_signature(setting)):
+            reason = "Файл или настройка изменились после проверки — запустите импорт заново"
+            _finish_run(run, ImportRun.STATUS_SUPERSEDED, {}, reason)
+            _append_supplier_file_log(supplier_file, reason)
+            PersistentNotification.objects.create(
+                user_id=user_id, level="warning",
+                message=f"Импорт «{setting.name}» не применён: {reason}.",
+            )
+            return {"status": "superseded", "message": reason}
+    else:
+        # A newer import of the same setting makes an unconfirmed one moot.
+        ImportRun.objects.filter(
+            setting=setting, status=ImportRun.STATUS_NEEDS_CONFIRMATION,
+        ).update(status=ImportRun.STATUS_SUPERSEDED, message="Запущен новый импорт",
+                 finished_at=timezone.now())
+        run = ImportRun.objects.create(
+            setting=setting,
+            supplier_id=setting.supplier_id,
+            supplier_file=supplier_file,
+            file_name=supplier_file.file.name if supplier_file and supplier_file.file else "",
+            user_id=user_id,
+            signature=_get_setting_signature(setting),
+        )
 
     try:
         _append_supplier_file_log(supplier_file, "Чтение и обработка файла")
-        outcome = load_setting(setting_id)
+        payload, parse_stats = get_sps_result(setting)
+        stats = {**parse_stats, **apply_counts(setting, payload)}
+        if not confirmed_run_id:
+            verdict = guard.evaluate(setting, stats, exclude_pk=run.pk)
+            if not verdict.ok:
+                return _hold_for_confirmation(run, setting, supplier_file, user_id, stats, verdict)
+
+        outcome = load_setting(setting_id, parsed=(payload, parse_stats))
         duration_seconds = round((timezone.now() - started_at).total_seconds(), 2)
         stats = outcome.stats
         processed_rows = len(outcome.sps)
@@ -155,12 +220,13 @@ def cleanup_supplier_files_task() -> dict:
     Удаляет старые SupplierFile, оставляя только последние N файлов на каждую настройку.
 
     Последний файл настройки не удаляется никогда (N не меньше 1): его читают
-    экран сопоставления колонок и импорт. Файлы в очереди или в обработке
-    тоже не трогаются.
+    экран сопоставления колонок и импорт. Файлы в очереди, в обработке или
+    ждущие подтверждения импорта тоже не трогаются.
     """
     keep_last = max(getattr(settings, "SUPPLIER_FILES_KEEP_LAST", 1), 1)
     deleted_count = 0
-    in_progress = (SupplierFile.STATUS_QUEUED, SupplierFile.STATUS_RUNNING)
+    in_progress = (SupplierFile.STATUS_QUEUED, SupplierFile.STATUS_RUNNING,
+                   SupplierFile.STATUS_NEEDS_CONFIRMATION)
 
     for setting in Setting.objects.only("id").iterator():
         file_ids = list(

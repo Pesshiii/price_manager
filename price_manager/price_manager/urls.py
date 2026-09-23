@@ -11,6 +11,7 @@ from main_product_manager import views as mp_views
 from supplier_manager import views as sm_views
 from product_price_manager import views as ppm_views
 from product import views as product_views
+from developers import views as developers_views
 
 
 urlpatterns = [
@@ -57,6 +58,9 @@ urlpatterns = [
     path('setting/<int:pk>/table', spm_views.XMLTableView.as_view(), name='setting-table'),
     path('setting/<int:pk>/sps', spm_views.SettingSPSTableView.as_view(), name='setting-sps-table'),
     path('setting/<int:pk>/upload/<int:state>', spm_views.setting_upload, name='setting-upload'),
+    path('import-run/<int:pk>/', spm_views.import_run_confirm, name='import-run-confirm'),
+    path('import-run/<int:pk>/apply', spm_views.import_run_apply, name='import-run-apply'),
+    path('import-run/<int:pk>/cancel', spm_views.import_run_cancel, name='import-run-cancel'),
 
     path('supplier/<int:pk>/pricemanagers/', ppm_views.PriceManagerList.as_view(), name='pricemanagers'),
     path('pricemanager/<int:pk>/', ppm_views.PriceManagerUpdate.as_view(), name='pricemanager-update'),
@@ -105,5 +109,7 @@ urlpatterns = [
     path("toasts/", views.toast_messages, name="toast-messages"),
     path('notifications/<int:pk>/delete/', views.PersistentNotificationDeleteView.as_view(), name='persistent-notification-delete'),
     path('notifications/panel/', views.PersistentNotificationsPanelView.as_view(), name='persistent-notifications-panel'),
+
+    path('developers/feedback/', developers_views.FeedbackCreateView.as_view(), name='developers-feedback'),
 
 ] + static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)

@@ -48,3 +48,12 @@ BITRIX24_AUTO_CREATE_USERS = os.environ.get('BITRIX24_AUTO_CREATE_USERS', 'true'
 # The password keeps working as a fallback login either way.
 BITRIX24_LINK_REQUIRED = os.environ.get('BITRIX24_LINK_REQUIRED', 'false').lower() == 'true'
 
+
+# FEEDBACK TO DEVELOPERS AS BITRIX24 TASKS (developers/bitrix24.py)
+#
+# An inbound webhook with the `task` scope, full URL including the secret code:
+# https://<portal>/rest/<user id>/<code>/. Each message becomes a task for the
+# responsible user. Either empty = messages are only kept in the admin.
+BITRIX24_FEEDBACK_WEBHOOK = os.environ.get('BITRIX24_FEEDBACK_WEBHOOK', '')
+BITRIX24_FEEDBACK_RESPONSIBLE_ID = int(os.environ.get('BITRIX24_FEEDBACK_RESPONSIBLE_ID') or 0) or None
+

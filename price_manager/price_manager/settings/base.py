@@ -134,5 +134,11 @@ LOGGING = {
             "level": "INFO",
             "propagate": False,
         },
+        # Why a feedback task was not created in Bitrix24.
+        "developers.bitrix24": {
+            "handlers": ["console"],
+            "level": "INFO",
+            "propagate": False,
+        },
     },
 }

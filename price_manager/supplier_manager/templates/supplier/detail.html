@@ -77,10 +77,27 @@
         </div>
     </div>
 </div>
+<div id="import-confirm-modal" class="modal fade" tabindex="-1" aria-label="Подтверждение импорта" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content">
+          {% if import_confirm_url %}
+            <div hx-get="{{ import_confirm_url }}" hx-trigger="load" hx-target="closest .modal-content" hx-swap="innerHTML"></div>
+          {% endif %}
+        </div>
+    </div>
+</div>
 {% endblock %}
 
 
 {% block script %}
+{% if import_confirm_url %}
+<script>
+// Opened from the «ждёт подтверждения» notification.
+window.addEventListener('DOMContentLoaded', () => {
+    bootstrap.Modal.getOrCreateInstance(document.getElementById('import-confirm-modal')).show();
+});
+</script>
+{% endif %}
 <script>
 function activateTabFromUrlHash() {
     // Check if a URL hash exists (e.g., #profile)
