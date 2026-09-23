@@ -1112,8 +1112,12 @@ class ImportStatsTests(TestCase):
         )
 
 
+@override_settings(SUPPLIER_IMPORT_GUARD_MIN_HISTORY=0)
 class ImportRunRecordingTests(TestCase):
-    """Каждый запуск задачи импорта оставляет ImportRun — применённый, отказ или ошибка."""
+    """Каждый запуск задачи импорта оставляет ImportRun — применённый, отказ или ошибка.
+
+    Проверка импорта здесь выключена (история не требуется) — она покрыта
+    ImportGuardTests."""
 
     setUp = BasicLoadTests.setUp
     _create_supplier_file = BasicLoadTests._create_supplier_file
@@ -1161,8 +1165,10 @@ class ImportRunRecordingTests(TestCase):
         self.assertIsNone(run.created)
 
     def test_failed_run_is_recorded_and_reraised(self):
-        setting = self._setting(create_new=True, article="Артикул", name="Название")
-        self._create_supplier_file(setting, pd.DataFrame([{"Артикул": "А-1", "Название": "Товар"}]))
+        setting = self._setting(create_new=True, article="Артикул", name="Название", stock="Остаток")
+        self._create_supplier_file(
+            setting, pd.DataFrame([{"Артикул": "А-1", "Название": "Товар", "Остаток": "1"}]),
+        )
 
         with mock.patch("supplier_product_manager.tasks.load_setting", side_effect=RuntimeError("boom")):
             with self.assertRaises(RuntimeError):
@@ -1183,3 +1189,242 @@ class ImportRunRecordingTests(TestCase):
         run = ImportRun.objects.get(setting=setting)
         self.assertIsNone(run.supplier_file_id)
         self.assertTrue(run.file_name)
+
+
+@override_settings(SUPPLIER_IMPORT_GUARD_RATIO=0.7, SUPPLIER_IMPORT_GUARD_WINDOW=5,
+                   SUPPLIER_IMPORT_GUARD_MIN_HISTORY=3)
+class ImportGuardTests(TestCase):
+    """Файл, покрывающий заметно меньше обычного, не применяется, а ждёт подтверждения."""
+
+    _create_supplier_file = BasicLoadTests._create_supplier_file
+    _setting = ImportRefusalReasonTests._setting
+
+    def setUp(self):
+        BasicLoadTests.setUp(self)
+        self.user = get_user_model().objects.create_user(username="guard", password="x")
+        self.client.force_login(self.user)
+        self.existing = SupplierProduct.objects.create(
+            supplier=self.supplier, article="СТАРЫЙ", name="Старый", stock=7, supplier_price=Decimal("100"),
+        )
+        self.setting = self._setting(create_new=True, article="Артикул", name="Название",
+                                     supplier_price="Цена", stock="Остаток")
+
+    def _history(self, *pairs):
+        """Применённые импорты настройки: пары (covered_price, covered_stock), от старых к новым."""
+        for price, stock in pairs:
+            ImportRun.objects.create(setting=self.setting, supplier=self.supplier,
+                                     status=ImportRun.STATUS_APPLIED,
+                                     covered_price=price, covered_stock=stock)
+
+    def _file(self, rows):
+        return self._create_supplier_file(self.setting, pd.DataFrame([
+            {"Артикул": f"А-{i}", "Название": f"Товар {i}", "Цена": price, "Остаток": stock}
+            for i, (price, stock) in enumerate(rows)
+        ]))
+
+    def _import(self):
+        return process_supplier_file_import(self.setting.pk, self.user.pk)
+
+    def _assert_data_unchanged(self):
+        self.existing.refresh_from_db()
+        self.assertEqual((self.existing.stock, self.existing.supplier_price), (7, Decimal("100")))
+        self.assertEqual(SupplierProduct.objects.filter(supplier=self.supplier).count(), 1)
+
+    # --- the check ---------------------------------------------------------
+
+    def test_first_imports_wait_for_confirmation_until_history_accumulates(self):
+        self._history((2, 2), (2, 2))
+        supplier_file = self._file([("10", "1"), ("20", "2")])
+
+        result = self._import()
+
+        self.assertEqual(result["status"], "needs_confirmation")
+        run = ImportRun.objects.get(pk=result["run_id"])
+        self.assertEqual(run.status, ImportRun.STATUS_NEEDS_CONFIRMATION)
+        self.assertEqual(run.guard_reasons, [{"kind": "history", "have": 2, "need": 3}])
+        self.assertEqual((run.covered, run.created, run.missing), (2, 2, 1))
+        self._assert_data_unchanged()
+        supplier_file.refresh_from_db()
+        self.assertEqual(supplier_file.status, SupplierFile.STATUS_NEEDS_CONFIRMATION)
+        notification = PersistentNotification.objects.get(user=self.user)
+        self.assertEqual(notification.level, "warning")
+        self.assertIn("история ещё копится (2 из 3)", notification.message)
+        self.assertEqual(notification.link, f"/supplier/{self.supplier.pk}/?import_run={run.pk}#settings")
+
+    def test_usual_file_is_applied(self):
+        self._history((2, 2), (2, 2), (2, 2))
+        self._file([("10", "1"), ("20", "2")])
+
+        self.assertEqual(self._import()["status"], "ok")
+        self.assertEqual(SupplierProduct.objects.filter(supplier=self.supplier).count(), 3)
+
+    def test_price_coverage_drop_waits(self):
+        self._history((4, 0), (4, 0), (4, 0))
+        self._file([("10", "1"), ("н/д", "2"), ("н/д", "3"), ("н/д", "4")])
+
+        result = self._import()
+
+        run = ImportRun.objects.get(pk=result["run_id"])
+        self.assertEqual(run.guard_reasons, [
+            {"kind": "drop", "metric": "covered_price", "value": 1, "baseline": 4},
+        ])
+        self.assertEqual(run.reason_lines(), ["С ценой: 1 строка, обычно ~4"])
+        self._assert_data_unchanged()
+
+    def test_stock_coverage_drop_waits_while_prices_look_normal(self):
+        self._history((3, 3), (3, 3), (3, 3))
+        self._file([("10", "нет"), ("20", "нет"), ("30", "нет")])
+
+        result = self._import()
+
+        run = ImportRun.objects.get(pk=result["run_id"])
+        self.assertEqual([r["metric"] for r in run.guard_reasons], ["covered_stock"])
+
+    def test_metric_the_setting_never_delivered_is_not_checked(self):
+        self._history((3, 0), (3, 0), (3, 0))
+        self._file([("10", ""), ("20", ""), ("30", "")])
+
+        self.assertEqual(self._import()["status"], "ok")
+
+    def test_one_outlier_does_not_move_the_median(self):
+        from supplier_product_manager import guard
+        self._history((100, 0), (100, 0), (5, 0), (100, 0), (100, 0))
+
+        self.assertTrue(guard.evaluate(self.setting, {"covered_price": 90, "covered_stock": 0}).ok)
+        self.assertFalse(guard.evaluate(self.setting, {"covered_price": 60, "covered_stock": 0}).ok)
+
+    def test_new_import_supersedes_an_unconfirmed_one(self):
+        self._file([("10", "1")])
+        first = self._import()["run_id"]
+
+        self._import()
+
+        self.assertEqual(ImportRun.objects.get(pk=first).status, ImportRun.STATUS_SUPERSEDED)
+
+    # --- confirmation ------------------------------------------------------
+
+    def _pending_run(self):
+        self._file([("10", "1"), ("20", "2")])
+        return ImportRun.objects.get(pk=self._import()["run_id"])
+
+    def test_apply_view_claims_the_run_once_and_dispatches_it(self):
+        run = self._pending_run()
+        url = reverse("import-run-apply", kwargs={"pk": run.pk})
+
+        with mock.patch("supplier_product_manager.views.process_supplier_file_import") as task:
+            with self.captureOnCommitCallbacks(execute=True):
+                self.client.post(url)
+            with self.captureOnCommitCallbacks(execute=True):
+                self.client.post(url)
+
+        task.delay.assert_called_once_with(self.setting.pk, self.user.pk, confirmed_run_id=run.pk)
+        run.refresh_from_db()
+        self.assertEqual((run.status, run.confirmed_by_id), (ImportRun.STATUS_RUNNING, self.user.pk))
+        self.assertIsNotNone(run.confirmed_at)
+
+    def test_confirmed_run_applies_without_a_second_check(self):
+        run = self._pending_run()
+        ImportRun.objects.filter(pk=run.pk).update(status=ImportRun.STATUS_RUNNING, confirmed_by=self.user)
+
+        result = process_supplier_file_import(self.setting.pk, self.user.pk, confirmed_run_id=run.pk)
+
+        self.assertEqual(result["status"], "ok")
+        run.refresh_from_db()
+        self.assertEqual(run.status, ImportRun.STATUS_APPLIED)
+        self.assertEqual(run.guard_reasons, [{"kind": "history", "have": 0, "need": 3}])
+        self.assertEqual(SupplierProduct.objects.filter(supplier=self.supplier).count(), 3)
+        self.existing.refresh_from_db()
+        self.assertIsNone(self.existing.stock)
+
+    def test_confirmation_is_refused_when_the_mapping_changed_meanwhile(self):
+        run = self._pending_run()
+        ImportRun.objects.filter(pk=run.pk).update(status=ImportRun.STATUS_RUNNING)
+        Link.objects.filter(setting=self.setting, key="stock").update(value="Склад")
+
+        result = process_supplier_file_import(self.setting.pk, self.user.pk, confirmed_run_id=run.pk)
+
+        self.assertEqual(result["status"], "superseded")
+        self.assertEqual(ImportRun.objects.get(pk=run.pk).status, ImportRun.STATUS_SUPERSEDED)
+        self._assert_data_unchanged()
+
+    def test_cancel_view(self):
+        run = self._pending_run()
+
+        self.client.post(reverse("import-run-cancel", kwargs={"pk": run.pk}))
+
+        run.refresh_from_db()
+        self.assertEqual(run.status, ImportRun.STATUS_CANCELLED)
+        self.assertEqual(run.supplier_file.status, SupplierFile.STATUS_ERROR)
+        self._assert_data_unchanged()
+
+    def test_new_upload_supersedes_an_unconfirmed_run(self):
+        run = self._pending_run()
+        excel = BytesIO()
+        pd.DataFrame([{"Артикул": "А-1", "Название": "Товар"}]).to_excel(excel, index=False)
+        upload = SimpleUploadedFile("new.xlsx", excel.getvalue())
+
+        self.client.post(reverse("supplier-upload", kwargs={"pk": self.supplier.pk}),
+                         {"file": upload, "setting": self.setting.pk})
+
+        self.assertEqual(ImportRun.objects.get(pk=run.pk).status, ImportRun.STATUS_SUPERSEDED)
+
+    def test_cleanup_keeps_a_file_waiting_for_confirmation(self):
+        run = self._pending_run()
+        SupplierFile.objects.create(
+            setting=self.setting, status=SupplierFile.STATUS_SUCCESS,
+            file=SimpleUploadedFile("newer.xlsx", b"x"),
+        )
+
+        cleanup_supplier_files_task()
+
+        self.assertTrue(SupplierFile.objects.filter(pk=run.supplier_file_id).exists())
+
+    # --- screens -----------------------------------------------------------
+
+    def test_confirm_modal_shows_reasons_figures_and_actions(self):
+        run = self._pending_run()
+
+        response = self.client.get(reverse("import-run-confirm", kwargs={"pk": run.pk}))
+
+        self.assertContains(response, "история ещё копится (0 из 3)")
+        self.assertContains(response, "нет в файле — обнулятся")
+        self.assertContains(response, reverse("import-run-apply", kwargs={"pk": run.pk}))
+        self.assertContains(response, reverse("import-run-cancel", kwargs={"pk": run.pk}))
+
+    def test_confirm_modal_of_a_processed_run_has_no_actions(self):
+        run = self._pending_run()
+        ImportRun.objects.filter(pk=run.pk).update(status=ImportRun.STATUS_CANCELLED)
+
+        response = self.client.get(reverse("import-run-confirm", kwargs={"pk": run.pk}))
+
+        self.assertContains(response, "уже обработан: отменён")
+        self.assertNotContains(response, reverse("import-run-apply", kwargs={"pk": run.pk}))
+
+    def test_notification_link_opens_the_dialog_only_while_pending(self):
+        run = self._pending_run()
+        url = f"{reverse('supplier-detail', kwargs={'pk': self.supplier.pk})}?import_run={run.pk}"
+
+        self.assertEqual(self.client.get(url).context["import_confirm_url"],
+                         reverse("import-run-confirm", kwargs={"pk": run.pk}))
+        ImportRun.objects.filter(pk=run.pk).update(status=ImportRun.STATUS_APPLIED)
+        self.assertNotIn("import_confirm_url", self.client.get(url).context)
+
+    def test_settings_table_shows_last_import(self):
+        run = self._pending_run()
+
+        response = self.client.get(reverse("settings", kwargs={"pk": self.supplier.pk}))
+
+        self.assertContains(response, "Ждёт подтверждения")
+        self.assertContains(response, reverse("import-run-confirm", kwargs={"pk": run.pk}))
+
+    # --- atomic apply ------------------------------------------------------
+
+    @override_settings(SUPPLIER_IMPORT_GUARD_MIN_HISTORY=0)
+    def test_failed_apply_leaves_no_partial_writes(self):
+        self._file([("10", "1"), ("20", "2")])
+
+        with mock.patch("supplier_manager.models.Supplier.save", side_effect=RuntimeError("boom")):
+            with self.assertRaises(RuntimeError):
+                self._import()
+
+        self._assert_data_unchanged()

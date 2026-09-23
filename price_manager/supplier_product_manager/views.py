@@ -15,6 +15,9 @@ from django.views.generic import (View, TemplateView,
                                   DeleteView)
 from django.core.paginator import Paginator
 from django.db import IntegrityError, transaction
+from django.db.models import OuterRef, Subquery
+from django.utils import timezone
+from django.views.decorators.http import require_POST
 
 
 
@@ -26,9 +29,10 @@ from crispy_forms.utils import render_crispy_form
 
 # Импорты моделей, функций, форм, таблиц
 from product_price_manager.models import PriceManager, PriceTag
+from core.task_runner import dispatch_after_commit
 from core.utils import extract_initial_from_post
 from supplier_manager.forms import SupplierForm
-from .models import CopySupplierProductsToMainRun, DictItem, SupplierFile
+from .models import CopySupplierProductsToMainRun, DictItem, ImportRun, SupplierFile, format_count
 from .forms import *
 from .tables import *
 from .filters import *
@@ -103,6 +107,12 @@ class SupplierDetail(SingleTableMixin, FilterView):
     context['supplier_form'] = SupplierForm(instance=self.supplier)
     pms = PriceManager.objects.filter(supplier=self.supplier)
     context['pricemanagers'] = pms
+    # ?import_run=<pk> — link from the «ждёт подтверждения» notification: open
+    # the confirmation dialog, but only for a still-pending run of this supplier.
+    run_pk = self.request.GET.get('import_run', '')
+    if run_pk.isdigit() and ImportRun.objects.filter(
+        pk=run_pk, supplier=self.supplier, status=ImportRun.STATUS_NEEDS_CONFIRMATION).exists():
+      context['import_confirm_url'] = reverse('import-run-confirm', kwargs={'pk': int(run_pk)})
     return context
 
 def copy_to_main(request, pk, state):
@@ -183,6 +193,10 @@ class UploadSupplierFile(CreateView):
       supplierfile.file.delete()
       supplierfile.delete()
     instance.save()
+    # The file an unconfirmed import was checked against is gone.
+    ImportRun.objects.filter(
+      setting=instance.setting, status=ImportRun.STATUS_NEEDS_CONFIRMATION,
+    ).update(status=ImportRun.STATUS_SUPERSEDED, message='Загружен новый файл', finished_at=timezone.now())
     if instance.setting.is_bound():
       return redirect(reverse('setting-upload', kwargs={'pk': instance.setting.pk, 'state':0}))
     else: 
@@ -207,6 +221,63 @@ def setting_upload(request, pk, state):
   else:
     messages.error(request, f'Не указано поле артикула и\\или наименования')
   return HttpResponseClientRefresh()
+
+def import_run_confirm(request, pk):
+  '''Окно подтверждения импорта, который не прошёл проверку << import-run/<pk>/ >>'''
+  run = get_object_or_404(ImportRun.objects.select_related('setting', 'supplier'), pk=pk)
+  n = lambda value: format_count(value or 0)
+  return render(request, 'supplier_product/partials/import_confirm_modal.html', {
+    'run': run,
+    'pending': run.status == ImportRun.STATUS_NEEDS_CONFIRMATION,
+    'figures': [
+      (n(run.covered), 'будет записано', False),
+      (n(run.created), 'новых', False),
+      (n(run.missing), 'нет в файле — обнулятся', bool(run.missing)),
+    ],
+    'breakdown': [
+      ('Строк на листе', n(run.rows_in_sheet)),
+      ('С артикулом', n(run.rows_with_article)),
+      ('Со значениями', n(run.rows_with_values)),
+      ('Без названия', n(run.rows_without_name)),
+      ('Не совпали с товарами', n(run.rows_unmatched)),
+      ('Дубликаты', n(run.duplicates)),
+      ('С ценой', n(run.covered_price)),
+      ('С остатком', n(run.covered_stock)),
+    ],
+  })
+
+
+@require_POST
+def import_run_apply(request, pk):
+  '''«Применить всё равно»: применить ровно тот файл, что был проверен.'''
+  # Conditional update: a second click (or a second user) finds the run no
+  # longer pending and does nothing, so the file is never applied twice.
+  claimed = ImportRun.objects.filter(pk=pk, status=ImportRun.STATUS_NEEDS_CONFIRMATION).update(
+    status=ImportRun.STATUS_RUNNING, confirmed_by=request.user, confirmed_at=timezone.now())
+  if not claimed:
+    messages.warning(request, 'Этот импорт уже обработан')
+    return HttpResponseClientRefresh()
+  run = ImportRun.objects.get(pk=pk)
+  dispatch_after_commit(process_supplier_file_import, run.setting_id, request.user.pk, confirmed_run_id=run.pk)
+  messages.info(request, f'Импорт «{run.setting}» применяется. Уведомление придёт после завершения.')
+  return HttpResponseClientRefresh()
+
+
+@require_POST
+def import_run_cancel(request, pk):
+  '''«Отменить импорт»: данные не меняются, файл остаётся для исправления настройки.'''
+  cancelled = ImportRun.objects.filter(pk=pk, status=ImportRun.STATUS_NEEDS_CONFIRMATION).update(
+    status=ImportRun.STATUS_CANCELLED, finished_at=timezone.now(),
+    message=f'Отменён пользователем {request.user}')
+  if cancelled:
+    SupplierFile.objects.filter(
+      import_runs__pk=pk, status=SupplierFile.STATUS_NEEDS_CONFIRMATION,
+    ).update(status=SupplierFile.STATUS_ERROR)
+    messages.info(request, 'Импорт отменён, данные не изменены')
+  else:
+    messages.warning(request, 'Этот импорт уже обработан')
+  return HttpResponseClientRefresh()
+
 
 class XMLTableView(TemplateView):
   template_name = 'supplier_product/partials/csv_table.html'
@@ -394,7 +465,12 @@ class SettingList(SingleTableView):
       self.template_name = 'supplier/partials/setting_table.html#table'
     return super().get(request, *args, **kwargs)
   def get_queryset(self):
-    qs = super().get_queryset()
+    last_run = ImportRun.objects.filter(setting=OuterRef('pk')).order_by('-started_at')
+    qs = super().get_queryset().annotate(
+      last_run_pk=Subquery(last_run.values('pk')[:1]),
+      last_run_status=Subquery(last_run.values('status')[:1]),
+      last_run_at=Subquery(last_run.values('started_at')[:1]),
+    )
     pk = self.kwargs.get('pk', None)
     if pk:
       return qs.filter(supplier=pk)

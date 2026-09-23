@@ -1,5 +1,6 @@
 
 from django.utils import timezone
+from django.db import transaction
 from django.db.models import ExpressionWrapper, Q, BooleanField, Value
 from django.core.cache import cache
 from django.conf import settings
@@ -563,10 +564,30 @@ class ImportOutcome:
     stats: dict = field(default_factory=dict)
 
 
-def load_setting(pk) -> ImportOutcome:
+def apply_counts(setting: Setting, payload: list[dict]) -> dict:
+    """Что сделает применение payload, не применяя его: created / updated / missing.
+
+    missing — строки поставщика, которых нет в payload; при применении у них
+    очищаются сопоставленные остаток и цены. Считается до записи, чтобы
+    показать это в окне подтверждения.
+    """
+    existing_keys = set(
+        SupplierProduct.objects.filter(supplier=setting.supplier).values_list('article', 'name')
+    )
+    payload_keys = {(row['article'], row['name']) for row in payload}
+    created = len(payload_keys - existing_keys)
+    return {
+        'created': created,
+        'updated': len(payload_keys) - created,
+        'missing': len(existing_keys - payload_keys),
+    }
+
+
+def load_setting(pk, parsed: tuple[list[dict], dict] | None = None) -> ImportOutcome:
     '''
         Записывает товары ПП из файла настройки\\
-        Если импортировать нечего, выбрасывает SupplierImportError
+        Если импортировать нечего, выбрасывает SupplierImportError\\
+        parsed — готовый результат get_sps_result, чтобы не разбирать файл дважды
     '''
     setting = Setting.objects.get(pk=pk)
     # Только ключи из LINKS: каждый ключ ниже становится полем SupplierProduct.
@@ -576,8 +597,15 @@ def load_setting(pk) -> ImportOutcome:
     # get_sps raises SupplierImportError instead of returning nothing: an empty
     # result must never reach the "missing rows" update below, which would
     # clear stock and prices of every product of the supplier.
-    sps_payload, parse_stats = get_sps_result(setting)
+    sps_payload, parse_stats = parsed if parsed is not None else get_sps_result(setting)
     stats = dict(parse_stats)
+    # All writes or none: a failure between the upsert and the clearing of
+    # missing rows used to leave the supplier half-imported.
+    with transaction.atomic():
+        return _apply(setting, links, sps_payload, stats)
+
+
+def _apply(setting: Setting, links, sps_payload: list[dict], stats: dict) -> ImportOutcome:
     df = pd.DataFrame(sps_payload)
     df = df.dropna(subset=['name'])
     df = df.replace({pd.NA: None, float('nan'): None, '': None, 'NaN': None})
@@ -601,13 +629,8 @@ def load_setting(pk) -> ImportOutcome:
             **data
             )
     
-    existing_keys = set(
-        SupplierProduct.objects.filter(supplier=setting.supplier).values_list('article', 'name')
-    )
-    stats['created'] = sum(
-        1 for key in zip(df['article'], df['name']) if key not in existing_keys
-    )
-    stats['updated'] = len(df) - stats['created']
+    counts = apply_counts(setting, sps_payload)
+    stats['created'], stats['updated'] = counts['created'], counts['updated']
 
     sp_model_instances = map(get_spmodel, df.itertuples(index=False))
     sp_update_fields = [link.key for link in links if not link.key=='article' and not link.key == 'name' and link.key in df.columns]
