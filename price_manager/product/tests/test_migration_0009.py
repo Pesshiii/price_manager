@@ -46,8 +46,6 @@ class MergeCaseDuplicateNumbersTests(TestCase):
         self.supplier = Supplier.objects.create(
             name='Migration supplier',
             currency=currency,
-            price_update_rate='',
-            stock_update_rate='',
             delivery_days_available=1,
             delivery_days_navailable=2,
         )

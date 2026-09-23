@@ -43,6 +43,10 @@ BITRIX24_OAUTH_SERVER = os.environ.get('BITRIX24_OAUTH_SERVER', 'https://oauth.b
 # may log in and gets a PM user on first login. false = only people who
 # already have a PM user (matched by e-mail) get in.
 BITRIX24_AUTO_CREATE_USERS = os.environ.get('BITRIX24_AUTO_CREATE_USERS', 'true').lower() == 'true'
+# true = a logged-in user with no linked Bitrix24 account is sent to link one
+# (core.middleware.Bitrix24LinkRequiredMiddleware); superusers are exempt.
+# The password keeps working as a fallback login either way.
+BITRIX24_LINK_REQUIRED = os.environ.get('BITRIX24_LINK_REQUIRED', 'false').lower() == 'true'
 
 
 # FEEDBACK TO DEVELOPERS AS BITRIX24 TASKS (developers/bitrix24.py)

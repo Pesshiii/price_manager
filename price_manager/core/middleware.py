@@ -1,12 +1,71 @@
-from urllib.parse import urlparse
+from urllib.parse import urlencode, urlparse
 
 from django.conf import settings
 from django.contrib.auth.views import redirect_to_login
-from django.shortcuts import resolve_url
-from django.urls import NoReverseMatch
+from django.shortcuts import redirect, resolve_url
+from django.urls import NoReverseMatch, reverse
 from django.http import HttpResponse, JsonResponse
-from django_htmx.http import reswap, trigger_client_event
+from django_htmx.http import HttpResponseClientRedirect, reswap, trigger_client_event
 from django.contrib import messages
+
+
+class Bitrix24LinkRequiredMiddleware:
+    """Send a logged-in user with no linked Bitrix24 account to link one.
+
+    Runs after LoginRequiredMiddleware, so anonymous users never get here.
+    Inert unless BITRIX24_LINK_REQUIRED is on and the Bitrix24 login is
+    configured, which keeps every other test suite and a Bitrix24 outage from
+    locking anyone out. Superusers are exempt so there is always a way into
+    the admin.
+    """
+
+    EXEMPT_URL_NAMES = (
+        'bitrix24-link', 'bitrix24-login', 'bitrix24-callback',
+        'login', 'logout', 'toast-messages',
+    )
+    EXEMPT_PREFIXES = ('/admin/', '/api/')
+
+    def __init__(self, get_response):
+        self.get_response = get_response
+        self.exempt_paths = {reverse(name) for name in self.EXEMPT_URL_NAMES}
+        self.exempt_prefixes = self.EXEMPT_PREFIXES + tuple(
+            prefix for prefix in (settings.STATIC_URL, settings.MEDIA_URL) if prefix
+        )
+
+    def __call__(self, request):
+        if self._must_link(request):
+            target = reverse('bitrix24-link')
+            next_url = self._next_url(request)
+            if next_url:
+                target += '?' + urlencode({'next': next_url})
+            if request.headers.get('HX-Request'):
+                # A 302 would be followed by htmx and swapped into the fragment.
+                return HttpResponseClientRedirect(target)
+            return redirect(target)
+        return self.get_response(request)
+
+    def _must_link(self, request) -> bool:
+        from core import bitrix24
+        from core.models import Bitrix24Account
+
+        if not settings.BITRIX24_LINK_REQUIRED or not bitrix24.is_configured():
+            return False
+        user = request.user
+        if not user.is_authenticated or user.is_superuser:
+            return False
+        path = request.path_info
+        if path in self.exempt_paths or path.startswith(self.exempt_prefixes):
+            return False
+        return not Bitrix24Account.objects.filter(user=user).exists()
+
+    def _next_url(self, request) -> str:
+        # For htmx the request is a fragment; come back to the page it was on.
+        if request.headers.get('HX-Request'):
+            current = urlparse(request.headers.get('HX-Current-URL', ''))
+            return current.path + (f'?{current.query}' if current.query else '')
+        if request.method == 'GET':
+            return request.get_full_path()
+        return ''
 
 
 

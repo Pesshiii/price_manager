@@ -69,8 +69,6 @@ class BasicLoadTests(TestCase):
         self.supplier = Supplier.objects.create(
             name="Test supplier",
             currency=self.currency,
-            price_update_rate="Каждый день",
-            stock_update_rate="Каждый день",
             delivery_days_available=1,
             delivery_days_navailable=3,
         )
@@ -571,8 +569,6 @@ class SupplierFileSelectionTests(TestCase):
         self.supplier = Supplier.objects.create(
             name="Test supplier for latest file",
             currency=self.currency,
-            price_update_rate="Каждый день",
-            stock_update_rate="Каждый день",
             delivery_days_available=1,
             delivery_days_navailable=3,
         )
@@ -655,8 +651,6 @@ class SupplierProductFilterTests(TestCase):
         self.supplier = Supplier.objects.create(
             name="Filter supplier",
             currency=self.currency,
-            price_update_rate="Каждый день",
-            stock_update_rate="Каждый день",
             delivery_days_available=1,
             delivery_days_navailable=3,
         )
@@ -723,8 +717,6 @@ class CopySupplierProductsToMainTaskTests(TestCase):
         self.supplier = Supplier.objects.create(
             name="Copy task supplier",
             currency=self.currency,
-            price_update_rate="Каждый день",
-            stock_update_rate="Каждый день",
             delivery_days_available=1,
             delivery_days_navailable=3,
         )
@@ -809,8 +801,6 @@ class MainProductLinkUniquenessTests(TestCase):
         self.supplier = Supplier.objects.create(
             name="Uniqueness supplier",
             currency=self.currency,
-            price_update_rate="Каждый день",
-            stock_update_rate="Каждый день",
             delivery_days_available=1,
             delivery_days_navailable=3,
         )
@@ -851,8 +841,6 @@ class _SupplierFixtureMixin:
         return Supplier.objects.create(
             name=name,
             currency=currency,
-            price_update_rate="Каждый день",
-            stock_update_rate="Каждый день",
             delivery_days_available=1,
             delivery_days_navailable=3,
         )

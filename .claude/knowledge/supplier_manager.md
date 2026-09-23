@@ -23,17 +23,34 @@ was removed.
     stays separate so a future change to one doesn't silently change the
     other.
   - `msg_available` / `msg_navailable` — customer-facing stock strings.
-  - `price_update_rate` / `stock_update_rate` + `price_updated_at` /
-    `stock_updated_at` — rates are keys into module-level `TIME_FREQ`
-    (`:3`, `''`/daily/weekly/every-three-weeks); `SupplierList`
-    (`views.py:73-76`) uses this to flag a supplier "outdated".
+  - `price_update_days` / `stock_update_days` + `price_updated_at` /
+    `stock_updated_at` — the update interval is a plain day count, NULL =
+    "not tracked". Migration `0012` replaced the old `*_update_rate` labels
+    (`TIME_FREQ`, now gone from `models.py`; a frozen copy lives in the
+    migration) with 1/7/21/NULL. `Supplier.update_status(kind)` returns
+    `untracked`/`never`/`overdue`/`ok` and drives the «Цены»/«Остатки»
+    badges on `/supplier/`. The form edits the interval through
+    `IntervalField` (`forms.py`) as «число + дней/недель»; the unit is **not
+    stored** — `IntervalWidget.decompress` shows any multiple of 7 as weeks,
+    so «14 дней» reopens as «2 недель».
   - `price_priority` / `stock_priority` (added in migration `0010`) —
-    nullable, "меньше — выше приоритет, пусто — не проранжирован." They are
-    stored, editable in `SupplierForm`, and covered by tests
-    (`tests.py:20-49`), but **nothing currently reads them** — no consumer
-    in `main_product_manager` or `product_price_manager` yet. Scaffolding
-    for a not-yet-built cross-supplier price/stock selection, not dead code
-    to remove.
+    nullable, "меньше — выше приоритет, пусто — не проранжирован." Editable
+    in `SupplierForm` and inline in the `/supplier/` table
+    (`SupplierPriorityUpdate`, route `supplier-priority`, answers with the
+    `priority_cell.html` `<td>` — single-region HTMX, no reload). **Nothing
+    in business logic reads them yet** — no consumer in
+    `main_product_manager` or `product_price_manager`. Scaffolding for a
+    not-yet-built cross-supplier price/stock selection, not dead code.
+
+## `/supplier/` list (`SupplierList`)
+
+Rendered by hand from `supplier/partials/list_table_partial.html`, not
+django-tables2 (the unused `SupplierListTable` was deleted). All per-supplier
+counts come from one annotated query (`Count('main_products', filter=…)` per
+price field); a test pins the query count so it cannot drift back to N+1.
+Price columns are driven by `PRICE_COLUMNS` in `views.py` for both header and
+cells — they used to be written out separately and had silently drifted into
+different orders. Sorting by a priority always puts unranked suppliers last.
 - **`Discount:121`** — a named discount group belonging to a supplier
   (unique per `name`+`supplier`). [[product_price_manager]] matches rules
   against these.

@@ -21,6 +21,7 @@ urlpatterns = [
     path('accounts/logout/', views.AppLogoutView.as_view(), name='logout'),
     path('accounts/bitrix24/login/', views.bitrix24_login, name='bitrix24-login'),
     path('accounts/bitrix24/callback/', views.bitrix24_callback, name='bitrix24-callback'),
+    path('accounts/bitrix24/link/', views.bitrix24_link, name='bitrix24-link'),
 
     path('', views.mainpage, name='mainpage'),
 
@@ -44,6 +45,7 @@ urlpatterns = [
     path('supplier/', sm_views.SupplierList.as_view(), name='supplier'),
     
     path('supplier/<int:pk>/update', sm_views.SupplierUpdate.as_view(), name='supplier-update'),
+    path('supplier/<int:pk>/priority/<str:field>/', sm_views.SupplierPriorityUpdate.as_view(), name='supplier-priority'),
     path('supplier/<int:id>/delete/', sm_views.SupplierDelete.as_view(), name='supplier-delete'),
 
     path('supplier/create/', sm_views.SupplierCreate.as_view(), name='supplier-create'),

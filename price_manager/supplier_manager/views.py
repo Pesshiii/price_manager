@@ -19,6 +19,8 @@ from django.views.generic import (View,
                                   TemplateView)
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.urls import reverse
+from django.http import Http404
+from django.forms import modelform_factory
 from typing import Optional, Any, Dict, Iterable
 from collections import defaultdict, OrderedDict
 from datetime import datetime, timezone as dt_timezone
@@ -39,20 +41,33 @@ from main_product_manager.models import MainProduct, MP_PRICES
 from .forms import *
 from .tables import *
 
+PRICE_COLUMNS = [
+  ('basic_price', 'Базовая цена'),
+  ('prime_cost', 'Себестоимость'),
+  ('m_price', 'Цена ИМ'),
+  ('wholesale_price', 'Оптовая цена'),
+]
+
+UPDATE_KINDS = [('price', 'Цены'), ('stock', 'Остатки')]
+
+PRIORITY_FIELDS = ('price_priority', 'stock_priority')
+
+
+def _status_title(supplier, kind, status):
+  if status == 'untracked':
+    return 'Интервал обновления не задан'
+  interval = format_interval(getattr(supplier, f'{kind}_update_days'))
+  if status == 'never':
+    return f'Не обновлялось · интервал {interval}'
+  updated_at = timezone.localtime(getattr(supplier, f'{kind}_updated_at'))
+  return f'Обновлено {updated_at:%d.%m.%Y %H:%M} · интервал {interval}'
+
+
 class SupplierList(TemplateView):
   '''Список поставщиков на <<supplier/>>'''
   template_name = 'supplier/list.html'
 
-  SORT_FIELDS = {
-    'name',
-    'price_updated_at',
-    'stock_updated_at',
-    'basic_price',
-    'prime_cost',
-    'm_price',
-    'wholesale_price',
-    'total',
-  }
+  SORT_FIELDS = {'name', 'total', *PRIORITY_FIELDS, *(key for key, _ in PRICE_COLUMNS)}
 
   def get_context_data(self, **kwargs) -> dict[str, Any]:
     now = timezone.now()
@@ -65,54 +80,82 @@ class SupplierList(TemplateView):
     if direction not in {'asc', 'desc'}:
       direction = 'asc'
 
-    def price_filter(price): 
-      return Q(**{f'{price}__isnull':True})|Q(**{f'{price}':0})
-    # queryset = Paginator(Supplier.objects.all(), 5).page(1).object_list.prefetch_related('main_products')
-    queryset = Supplier.objects.all()
-
-    def is_outdated(updated_at, rate):
-      if not updated_at:
-        return True
-      return (now - updated_at).days >= TIME_FREQ.get(rate, 0)
+    # Все счётчики — одним запросом, а не пятью на каждого поставщика.
+    missing = {
+      f'{key}_missing': Count(
+        'main_products',
+        filter=Q(**{f'main_products__{key}__isnull': True}) | Q(**{f'main_products__{key}': 0}),
+      )
+      for key, _ in PRICE_COLUMNS
+    }
+    queryset = Supplier.objects.annotate(total=Count('main_products'), **missing)
 
     def get_row(obj):
-      price_outdated = is_outdated(obj.price_updated_at, obj.price_update_rate)
-      stock_outdated = is_outdated(obj.stock_updated_at, obj.stock_update_rate)
+      statuses = []
+      for kind, label in UPDATE_KINDS:
+        status = obj.update_status(kind, now=now)
+        statuses.append({'label': label, 'status': status, 'title': _status_title(obj, kind, status)})
+      prices = []
+      for key, label in PRICE_COLUMNS:
+        n_missing = getattr(obj, f'{key}_missing')
+        prices.append({
+          'key': key,
+          'missing': n_missing,
+          'coverage': round(100 * (obj.total - n_missing) / obj.total) if obj.total else 0,
+        })
       return {
-          'pk': obj.pk,
-          'name':obj.name,
-          'danger': price_outdated or stock_outdated,
-          'price_outdated': price_outdated,
-          'stock_outdated': stock_outdated,
-          'total': obj.main_products.count(),
-          'price_updated_sort': obj.price_updated_at,
-          'stock_updated_sort': obj.stock_updated_at,
-          'price_updated_at':obj.price_updated_at if obj.price_updated_at else 'Отсутствует',
-          'stock_updated_at':obj.stock_updated_at if obj.stock_updated_at else 'Отсутствует',
-          'basic_price': obj.main_products.filter(price_filter('basic_price')).count(),
-          'wholesale_price': obj.main_products.filter(price_filter('wholesale_price')).count(),
-          'm_price': obj.main_products.filter(price_filter('m_price')).count(),
-          'prime_cost': obj.main_products.filter(price_filter('prime_cost')).count(),
-        }
+        'pk': obj.pk,
+        'name': obj.name,
+        'total': obj.total,
+        'statuses': statuses,
+        'price_priority': obj.price_priority,
+        'stock_priority': obj.stock_priority,
+        'prices': prices,
+        **{key: getattr(obj, f'{key}_missing') for key, _ in PRICE_COLUMNS},
+      }
 
-    suppliers = list(map(get_row, queryset))
+    suppliers = [get_row(obj) for obj in queryset]
 
-    def sort_value(supplier_row):
-      if sort_by == 'price_updated_at':
-        return supplier_row.get('price_updated_sort') or datetime.min.replace(tzinfo=dt_timezone.utc)
-      if sort_by == 'stock_updated_at':
-        return supplier_row.get('stock_updated_sort') or datetime.min.replace(tzinfo=dt_timezone.utc)
-      value = supplier_row.get(sort_by)
-      if isinstance(value, str):
-        return value.lower()
-      return value
+    def sort_value(row):
+      value = row[sort_by]
+      return value.lower() if isinstance(value, str) else value
 
-    suppliers.sort(key=sort_value, reverse=direction == 'desc')
+    reverse = direction == 'desc'
+    if sort_by in PRIORITY_FIELDS:
+      # Непроранжированные — в конце при любом направлении.
+      ranked = sorted((r for r in suppliers if r[sort_by] is not None), key=sort_value, reverse=reverse)
+      suppliers = ranked + [r for r in suppliers if r[sort_by] is None]
+    else:
+      suppliers.sort(key=sort_value, reverse=reverse)
 
     context["suppliers"] = suppliers
+    context["price_columns"] = PRICE_COLUMNS
     context["sort_by"] = sort_by
     context["sort_dir"] = direction
     return context
+
+
+class SupplierPriorityUpdate(View):
+  '''Правка приоритета прямо в ячейке таблицы поставщиков.
+
+  Отвечает той же ячейкой (hx-swap outerHTML) — страница не перезагружается.
+  '''
+  def post(self, request, pk, field):
+    if field not in PRIORITY_FIELDS:
+      raise Http404
+    supplier = get_object_or_404(Supplier, pk=pk)
+    raw = request.POST.get('value', '').strip()
+    form = modelform_factory(Supplier, fields=[field])({field: raw}, instance=supplier)
+    saved = form.is_valid()
+    if saved:
+      form.save()
+    return render(request, 'supplier/partials/priority_cell.html', {
+      'pk': supplier.pk,
+      'field': field,
+      'value': getattr(supplier, field) if saved else raw,
+      'errors': None if saved else form.errors.get(field),
+      'saved': saved,
+    })
 
 
 
