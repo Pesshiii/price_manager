@@ -11,6 +11,7 @@ from main_product_manager import views as mp_views
 from supplier_manager import views as sm_views
 from product_price_manager import views as ppm_views
 from product import views as product_views
+from developers import views as developers_views
 
 
 urlpatterns = [
@@ -107,5 +108,7 @@ urlpatterns = [
     path("toasts/", views.toast_messages, name="toast-messages"),
     path('notifications/<int:pk>/delete/', views.PersistentNotificationDeleteView.as_view(), name='persistent-notification-delete'),
     path('notifications/panel/', views.PersistentNotificationsPanelView.as_view(), name='persistent-notifications-panel'),
+
+    path('developers/feedback/', developers_views.FeedbackCreateView.as_view(), name='developers-feedback'),
 
 ] + static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)

@@ -34,6 +34,18 @@
         <a class="btn btn-link" href="{% url 'admin:index' %}">Админ</a>
         {% if user.is_authenticated %}
           <button
+            class="btn btn-outline-secondary"
+            type="button"
+            data-bs-toggle="modal"
+            data-bs-target="#developersFeedbackModal"
+            hx-get="{% url 'developers-feedback' %}?page={{ request.get_full_path|urlencode:'' }}"
+            hx-target="#developersFeedbackModal .modal-content"
+            hx-swap="innerHTML"
+          >
+            <i class="bi bi-chat-left-text"></i>
+            <span class="ms-1">Разработчикам</span>
+          </button>
+          <button
             class="btn btn-outline-secondary position-relative"
             type="button"
             data-bs-toggle="offcanvas"
