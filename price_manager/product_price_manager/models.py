@@ -9,8 +9,8 @@ from django.db.models import (F, ExpressionWrapper,
                               Value, Min, Max,
                               Q, DecimalField,
                               OuterRef, Subquery, Prefetch,
-                              Case, When)
-from django.db.models.functions import Ceil, Coalesce
+                              Case, When, Exists)
+from django.db.models.functions import Ceil, Coalesce, NullIf
 from django.utils import timezone
 
 # Импорты сторонних библиотек
@@ -202,8 +202,12 @@ class PriceManager(models.Model):
         .order_by('-updated_at')
         .values(price_manager.source)[:1]
       )
+      # An empty (NULL) or 0 supplier price is "no price": it yields a NULL
+      # changed_price, which apply() skips and clear_unsourced_prices() turns
+      # into a NULL dest. It used to be coalesced to 0, which priced the
+      # product at the rule's bare `increase`.
       mps = mps.annotate(
-        source_price=Coalesce(
+        source_price=NullIf(
           Subquery(filtered_source_price, output_field=DecimalField()),
           Value(Decimal('0')),
           output_field=DecimalField()
@@ -230,7 +234,7 @@ class PriceManager(models.Model):
         .annotate(
             _changed_price=ExpressionWrapper(
                 Ceil(
-                    F(source)
+                    NullIf(F(source), Value(Decimal('0')))
                     * (1 + Decimal(price_manager.markup) / Decimal(100))
                     + Decimal(price_manager.increase)
                 ),
@@ -310,6 +314,11 @@ class PriceManager(models.Model):
 
   def apply(self, logs: bool = True):
     mps = self.get_fitting_mps()
+    # A rule only ever writes a real price. Products without a source price get
+    # a NULL changed_price and are cleared by clear_unsourced_prices() instead:
+    # comparing a dest against NULL in the filter below is not a reliable way
+    # to select them.
+    mps = mps.filter(changed_price__isnull=False)
     mps = mps.filter(~Q(**{self.dest: F('changed_price')}))
     if logs:
         mpls = map(lambda mp: MainProductLog(price_type=self.dest, main_product=mp, price=getattr(mp, 'changed_price')), mps)
@@ -418,12 +427,11 @@ class PriceTag(models.Model):
       return self.fixed_price
     if self.source in SP_PRICES:
       sp = self.mp.supplierproducts.order_by('-updated_at').first()
-      if sp is None:
-        return None
-      price = getattr(sp, self.source)
-      return (price if price is not None else Decimal('0')) * self.mp.supplier.currency.value
+      price = getattr(sp, self.source) if sp is not None else None
+      # NULL or 0 is "no price" — see clear_unsourced_prices().
+      return price * self.mp.supplier.currency.value if price else None
     if self.source in MP_PRICES:
-      return getattr(self.mp, self.source)
+      return getattr(self.mp, self.source) or None
     return None
   
   def get_dprice(self):
@@ -459,6 +467,92 @@ class PriceTag(models.Model):
     self.deprecated=True
     self.save()
     return mp
+
+
+def _active_pricetags(now):
+  """PriceTag, которые сейчас действуют: живого правила в его сроке или ручные в своём."""
+  def window(prefix=''):
+    return ((Q(**{f'{prefix}date_from__lt': now}) | Q(**{f'{prefix}date_from__isnull': True}))
+            & (Q(**{f'{prefix}date_to__gt': now}) | Q(**{f'{prefix}date_to__isnull': True})))
+  from_rule = Q(p_manager__isnull=False, p_manager__deprecated=False) & window('p_manager__')
+  manual = Q(p_manager__isnull=True, deprecated=False) & window()
+  return PriceTag.objects.filter(from_rule | manual)
+
+
+def _clearing_candidates(tags, dest) -> set:
+  """Товары с заполненной dest и хотя бы одной наценкой на неё с пустым источником.
+
+  Дешёвый предварительный отбор простыми join'ами: точная проверка в
+  clear_unsourced_prices с подзапросами по каждой наценке иначе проходила бы
+  по всему каталогу на каждом update_prices, хотя в обычном прогоне очищать
+  нечего. Проверки «последней строки поставщика» здесь нет — у MainProduct
+  не больше одного SupplierProduct (unique FK), а лишний кандидат всё равно
+  отсеет точная проверка.
+  """
+  dest_tags = tags.filter(dest=dest, **{f'mp__{dest}__isnull': False})
+  empty = Q()
+  for source in SP_PRICES:
+    empty |= Q(source=source) & (Q(**{f'mp__supplierproducts__{source}__isnull': True})
+                                 | Q(**{f'mp__supplierproducts__{source}': 0}))
+  for source in MP_PRICES:
+    empty |= Q(source=source) & (Q(**{f'mp__{source}__isnull': True}) | Q(**{f'mp__{source}': 0}))
+  return set(dest_tags.filter(empty).values_list('mp_id', flat=True))
+
+
+def clear_unsourced_prices(logs: bool = True, now=None) -> int:
+  """Очистить цены ГП, которым не от чего считаться.
+
+  Цена dest товара очищается (NULL), когда у него есть действующая наценка на
+  эту dest и у **каждой** такой наценки источник пуст: цена поставщика (по
+  последней строке поставщика) или цена ГП равна NULL или 0. Наценка с
+  фиксированной ценой или с непустым источником цену сохраняет — её выставит
+  сама наценка.
+
+  Без этого шага пустой источник давал либо цену, равную надбавке правила
+  (было Coalesce(источник, 0)), либо навсегда застывшую старую цену — у
+  правила с диапазоном цен товар из правила просто выпадал.
+
+  Проходит повторно, пока есть что очищать: очищенная базовая цена делает
+  пустым источник цен, посчитанных от неё. Возвращает число очищенных цен.
+  """
+  now = now or timezone.now()
+  tags = _active_pricetags(now)
+  cleared_total = 0
+  # A clearing pass can only empty more sources, never refill one, so the
+  # cascade settles within one pass per price field.
+  for _ in range(len(MP_PRICES)):
+    cleared = 0
+    for dest in MP_PRICES:
+      candidates = _clearing_candidates(tags, dest)
+      if not candidates:
+        continue
+      dest_tags = tags.filter(mp=OuterRef('pk'), dest=dest)
+      mps = (MainProduct.objects
+             .filter(pk__in=candidates, **{f'{dest}__isnull': False})
+             .filter(Exists(dest_tags))
+             .exclude(Exists(dest_tags.filter(Q(source__isnull=True) | Q(source='fixed_price')))))
+      for source in SP_PRICES:
+        latest = (SupplierProduct.objects.filter(main_product=OuterRef('pk'))
+                  .order_by('-updated_at').values(source)[:1])
+        mps = mps.annotate(**{
+          f'_has_{source}': Exists(dest_tags.filter(source=source)),
+          f'_src_{source}': NullIf(Subquery(latest, output_field=DecimalField()),
+                                   Value(Decimal('0')), output_field=DecimalField()),
+        }).exclude(**{f'_has_{source}': True, f'_src_{source}__isnull': False})
+      for source in MP_PRICES:
+        mps = mps.annotate(**{f'_has_{source}': Exists(dest_tags.filter(source=source))}
+                           ).exclude(**{f'_has_{source}': True, f'{source}__gt': 0})
+      ids = list(mps.values_list('pk', flat=True))
+      if not ids:
+        continue
+      if logs:
+        MainProductLog.objects.bulk_create(
+          MainProductLog(price_type=dest, main_product_id=pk, price=None) for pk in ids)
+      cleared += MainProduct.objects.filter(pk__in=ids).update(**{dest: None, 'price_updated_at': now})
+    if not cleared:
+      break
+    cleared_total += cleared
+  return cleared_total
 
 
 def update_prices(logs: bool = True):
@@ -509,5 +603,8 @@ def update_prices(logs: bool = True):
   )
   if fixed_mps:
     count += MainProduct.objects.bulk_update(fixed_mps, fields=[*MP_PRICES, 'price_updated_at'])
+
+  # Last, after every rule and tag had its chance to write a real price.
+  dcount += clear_unsourced_prices(logs=logs, now=now)
 
   return (count, dcount)

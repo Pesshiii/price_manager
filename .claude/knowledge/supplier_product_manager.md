@@ -98,8 +98,9 @@ runs `missing_sps.update(stock=None)` and, per mapped price column,
 no figure, so `SupplierProduct` records that absence; it never invents a synced
 `0`. Every consumer resolves it for itself: [[main_product_manager]]'s
 `update_stocks` coalesces a NULL supplier stock to `0` (unknown stock is not
-sellable) and [[product_price_manager]]'s `PriceTag.get_sprice`
-(`models.py:412`) reads a NULL price as `Decimal('0')`. Note the carve-out:
+sellable) and [[product_price_manager]] treats a NULL (or 0) price as "no
+price": its rules skip the product and `clear_unsourced_prices()` sets the
+prices computed from it to NULL. Note the carve-out:
 only columns the setting still **maps** get cleared, so deleting a `Link`
 freezes that field at its last imported value.
 
@@ -300,9 +301,6 @@ decision, not a quick patch.
   "missing". A non-integer `stock` value fails the whole import.
 - **`DictItem` replacement is substring-based** (`str.replace`), so «в
   наличии → 10» also rewrites «нет в наличии».
-- **NULL source price is not "no price" downstream**: [[product_price_manager]]'s
-  `get_fitting_mps` coalesces it to 0, so a rule without `price_from`/`price_to`
-  sets the product's price to the rule's `increase`.
 - **`resolve_conflicts` runs inside `get_sps`**, so even the read-only preview
   may create duplicate `SupplierProduct`s for names containing non-space
   whitespace; and the name lookups in `get_sps` are one query per file row.

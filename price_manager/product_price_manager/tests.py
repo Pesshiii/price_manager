@@ -2,11 +2,11 @@ from decimal import Decimal
 
 from django.test import TestCase
 
-from main_product_manager.models import MainProduct
+from main_product_manager.models import MainProduct, MainProductLog
 from supplier_manager.models import Currency, Discount, Supplier
 from supplier_product_manager.models import SupplierProduct
 
-from .models import PriceManager, PriceTag, update_prices
+from .models import PriceManager, PriceTag, clear_unsourced_prices, update_prices
 from .views import PriceManagerCreate
 
 
@@ -309,9 +309,13 @@ class PriceTagAndPriceManagerRuntimeTests(TestCase):
         self.assertEqual(mp.basic_price, Decimal('200'))
 
 
-    def test_pricetag_sp_source_treats_null_as_zero(self):
+    # A NULL or 0 source price is "no price". These three replace tests that
+    # pinned the old behaviour — NULL read as 0, so the product was priced at the
+    # rule's bare `increase` (or 0).
+
+    def test_pricetag_sp_source_null_or_zero_is_no_price(self):
         mp = self.create_mp('M-NULL', 'NULL source')
-        SupplierProduct.objects.create(
+        sp = SupplierProduct.objects.create(
             main_product=mp,
             supplier=self.supplier,
             article='S-NULL-1',
@@ -326,10 +330,13 @@ class PriceTagAndPriceManagerRuntimeTests(TestCase):
             increase=Decimal('0'),
         )
 
-        self.assertEqual(pt.get_sprice(), Decimal('0'))
-        self.assertEqual(pt.get_dprice(), Decimal('0'))
+        self.assertIsNone(pt.get_sprice())
+        self.assertIsNone(pt.get_dprice())
+        sp.supplier_price = Decimal('0')
+        sp.save()
+        self.assertIsNone(pt.get_sprice())
 
-    def test_pricemanager_apply_sets_zero_when_only_null_source_prices(self):
+    def test_pricemanager_apply_does_not_write_a_price_from_an_empty_source(self):
         mp = self.create_mp('M-ZERO', 'Zero price apply', basic_price=Decimal('999'))
         SupplierProduct.objects.create(
             main_product=mp,
@@ -344,14 +351,14 @@ class PriceTagAndPriceManagerRuntimeTests(TestCase):
             source='supplier_price',
             dest='basic_price',
             markup=Decimal('0'),
-            increase=Decimal('0'),
+            increase=Decimal('500'),
         )
 
-        manager.apply()
+        self.assertEqual(manager.apply(), 0)
         mp.refresh_from_db()
-        self.assertEqual(mp.basic_price, Decimal('0'))
+        self.assertEqual(mp.basic_price, Decimal('999'))  # cleared by update_prices, not apply
 
-    def test_no_crash_when_source_price_missing(self):
+    def test_pricetag_with_missing_source_does_not_change_the_product(self):
         mp = self.create_mp('M-5', 'Missing source')
         SupplierProduct.objects.create(
             main_product=mp,
@@ -368,12 +375,7 @@ class PriceTagAndPriceManagerRuntimeTests(TestCase):
             increase=Decimal('5'),
         )
 
-        self.assertEqual(pt.get_sprice(), Decimal('0'))
-        self.assertEqual(pt.get_dprice(), Decimal('5'))
-
-        changed_mp = pt.get_mp()
-        self.assertIsNotNone(changed_mp)
-        self.assertEqual(changed_mp.basic_price, Decimal('5'))
+        self.assertIsNone(pt.get_mp())
 
 
 class PriceManagerNameGenerationTests(TestCase):
@@ -518,3 +520,126 @@ class UpdatePricesOrderingTests(TestCase):
 
         self.assertEqual(mp.basic_price, Decimal('300'))
         self.assertEqual(mp.m_price, Decimal('450'))
+
+
+class ClearUnsourcedPricesTests(TestCase):
+    """Цена ГП без источника (цена поставщика или ГП = NULL/0) очищается, а не
+    становится надбавкой правила и не застывает старой."""
+
+    def setUp(self):
+        currency = Currency.objects.create(name='KZT-CLR', value=Decimal('1'))
+        self.supplier = Supplier.objects.create(
+            name='Supplier Clear', currency=currency,
+            delivery_days_available=1, delivery_days_navailable=2,
+        )
+
+    def _product(self, supplier_price=None, rrp=None, **mp_prices):
+        mp = MainProduct.objects.create(supplier=self.supplier, article=f'A-{MainProduct.objects.count()}',
+                                        name='Товар', **mp_prices)
+        sp = SupplierProduct.objects.create(main_product=mp, supplier=self.supplier, article=mp.article,
+                                            name='Товар', supplier_price=supplier_price, rrp=rrp)
+        return mp, sp
+
+    def _rule(self, source, dest, **kwargs):
+        return PriceManager.objects.create(
+            name=f'R-{PriceManager.objects.count()}', supplier=self.supplier, source=source, dest=dest,
+            markup=kwargs.pop('markup', Decimal('0')), increase=kwargs.pop('increase', Decimal('0')), **kwargs,
+        )
+
+    def _set_supplier_price(self, sp, value):
+        sp.supplier_price = value
+        sp.save()
+
+    def test_rule_without_range_clears_instead_of_pricing_at_increase(self):
+        mp, sp = self._product(supplier_price=Decimal('100'))
+        self._rule('supplier_price', 'basic_price', increase=Decimal('500'))
+        update_prices()
+        mp.refresh_from_db()
+        self.assertEqual(mp.basic_price, Decimal('600'))
+
+        for empty in (None, Decimal('0')):
+            with self.subTest(source=empty):
+                self._set_supplier_price(sp, empty)
+                update_prices()
+                mp.refresh_from_db()
+                self.assertIsNone(mp.basic_price)
+                self._set_supplier_price(sp, Decimal('100'))
+                update_prices()
+
+    def test_ranged_rule_clears_a_product_that_left_the_range_with_its_price(self):
+        mp, sp = self._product(supplier_price=Decimal('150'))
+        self._rule('supplier_price', 'basic_price', price_from=Decimal('100'))
+        update_prices()
+        mp.refresh_from_db()
+        self.assertEqual(mp.basic_price, Decimal('150'))
+
+        self._set_supplier_price(sp, None)
+        update_prices()
+
+        mp.refresh_from_db()
+        self.assertIsNone(mp.basic_price)
+        self.assertTrue(MainProductLog.objects.filter(
+            main_product=mp, price_type='basic_price', price__isnull=True).exists())
+
+    def test_manual_pricetag_with_empty_source_clears(self):
+        mp, _ = self._product(supplier_price=None, basic_price=Decimal('777'))
+        PriceTag.objects.create(mp=mp, source='supplier_price', dest='basic_price', increase=Decimal('5'))
+
+        update_prices()
+
+        mp.refresh_from_db()
+        self.assertIsNone(mp.basic_price)
+
+    def test_cascade_clears_prices_derived_from_a_cleared_price(self):
+        mp, sp = self._product(supplier_price=Decimal('100'))
+        self._rule('supplier_price', 'basic_price')
+        self._rule('basic_price', 'm_price', markup=Decimal('50'))
+        update_prices()
+        mp.refresh_from_db()
+        self.assertEqual((mp.basic_price, mp.m_price), (Decimal('100'), Decimal('150')))
+
+        self._set_supplier_price(sp, None)
+        update_prices()
+
+        mp.refresh_from_db()
+        self.assertEqual((mp.basic_price, mp.m_price), (None, None))
+
+    def test_fixed_price_tag_keeps_the_price(self):
+        mp, _ = self._product(supplier_price=None)
+        self._rule('supplier_price', 'basic_price', increase=Decimal('500'))
+        PriceTag.objects.create(mp=mp, source=None, dest='basic_price', fixed_price=Decimal('700'))
+
+        update_prices()
+
+        mp.refresh_from_db()
+        self.assertEqual(mp.basic_price, Decimal('700'))
+
+    def test_another_rule_with_a_real_source_keeps_the_price(self):
+        mp, _ = self._product(supplier_price=Decimal('100'), rrp=None)
+        self._rule('rrp', 'basic_price')
+        self._rule('supplier_price', 'basic_price')
+
+        update_prices()
+
+        mp.refresh_from_db()
+        self.assertEqual(mp.basic_price, Decimal('100'))
+
+    def test_product_without_a_rule_is_left_alone(self):
+        mp, _ = self._product(supplier_price=None, basic_price=Decimal('321'))
+
+        update_prices()
+
+        mp.refresh_from_db()
+        self.assertEqual(mp.basic_price, Decimal('321'))
+
+    def test_clearing_is_idempotent(self):
+        mp, sp = self._product(supplier_price=Decimal('100'))
+        self._rule('supplier_price', 'basic_price')
+        update_prices()
+        self._set_supplier_price(sp, None)
+
+        self.assertEqual(clear_unsourced_prices(), 1)
+        logs = MainProductLog.objects.filter(main_product=mp).count()
+        self.assertEqual(clear_unsourced_prices(), 0)
+        update_prices()
+        self.assertEqual(MainProductLog.objects.filter(main_product=mp).count(), logs)
