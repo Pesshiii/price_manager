@@ -671,23 +671,40 @@ class ImportOutcome:
     stats: dict = field(default_factory=dict)
 
 
+def own_rows(setting: Setting):
+    """Строки, за которые отвечает импорт настройки: её собственные и ничьи.
+
+    Ничья строка — строка поставщика, не связанная ни с одной настройкой: её
+    настройку удалили, её никогда не грузили через настройку или она старше
+    source_settings. Её подхватывает импорт любой настройки поставщика —
+    очищает, если её нет в файле, как было до source_settings. Иначе она не
+    очистилась бы никогда, и поставщик, которому заново настроили импорт,
+    остался бы с застывшими остатками.
+    """
+    return SupplierProduct.objects.filter(supplier_id=setting.supplier_id).filter(
+        Q(source_settings=setting) | Q(source_settings__isnull=True)
+    ).distinct()
+
+
 def apply_counts(setting: Setting, payload: list[dict]) -> dict:
     """Что сделает применение payload, не применяя его: created / updated / missing.
 
-    missing — строки поставщика, которых нет в payload; при применении у них
-    очищаются сопоставленные остаток и цены. Считается до записи, чтобы
-    показать это в окне подтверждения.
+    missing — строки, которые поставляла эта настройка и которых нет в
+    payload; при применении у них очищаются сопоставленные ею остаток и цены.
+    Строки других настроек того же поставщика сюда не входят. Считается до
+    записи, чтобы показать это в окне подтверждения.
     """
     existing_keys = set(
         SupplierProduct.objects.filter(supplier=setting.supplier).values_list('article', 'name')
     )
+    own_keys = set(own_rows(setting).values_list('article', 'name'))
     # A renamed row is the existing one under its old name, not new + missing.
     payload_keys = {(row['article'], row.get(RENAME_FROM) or row['name']) for row in payload}
     created = len(payload_keys - existing_keys)
     return {
         'created': created,
         'updated': len(payload_keys) - created,
-        'missing': len(existing_keys - payload_keys),
+        'missing': len(own_keys - payload_keys),
     }
 
 
@@ -757,8 +774,13 @@ def _apply(setting: Setting, links, sps_payload: list[dict], stats: dict) -> Imp
         update_fields=sp_update_fields,
         unique_fields=['supplier', 'article', 'name'])
 
-    missing_sps = SupplierProduct.objects.filter(supplier=setting.supplier).exclude(pk__in=map(lambda sp: sp.pk, sps))
-    stats['missing'] = missing_sps.count()
+    written_pks = [sp.pk for sp in sps]
+    # Only this setting's own rows count as missing. Rows another setting of the
+    # same supplier loads are not in this file by design, and clearing them used
+    # to make two settings wipe each other's stock and prices on every import.
+    missing_pks = list(own_rows(setting).exclude(pk__in=written_pks).values_list('pk', flat=True))
+    stats['missing'] = len(missing_pks)
+    missing_sps = SupplierProduct.objects.filter(pk__in=missing_pks)
 
     # A row that vanished from the new file has no figure at all, so the raw
     # layer stores NULL - "the supplier did not tell us" - and never a synced 0.
@@ -776,5 +798,13 @@ def _apply(setting: Setting, links, sps_payload: list[dict], stats: dict) -> Imp
         for column in df.columns:
            if column in SP_PRICES:
               missing_sps.update(**{column:None})
+    # The setting now supplies exactly the rows of this file: a vanished row is
+    # cleared once and released, so a later import of this setting leaves it to
+    # whichever setting picks it up.
+    through = SupplierProduct.source_settings.through
+    through.objects.filter(setting=setting, supplierproduct_id__in=missing_pks).delete()
+    through.objects.bulk_create(
+        [through(supplierproduct_id=pk, setting_id=setting.pk) for pk in written_pks],
+        ignore_conflicts=True)
     setting.supplier.save()
     return ImportOutcome(sps=sps, stats=stats)
