@@ -17,7 +17,7 @@ from django.utils import timezone
 from price_manager.celery import app as celery_app
 from price_manager.settings import celery as celery_settings
 
-from .models import TaskRunHistory
+from .models import Bitrix24Account, TaskRunHistory
 from .task_runner import execute_locked_task
 
 
@@ -341,11 +341,116 @@ class Bitrix24LoginTests(TestCase):
         )
 
     def test_existing_user_is_matched_by_email_ignoring_case(self):
-        existing = User.objects.create_user('ivan', email='Ivan@Example.com', password='x')
+        # No usable password: a user Bitrix24 itself created before IDs were stored.
+        existing = User.objects.create_user('ivan', email='Ivan@Example.com')
         state = self.start_login()
         self.callback(state, side_effect=_fake_bitrix24())
         self.assertEqual(self.logged_in_user_id(), str(existing.pk))
         self.assertEqual(User.objects.count(), 1)
+        self.assertEqual(existing.bitrix24_account.bitrix_user_id, 42)
+
+    def test_new_user_is_linked_by_id(self):
+        state = self.start_login()
+        self.callback(state, side_effect=_fake_bitrix24())
+        account = Bitrix24Account.objects.get()
+        self.assertEqual((account.bitrix_user_id, account.user.email), (42, 'ivan@example.com'))
+
+    def test_email_match_with_a_password_asks_for_the_password_first(self):
+        User.objects.create_user('ivan', email='ivan@example.com', password='x')
+        state = self.start_login(next_url='/shopping-tabs/')
+        response, _ = self.callback(state, side_effect=_fake_bitrix24())
+        self.assertRedirects(
+            response, reverse('login') + '?next=%2Fshopping-tabs%2F', fetch_redirect_response=False
+        )
+        self.assertIsNone(self.logged_in_user_id())
+        self.assertFalse(Bitrix24Account.objects.exists())
+        self.assertIn('Войдите один раз по паролю', self.error_messages(response)[0])
+
+    # --- callback: linked by ID --------------------------------------------
+
+    def link(self, user, bitrix_id=42):
+        return Bitrix24Account.objects.create(user=user, bitrix_user_id=bitrix_id)
+
+    def test_linked_id_wins_over_a_changed_email(self):
+        linked = User.objects.create_user('ivan', email='ivan@example.com', password='x')
+        User.objects.create_user('colleague', email='colleague@example.com')
+        self.link(linked)
+        state = self.start_login()
+        self.callback(state, side_effect=_fake_bitrix24(
+            profile=_bitrix24_profile(EMAIL='colleague@example.com')
+        ))
+        self.assertEqual(self.logged_in_user_id(), str(linked.pk))
+
+    def test_linked_id_lets_staff_in_and_needs_no_email(self):
+        admin = User.objects.create_user('boss', email='boss@example.com', password='x', is_staff=True)
+        self.link(admin)
+        state = self.start_login()
+        self.callback(state, side_effect=_fake_bitrix24(profile=_bitrix24_profile(EMAIL='')))
+        self.assertEqual(self.logged_in_user_id(), str(admin.pk))
+
+    def test_linked_but_inactive_pm_user_is_refused(self):
+        self.link(User.objects.create_user('ivan', email='ivan@example.com', is_active=False))
+        state = self.start_login()
+        self.callback(state, side_effect=_fake_bitrix24())
+        self.assertIsNone(self.logged_in_user_id())
+
+    def test_linked_but_inactive_in_bitrix24_is_refused(self):
+        self.link(User.objects.create_user('ivan', email='ivan@example.com'))
+        state = self.start_login()
+        self.callback(state, side_effect=_fake_bitrix24(profile=_bitrix24_profile(ACTIVE=False)))
+        self.assertIsNone(self.logged_in_user_id())
+
+    def test_unusable_id_is_refused(self):
+        for bad_id in ('', 'abc', '0', None):
+            with self.subTest(bad_id=bad_id):
+                state = self.start_login()
+                self.callback(state, side_effect=_fake_bitrix24(profile=_bitrix24_profile(ID=bad_id)))
+                self.assertIsNone(self.logged_in_user_id())
+                self.assertEqual(User.objects.count(), 0)
+
+    # --- callback: link mode (already logged in) ---------------------------
+
+    def test_logged_in_user_links_their_account(self):
+        user = User.objects.create_user('ivan', email='other@example.com', password='x')
+        self.client.force_login(user)
+        state = self.start_login(next_url='/shopping-tabs/')
+        response, _ = self.callback(state, side_effect=_fake_bitrix24())
+        self.assertRedirects(response, '/shopping-tabs/', fetch_redirect_response=False)
+        self.assertEqual(self.logged_in_user_id(), str(user.pk))
+        self.assertEqual(user.bitrix24_account.bitrix_user_id, 42)
+        # No new user, even though the e-mails differ.
+        self.assertEqual(User.objects.count(), 1)
+
+    def test_link_mode_never_switches_user(self):
+        owner = User.objects.create_user('owner', email='ivan@example.com')
+        self.link(owner)
+        user = User.objects.create_user('ivan', password='x')
+        self.client.force_login(user)
+        state = self.start_login()
+        response, _ = self.callback(state, side_effect=_fake_bitrix24())
+        self.assertRedirects(response, reverse('bitrix24-link'), fetch_redirect_response=False)
+        self.assertEqual(self.logged_in_user_id(), str(user.pk))
+        self.assertFalse(Bitrix24Account.objects.filter(user=user).exists())
+
+    def test_link_mode_refuses_a_second_bitrix24_account(self):
+        user = User.objects.create_user('ivan', password='x')
+        self.link(user, bitrix_id=7)
+        self.client.force_login(user)
+        state = self.start_login()
+        self.callback(state, side_effect=_fake_bitrix24())
+        self.assertEqual(user.bitrix24_account.bitrix_user_id, 7)
+        self.assertFalse(Bitrix24Account.objects.filter(bitrix_user_id=42).exists())
+
+    def test_relinking_the_same_account_is_a_no_op(self):
+        user = User.objects.create_user('ivan', password='x')
+        self.link(user)
+        self.client.force_login(user)
+        state = self.start_login()
+        response, _ = self.callback(state, side_effect=_fake_bitrix24())
+        self.assertRedirects(
+            response, resolve_url(settings.LOGIN_REDIRECT_URL), fetch_redirect_response=False
+        )
+        self.assertEqual(Bitrix24Account.objects.count(), 1)
 
     def test_safe_next_is_honoured_and_foreign_next_is_dropped(self):
         state = self.start_login(next_url='/shopping-tabs/')
@@ -424,3 +529,73 @@ class Bitrix24LoginTests(TestCase):
         self.assertContains(self.client.get(reverse('login')), 'Войти через Bitrix24')
         with self.settings(BITRIX24_PORTAL=''):
             self.assertNotContains(self.client.get(reverse('login')), 'Войти через Bitrix24')
+
+
+@override_settings(BITRIX24_LINK_REQUIRED=True, **BITRIX24_SETTINGS)
+class Bitrix24LinkRequiredMiddlewareTests(TestCase):
+    """core.middleware.Bitrix24LinkRequiredMiddleware + the link page."""
+
+    page = '/shopping-tabs/'
+
+    def setUp(self):
+        self.user = User.objects.create_user('ivan', email='ivan@example.com', password='x')
+        self.client.force_login(self.user)
+
+    def link_target(self, next_url):
+        return reverse('bitrix24-link') + '?' + urlencode({'next': next_url})
+
+    def test_unlinked_user_is_sent_to_link_and_back(self):
+        response = self.client.get(self.page + '?q=1')
+        self.assertRedirects(response, self.link_target(self.page + '?q=1'), fetch_redirect_response=False)
+
+    def test_htmx_request_gets_a_client_redirect_to_the_page_it_was_on(self):
+        response = self.client.get(
+            '/notifications/panel/',
+            HTTP_HX_REQUEST='true',
+            HTTP_HX_CURRENT_URL='http://testserver' + self.page,
+        )
+        self.assertEqual(response['HX-Redirect'], self.link_target(self.page))
+
+    def test_post_is_redirected_without_next(self):
+        response = self.client.post(reverse('shopping-tab-list'))
+        self.assertRedirects(response, reverse('bitrix24-link'), fetch_redirect_response=False)
+
+    def test_linked_user_passes(self):
+        Bitrix24Account.objects.create(user=self.user, bitrix_user_id=42)
+        self.assertEqual(self.client.get(self.page).status_code, 200)
+
+    def test_superuser_is_exempt(self):
+        self.client.force_login(User.objects.create_superuser('root', 'r@example.com', 'x'))
+        self.assertEqual(self.client.get(self.page).status_code, 200)
+
+    def test_inert_when_off_or_not_configured(self):
+        for overrides in ({'BITRIX24_LINK_REQUIRED': False}, {'BITRIX24_CLIENT_SECRET': ''}):
+            with self.subTest(**overrides), self.settings(**overrides):
+                self.assertEqual(self.client.get(self.page).status_code, 200)
+
+    def test_exempt_paths(self):
+        self.assertEqual(self.client.get(reverse('bitrix24-link')).status_code, 200)
+        login_leg = self.client.get(reverse('bitrix24-login'))
+        self.assertEqual(urlparse(login_leg['Location']).netloc, 'company.bitrix24.kz')
+        self.assertEqual(self.client.post(reverse('bitrix24-callback')).status_code, 200)
+        self.assertEqual(self.client.get(reverse('toast-messages')).status_code, 200)
+        # /admin/ answers for itself (here: a redirect to its own login).
+        self.assertNotIn('bitrix24', self.client.get('/admin/')['Location'])
+        self.client.post(reverse('logout'))
+        self.assertIsNone(self.client.session.get('_auth_user_id'))
+
+    def test_link_page_offers_the_button_with_next(self):
+        response = self.client.get(reverse('bitrix24-link'), {'next': self.page})
+        self.assertContains(response, reverse('bitrix24-login') + '?next=/shopping-tabs/')
+
+    def test_link_page_drops_a_foreign_next(self):
+        response = self.client.get(reverse('bitrix24-link'), {'next': 'https://evil.example/'})
+        self.assertNotContains(response, 'evil.example')
+
+    def test_link_page_says_when_already_linked(self):
+        Bitrix24Account.objects.create(user=self.user, bitrix_user_id=42)
+        self.assertContains(self.client.get(reverse('bitrix24-link')), 'уже привязан')
+
+    @override_settings(BITRIX24_CLIENT_SECRET='')
+    def test_link_page_404_when_not_configured(self):
+        self.assertEqual(self.client.get(reverse('bitrix24-link')).status_code, 404)

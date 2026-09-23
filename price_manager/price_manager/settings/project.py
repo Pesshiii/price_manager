@@ -18,6 +18,7 @@ PROJECT_INSTALLED_APPS = [
 
 PROJECT_MIDDLEWARE = [
     'core.middleware.LoginRequiredMiddleware',
+    'core.middleware.Bitrix24LinkRequiredMiddleware',
     'core.middleware.toaster_middleware',
 ]
 

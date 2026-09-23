@@ -16,6 +16,20 @@ class PersistentNotificationAdmin(admin.ModelAdmin):
     ordering = ("-created_at",)
 
 
+@admin.register(Bitrix24Account)
+class Bitrix24AccountAdmin(admin.ModelAdmin):
+    """Deleting a row unlinks the user; the next Bitrix24 login links again."""
+
+    list_display = ("user", "bitrix_user_id", "linked_at")
+    search_fields = ("user__username", "user__email", "bitrix_user_id")
+    readonly_fields = ("user", "bitrix_user_id", "linked_at")
+    ordering = ("-linked_at",)
+
+    def has_add_permission(self, request):
+        # Linking happens only through a Bitrix24 login, which proves the ID.
+        return False
+
+
 @admin.register(TaskRunHistory)
 class TaskRunHistoryAdmin(admin.ModelAdmin):
     list_display = (

@@ -1,0 +1,30 @@
+{% extends 'base.html' %}
+
+{% block title %}Привязка Bitrix24{% endblock %}
+
+{% block body %}
+<div class="row justify-content-center">
+  <div class="col-md-6 col-lg-5 py-4">
+    <h1 class="h3 mb-3">Привязка Bitrix24</h1>
+    {% if account %}
+      <p>К вашей учётной записи уже привязан аккаунт Bitrix24 (ID {{ account.bitrix_user_id }}), входить можно через него.</p>
+      <a class="btn btn-primary" href="{% if next %}{{ next }}{% else %}{% url 'mainpage' %}{% endif %}">Продолжить</a>
+    {% else %}
+      <p>
+        Вход в PM переходит на Bitrix24. Привяжите свой аккаунт Bitrix24 к учётной записи
+        <strong>{{ request.user.get_username }}</strong> — это нужно сделать один раз.
+      </p>
+      <p class="text-body-secondary small">
+        Пароль PM продолжит работать как запасной способ входа.
+      </p>
+      <div class="d-flex gap-2 flex-wrap">
+        <a class="btn btn-primary" href="{% url 'bitrix24-login' %}{% if next %}?next={{ next|urlencode }}{% endif %}">Привязать Bitrix24</a>
+        <form action="{% url 'logout' %}" method="post">
+          {% csrf_token %}
+          <button type="submit" class="btn btn-outline-secondary">Выйти</button>
+        </form>
+      </div>
+    {% endif %}
+  </div>
+</div>
+{% endblock %}

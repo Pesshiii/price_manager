@@ -43,6 +43,7 @@ import pandas as pd
 import re
 import math
 import secrets
+from urllib.parse import urlencode
 
 from django.conf import settings
 from django.contrib.auth import login
@@ -158,8 +159,23 @@ def bitrix24_callback(request):
         messages.error(request, 'Не удалось войти через Bitrix24: сессия входа устарела. Попробуйте ещё раз.')
         return redirect('login')
 
+    if request.user.is_authenticated:
+        # Link mode: whoever is logged in stays logged in; the Bitrix24
+        # account is tied to them or refused, never swapped for another user.
+        try:
+            bitrix24.user_from_code(code, link_to=request.user)
+        except bitrix24.Bitrix24LoginDenied as exc:
+            messages.error(request, str(exc))
+            return redirect('bitrix24-link')
+        messages.success(request, 'Bitrix24 привязан: теперь можно входить через него.')
+        return redirect(next_url or resolve_url(settings.LOGIN_REDIRECT_URL))
+
     try:
         user = bitrix24.user_from_code(code)
+    except bitrix24.Bitrix24PasswordRequired as exc:
+        messages.warning(request, str(exc))
+        login_url = resolve_url('login')
+        return redirect(f'{login_url}?{urlencode({"next": next_url})}' if next_url else login_url)
     except bitrix24.Bitrix24LoginDenied as exc:
         messages.error(request, str(exc))
         return redirect('login')
@@ -168,6 +184,23 @@ def bitrix24_callback(request):
     user.backend = 'django.contrib.auth.backends.ModelBackend'
     login(request, user)
     return redirect(next_url or resolve_url(settings.LOGIN_REDIRECT_URL))
+
+
+@require_http_methods(['GET'])
+def bitrix24_link(request):
+    """Where Bitrix24LinkRequiredMiddleware sends a user with no linked account."""
+    if not bitrix24.is_configured():
+        raise Http404
+    next_url = request.GET.get('next', '')
+    if not url_has_allowed_host_and_scheme(
+        next_url, allowed_hosts={request.get_host()}, require_https=request.is_secure()
+    ):
+        next_url = ''
+    account = Bitrix24Account.objects.filter(user=request.user).first()
+    return render(request, 'registration/bitrix24_link.html', {
+        'account': account,
+        'next': next_url,
+    })
 
 
 class ShoppingTabListView(LoginRequiredMixin, TemplateView):

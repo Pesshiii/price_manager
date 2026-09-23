@@ -146,3 +146,28 @@ class TaskRunHistory(models.Model):
 
     def __str__(self):
         return f"{self.task_name} [{self.status}]"
+
+
+class Bitrix24Account(models.Model):
+    """Which Bitrix24 user a PM user is: the durable identity for the login.
+
+    Unlike the e-mail, the Bitrix24 user ID cannot be edited by the employee,
+    so once linked the login no longer depends on the e-mail. Deleting the row
+    in the admin unlinks; the next Bitrix24 login links again.
+    """
+
+    user = models.OneToOneField(
+        'auth.User',
+        verbose_name='Пользователь',
+        on_delete=models.CASCADE,
+        related_name='bitrix24_account',
+    )
+    bitrix_user_id = models.PositiveBigIntegerField(unique=True, verbose_name='ID в Bitrix24')
+    linked_at = models.DateTimeField(auto_now_add=True, verbose_name='Привязан')
+
+    class Meta:
+        verbose_name = 'Аккаунт Bitrix24'
+        verbose_name_plural = 'Аккаунты Bitrix24'
+
+    def __str__(self):
+        return f"{self.user} — Bitrix24 #{self.bitrix_user_id}"

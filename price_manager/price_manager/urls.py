@@ -20,6 +20,7 @@ urlpatterns = [
     path('accounts/logout/', views.AppLogoutView.as_view(), name='logout'),
     path('accounts/bitrix24/login/', views.bitrix24_login, name='bitrix24-login'),
     path('accounts/bitrix24/callback/', views.bitrix24_callback, name='bitrix24-callback'),
+    path('accounts/bitrix24/link/', views.bitrix24_link, name='bitrix24-link'),
 
     path('', views.mainpage, name='mainpage'),
 
