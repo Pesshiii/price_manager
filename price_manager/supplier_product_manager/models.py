@@ -328,12 +328,16 @@ class ImportRun(models.Model):
   created = models.PositiveIntegerField(verbose_name="Создано", null=True, blank=True)
   updated = models.PositiveIntegerField(verbose_name="Обновлено", null=True, blank=True)
   missing = models.PositiveIntegerField(verbose_name="Нет в файле (обнулено)", null=True, blank=True)
+  missing_linked = models.PositiveIntegerField(verbose_name="Из них привязаны к ГП", null=True, blank=True)
+  # functions.price_changes: how the file changes the prices of existing rows,
+  # per price field. Recorded only, the guard does not act on it yet.
+  price_changes = models.JSONField(verbose_name="Изменения цен", default=dict, blank=True)
 
   COUNTER_FIELDS = (
     "rows_in_sheet", "rows_with_article", "rows_with_values", "rows_without_name",
     "rows_unmatched", "duplicates", "article_conflicts", "renamed", "articles_multi_db",
     "covered", "covered_price", "covered_stock",
-    "created", "updated", "missing",
+    "created", "updated", "missing", "missing_linked",
   )
 
   class Meta:
@@ -346,6 +350,7 @@ class ImportRun(models.Model):
     return f"{self.setting} · {self.get_status_display()} · {self.started_at:%Y-%m-%d %H:%M}"
 
   GUARD_METRIC_LABELS = {"covered_price": "С ценой", "covered_stock": "С остатком"}
+  PRICE_FIELD_LABELS = {"supplier_price": "Цена поставщика", "rrp": "РРЦ", "discount_price": "Цена со скидкой"}
 
   def reason_lines(self) -> list[str]:
     """Причины, по которым импорт ждёт подтверждения, — по строке на причину."""
@@ -359,6 +364,24 @@ class ImportRun(models.Model):
         label = self.GUARD_METRIC_LABELS.get(reason["metric"], reason["metric"])
         lines.append(f"{label}: {format_count(reason['value'])} {_rows_word(reason['value'])}, "
                      f"обычно ~{format_count(reason['baseline'])}")
+      elif reason.get("kind") == "missing_linked":
+        lines.append(f"Нет в файле {format_count(reason['value'])} {_rows_word(reason['value'])}, "
+                     f"привязанных к ГП, из {format_count(reason['linked'])}: "
+                     f"у товаров каталога обнулятся {self._cleared_words()}")
+    return lines
+
+  def _cleared_words(self) -> str:
+    stock = "stock" in self.mapped_keys
+    prices = any(key in self.mapped_keys for key in SP_PRICES)
+    return "остаток и цены" if stock and prices else "остаток" if stock else "цены"
+
+  def price_change_lines(self) -> list[tuple[str, str]]:
+    """«Разбор файла»: как меняются цены строк, которые уже есть в базе."""
+    lines = []
+    for column, change in self.price_changes.items():
+      label = self.PRICE_FIELD_LABELS.get(column, column)
+      lines.append((f"{label}: изменилась", f"{format_count(change['changed'])} из {format_count(change['compared'])}"))
+      lines.append((f"{label}: больше чем в 2 раза", format_count(change['jumps'])))
     return lines
 
   def record_stats(self, stats: dict) -> None:
@@ -368,6 +391,8 @@ class ImportRun(models.Model):
         setattr(self, name, stats[name])
     if "mapped_keys" in stats:
       self.mapped_keys = list(stats["mapped_keys"])
+    if "price_changes" in stats:
+      self.price_changes = dict(stats["price_changes"])
 
 
 class CopySupplierProductsToMainRun(models.Model):

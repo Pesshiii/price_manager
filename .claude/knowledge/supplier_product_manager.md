@@ -238,6 +238,22 @@ whose link opens the dialog) when:
   runs. Median, not mean: one force-applied outlier must not drag the
   baseline. A metric whose median is 0 (the setting never delivered it) is
   not checked. Thresholds live in `settings/project.py`.
+- **independent of history**, the import would clear rows linked to the
+  catalog: `missing_linked` ≥ max(`SUPPLIER_IMPORT_GUARD_MISSING_LINKED_MIN`
+  (10), `…_SHARE` (0.05) × `linked_own`), both from `apply_counts` over the
+  setting's own rows. Coverage is blind to this: a supplier that renames its
+  products keeps the row count while every linked row goes missing. Skipped
+  for a setting whose `clearable_fields()` is empty (it clears nothing).
+  Right after deploy, migration 0015 links every row of a multi-setting
+  supplier to all its settings, so the first import of each such setting may
+  trip this — correctly: those rows really are cleared once.
+
+`price_changes()` records, per mapped price field, how the file changes the
+prices of rows already in the base (`compared`, `changed`, `jumps` beyond ×2
+either way, `median_ratio`) into `ImportRun.price_changes` and the dialog's
+«Разбор файла». **It does not hold anything yet**: the production snapshot had
+too little price history to calibrate a threshold. Calibrate it on the
+recorded runs once they accumulate outside test mode.
 
 Confirmed runs are `applied` runs, so they feed the history: a genuine shrink
 stops asking after a few confirmations.

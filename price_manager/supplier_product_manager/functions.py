@@ -699,19 +699,78 @@ def apply_counts(setting: Setting, payload: list[dict]) -> dict:
     payload; при применении у них очищаются сопоставленные ею остаток и цены.
     Строки других настроек того же поставщика сюда не входят. Считается до
     записи, чтобы показать это в окне подтверждения.
+
+    missing_linked — те из них, что привязаны к ГП (у товара каталога
+    пропадут остаток и цены), linked_own — все привязанные строки настройки.
     """
     existing_keys = set(
         SupplierProduct.objects.filter(supplier=setting.supplier).values_list('article', 'name')
     )
-    own_keys = set(own_rows(setting).values_list('article', 'name'))
+    own_linked = {
+        (article, name): main_product_id is not None
+        for article, name, main_product_id in own_rows(setting).values_list('article', 'name', 'main_product_id')
+    }
     # A renamed row is the existing one under its old name, not new + missing.
-    payload_keys = {(row['article'], row.get(RENAME_FROM) or row['name']) for row in payload}
+    payload_keys = _payload_keys(payload)
     created = len(payload_keys - existing_keys)
+    missing = own_linked.keys() - payload_keys
     return {
         'created': created,
         'updated': len(payload_keys) - created,
-        'missing': len(own_keys - payload_keys),
+        'missing': len(missing),
+        'missing_linked': sum(own_linked[key] for key in missing),
+        'linked_own': sum(own_linked.values()),
     }
+
+
+def _payload_keys(payload: list[dict]) -> set:
+    return {(row['article'], row.get(RENAME_FROM) or row['name']) for row in payload}
+
+
+PRICE_JUMP_FACTOR = 2
+
+
+def price_changes(setting: Setting, payload: list[dict]) -> dict:
+    """Как файл меняет цены строк, которые уже есть в базе, — по каждой цене.
+
+    {поле: {compared, changed, jumps, median_ratio}}: сколько строк с ценой и
+    в базе, и в файле, у скольких она изменилась, у скольких — больше чем в
+    PRICE_JUMP_FACTOR раз в любую сторону, и медиана отношения новой цены к
+    старой. Столбец цены, съехавший на РРЦ или на код товара, покрытия не
+    меняет, но сдвигает медиану и даёт массу скачков.
+
+    Пока только записывается в ImportRun, импорт не задерживает: порог не из
+    чего откалибровать, истории изменений цен ещё нет.
+    """
+    fields = [column for column in SP_PRICES if payload and column in payload[0]]
+    if not fields:
+        return {}
+    old_prices = {
+        (article, name): prices
+        for article, name, *prices in SupplierProduct.objects.filter(supplier_id=setting.supplier_id)
+        .values_list('article', 'name', *fields)
+    }
+    ratios = {column: [] for column in fields}
+    for row in payload:
+        old = old_prices.get((row['article'], row.get(RENAME_FROM) or row['name']))
+        if old is None:
+            continue
+        for column, old_price in zip(fields, old):
+            new_price = row.get(column)
+            if old_price is None or old_price <= 0 or new_price is None or pd.isna(new_price) or new_price <= 0:
+                continue
+            ratios[column].append(float(new_price) / float(old_price))
+    result = {}
+    for column, values in ratios.items():
+        if not values:
+            continue
+        result[column] = {
+            'compared': len(values),
+            'changed': sum(abs(value - 1) > 1e-9 for value in values),
+            'jumps': sum(value >= PRICE_JUMP_FACTOR or value <= 1 / PRICE_JUMP_FACTOR for value in values),
+            'median_ratio': round(float(np.median(values)), 4),
+        }
+    return result
 
 
 def load_setting(pk, parsed: tuple[list[dict], dict] | None = None) -> ImportOutcome:
@@ -787,6 +846,7 @@ def _apply(setting: Setting, links, sps_payload: list[dict], stats: dict) -> Imp
     missing_pks = list(own_rows(setting).exclude(pk__in=written_pks).values_list('pk', flat=True))
     stats['missing'] = len(missing_pks)
     missing_sps = SupplierProduct.objects.filter(pk__in=missing_pks)
+    stats['missing_linked'] = missing_sps.filter(main_product__isnull=False).count()
 
     # A row that vanished from the new file has no figure at all, so the raw
     # layer stores NULL - "the supplier did not tell us" - and never a synced 0.
