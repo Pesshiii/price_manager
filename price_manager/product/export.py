@@ -1,14 +1,19 @@
 """Экспорт товарной страницы в xlsx: та же выборка, тот же порядок, выбранные колонки.
 
-Строка файла — товар (Product), как и строка страницы. Колонки строк
-поставщиков раскладываются по поставщикам: «Цена ИМ • Поставщик А»,
-«Цена ИМ • Поставщик Б», … Для цен и остатка перед ними стоит ещё и основное
-значение — по приоритету поставщика (Supplier.price_priority /
-stock_priority), см. main_value.
+Листы:
 
-Поставщики в колонках — все, у кого есть строка хотя бы у одного
-выгружаемого товара, а не все поставщики базы: иначе фильтр по одному
-поставщику давал бы файл из пустых колонок остальных.
+- «Товары» — строка на товар (Product), как строка страницы: колонки товара
+  и основные цены и остаток — по приоритету поставщика
+  (Supplier.price_priority / stock_priority), см. main_value.
+- по листу на поставщика, в порядке приоритета по цене — все выбранные
+  колонки строк поставщиков (цены, остаток, артикул поставщика, статус
+  наличия, …) с его значениями. На листе только товары, которые у него есть,
+  в том же порядке, что на «Товарах»; артикул и название повторены, чтобы
+  лист читался сам по себе.
+
+Поставщики — все, у кого есть строка хотя бы у одного выгружаемого товара, а
+не все поставщики базы: иначе фильтр по одному поставщику давал бы файл из
+пустых листов остальных.
 """
 from collections import defaultdict
 from datetime import date, datetime
@@ -38,14 +43,44 @@ SUPPLIER_PRODUCT_PRICES = ['supplier_product_price', 'supplier_product_rrp',
                            'supplier_product_discount_price']
 PRICE_COLUMNS = set(MP_PRICES) | set(SUPPLIER_PRODUCT_PRICES)
 
-# Колонки, у которых есть основное значение. Остальные колонки строк
-# поставщиков выгружаются только по поставщикам.
+# Колонки, у которых на «Товарах» есть основное значение: цены и остаток.
+# Остальные колонки строк поставщиков — только на листах поставщиков.
 STOCK_COLUMN = 'stock'
 
 # Колонки товара, которые в файл не идут: «Действия» — кнопки, фото — картинка.
 NOT_EXPORTED = {'actions', 'photo'}
 
 NO_SUPPLIER = 'Без поставщика'
+
+MAIN_SHEET = 'Товары'
+PRODUCT_TITLES = ['Артикул', 'Название', 'Бренд', 'Категории']
+# Начало строки на листе поставщика — по нему лист сверяется с «Товарами».
+IDENTITY_TITLES = ['Артикул', 'Название']
+
+# Имя листа Excel: не длиннее 31 символа, без []:*?/\ и не пустое.
+SHEET_NAME_LIMIT = 31
+SHEET_NAME_FORBIDDEN = str.maketrans({char: ' ' for char in '[]:*?/\\'})
+
+
+def sheet_names(names, taken=(MAIN_SHEET,)) -> list[str]:
+    """Имена листов для поставщиков: допустимые в Excel и попарно разные.
+
+    Excel сравнивает имена листов без учёта регистра, и обрезка до 31 символа
+    может свести два длинных имени к одному — такие получают суффикс « (2)».
+    """
+    used = {name.lower() for name in taken}
+    result = []
+    for name in names:
+        base = (name.translate(SHEET_NAME_FORBIDDEN).strip().strip("'")
+                or NO_SUPPLIER)[:SHEET_NAME_LIMIT]
+        candidate, number = base, 2
+        while candidate.lower() in used:
+            suffix = f' ({number})'
+            candidate = base[:SHEET_NAME_LIMIT - len(suffix)] + suffix
+            number += 1
+        used.add(candidate.lower())
+        result.append(candidate)
+    return result
 
 CHUNK_SIZE = 1000
 
@@ -186,16 +221,19 @@ class ProductExporter:
                 return None
         return value
 
-    def header(self, price_suppliers, stock_suppliers):
-        titles = ['Артикул', 'Название', 'Бренд', 'Категории']
-        titles += [COLUMN_LABELS[key] for key in self.product_columns]
+    def main_titles(self) -> list[str]:
+        """«Товары»: товар и основные цены и остаток (по приоритету поставщика)."""
+        titles = PRODUCT_TITLES + [COLUMN_LABELS[key] for key in self.product_columns]
         for key in self.supplier_columns:
-            suppliers = stock_suppliers if key == STOCK_COLUMN else price_suppliers
-            if key in PRICE_COLUMNS or key == STOCK_COLUMN:
-                titles.append(f'{COLUMN_LABELS[key]} (основная)' if key in PRICE_COLUMNS
-                              else f'{COLUMN_LABELS[key]} (основной)')
-            titles += [f'{COLUMN_LABELS[key]} • {name}' for _, name in suppliers]
+            if key in PRICE_COLUMNS:
+                titles.append(f'{COLUMN_LABELS[key]} (основная)')
+            elif key == STOCK_COLUMN:
+                titles.append(f'{COLUMN_LABELS[key]} (основной)')
         return titles
+
+    def supplier_titles(self) -> list[str]:
+        """Лист поставщика: артикул и название товара, затем все выбранные колонки."""
+        return IDENTITY_TITLES + [COLUMN_LABELS[key] for key in self.supplier_columns]
 
     def product_cells(self, product, main_products):
         number = product.number or min(
@@ -218,27 +256,38 @@ class ProductExporter:
                 cells.append(raw.get('status') or None)
         return cells
 
-    def supplier_cells(self, main_products, price_suppliers, stock_suppliers):
+    def supplier_values(self, main_products) -> dict:
+        """{pk поставщика: {колонка: значение}} по строкам товара.
+
+        Уникальности (товар, поставщик) у MainProduct нет, и строк у поставщика
+        бывает несколько. Цены и остаток сводятся тем же правилом, что между
+        поставщиками (main_value, строки в порядке pk), текст — различающиеся
+        значения через «; ».
+        """
         by_supplier = defaultdict(list)
         for main_product in main_products:
             by_supplier[main_product.supplier_id].append(main_product)
+        values = {}
+        for supplier_pk, rows in by_supplier.items():
+            values[supplier_pk] = {
+                key: (main_value(self.cell(mp, key) for mp in rows)
+                      if key in PRICE_COLUMNS or key == STOCK_COLUMN
+                      else _joined(self.cell(mp, key) for mp in rows))
+                for key in self.supplier_columns
+            }
+        return values
 
+    def main_value_cells(self, values, price_order, stock_order):
+        """Основные цены и остаток: первое ненулевое по приоритету поставщика."""
         cells = []
         for key in self.supplier_columns:
-            suppliers = stock_suppliers if key == STOCK_COLUMN else price_suppliers
-            if key in PRICE_COLUMNS or key == STOCK_COLUMN:
-                # Уникальности (товар, поставщик) у MainProduct нет, и строк у
-                # поставщика бывает несколько — внутри поставщика правило то
-                # же, что между поставщиками (main_value), строки в порядке pk.
-                per_supplier = [
-                    main_value(self.cell(mp, key) for mp in by_supplier.get(pk, []))
-                    for pk, _ in suppliers
-                ]
-                cells.append(main_value(per_supplier))
-                cells += per_supplier
+            if key in PRICE_COLUMNS:
+                order = price_order
+            elif key == STOCK_COLUMN:
+                order = stock_order
             else:
-                cells += [_joined(self.cell(mp, key) for mp in by_supplier.get(pk, []))
-                          for pk, _ in suppliers]
+                continue
+            cells.append(main_value(values[pk][key] for pk in order if pk in values))
         return cells
 
     def build(self) -> tuple[bytes, int]:
@@ -251,18 +300,30 @@ class ProductExporter:
                     MainProduct.objects.filter(product_id__in=chunk)
                     .order_by().values_list('supplier_id', flat=True).distinct())
         price_suppliers = ranked_suppliers(supplier_ids, 'price_priority')
-        stock_suppliers = ranked_suppliers(supplier_ids, 'stock_priority')
+        price_order = [pk for pk, _ in price_suppliers]
+        stock_order = [pk for pk, _ in ranked_suppliers(supplier_ids, 'stock_priority')]
 
         workbook = Workbook(write_only=True)
-        sheet = workbook.create_sheet('Товары')
-        sheet.freeze_panes = 'A2'
         bold = Font(bold=True)
-        header = []
-        for title in self.header(price_suppliers, stock_suppliers):
-            cell = WriteOnlyCell(sheet, value=title)
-            cell.font = bold
-            header.append(cell)
-        sheet.append(header)
+
+        def add_sheet(title, header):
+            sheet = workbook.create_sheet(title)
+            sheet.freeze_panes = 'A2'
+            cells = []
+            for value in header:
+                cell = WriteOnlyCell(sheet, value=value)
+                cell.font = bold
+                cells.append(cell)
+            sheet.append(cells)
+            return sheet
+
+        main_sheet = add_sheet(MAIN_SHEET, self.main_titles())
+        # Листы поставщиков — в порядке приоритета по цене, как колонки выбора.
+        supplier_sheets = {
+            pk: add_sheet(title, self.supplier_titles())
+            for (pk, _), title in zip(price_suppliers,
+                                      sheet_names(name for _, name in price_suppliers))
+        }
 
         for chunk in _chunks(pks):
             products = self.products(chunk)
@@ -275,9 +336,15 @@ class ProductExporter:
                 if product is None:
                     continue
                 rows = main_products.get(pk, [])
-                cells = self.product_cells(product, rows)
-                cells += self.supplier_cells(rows, price_suppliers, stock_suppliers)
-                sheet.append([_excel_value(value) for value in cells])
+                product_cells = self.product_cells(product, rows)
+                values = self.supplier_values(rows) if self.supplier_columns else {}
+                main_sheet.append([_excel_value(value) for value in (
+                    product_cells + self.main_value_cells(values, price_order, stock_order))])
+                identity = product_cells[:len(IDENTITY_TITLES)]
+                for supplier_pk in price_order:
+                    if supplier_pk in values:
+                        supplier_sheets[supplier_pk].append([_excel_value(value) for value in (
+                            identity + [values[supplier_pk][key] for key in self.supplier_columns])])
 
         buffer = BytesIO()
         workbook.save(buffer)
