@@ -529,7 +529,7 @@ class ClearUnsourcedPricesTests(TestCase):
     def setUp(self):
         currency = Currency.objects.create(name='KZT-CLR', value=Decimal('1'))
         self.supplier = Supplier.objects.create(
-            name='Supplier Clear', currency=currency, price_update_rate='', stock_update_rate='',
+            name='Supplier Clear', currency=currency,
             delivery_days_available=1, delivery_days_navailable=2,
         )
 
