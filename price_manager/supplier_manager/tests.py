@@ -4,7 +4,8 @@ from datetime import timedelta
 
 from django.contrib.auth.models import User
 from django.core.exceptions import ValidationError
-from django.db import connection
+from django.db import IntegrityError, connection, transaction
+from django.forms import modelform_factory
 from django.test import TestCase
 from django.test.utils import CaptureQueriesContext
 from django.urls import reverse
@@ -16,6 +17,7 @@ from .forms import IntervalField, SupplierForm
 from .models import Currency, Supplier, format_interval
 
 migration_0012 = importlib.import_module('supplier_manager.migrations.0012_supplier_update_days')
+migration_0013 = importlib.import_module('supplier_manager.migrations.0013_supplier_unique_priorities')
 
 
 def _supplier(name, **kwargs):
@@ -180,6 +182,96 @@ class SupplierPriorityUpdateTests(TestCase):
 
     def test_unknown_field_is_404(self):
         self.assertEqual(self._post('name', 'x').status_code, 404)
+
+    def test_taken_value_shifts_neighbours_and_returns_them_oob(self):
+        other = _supplier('Сосед', price_priority=2)
+        response = self._post('price_priority', '2')
+        html = response.content.decode()
+
+        self.supplier.refresh_from_db()
+        other.refresh_from_db()
+        self.assertEqual(self.supplier.price_priority, 2)
+        self.assertEqual(other.price_priority, 3)
+        self.assertIn(f'id="priority-price_priority-{other.pk}" hx-swap-oob="true"', html)
+        self.assertIn('value="3"', html)
+
+
+def _priorities(field='price_priority'):
+    # TestCase не коммитит, так что отложенное ограничение само не сработает.
+    with connection.cursor() as cursor:
+        cursor.execute('SET CONSTRAINTS ALL IMMEDIATE')
+    return dict(Supplier.objects.filter(**{f'{field}__isnull': False}).values_list('name', field))
+
+
+class PriorityUniquenessTests(TestCase):
+    """Занятый номер не отклоняется, а освобождается сдвигом соседей."""
+
+    def test_insert_shifts_only_contiguous_run(self):
+        for name, value in (('a', 1), ('b', 2), ('c', 3), ('d', 5)):
+            _supplier(name, price_priority=value)
+        _supplier('new', price_priority=2)
+        self.assertEqual(_priorities(), {'a': 1, 'new': 2, 'b': 3, 'c': 4, 'd': 5})
+
+    def test_gap_stops_the_shift(self):
+        for name, value in (('a', 1), ('b', 3)):
+            _supplier(name, price_priority=value)
+        _supplier('new', price_priority=1)
+        self.assertEqual(_priorities(), {'new': 1, 'a': 2, 'b': 3})
+
+    def test_moving_up_the_list(self):
+        for name, value in (('a', 1), ('b', 2), ('c', 3)):
+            _supplier(name, price_priority=value)
+        c = Supplier.objects.get(name='c')
+        c.price_priority = 1
+        c.save()
+        self.assertEqual(_priorities(), {'c': 1, 'a': 2, 'b': 3})
+
+    def test_fields_are_independent(self):
+        _supplier('a', price_priority=1, stock_priority=1)
+        _supplier('b', price_priority=2, stock_priority=1)
+        self.assertEqual(_priorities('price_priority'), {'a': 1, 'b': 2})
+        self.assertEqual(_priorities('stock_priority'), {'b': 1, 'a': 2})
+
+    def test_unranked_are_not_limited(self):
+        _supplier('a')
+        _supplier('b')
+        self.assertEqual(Supplier.objects.filter(price_priority__isnull=True).count(), 2)
+
+    def test_save_of_other_fields_does_not_touch_priorities(self):
+        a = _supplier('a', price_priority=1)
+        with CaptureQueriesContext(connection) as ctx:
+            a.save(update_fields=['name'])
+        self.assertFalse(any('FOR UPDATE' in q['sql'] for q in ctx.captured_queries))
+
+    def test_form_accepts_taken_value(self):
+        """Django 5.2 проверяет UniqueConstraint в ModelForm — без исключения в
+        Supplier.validate_constraints форма отказала бы раньше, чем сработает сдвиг."""
+        _supplier('a', price_priority=1)
+        b = _supplier('b')
+        form = modelform_factory(Supplier, fields=['price_priority'])({'price_priority': 1}, instance=b)
+        self.assertTrue(form.is_valid(), form.errors)
+        form.save()
+        self.assertEqual(_priorities(), {'b': 1, 'a': 2})
+
+    def test_database_rejects_duplicates_that_bypass_save(self):
+        """queryset.update() обходит save(); тогда ловит база. Ограничение
+        отложенное, а TestCase не коммитит — проверку форсирует SET CONSTRAINTS."""
+        _supplier('a', price_priority=1)
+        b = _supplier('b', price_priority=2)
+        with self.assertRaises(IntegrityError):
+            with transaction.atomic():
+                Supplier.objects.filter(pk=b.pk).update(price_priority=1)
+                with connection.cursor() as cursor:
+                    cursor.execute('SET CONSTRAINTS ALL IMMEDIATE')
+
+
+class Migration0013RenumberTests(TestCase):
+    def test_duplicates_keep_order_and_minimal_changes(self):
+        pairs = [('a', 1), ('b', 1), ('c', 2), ('d', 5), ('e', 5)]
+        self.assertEqual(migration_0013.renumber(pairs), {'b': 2, 'c': 3, 'e': 6})
+
+    def test_clean_data_untouched(self):
+        self.assertEqual(migration_0013.renumber([('a', 1), ('b', 4)]), {})
 
 
 def _layout_field_names(layout):

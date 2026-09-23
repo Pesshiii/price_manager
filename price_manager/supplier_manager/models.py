@@ -1,7 +1,9 @@
 from datetime import timedelta
 
-from django.db import models
+from django.db import models, transaction
 from django.utils import timezone
+
+PRIORITY_FIELDS = ('price_priority', 'stock_priority')
 
 
 def format_interval(days):
@@ -113,9 +115,57 @@ class Supplier(models.Model):
     class Meta:
         verbose_name = 'Поставщик'
         ordering = ['name']
+        # DEFERRED: make_room сдвигает соседние номера одним UPDATE, и
+        # посреди него номера на мгновение совпадают. Проверка — при коммите.
+        constraints = [
+            models.UniqueConstraint(
+                fields=[field],
+                name=f'supplier_unique_{field}',
+                deferrable=models.Deferrable.DEFERRED,
+            )
+            for field in PRIORITY_FIELDS
+        ]
     def __str__(self):
         return self.name
-    
+
+    def validate_constraints(self, exclude=None):
+        # Занятый приоритет — не ошибка формы: save() вставляет поставщика на
+        # этот номер и сдвигает остальных (make_room).
+        super().validate_constraints(exclude={*(exclude or ()), *PRIORITY_FIELDS})
+
+    def save(self, *args, **kwargs):
+        update_fields = kwargs.get('update_fields')
+        with transaction.atomic():
+            self.shifted = {
+                field: self.make_room(field)
+                for field in PRIORITY_FIELDS
+                if getattr(self, field) is not None
+                and (update_fields is None or field in update_fields)
+            }
+            super().save(*args, **kwargs)
+
+    def make_room(self, field):
+        """Освобождает номер `field` для этого поставщика.
+
+        Сдвигает на +1 только непрерывный ряд занятых номеров, начиная с
+        нужного: при 2, 3, 5 вставка на 2 даёт 3, 4, 5 — пропуск гасит сдвиг.
+        Возвращает pk сдвинутых поставщиков.
+        """
+        value = getattr(self, field)
+        taken = dict(
+            Supplier.objects.select_for_update()
+            .exclude(pk=self.pk)
+            .filter(**{f'{field}__gte': value})
+            .values_list(field, 'pk')
+        )
+        end = value
+        while end in taken:
+            end += 1
+        pks = [taken[n] for n in range(value, end)]
+        if pks:
+            Supplier.objects.filter(pk__in=pks).update(**{field: models.F(field) + 1})
+        return pks
+
     def update_status(self, kind, now=None):
         """Статус обновления цен (`kind='price'`) или остатков (`'stock'`).
 

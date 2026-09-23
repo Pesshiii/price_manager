@@ -37,7 +37,18 @@ was removed.
     nullable, "меньше — выше приоритет, пусто — не проранжирован." Editable
     in `SupplierForm` and inline in the `/supplier/` table
     (`SupplierPriorityUpdate`, route `supplier-priority`, answers with the
-    `priority_cell.html` `<td>` — single-region HTMX, no reload). **Nothing
+    `priority_cell.html` `<td>`, plus OOB cells for any shifted neighbours).
+    **Unique per field** (migration `0013`, `DEFERRED` constraints; NULLs
+    unlimited). A taken number is not an error: `Supplier.save()` calls
+    `make_room()`, which shifts the contiguous run of taken numbers from the
+    target by +1 (a gap stops it). For that to work, `validate_constraints`
+    excludes both fields — Django 5.2 checks `UniqueConstraint`s in
+    `ModelForm`, and would otherwise reject the number before `save()` runs.
+    `queryset.update()` bypasses all of this; the database then catches it at
+    commit. Tests must `SET CONSTRAINTS ALL IMMEDIATE` to see a violation —
+    `TestCase` never commits. And a `RunPython` that updates this table must
+    do the same before an `AddConstraint` in the same migration, or Postgres
+    refuses with «pending trigger events» (only on a populated DB). **Nothing
     in business logic reads them yet** — no consumer in
     `main_product_manager` or `product_price_manager`. Scaffolding for a
     not-yet-built cross-supplier price/stock selection, not dead code.
