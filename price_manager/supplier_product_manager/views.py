@@ -16,6 +16,7 @@ from django.views.generic import (View, TemplateView,
 from django.core.paginator import Paginator
 from django.db import IntegrityError, transaction
 from django.db.models import OuterRef, Subquery
+from django.http import HttpResponseNotAllowed
 from django.utils import timezone
 from django.views.decorators.http import require_POST
 
@@ -189,14 +190,19 @@ class UploadSupplierFile(CreateView):
     if not instance.setting.sheet_name in sheet_names:
       messages.error(self.request, f'Нет листа {instance.setting.sheet_name}')
       return self.form_invalid(form)
-    for supplierfile in instance.setting.supplierfiles.all():
-      supplierfile.file.delete()
-      supplierfile.delete()
+    # Older files are not deleted here: an import may be reading one right now.
+    # Imports always take the newest file, and cleanup_supplier_files_task
+    # removes the older ones once they are not in progress.
     instance.save()
-    # The file an unconfirmed import was checked against is gone.
+    # The file an unconfirmed import was checked against is replaced.
     ImportRun.objects.filter(
       setting=instance.setting, status=ImportRun.STATUS_NEEDS_CONFIRMATION,
     ).update(status=ImportRun.STATUS_SUPERSEDED, message='Загружен новый файл', finished_at=timezone.now())
+    # Older queued or pending files will never be imported now; releasing
+    # them lets the cleanup delete them. A running one finishes on its own.
+    instance.setting.supplierfiles.exclude(pk=instance.pk).filter(
+      status__in=(SupplierFile.STATUS_QUEUED, SupplierFile.STATUS_NEEDS_CONFIRMATION),
+    ).update(status=SupplierFile.STATUS_ERROR)
     if instance.setting.is_bound():
       return redirect(reverse('setting-upload', kwargs={'pk': instance.setting.pk, 'state':0}))
     else: 
@@ -210,6 +216,10 @@ def setting_upload(request, pk, state):
   if state == 0:
     url = reverse('setting-upload', kwargs={'pk':pk, 'state':1})
     return render(request, 'supplier_product/partials/load_partial.html', {'url':url})
+  # Starting an import changes data, so it takes a POST: a GET re-sent by a
+  # reload, the back button or a prefetch must not start another import.
+  if request.method != 'POST':
+    return HttpResponseNotAllowed(['POST'])
   if setting.is_bound():
     supplier_file = setting.supplierfiles.order_by('-pk').first()
     if supplier_file:
@@ -360,6 +370,9 @@ class SettingUpdate(UpdateView):
     return form
   def get_success_url(self):
     return reverse('setting-update', kwargs={'pk': self.kwargs.get('pk')})
+  # Atomic: the mapping is saved by deleting every Link and recreating it, so
+  # a failure halfway used to leave the setting with no mapping at all.
+  @transaction.atomic
   def form_valid(self, form):
     pk = self.kwargs.get('pk')
     setting = Setting.objects.get(pk=pk)

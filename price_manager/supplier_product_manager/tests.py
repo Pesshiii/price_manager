@@ -1430,7 +1430,7 @@ class ImportGuardTests(TestCase):
     def test_failed_apply_leaves_no_partial_writes(self):
         self._file([("10", "1"), ("20", "2")])
 
-        with mock.patch("supplier_manager.models.Supplier.save", side_effect=RuntimeError("boom")):
+        with mock.patch("supplier_product_manager.functions._stamp_supplier", side_effect=RuntimeError("boom")):
             with self.assertRaises(RuntimeError):
                 self._import()
 
@@ -1712,3 +1712,159 @@ class SettingOwnedRowsTests(TestCase):
         self.warehouse_a.delete()
 
         self.assertEqual(self._row("А-1").stock, 1)
+
+
+@override_settings(SUPPLIER_IMPORT_GUARD_MIN_HISTORY=0)
+class ImportRobustnessTests(TestCase):
+    """Импорт не идёт дважды, не пишет при разборе и не ломается от правок, сделанных во время него."""
+
+    _base_setUp = BasicLoadTests.setUp
+    _create_supplier_file = BasicLoadTests._create_supplier_file
+    _setting = ImportRefusalReasonTests._setting
+
+    def setUp(self):
+        self._base_setUp()
+        self.user = get_user_model().objects.create_user(username="robust", password="x")
+        self.client.force_login(self.user)
+        self.setting = self._setting(create_new=True, article="Артикул", name="Название", stock="Остаток")
+        self.supplier_file = self._create_supplier_file(
+            self.setting, pd.DataFrame([{"Артикул": "А-1", "Название": "Товар 1", "Остаток": "3"}]),
+        )
+
+    def _import(self, **kwargs):
+        return process_supplier_file_import(self.setting.pk, self.user.pk, **kwargs)
+
+    def _hold_lock(self):
+        key = f"task-lock:supplier_import:setting:{self.setting.pk}"
+        cache.add(key, "held", timeout=60)
+        self.addCleanup(cache.delete, key)
+
+    # --- one import of a setting at a time ---------------------------------
+
+    def test_second_import_of_a_busy_setting_is_refused(self):
+        self._hold_lock()
+
+        result = self._import()
+
+        self.assertEqual(result["status"], "busy")
+        self.assertFalse(ImportRun.objects.filter(setting=self.setting).exists())
+        self.assertFalse(SupplierProduct.objects.filter(supplier=self.supplier).exists())
+        self.assertTrue(PersistentNotification.objects.filter(
+            user=self.user, level="warning", message__contains="уже импортируется").exists())
+        # A queued file nobody will process is released for the cleanup.
+        self.supplier_file.refresh_from_db()
+        self.assertEqual(self.supplier_file.status, SupplierFile.STATUS_ERROR)
+
+    def test_refused_import_leaves_the_file_the_running_import_reads(self):
+        ImportRun.objects.create(setting=self.setting, supplier=self.supplier,
+                                 supplier_file=self.supplier_file, status=ImportRun.STATUS_RUNNING)
+        SupplierFile.objects.filter(pk=self.supplier_file.pk).update(status=SupplierFile.STATUS_RUNNING)
+        self._hold_lock()
+
+        self._import()
+
+        self.supplier_file.refresh_from_db()
+        self.assertEqual(self.supplier_file.status, SupplierFile.STATUS_RUNNING)
+
+    def test_confirmed_import_that_finds_the_setting_busy_waits_for_confirmation_again(self):
+        run = ImportRun.objects.create(
+            setting=self.setting, supplier=self.supplier, supplier_file=self.supplier_file,
+            status=ImportRun.STATUS_RUNNING, confirmed_by=self.user, confirmed_at=timezone.now(),
+        )
+        self._hold_lock()
+
+        self._import(confirmed_run_id=run.pk)
+
+        run.refresh_from_db()
+        self.assertEqual((run.status, run.confirmed_by_id, run.confirmed_at),
+                         (ImportRun.STATUS_NEEDS_CONFIRMATION, None, None))
+
+    def test_lock_is_released_after_a_failed_import(self):
+        with mock.patch("supplier_product_manager.tasks.load_setting", side_effect=RuntimeError("boom")):
+            with self.assertRaises(RuntimeError):
+                self._import()
+
+        self.assertEqual(self._import()["status"], "ok")
+
+    # --- changes made while an import runs ---------------------------------
+
+    def test_file_deleted_during_the_import_does_not_lose_the_result(self):
+        real_load = load_setting
+
+        def load_then_delete_file(*args, **kwargs):
+            outcome = real_load(*args, **kwargs)
+            SupplierFile.objects.filter(pk=self.supplier_file.pk).delete()
+            return outcome
+
+        with mock.patch("supplier_product_manager.tasks.load_setting", side_effect=load_then_delete_file):
+            result = self._import()
+
+        self.assertEqual(result["status"], "ok")
+        run = ImportRun.objects.get(setting=self.setting)
+        self.assertEqual((run.status, run.supplier_file_id, run.covered), (ImportRun.STATUS_APPLIED, None, 1))
+        self.assertTrue(PersistentNotification.objects.filter(user=self.user, level="success").exists())
+
+    def test_import_keeps_supplier_edits_made_while_it_ran(self):
+        from supplier_product_manager import functions
+        real_counts = functions.apply_counts
+
+        def counts_while_a_manager_edits(setting, payload):
+            setting.supplier  # the import now holds the supplier as it was
+            Supplier.objects.filter(pk=self.supplier.pk).update(price_priority=1, name="Переименован")
+            return real_counts(setting, payload)
+
+        with mock.patch("supplier_product_manager.functions.apply_counts", side_effect=counts_while_a_manager_edits):
+            load_setting(self.setting.pk)
+
+        self.supplier.refresh_from_db()
+        self.assertEqual((self.supplier.price_priority, self.supplier.name), (1, "Переименован"))
+        self.assertIsNotNone(self.supplier.stock_updated_at)
+        self.assertIsNone(self.supplier.price_updated_at)  # the setting maps no price
+
+    # --- parsing is read-only ----------------------------------------------
+
+    def test_parsing_does_not_write(self):
+        SupplierProduct.objects.create(supplier=self.supplier, article="Т-1", name="Товар\t1")
+
+        get_sps_result(self.setting, recache=True)
+
+        self.assertEqual(
+            list(SupplierProduct.objects.filter(supplier=self.supplier).values_list("name", flat=True)),
+            ["Товар\t1"],
+        )
+
+    # --- views -------------------------------------------------------------
+
+    def test_import_starts_only_on_post(self):
+        url = reverse("setting-upload", kwargs={"pk": self.setting.pk, "state": 1})
+
+        with mock.patch("supplier_product_manager.views.process_supplier_file_import") as task:
+            self.assertEqual(self.client.get(url).status_code, 405)
+            task.delay.assert_not_called()
+            self.client.post(url)
+
+        task.delay.assert_called_once_with(self.setting.pk, self.user.pk)
+
+    def test_upload_keeps_older_files_for_the_cleanup(self):
+        running = self.supplier_file
+        SupplierFile.objects.filter(pk=running.pk).update(status=SupplierFile.STATUS_RUNNING)
+        pending = SupplierFile.objects.create(
+            setting=self.setting, status=SupplierFile.STATUS_NEEDS_CONFIRMATION,
+            file=SimpleUploadedFile("pending.xlsx", b"x"),
+        )
+        excel = BytesIO()
+        pd.DataFrame([{"Артикул": "А-1", "Название": "Товар 1", "Остаток": "4"}]).to_excel(excel, index=False)
+
+        self.client.post(reverse("supplier-upload", kwargs={"pk": self.supplier.pk}),
+                         {"file": SimpleUploadedFile("new.xlsx", excel.getvalue()), "setting": self.setting.pk})
+
+        statuses = dict(self.setting.supplierfiles.values_list("pk", "status"))
+        self.assertEqual(len(statuses), 3)
+        self.assertEqual(statuses[running.pk], SupplierFile.STATUS_RUNNING)
+        self.assertEqual(statuses[pending.pk], SupplierFile.STATUS_ERROR)
+
+        cleanup_supplier_files_task()
+
+        # The running file stays until its import ends; the pending one goes.
+        self.assertEqual(set(self.setting.supplierfiles.values_list("pk", flat=True)),
+                         {running.pk, max(statuses)})
