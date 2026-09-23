@@ -16,8 +16,6 @@ class PriceManagerDiscountFilteringTests(TestCase):
         self.supplier = Supplier.objects.create(
             name='Supplier A',
             currency=self.currency,
-            price_update_rate='',
-            stock_update_rate='',
             delivery_days_available=1,
             delivery_days_navailable=2,
         )
@@ -140,7 +138,7 @@ class PriceManagerCategoryScopingTests(TestCase):
 
         currency, _ = Currency.objects.get_or_create(name='KZT', defaults={'value': Decimal('1')})
         self.supplier = Supplier.objects.create(
-            name='Scoped supplier', currency=currency, price_update_rate='', stock_update_rate='',
+            name='Scoped supplier', currency=currency,
             delivery_days_available=1, delivery_days_navailable=2,
         )
         self.tools = Category.objects.create(name='Инструмент')
@@ -198,8 +196,6 @@ class PriceTagAndPriceManagerRuntimeTests(TestCase):
         self.supplier = Supplier.objects.create(
             name='Supplier Runtime',
             currency=self.currency,
-            price_update_rate='',
-            stock_update_rate='',
             delivery_days_available=1,
             delivery_days_navailable=2,
         )
@@ -386,8 +382,6 @@ class PriceManagerNameGenerationTests(TestCase):
         self.supplier = Supplier.objects.create(
             name='Supplier Name',
             currency=self.currency,
-            price_update_rate='',
-            stock_update_rate='',
             delivery_days_available=1,
             delivery_days_navailable=2,
         )
@@ -423,8 +417,6 @@ class UpdatePricesOrderingTests(TestCase):
         self.supplier = Supplier.objects.create(
             name='Supplier Ordering',
             currency=self.currency,
-            price_update_rate='',
-            stock_update_rate='',
             delivery_days_available=1,
             delivery_days_navailable=2,
         )

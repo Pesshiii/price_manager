@@ -1,10 +1,16 @@
-from django.db import models
+from datetime import timedelta
 
-TIME_FREQ = {
-             '': 0,
-             'Каждый день': 1,
-             'Каждую неделю': 7,
-             'Каждые три недели': 21}
+from django.db import models
+from django.utils import timezone
+
+
+def format_interval(days):
+    """«2 нед.» для кратного неделе интервала, иначе «10 дн.»; пусто — None."""
+    if not days:
+        return None
+    if days % 7 == 0:
+        return f'{days // 7} нед.'
+    return f'{days} дн.'
 
 # Основные классы для продуктов(главных/поставщика)
   
@@ -76,10 +82,18 @@ class Supplier(models.Model):
         null=True,
         blank=False,
     )
-    price_update_rate = models.CharField(verbose_name='Частота обновления цен',
-                                        choices=[(_, _) for _ in TIME_FREQ.keys()])
-    stock_update_rate = models.CharField(verbose_name='Частота обновления остатков',
-                                        choices=[(_, _) for _ in TIME_FREQ.keys()])
+    price_update_days = models.PositiveIntegerField(
+        verbose_name='Интервал обновления цен',
+        help_text='В днях. Пусто — не отслеживать.',
+        null=True,
+        blank=True,
+    )
+    stock_update_days = models.PositiveIntegerField(
+        verbose_name='Интервал обновления остатков',
+        help_text='В днях. Пусто — не отслеживать.',
+        null=True,
+        blank=True,
+    )
     msg_available = models.CharField(verbose_name="Сообщение при наличии",
                                     default="Есть в наличии")
     msg_navailable = models.CharField(verbose_name="Сообщение при отсутствии",
@@ -102,6 +116,23 @@ class Supplier(models.Model):
     def __str__(self):
         return self.name
     
+    def update_status(self, kind, now=None):
+        """Статус обновления цен (`kind='price'`) или остатков (`'stock'`).
+
+        'untracked' — интервал не задан; 'never' — ни разу не обновлялось;
+        'overdue' — с последнего обновления прошло не меньше интервала;
+        'ok' — в срок.
+        """
+        days = getattr(self, f'{kind}_update_days')
+        updated_at = getattr(self, f'{kind}_updated_at')
+        if not days:
+            return 'untracked'
+        if updated_at is None:
+            return 'never'
+        if (now or timezone.now()) - updated_at >= timedelta(days=days):
+            return 'overdue'
+        return 'ok'
+
     def get_delivery_days_for_stock(self, stock):
         """Срок поставки по остатку.
 

@@ -1,59 +1,35 @@
 <div class="card shadow-sm border-0 mt-3">
   <div class="card-body p-0">
     <div class="table-responsive">
-      <table class="table table-hover align-middle mb-0">
-        <thead>
-          <tr>
-            <th scope="col" class="ps-3" style="width: 72px;"></th>
+      <table class="table table-hover align-middle mb-0 supplier-table">
+        <thead class="table-light">
+          <tr class="small text-uppercase text-body-secondary">
+            <th scope="col" class="ps-3" style="width: 56px;"><span class="visually-hidden">Загрузка</span></th>
             <th scope="col">
-              <a class="text-decoration-none text-body"
-                 href="?sort=name&dir={% if sort_by == 'name' and sort_dir == 'asc' %}desc{% else %}asc{% endif %}">
-                Поставщик
-                {% if sort_by == 'name' %}{% if sort_dir == 'asc' %}↑{% else %}↓{% endif %}{% endif %}
+              <a class="text-decoration-none text-reset" href="?sort=name&dir={% if sort_by == 'name' and sort_dir == 'asc' %}desc{% else %}asc{% endif %}">
+                Поставщик{% if sort_by == 'name' %} {% if sort_dir == 'asc' %}↑{% else %}↓{% endif %}{% endif %}
               </a>
             </th>
-            <th scope="col">
-              <a class="text-decoration-none text-body"
-                 href="?sort=price_updated_at&dir={% if sort_by == 'price_updated_at' and sort_dir == 'asc' %}desc{% else %}asc{% endif %}">
-                Обновление цен
-                {% if sort_by == 'price_updated_at' %}{% if sort_dir == 'asc' %}↑{% else %}↓{% endif %}{% endif %}
+            <th scope="col" class="text-center" style="width: 110px;">
+              <a class="text-decoration-none text-reset" title="Меньше — выше приоритет"
+                 href="?sort=price_priority&dir={% if sort_by == 'price_priority' and sort_dir == 'asc' %}desc{% else %}asc{% endif %}">
+                Приоритет<br>цен{% if sort_by == 'price_priority' %} {% if sort_dir == 'asc' %}↑{% else %}↓{% endif %}{% endif %}
               </a>
             </th>
-            <th scope="col">
-              <a class="text-decoration-none text-body"
-                 href="?sort=stock_updated_at&dir={% if sort_by == 'stock_updated_at' and sort_dir == 'asc' %}desc{% else %}asc{% endif %}">
-                Обновление остатков
-                {% if sort_by == 'stock_updated_at' %}{% if sort_dir == 'asc' %}↑{% else %}↓{% endif %}{% endif %}
+            <th scope="col" class="text-center" style="width: 110px;">
+              <a class="text-decoration-none text-reset" title="Меньше — выше приоритет"
+                 href="?sort=stock_priority&dir={% if sort_by == 'stock_priority' and sort_dir == 'asc' %}desc{% else %}asc{% endif %}">
+                Приоритет<br>остатков{% if sort_by == 'stock_priority' %} {% if sort_dir == 'asc' %}↑{% else %}↓{% endif %}{% endif %}
               </a>
             </th>
-            <th scope="col">
-              <a class="text-decoration-none text-body"
-                 href="?sort=basic_price&dir={% if sort_by == 'basic_price' and sort_dir == 'asc' %}desc{% else %}asc{% endif %}">
-                Базовая цена
-                {% if sort_by == 'basic_price' %}{% if sort_dir == 'asc' %}↑{% else %}↓{% endif %}{% endif %}
-              </a>
-            </th>
-            <th scope="col">
-              <a class="text-decoration-none text-body"
-                 href="?sort=prime_cost&dir={% if sort_by == 'prime_cost' and sort_dir == 'asc' %}desc{% else %}asc{% endif %}">
-                Себестоимость
-                {% if sort_by == 'prime_cost' %}{% if sort_dir == 'asc' %}↑{% else %}↓{% endif %}{% endif %}
-              </a>
-            </th>
-            <th scope="col">
-              <a class="text-decoration-none text-body"
-                 href="?sort=m_price&dir={% if sort_by == 'm_price' and sort_dir == 'asc' %}desc{% else %}asc{% endif %}">
-                Цена ИМ
-                {% if sort_by == 'm_price' %}{% if sort_dir == 'asc' %}↑{% else %}↓{% endif %}{% endif %}
-              </a>
-            </th>
-            <th scope="col" class="pe-3">
-              <a class="text-decoration-none text-body"
-                 href="?sort=wholesale_price&dir={% if sort_by == 'wholesale_price' and sort_dir == 'asc' %}desc{% else %}asc{% endif %}">
-                Оптовая цена
-                {% if sort_by == 'wholesale_price' %}{% if sort_dir == 'asc' %}↑{% else %}↓{% endif %}{% endif %}
-              </a>
-            </th>
+            {% for key, label in price_columns %}
+              <th scope="col" style="min-width: 120px;"{% if forloop.last %} class="pe-3"{% endif %}>
+                <a class="text-decoration-none text-reset" title="Сортировать по числу товаров без цены"
+                   href="?sort={{ key }}&dir={% if sort_by == key and sort_dir == 'desc' %}asc{% else %}desc{% endif %}">
+                  {{ label }}{% if sort_by == key %} {% if sort_dir == 'asc' %}↑{% else %}↓{% endif %}{% endif %}
+                </a>
+              </th>
+            {% endfor %}
           </tr>
         </thead>
         <tbody>
@@ -62,7 +38,8 @@
               <td class="ps-3">
                 <button type="button"
                         class="btn btn-sm btn-outline-success"
-                        title="Загрузка"
+                        title="Загрузить прайс"
+                        aria-label="Загрузить прайс"
                         data-bs-toggle="modal"
                         data-bs-target="#modal-container"
                         hx-get="{% url 'supplier-upload' supplier.pk %}"
@@ -72,47 +49,51 @@
                 </button>
               </td>
               <td>
-                <div class="d-flex align-items-center gap-2">
-                  <span class="badge rounded-pill p-1 {% if supplier.danger %}bg-danger{% else %}bg-success{% endif %}"></span>
+                <div class="d-flex align-items-center flex-wrap gap-2">
                   <a class="fw-semibold text-decoration-none" href="{% url 'supplier-detail' supplier.pk %}">{{ supplier.name }}</a>
-                  <span class="badge rounded-pill bg-secondary">{{ supplier.total }}</span>
+                  <span class="text-body-secondary small" title="Товаров у поставщика">{{ supplier.total }}</span>
+                </div>
+                <div class="d-flex gap-1 mt-1">
+                  {% for s in supplier.statuses %}
+                    <span class="badge rounded-pill fw-normal supplier-status supplier-status-{{ s.status }}
+                                 {% if s.status == 'ok' %}bg-success-subtle text-success-emphasis
+                                 {% elif s.status == 'untracked' %}bg-secondary-subtle text-secondary-emphasis
+                                 {% else %}bg-danger-subtle text-danger-emphasis{% endif %}"
+                          title="{{ s.title }}">
+                      {% if s.status == 'ok' %}<i class="bi bi-check-circle-fill"></i>
+                      {% elif s.status == 'untracked' %}<i class="bi bi-dash-circle"></i>
+                      {% else %}<i class="bi bi-exclamation-circle-fill"></i>{% endif %}
+                      {{ s.label }}
+                    </span>
+                  {% endfor %}
                 </div>
               </td>
-              <td>
-                <span class="small {% if supplier.price_outdated %}text-danger fw-semibold{% else %}text-success{% endif %}">
-                  {{ supplier.price_updated_at }}
-                </span>
-              </td>
-              <td>
-                <span class="small {% if supplier.stock_outdated %}text-danger fw-semibold{% else %}text-success{% endif %}">
-                  {{ supplier.stock_updated_at }}
-                </span>
-              </td>
-
-              <td>
-                <span class="badge bg-success-subtle text-success-emphasis me-1">{{ supplier.basic_price|subtract:supplier.total }}</span>
-                <span class="text-body-secondary">/</span>
-                <span class="badge {% if supplier.basic_price > 0 %}bg-danger-subtle text-danger-emphasis fw-bold{% else %}bg-light text-muted{% endif %}">{{ supplier.basic_price }}</span>
-              </td>
-              <td>
-                <span class="badge bg-success-subtle text-success-emphasis me-1">{{ supplier.wholesale_price|subtract:supplier.total }}</span>
-                <span class="text-body-secondary">/</span>
-                <span class="badge {% if supplier.wholesale_price > 0 %}bg-danger-subtle text-danger-emphasis fw-bold{% else %}bg-light text-muted{% endif %}">{{ supplier.wholesale_price }}</span>
-              </td>
-              <td>
-                <span class="badge bg-success-subtle text-success-emphasis me-1">{{ supplier.m_price|subtract:supplier.total }}</span>
-                <span class="text-body-secondary">/</span>
-                <span class="badge {% if supplier.m_price > 0 %}bg-danger-subtle text-danger-emphasis fw-bold{% else %}bg-light text-muted{% endif %}">{{ supplier.m_price }}</span>
-              </td>
-              <td class="pe-3">
-                <span class="badge bg-success-subtle text-success-emphasis me-1">{{ supplier.prime_cost|subtract:supplier.total }}</span>
-                <span class="text-body-secondary">/</span>
-                <span class="badge {% if supplier.prime_cost > 0 %}bg-danger-subtle text-danger-emphasis fw-bold{% else %}bg-light text-muted{% endif %}">{{ supplier.prime_cost }}</span>
-              </td>
+              {% include "supplier/partials/priority_cell.html" with pk=supplier.pk field="price_priority" value=supplier.price_priority errors=None saved=False %}
+              {% include "supplier/partials/priority_cell.html" with pk=supplier.pk field="stock_priority" value=supplier.stock_priority errors=None saved=False %}
+              {% for price in supplier.prices %}
+                <td class="supplier-price-{{ price.key }}{% if forloop.last %} pe-3{% endif %}">
+                  {% if not supplier.total %}
+                    <span class="text-body-secondary">—</span>
+                  {% else %}
+                    <div class="d-flex justify-content-between small">
+                      {% if price.missing %}
+                        <span class="text-danger-emphasis fw-semibold" title="Товаров без цены">нет: {{ price.missing }}</span>
+                      {% else %}
+                        <span class="text-success-emphasis">все</span>
+                      {% endif %}
+                      <span class="text-body-secondary">{{ price.coverage }}%</span>
+                    </div>
+                    <div class="progress mt-1" style="height: 4px;" role="progressbar"
+                         aria-label="Покрытие ценой" aria-valuenow="{{ price.coverage }}" aria-valuemin="0" aria-valuemax="100">
+                      <div class="progress-bar {% if price.missing %}bg-warning{% else %}bg-success{% endif %}" style="width: {{ price.coverage }}%"></div>
+                    </div>
+                  {% endif %}
+                </td>
+              {% endfor %}
             </tr>
           {% empty %}
             <tr>
-              <td colspan="8" class="text-center py-4 text-body-secondary">Поставщики не найдены</td>
+              <td colspan="{{ price_columns|length|add:4 }}" class="text-center py-4 text-body-secondary">Поставщики не найдены</td>
             </tr>
           {% endfor %}
         </tbody>

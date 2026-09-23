@@ -15,8 +15,6 @@ class UpdateStocksNullSafeTests(TestCase):
         self.supplier = Supplier.objects.create(
             name='Stock supplier',
             currency=self.currency,
-            price_update_rate='',
-            stock_update_rate='',
             delivery_days_available=1,
             delivery_days_navailable=2,
         )
@@ -107,8 +105,6 @@ class UpdateStocksBatchingTests(TestCase):
         self.supplier = Supplier.objects.create(
             name='Batch supplier',
             currency=self.currency,
-            price_update_rate='',
-            stock_update_rate='',
             delivery_days_available=1,
             delivery_days_navailable=2,
         )
@@ -256,8 +252,6 @@ class ReindexPimIdsDispatchTests(TestCase):
         self.supplier = Supplier.objects.create(
             name='Reindex supplier',
             currency=self.currency,
-            price_update_rate='',
-            stock_update_rate='',
             delivery_days_available=1,
             delivery_days_navailable=2,
         )
@@ -479,8 +473,6 @@ class _PimSearchTestCase(TestCase):
         self.supplier = Supplier.objects.create(
             name='PIM search supplier',
             currency=self.currency,
-            price_update_rate='',
-            stock_update_rate='',
             delivery_days_available=1,
             delivery_days_navailable=2,
         )
