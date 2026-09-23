@@ -160,3 +160,28 @@ class Product(models.Model):
     def rebuild_search_vector(self) -> None:
         """Пересобирает search_vector через update() — без join-полей в SET."""
         Product.objects.filter(pk=self.pk).update(search_vector=self._build_searchvector())
+
+
+class ProductExport(models.Model):
+    """Готовый файл экспорта товарной страницы; ссылка приходит в уведомлении."""
+
+    user = models.ForeignKey(
+        'auth.User',
+        verbose_name='Пользователь',
+        on_delete=models.CASCADE,
+        related_name='product_exports')
+    file = models.FileField(
+        verbose_name='Файл',
+        upload_to='product_exports/',
+        null=True,
+        blank=True)
+    rows_count = models.PositiveIntegerField(verbose_name='Строк', default=0)
+    created_at = models.DateTimeField(verbose_name='Создан', auto_now_add=True)
+
+    class Meta:
+        ordering = ('-created_at',)
+        verbose_name = 'Экспорт товаров'
+        verbose_name_plural = 'Экспорты товаров'
+
+    def __str__(self):
+        return f'Экспорт товаров — {self.created_at:%d.%m.%Y %H:%M}'

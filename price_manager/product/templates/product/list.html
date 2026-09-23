@@ -752,6 +752,20 @@
           </button>
           {% include 'product/partials/columns_picker.html' %}
           {% comment %}
+            Экспорт берёт выдачу из адресной строки в момент нажатия, а не из
+            адреса при загрузке: поиск и фильтр меняют её через hx-push-url без
+            перезагрузки. Колонки — сохранённый выбор (см. ProductExportView).
+          {% endcomment %}
+          <button type="button"
+                  class="btn btn-outline-secondary"
+                  title="Выгрузить отфильтрованные товары с выбранными столбцами в Excel"
+                  aria-label="Экспорт"
+                  hx-post="{% url 'product-export' %}"
+                  hx-vals='js:{query: window.location.search}'
+                  hx-swap="none">
+            <i class="bi bi-download" aria-hidden="true"></i><span class="d-none d-sm-inline"> Экспорт</span>
+          </button>
+          {% comment %}
             hx-swap="none": ответ — HX-Refresh, страница перезагрузится сама,
             а сообщение «Синхронизация запущена» покажет django.contrib.messages.
             Вторичная кнопка, а не primary: это фоновая работа над всем

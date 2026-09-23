@@ -1,7 +1,8 @@
 import logging
 
+from django.contrib import messages
 from django.db.models import OuterRef, Prefetch, Subquery
-from django.http import Http404, HttpResponse
+from django.http import FileResponse, Http404, HttpResponse, QueryDict
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse_lazy
 from django.views.generic import View
@@ -14,7 +15,8 @@ from supplier_product_manager.models import SupplierProduct
 
 from .columns import PRODUCT_COLUMN_GROUPS, load_columns, save_columns
 from .filters import CATEGORY_LABEL_DEPTH, ProductFilter, search_terms
-from .models import Category, Product
+from .models import Category, Product, ProductExport
+from .tasks import export_products_task
 from .tables import (
     ProductTable, SupplierRowTable, annotate_product_rows, best_match_groups_first,
     with_category_headers,
@@ -210,6 +212,44 @@ def _latest_supplier_prices():
         'supplier_product_rrp': Subquery(latest.values('rrp')[:1]),
         'supplier_product_discount_price': Subquery(latest.values('discount_price')[:1]),
     }
+
+
+class ProductExportView(View):
+    """Ставит экспорт текущей выдачи в очередь.
+
+    query — строка запроса страницы из адресной строки: поиск и фильтр
+    пушат её через hx-push-url, сортировка — обычные ссылки, так что в ней
+    всё, чем задана выдача. Номер страницы выкидывается — выгружается вся
+    выдача. Колонки — сохранённый выбор (его сохраняет сама страница при
+    каждой смене), экспорт его не пересохраняет.
+
+    Ответ пустой: toaster_middleware сам покажет сообщение тостом, а
+    перезагрузка сбила бы раскрытые строки и прокрутку. Именно 200, а не
+    204: на 204 HTMX не доходит до settle, а тост запрашивается событием
+    toasts:fetch после settle — сообщение молча осталось бы в сессии до
+    следующей страницы.
+    """
+
+    def post(self, request, *args, **kwargs):
+        params = QueryDict(request.POST.get('query', '').lstrip('?'), mutable=True)
+        params.pop(ProductTable._meta.prefix + ProductTable._meta.page_field, None)
+        params.pop('columns', None)
+        export_products_task.delay(query=params.urlencode(),
+                                   columns=load_columns(request.user),
+                                   user_id=request.user.pk)
+        messages.info(request, 'Экспорт запущен. Ссылка на файл придёт в уведомлениях.')
+        return HttpResponse()
+
+
+class ProductExportDownloadView(View):
+    """Отдаёт готовый файл экспорта — только тому, кто его запускал."""
+
+    def get(self, request, pk, *args, **kwargs):
+        export = get_object_or_404(ProductExport, pk=pk, user=request.user)
+        if not export.file:
+            raise Http404('Файл выгрузки не найден')
+        return FileResponse(export.file.open('rb'), as_attachment=True,
+                            filename=f'Товары {export.created_at:%Y-%m-%d %H-%M}.xlsx')
 
 
 class PimImageView(View):
