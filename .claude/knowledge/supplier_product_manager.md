@@ -10,7 +10,9 @@ in the pipeline, not the model.
 
 - **`Setting`** (`models.py:99`) — one named import profile per supplier.
   `sheet_name`, `index_row` (which row holds the headers), `create_new`
-  (create `SupplierProduct`s that don't exist yet), `ignore_name`.
+  (create `SupplierProduct`s that don't exist yet), `match_by_article`
+  (identity by article alone — see «Matching by article»; replaced
+  `ignore_name` in migration 0014).
   Unique on `(name, supplier)`.
 - **`Link`** (`models.py:129`) — maps one spreadsheet column (`value`) to one
   model field (`key`, chosen from the `LINKS` dict at `models.py:88`).
@@ -261,6 +263,31 @@ supplier page (not the shared `modal-xl` container). `SupplierDetail` opens it
 on load for `?import_run=<pk>` only while that run is still pending, so the
 `HttpResponseClientRefresh` after apply/cancel does not reopen it.
 
+## Matching by article — `Setting.match_by_article`
+
+By default a supplier row is identified by `(article, name)`, because many
+suppliers sell variants under one article. `match_by_article` is the opt-in for
+suppliers whose articles are unique; `_resolve_by_article` (`functions.py`)
+implements it:
+
+- The file is deduplicated **by article**, first row wins; the dropped rows go
+  into `duplicates`, and `article_conflicts` is reported with «взята первая
+  строка» wording (`duplicate_warning` reads `stats['match_by_article']`).
+- Article with **one** existing row → that row is updated; a different name in
+  the file **renames** it. The payload carries the old name under
+  `RENAME_FROM`; `_apply` renames before the upsert so the upsert (still keyed
+  on `(supplier, article, name)`) finds the same pk — the `main_product` link
+  and history survive. `apply_counts` counts it as updated, not created+missing.
+- Article with **several** existing rows (legacy of the default key) → the data
+  goes into all of them, names untouched — the old `ignore_name` behaviour,
+  reported as `articles_multi_db`.
+- Unknown article → created (with `create_new`) or unmatched.
+
+The DB constraint stays `(supplier, article, name)`; no data migration needed.
+Migration 0014 turned `ignore_name AND create_new` into `match_by_article`
+(`ignore_name` without `create_new` never did anything). Its reverse restores
+`ignore_name` only on the migrated settings.
+
 ## Upload and cleanup — the file a setting depends on
 
 - **`UploadSupplierFile.form_valid`** (`views.py:145`) reads the workbook's
@@ -299,10 +326,10 @@ decision, not a quick patch.
   carry several *live* rows with different names **and different prices** —
   variants (length, size, colour) sold under one supplier article, most of them
   already linked to separate `MainProduct`s. An article-only key would keep one
-  variant per article and null the rest on the next import. If a
-  by-article key is wanted, it must be an opt-in per `Setting` for suppliers
-  whose articles are unique. Meanwhile the import **warns** instead: see
-  `article_conflicts` below.
+  variant per article and null the rest on the next import. The by-article key
+  therefore exists only as the per-`Setting` opt-in `match_by_article` (see
+  «Matching by article» above); by default the import **warns** about
+  `article_conflicts` instead.
 - **Stored articles and names carry leading/trailing whitespace** — common in
   production. `get_df` collapses runs of whitespace but does not strip. Adding a
   `strip()` to the parser alone would re-key every such row on the next import

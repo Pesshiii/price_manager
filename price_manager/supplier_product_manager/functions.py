@@ -30,13 +30,16 @@ CACHE_TTL = 60 * 60 * 24 * 30  # 30 дней
 # get_sps, так что разбор, закэшированный до удаления колонок, не всплывёт.
 # 1.2: в кэше лежит {'payload', 'stats'}, а не голый список.
 # 1.3: в stats появились article_conflicts и article_conflict_examples.
-SPS_JSON_SCHEMA_VERSION = "1.3"
+# 1.4: сопоставление по артикулу — renamed, articles_multi_db, _rename_from в payload.
+SPS_JSON_SCHEMA_VERSION = "1.4"
 # Счётчики разбора, которые get_sps_result отдаёт вместе с payload, по этапам.
 SPS_STAT_FIELDS = (
     "rows_in_sheet",      # непустые строки листа
     "rows_with_article",  # из них с артикулом
     "rows_with_values",   # из них хоть одно значение распозналось
     "article_conflicts",  # артикулов, которые в файле встречаются с разными названиями
+    "renamed",            # match_by_article: строк, которые получат новое название
+    "articles_multi_db",  # match_by_article: артикулов с несколькими товарами в базе (запись во все)
     "rows_without_name",  # отброшены: нет названия
     "rows_unmatched",     # отброшены: не совпали с товарами поставщика (create_new выключен)
     "duplicates",         # отброшены: повтор артикула и названия в файле (взята первая строка)
@@ -355,7 +358,7 @@ def _get_setting_signature(setting: Setting) -> str:
         "setting": {
             "id": setting.pk,
             "sheet_name": setting.sheet_name,
-            "ignore_name": setting.ignore_name,
+            "match_by_article": setting.match_by_article,
             "create_new": setting.create_new,
             "index_row": setting.index_row,
         },
@@ -490,37 +493,36 @@ def _parse_sps(setting: Setting, links, stats: dict) -> list[dict]:
     )
     rows_with_values = stats['rows_with_values'] = len(df)
     stats.update(_article_conflicts(df))
+    stats['match_by_article'] = setting.match_by_article
     rows_unmatched = 0
+    duplicates = 0
 
-    if not 'name' in df.columns:
-        if setting.create_new:
-            raise SupplierImportError(
-                'Для добавления новых товаров нужен столбец названия — '
-                'сопоставьте его или выключите «Добавлять новые товары»')
-        _df = df.copy()
-        names = _df['article'].apply(lambda article: sps.filter(article=article).values_list('name', flat=True))
-        _df['name'] = names
-        has_names = _df['name'].apply(len) > 0
+    if not 'name' in df.columns and setting.create_new:
+        raise SupplierImportError(
+            'Для добавления новых товаров нужен столбец названия — '
+            'сопоставьте его или выключите «Добавлять новые товары»')
+
+    if setting.match_by_article:
+        rows_before = len(df)
+        df = df.drop_duplicates(subset=['article'], keep='first')
+        duplicates += rows_before - len(df)
+        df, unmatched = _resolve_by_article(df, sps, setting, stats)
+        rows_unmatched += unmatched
+    elif not 'name' in df.columns:
+        # No names in the file: the row goes to every existing product with
+        # that article.
+        db_names = _db_names_by_article(sps, df['article'])
+        df = df.assign(name=df['article'].map(lambda article: db_names.get(article, [])))
+        has_names = df['name'].apply(len) > 0
         rows_unmatched += int((~has_names).sum())
-        _df = _df[has_names]
-        _df = _df.explode('name', ignore_index=True)
-        df = _df
-
-    if setting.create_new and setting.ignore_name:
-        _df = df.copy()
-        names = _df['article'].apply(lambda article: sps.filter(article=article).values_list('name', flat=True))
-        _df['names_indb'] = names
-        _df = _df.explode('names_indb', ignore_index=True)
-        _df['name'] = _df['names_indb'].fillna(_df['name'])
-        _df.drop('names_indb', axis=1)
-        df = _df
+        df = df[has_names].explode('name', ignore_index=True)
 
     rows_before = len(df)
     df = df.dropna(subset=['name'])
     stats['rows_without_name'] = rows_before - len(df)
     df = df.replace({pd.NA: None, float('nan'): None, '': None, 'NaN': None})
 
-    if not setting.create_new:
+    if not setting.create_new and not setting.match_by_article:
         mask = df[['article', 'name']].apply(tuple, axis=1).isin(s_values)
         rows_unmatched += int((~mask).sum())
         df = df[mask]
@@ -528,7 +530,7 @@ def _parse_sps(setting: Setting, links, stats: dict) -> list[dict]:
 
     rows_before = len(df)
     df = df.drop_duplicates(subset=['article', 'name'], keep='first')
-    stats['duplicates'] = rows_before - len(df)
+    stats['duplicates'] = duplicates + rows_before - len(df)
     stats.update(_coverage(df))
     for required_field in SPS_JSON_REQUIRED_FIELDS:
         if required_field not in df.columns:
@@ -560,20 +562,84 @@ def _article_conflicts(df: pd.DataFrame) -> dict:
     }
 
 
+RENAME_FROM = '_rename_from'
+
+
+def _db_names_by_article(sps, articles) -> dict:
+    """{артикул: [названия в базе]} одним запросом (раньше — запрос на каждую строку файла)."""
+    names = {}
+    for article, name in sps.filter(article__in=set(articles)).values_list('article', 'name'):
+        names.setdefault(article, []).append(name)
+    return names
+
+
+def _resolve_by_article(df: pd.DataFrame, sps, setting, stats: dict) -> tuple[pd.DataFrame, int]:
+    """Сопоставление по одному артикулу (Setting.match_by_article).
+
+    df уже без повторов артикула. Для каждой строки файла:
+    - артикула нет в базе — новый товар с названием из файла (если
+      create_new, иначе строка не совпала);
+    - в базе ровно одна строка — она и обновляется; другое название в файле
+      её переименовывает (RENAME_FROM — старое имя, _apply переименует до upsert);
+    - в базе несколько строк (наследие ключа «артикул + название») — данные
+      пишутся во все, названия не меняются, и это попадает в предупреждение.
+
+    Возвращает строки для записи и число несовпавших.
+    """
+    db_names = _db_names_by_article(sps, df['article'])
+    has_file_names = 'name' in df.columns
+    rows, multi_db = [], []
+    renamed = unmatched = 0
+    for record in df.to_dict('records'):
+        names = db_names.get(record['article'], [])
+        if not names:
+            if setting.create_new:
+                rows.append(record)
+            else:
+                unmatched += 1
+        elif len(names) == 1:
+            new_name = record.get('name') if has_file_names else None
+            if new_name is not None and not pd.isna(new_name) and new_name != names[0]:
+                record[RENAME_FROM] = names[0]
+                renamed += 1
+            else:
+                record['name'] = names[0]
+            rows.append(record)
+        else:
+            multi_db.append(str(record['article']))
+            rows.extend({**record, 'name': name} for name in names)
+    stats['renamed'] = renamed
+    stats['articles_multi_db'] = len(multi_db)
+    stats['articles_multi_db_examples'] = multi_db[:ARTICLE_CONFLICT_EXAMPLES]
+    columns = [*df.columns, *([] if has_file_names else ['name']), RENAME_FROM]
+    return pd.DataFrame(rows, columns=columns), unmatched
+
+
 def duplicate_warning(stats: dict) -> str:
     """Предупреждение о повторах в файле для уведомления об импорте; '' — если их нет."""
+    by_article = stats.get('match_by_article')
     parts = []
     duplicates = stats.get('duplicates') or 0
     if duplicates:
         parts.append(f'повторов строк: {duplicates} (взята первая из повторяющихся)')
     conflicts = stats.get('article_conflicts') or 0
     if conflicts:
-        examples = ', '.join(stats.get('article_conflict_examples') or [])
         parts.append(
             f'артикулов с разными названиями: {conflicts}'
-            + (f' (например: {examples})' if examples else '')
-            + ' — загружены как разные товары')
+            + _examples(stats.get('article_conflict_examples'))
+            + (' — взята первая строка, настройка сопоставляет по артикулу' if by_article
+               else ' — загружены как разные товары'))
+    multi_db = stats.get('articles_multi_db') or 0
+    if multi_db:
+        parts.append(
+            f'артикулов, у которых в базе несколько товаров: {multi_db}'
+            + _examples(stats.get('articles_multi_db_examples'))
+            + ' — данные записаны во все')
     return ('Внимание: ' + '; '.join(parts) + '.') if parts else ''
+
+
+def _examples(articles) -> str:
+    return f' (например: {", ".join(articles)})' if articles else ''
 
 
 def _coverage(df: pd.DataFrame) -> dict:
@@ -615,7 +681,8 @@ def apply_counts(setting: Setting, payload: list[dict]) -> dict:
     existing_keys = set(
         SupplierProduct.objects.filter(supplier=setting.supplier).values_list('article', 'name')
     )
-    payload_keys = {(row['article'], row['name']) for row in payload}
+    # A renamed row is the existing one under its old name, not new + missing.
+    payload_keys = {(row['article'], row.get(RENAME_FROM) or row['name']) for row in payload}
     created = len(payload_keys - existing_keys)
     return {
         'created': created,
@@ -672,6 +739,14 @@ def _apply(setting: Setting, links, sps_payload: list[dict], stats: dict) -> Imp
     
     counts = apply_counts(setting, sps_payload)
     stats['created'], stats['updated'] = counts['created'], counts['updated']
+
+    # match_by_article: rename first, so the upsert below finds the row under
+    # its new name — it keeps its pk, main_product link and history.
+    for row in sps_payload:
+        if row.get(RENAME_FROM):
+            SupplierProduct.objects.filter(
+                supplier=setting.supplier, article=row['article'], name=row[RENAME_FROM],
+            ).update(name=row['name'])
 
     sp_model_instances = map(get_spmodel, df.itertuples(index=False))
     sp_update_fields = [link.key for link in links if not link.key=='article' and not link.key == 'name' and link.key in df.columns]

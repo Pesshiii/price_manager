@@ -145,7 +145,9 @@ def process_supplier_file_import(setting_id: int, user_id: int, confirmed_run_id
         message = (
             f"Импорт «{setting.name}» завершен: обработано строк {processed_rows} "
             f"(с ценой {stats.get('covered_price', 0)}, с остатком {stats.get('covered_stock', 0)}), "
-            f"новых {stats.get('created', 0)}, нет в файле {stats.get('missing', 0)}, "
+            f"новых {stats.get('created', 0)}, "
+            + (f"переименовано {stats['renamed']}, " if stats.get('renamed') else "")
+            + f"нет в файле {stats.get('missing', 0)}, "
             f"длительность {duration_seconds} сек."
         )
         # Repeated rows and articles with several names do not stop an import,
