@@ -647,9 +647,11 @@ def _apply(setting: Setting, links, sps_payload: list[dict], stats: dict) -> Imp
     # A row that vanished from the new file has no figure at all, so the raw
     # layer stores NULL - "the supplier did not tell us" - and never a synced 0.
     # Consumers resolve that absence themselves: update_stocks() coalesces it to
-    # 0 because unknown stock is not sellable, and PriceTag.get_sprice() reads a
-    # NULL price as 0. Only columns the setting still maps are cleared, so
-    # deleting a Link freezes its field at the last imported value.
+    # 0 because unknown stock is not sellable, and the price rules treat a NULL
+    # price as "no price" and clear the product's derived prices
+    # (product_price_manager.clear_unsourced_prices). Only columns the setting
+    # still maps are cleared, so deleting a Link freezes its field at the last
+    # imported value.
     if 'stock' in df.columns:
         setting.supplier.stock_updated_at = timezone.now()
         missing_sps.update(stock=None)
