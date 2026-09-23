@@ -50,9 +50,11 @@ importlib_metadata==8.7.1
 itertable==2.2.0
 jiter==0.13.0
 kombu==5.6.2
+markdownify==1.2.3
 mypy_extensions==1.1.0
 narwhals==2.14.0
 natural-keys==2.1.1
+nh3==0.3.7
 numpy==2.3.2
 openai==2.16.0
 openpyxl==3.1.5

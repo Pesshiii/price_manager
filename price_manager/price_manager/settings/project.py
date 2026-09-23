@@ -10,6 +10,7 @@ PROJECT_INSTALLED_APPS = [
     'supplier_manager',
     'blogapp',
     'developers',
+    'releases',
     'dataframe',
     'product',
     'supplier_feed',
