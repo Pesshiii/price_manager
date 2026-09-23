@@ -12,6 +12,7 @@ from supplier_manager import views as sm_views
 from product_price_manager import views as ppm_views
 from product import views as product_views
 from developers import views as developers_views
+from releases import views as releases_views
 
 
 urlpatterns = [
@@ -116,5 +117,9 @@ urlpatterns = [
     path('notifications/panel/', views.PersistentNotificationsPanelView.as_view(), name='persistent-notifications-panel'),
 
     path('developers/feedback/', developers_views.FeedbackCreateView.as_view(), name='developers-feedback'),
+
+    path('releases/', releases_views.ReleaseListView.as_view(), name='release-list'),
+    path('releases/<str:version>/', releases_views.ReleaseDetailView.as_view(), name='release-detail'),
+    path('releases/<str:version>/markdown/', releases_views.ReleaseMarkdownView.as_view(), name='release-markdown'),
 
 ] + static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)
