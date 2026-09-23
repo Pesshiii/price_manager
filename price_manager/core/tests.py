@@ -17,7 +17,7 @@ from django.utils import timezone
 from price_manager.celery import app as celery_app
 from price_manager.settings import celery as celery_settings
 
-from .models import Bitrix24Account, TaskRunHistory
+from .models import Bitrix24Account, PersistentNotification, TaskRunHistory
 from .task_runner import execute_locked_task
 
 
@@ -616,3 +616,36 @@ class Bitrix24LinkRequiredMiddlewareTests(TestCase):
     @override_settings(BITRIX24_CLIENT_SECRET='')
     def test_link_page_404_when_not_configured(self):
         self.assertEqual(self.client.get(reverse('bitrix24-link')).status_code, 404)
+
+
+class PersistentNotificationDeleteAllTests(TestCase):
+    def setUp(self):
+        self.user = User.objects.create_user('owner', password='x')
+        self.other = User.objects.create_user('other', password='x')
+        for i in range(3):
+            PersistentNotification.objects.create(user=self.user, message=f'msg {i}')
+        PersistentNotification.objects.create(user=self.other, message='foreign')
+        self.client.force_login(self.user)
+
+    def test_deletes_only_own_notifications(self):
+        response = self.client.post(reverse('persistent-notifications-delete-all'))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertFalse(PersistentNotification.objects.filter(user=self.user).exists())
+        self.assertEqual(PersistentNotification.objects.filter(user=self.other).count(), 1)
+        self.assertContains(response, 'Нет сохранённых уведомлений.')
+        self.assertContains(response, 'id="persistent-notifications-badge" hx-swap-oob="true"')
+
+    def test_get_is_not_allowed(self):
+        response = self.client.get(reverse('persistent-notifications-delete-all'))
+
+        self.assertEqual(response.status_code, 405)
+        self.assertEqual(PersistentNotification.objects.filter(user=self.user).count(), 3)
+
+    def test_button_shown_only_when_there_are_notifications(self):
+        url = reverse('persistent-notifications-delete-all')
+        panel = reverse('persistent-notifications-panel')
+        self.assertContains(self.client.get(panel), url)
+
+        PersistentNotification.objects.filter(user=self.user).delete()
+        self.assertNotContains(self.client.get(panel), url)

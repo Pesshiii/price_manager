@@ -109,6 +109,7 @@ urlpatterns = [
 
     path("toasts/", views.toast_messages, name="toast-messages"),
     path('notifications/<int:pk>/delete/', views.PersistentNotificationDeleteView.as_view(), name='persistent-notification-delete'),
+    path('notifications/delete-all/', views.PersistentNotificationDeleteAllView.as_view(), name='persistent-notifications-delete-all'),
     path('notifications/panel/', views.PersistentNotificationsPanelView.as_view(), name='persistent-notifications-panel'),
 
     path('developers/feedback/', developers_views.FeedbackCreateView.as_view(), name='developers-feedback'),

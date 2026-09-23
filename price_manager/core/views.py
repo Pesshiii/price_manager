@@ -79,6 +79,16 @@ class PersistentNotificationDeleteView(LoginRequiredMixin, View):
         )
 
 
+class PersistentNotificationDeleteAllView(LoginRequiredMixin, View):
+    def post(self, request):
+        PersistentNotification.objects.filter(user=request.user).delete()
+        return render(
+            request,
+            "core/partials/notifications_panel.html",
+            {"persistent_notifications": []},
+        )
+
+
 class PersistentNotificationsPanelView(LoginRequiredMixin, View):
     def get(self, request):
         notifications = (
