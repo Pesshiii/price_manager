@@ -22,11 +22,12 @@ from supplier_product_manager.functions import (
     SupplierImportError,
     auto_detect_link_keys,
     get_sps,
+    get_sps_result,
     get_df,
     get_df_sheet_names,
     load_setting,
 )
-from supplier_product_manager.models import Link, Setting, SupplierFile, SupplierProduct
+from supplier_product_manager.models import ImportRun, Link, Setting, SupplierFile, SupplierProduct
 from supplier_product_manager.tasks import (
     cleanup_supplier_files_task,
     copy_supplier_products_to_main_task,
@@ -1048,3 +1049,149 @@ class ImportRefusalReasonTests(TestCase):
         self.assertIn("данные не изменены", notification.message)
         existing.refresh_from_db()
         self.assertEqual(existing.stock, 7)
+
+
+class ImportStatsTests(TestCase):
+    """Счётчики разбора и применения — основа истории покрытия настройки."""
+
+    setUp = BasicLoadTests.setUp
+    _create_supplier_file = BasicLoadTests._create_supplier_file
+    _setting = ImportRefusalReasonTests._setting
+
+    def test_parse_counters_by_stage(self):
+        SupplierProduct.objects.create(supplier=self.supplier, article="А-1", name="Товар 1")
+        SupplierProduct.objects.create(supplier=self.supplier, article="А-2", name="Товар 2")
+        SupplierProduct.objects.create(supplier=self.supplier, article="А-3", name="Товар 3")
+        setting = self._setting(article="Артикул", name="Название", supplier_price="Цена", stock="Остаток")
+        self._create_supplier_file(setting, pd.DataFrame([
+            {"Артикул": "А-1", "Название": "Товар 1", "Цена": "10", "Остаток": "5"},
+            {"Артикул": "А-2", "Название": "Товар 2", "Цена": "20", "Остаток": "нет"},
+            {"Артикул": "А-3", "Название": "Товар 3", "Цена": "н/д", "Остаток": "н/д"},   # нет значений
+            {"Артикул": "", "Название": "Итого", "Цена": "30", "Остаток": "3"},         # нет артикула
+            {"Артикул": "Б-9", "Название": "Чужой", "Цена": "40", "Остаток": "4"},      # нет в базе
+            {"Артикул": "А-1", "Название": "Товар 1", "Цена": "11", "Остаток": "6"},    # дубликат
+        ]))
+
+        _, stats = get_sps_result(setting.pk)
+
+        self.assertEqual(stats["rows_in_sheet"], 6)
+        self.assertEqual(stats["rows_with_article"], 5)
+        self.assertEqual(stats["rows_with_values"], 4)
+        self.assertEqual(stats["rows_unmatched"], 1)
+        self.assertEqual(stats["duplicates"], 1)
+        self.assertEqual(stats["covered"], 2)
+        self.assertEqual(stats["covered_price"], 2)
+        self.assertEqual(stats["covered_stock"], 1)
+        self.assertEqual(stats["mapped_keys"], ["article", "name", "stock", "supplier_price"])
+
+    def test_unmapped_stock_counts_as_zero_stock_coverage(self):
+        setting = self._setting(create_new=True, article="Артикул", name="Название", supplier_price="Цена")
+        self._create_supplier_file(
+            setting, pd.DataFrame([{"Артикул": "А-1", "Название": "Товар", "Цена": "10", "Остаток": "5"}]),
+        )
+
+        _, stats = get_sps_result(setting.pk)
+
+        self.assertEqual((stats["covered"], stats["covered_price"], stats["covered_stock"]), (1, 1, 0))
+
+    @override_settings(DEBUG=False)
+    def test_stats_are_served_from_cache_with_payload(self):
+        cache.clear()
+        self.addCleanup(cache.clear)
+        setting = self._setting(create_new=True, article="Артикул", name="Название", stock="Остаток")
+        self._create_supplier_file(setting, pd.DataFrame([{"Артикул": "А-1", "Название": "Товар", "Остаток": "5"}]))
+        first = get_sps_result(setting.pk)
+
+        with mock.patch("supplier_product_manager.functions.get_df",
+                        side_effect=AssertionError("get_df must not run on a cache hit")):
+            self.assertEqual(get_sps_result(setting.pk), first)
+            self.assertEqual(get_sps(setting.pk), first[0])
+
+    def test_load_setting_reports_created_updated_missing(self):
+        SupplierProduct.objects.create(supplier=self.supplier, article="А-1", name="Товар 1", stock=1)
+        SupplierProduct.objects.create(supplier=self.supplier, article="СТАРЫЙ", name="Старый", stock=9)
+        setting = self._setting(create_new=True, article="Артикул", name="Название", stock="Остаток")
+        self._create_supplier_file(setting, pd.DataFrame([
+            {"Артикул": "А-1", "Название": "Товар 1", "Остаток": "2"},
+            {"Артикул": "А-2", "Название": "Товар 2", "Остаток": "3"},
+        ]))
+
+        outcome = load_setting(setting.pk)
+
+        self.assertEqual(len(outcome.sps), 2)
+        self.assertEqual(
+            (outcome.stats["created"], outcome.stats["updated"], outcome.stats["missing"]), (1, 1, 1),
+        )
+
+
+class ImportRunRecordingTests(TestCase):
+    """Каждый запуск задачи импорта оставляет ImportRun — применённый, отказ или ошибка."""
+
+    setUp = BasicLoadTests.setUp
+    _create_supplier_file = BasicLoadTests._create_supplier_file
+    _setting = ImportRefusalReasonTests._setting
+
+    def _user(self):
+        return get_user_model().objects.create_user(username=f"run-{ImportRun.objects.count()}", password="x")
+
+    def test_applied_run_records_counters(self):
+        setting = self._setting(create_new=True, article="Артикул", name="Название",
+                                supplier_price="Цена", stock="Остаток")
+        supplier_file = self._create_supplier_file(setting, pd.DataFrame([
+            {"Артикул": "А-1", "Название": "Товар 1", "Цена": "10", "Остаток": "5"},
+            {"Артикул": "А-2", "Название": "Товар 2", "Цена": "20", "Остаток": ""},
+        ]))
+        user = self._user()
+
+        result = process_supplier_file_import(setting.pk, user.pk)
+
+        self.assertEqual(result["status"], "ok")
+        run = ImportRun.objects.get(setting=setting)
+        self.assertEqual(run.status, ImportRun.STATUS_APPLIED)
+        self.assertEqual((run.supplier_id, run.supplier_file_id, run.user_id),
+                         (self.supplier.pk, supplier_file.pk, user.pk))
+        self.assertEqual(run.file_name, supplier_file.file.name)
+        self.assertEqual((run.covered, run.covered_price, run.covered_stock), (2, 2, 1))
+        self.assertEqual((run.created, run.updated, run.missing), (2, 0, 0))
+        self.assertEqual(run.mapped_keys, ["article", "name", "stock", "supplier_price"])
+        self.assertIsNotNone(run.finished_at)
+        self.assertIn("с ценой 2, с остатком 1", result["message"])
+
+    def test_refused_run_keeps_reason_and_parse_counters(self):
+        SupplierProduct.objects.create(supplier=self.supplier, article="СТАРЫЙ", name="Старый")
+        setting = self._setting(article="Артикул", name="Название", stock="Остаток")
+        self._create_supplier_file(
+            setting, pd.DataFrame([{"Артикул": "НОВЫЙ", "Название": "Новый", "Остаток": "3"}]),
+        )
+
+        process_supplier_file_import(setting.pk, self._user().pk)
+
+        run = ImportRun.objects.get(setting=setting)
+        self.assertEqual(run.status, ImportRun.STATUS_REFUSED)
+        self.assertIn("не совпала", run.message)
+        self.assertEqual((run.rows_with_values, run.rows_unmatched, run.covered), (1, 1, 0))
+        self.assertIsNone(run.created)
+
+    def test_failed_run_is_recorded_and_reraised(self):
+        setting = self._setting(create_new=True, article="Артикул", name="Название")
+        self._create_supplier_file(setting, pd.DataFrame([{"Артикул": "А-1", "Название": "Товар"}]))
+
+        with mock.patch("supplier_product_manager.tasks.load_setting", side_effect=RuntimeError("boom")):
+            with self.assertRaises(RuntimeError):
+                process_supplier_file_import(setting.pk, self._user().pk)
+
+        run = ImportRun.objects.get(setting=setting)
+        self.assertEqual((run.status, run.message), (ImportRun.STATUS_FAILED, "boom"))
+
+    def test_run_outlives_its_file(self):
+        setting = self._setting(create_new=True, article="Артикул", name="Название", stock="Остаток")
+        supplier_file = self._create_supplier_file(
+            setting, pd.DataFrame([{"Артикул": "А-1", "Название": "Товар", "Остаток": "1"}]),
+        )
+        process_supplier_file_import(setting.pk, self._user().pk)
+
+        supplier_file.delete()
+
+        run = ImportRun.objects.get(setting=setting)
+        self.assertIsNone(run.supplier_file_id)
+        self.assertTrue(run.file_name)

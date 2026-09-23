@@ -11,6 +11,7 @@ from .functions import load_setting, SupplierFileStorageMissingError, SupplierIm
 from .filters import SupplierProductFilter
 from .models import (
     CopySupplierProductsToMainRun,
+    ImportRun,
     Setting,
     Supplier,
     SupplierFile,
@@ -26,6 +27,14 @@ def _append_supplier_file_log(supplier_file: SupplierFile | None, message: str) 
     next_line = f"[{timestamp}] {message}"
     supplier_file.logs = f"{current_logs}\n{next_line}".strip()
     supplier_file.save(update_fields=["logs"])
+
+
+def _finish_run(run: ImportRun, status: str, stats: dict, message: str = "") -> None:
+    run.record_stats(stats)
+    run.status = status
+    run.message = message
+    run.finished_at = timezone.now()
+    run.save()
 
 
 @shared_task
@@ -50,17 +59,28 @@ def process_supplier_file_import(setting_id: int, user_id: int) -> dict:
         supplier_file,
         f"Запущена обработка настройки «{setting.name}» (ID={setting_id})",
     )
+    run = ImportRun.objects.create(
+        setting=setting,
+        supplier_id=setting.supplier_id,
+        supplier_file=supplier_file,
+        file_name=supplier_file.file.name if supplier_file and supplier_file.file else "",
+        user_id=user_id,
+    )
 
     try:
         _append_supplier_file_log(supplier_file, "Чтение и обработка файла")
-        products = load_setting(setting_id)
+        outcome = load_setting(setting_id)
         duration_seconds = round((timezone.now() - started_at).total_seconds(), 2)
-        processed_rows = len(products)
+        stats = outcome.stats
+        processed_rows = len(outcome.sps)
         message = (
-            f"Импорт «{setting.name}» завершен: обработано строк {processed_rows}, "
+            f"Импорт «{setting.name}» завершен: обработано строк {processed_rows} "
+            f"(с ценой {stats.get('covered_price', 0)}, с остатком {stats.get('covered_stock', 0)}), "
+            f"новых {stats.get('created', 0)}, нет в файле {stats.get('missing', 0)}, "
             f"длительность {duration_seconds} сек."
         )
 
+        _finish_run(run, ImportRun.STATUS_APPLIED, stats)
         _append_supplier_file_log(supplier_file, message)
         if supplier_file:
             supplier_file.status = SupplierFile.STATUS_SUCCESS
@@ -88,6 +108,7 @@ def process_supplier_file_import(setting_id: int, user_id: int) -> dict:
             f"Импорт «{setting.name}» не выполнен, данные не изменены. Причина: {reason} "
             f"(длительность {duration_seconds} сек.)"
         )
+        _finish_run(run, ImportRun.STATUS_REFUSED, getattr(exc, "stats", {}), reason)
         _append_supplier_file_log(supplier_file, f"{error_message} ({exc})" if storage_missing else error_message)
         if supplier_file:
             supplier_file.status = SupplierFile.STATUS_ERROR
@@ -110,6 +131,7 @@ def process_supplier_file_import(setting_id: int, user_id: int) -> dict:
             f"Импорт «{setting.name}» завершен с ошибкой: обработано строк 0, ошибок 1, "
             f"длительность {duration_seconds} сек. Причина: {exc}"
         )
+        _finish_run(run, ImportRun.STATUS_FAILED, {}, str(exc))
         _append_supplier_file_log(supplier_file, error_message)
         if supplier_file:
             supplier_file.status = SupplierFile.STATUS_ERROR

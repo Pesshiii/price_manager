@@ -191,6 +191,92 @@ def document_pre_delete(sender, instance, **kwargs):
     instance.file.delete(save=False)
 
 
+class ImportRun(models.Model):
+  """Один запуск импорта прайса по настройке и его счётчики.
+
+  История покрытия настройки: по ней проверка импорта сравнивает новый файл с
+  обычным для этой настройки числом строк — отдельно с ценой и с остатком.
+  Счётчики разбора — см. functions.SPS_STAT_FIELDS; created/updated/missing
+  заполняются только у применённого импорта.
+  """
+  STATUS_RUNNING = "running"
+  STATUS_APPLIED = "applied"
+  STATUS_REFUSED = "refused"
+  STATUS_FAILED = "failed"
+
+  STATUS_CHOICES = [
+    (STATUS_RUNNING, "Выполняется"),
+    (STATUS_APPLIED, "Применён"),
+    (STATUS_REFUSED, "Отказ"),
+    (STATUS_FAILED, "Ошибка"),
+  ]
+
+  setting = models.ForeignKey(Setting,
+                              verbose_name="Настройка",
+                              related_name="import_runs",
+                              on_delete=models.CASCADE)
+  supplier = models.ForeignKey(Supplier,
+                               verbose_name="Поставщик",
+                               related_name="import_runs",
+                               on_delete=models.CASCADE)
+  # SET_NULL: the cleanup task deletes old files, the history must outlive them.
+  supplier_file = models.ForeignKey(SupplierFile,
+                                    verbose_name="Файл",
+                                    related_name="import_runs",
+                                    on_delete=models.SET_NULL,
+                                    null=True, blank=True)
+  file_name = models.CharField(verbose_name="Имя файла", max_length=255, blank=True, default="")
+  user = models.ForeignKey(settings.AUTH_USER_MODEL,
+                           verbose_name="Пользователь",
+                           related_name="import_runs",
+                           on_delete=models.SET_NULL,
+                           null=True, blank=True)
+  status = models.CharField(verbose_name="Статус",
+                            max_length=16,
+                            choices=STATUS_CHOICES,
+                            default=STATUS_RUNNING)
+  message = models.TextField(verbose_name="Сообщение", blank=True, default="")
+  started_at = models.DateTimeField(verbose_name="Начало", auto_now_add=True)
+  finished_at = models.DateTimeField(verbose_name="Окончание", null=True, blank=True)
+  mapped_keys = models.JSONField(verbose_name="Сопоставленные поля", default=list, blank=True)
+
+  rows_in_sheet = models.PositiveIntegerField(verbose_name="Строк на листе", null=True, blank=True)
+  rows_with_article = models.PositiveIntegerField(verbose_name="Строк с артикулом", null=True, blank=True)
+  rows_with_values = models.PositiveIntegerField(verbose_name="Строк со значениями", null=True, blank=True)
+  rows_without_name = models.PositiveIntegerField(verbose_name="Отброшено без названия", null=True, blank=True)
+  rows_unmatched = models.PositiveIntegerField(verbose_name="Не совпало с товарами", null=True, blank=True)
+  duplicates = models.PositiveIntegerField(verbose_name="Дубликатов", null=True, blank=True)
+  covered = models.PositiveIntegerField(verbose_name="Покрыто строк", null=True, blank=True)
+  covered_price = models.PositiveIntegerField(verbose_name="Покрыто с ценой", null=True, blank=True)
+  covered_stock = models.PositiveIntegerField(verbose_name="Покрыто с остатком", null=True, blank=True)
+  created = models.PositiveIntegerField(verbose_name="Создано", null=True, blank=True)
+  updated = models.PositiveIntegerField(verbose_name="Обновлено", null=True, blank=True)
+  missing = models.PositiveIntegerField(verbose_name="Нет в файле (обнулено)", null=True, blank=True)
+
+  COUNTER_FIELDS = (
+    "rows_in_sheet", "rows_with_article", "rows_with_values", "rows_without_name",
+    "rows_unmatched", "duplicates", "covered", "covered_price", "covered_stock",
+    "created", "updated", "missing",
+  )
+
+  class Meta:
+    ordering = ("-started_at",)
+    indexes = [models.Index(fields=["setting", "status", "-started_at"], name="importrun_setting_history")]
+    verbose_name = "Импорт прайса"
+    verbose_name_plural = "Импорты прайсов"
+
+  def __str__(self):
+    return f"{self.setting} · {self.get_status_display()} · {self.started_at:%Y-%m-%d %H:%M}"
+
+  def record_stats(self, stats: dict) -> None:
+    """Перенести известные счётчики и mapped_keys из stats, лишние ключи игнорируются."""
+    for name in self.COUNTER_FIELDS:
+      if name in stats:
+        setattr(self, name, stats[name])
+    if "mapped_keys" in stats:
+      self.mapped_keys = list(stats["mapped_keys"])
+
+
 class CopySupplierProductsToMainRun(models.Model):
   STATUS_STARTED = "started"
   STATUS_SUCCESS = "success"
