@@ -280,6 +280,8 @@ class ImportRun(models.Model):
   rows_without_name = models.PositiveIntegerField(verbose_name="Отброшено без названия", null=True, blank=True)
   rows_unmatched = models.PositiveIntegerField(verbose_name="Не совпало с товарами", null=True, blank=True)
   duplicates = models.PositiveIntegerField(verbose_name="Дубликатов", null=True, blank=True)
+  article_conflicts = models.PositiveIntegerField(verbose_name="Артикулов с разными названиями",
+                                                  null=True, blank=True)
   covered = models.PositiveIntegerField(verbose_name="Покрыто строк", null=True, blank=True)
   covered_price = models.PositiveIntegerField(verbose_name="Покрыто с ценой", null=True, blank=True)
   covered_stock = models.PositiveIntegerField(verbose_name="Покрыто с остатком", null=True, blank=True)
@@ -289,7 +291,7 @@ class ImportRun(models.Model):
 
   COUNTER_FIELDS = (
     "rows_in_sheet", "rows_with_article", "rows_with_values", "rows_without_name",
-    "rows_unmatched", "duplicates", "covered", "covered_price", "covered_stock",
+    "rows_unmatched", "duplicates", "article_conflicts", "covered", "covered_price", "covered_stock",
     "created", "updated", "missing",
   )
 

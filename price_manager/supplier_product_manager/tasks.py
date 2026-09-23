@@ -14,6 +14,7 @@ from .functions import (
     SupplierImportError,
     _get_setting_signature,
     apply_counts,
+    duplicate_warning,
     get_sps_result,
     load_setting,
 )
@@ -52,6 +53,9 @@ def _hold_for_confirmation(run, setting, supplier_file, user_id, stats, verdict)
     _finish_run(run, ImportRun.STATUS_NEEDS_CONFIRMATION, stats)
     reasons = "; ".join(run.reason_lines())
     message = f"Импорт «{setting.name}» ждёт подтверждения: {reasons}."
+    warning = duplicate_warning(stats)
+    if warning:
+        message = f"{message} {warning}"
     _append_supplier_file_log(supplier_file, message)
     if supplier_file:
         supplier_file.status = SupplierFile.STATUS_NEEDS_CONFIRMATION
@@ -144,6 +148,12 @@ def process_supplier_file_import(setting_id: int, user_id: int, confirmed_run_id
             f"новых {stats.get('created', 0)}, нет в файле {stats.get('missing', 0)}, "
             f"длительность {duration_seconds} сек."
         )
+        # Repeated rows and articles with several names do not stop an import,
+        # but the user has to hear about them: the latter usually mean variants
+        # under one article, sometimes a broken price list.
+        warning = duplicate_warning(stats)
+        if warning:
+            message = f"{message} {warning}"
 
         _finish_run(run, ImportRun.STATUS_APPLIED, stats)
         _append_supplier_file_log(supplier_file, message)
@@ -153,7 +163,7 @@ def process_supplier_file_import(setting_id: int, user_id: int, confirmed_run_id
 
         PersistentNotification.objects.create(
             user_id=user_id,
-            level="success",
+            level="warning" if warning else "success",
             message=message,
         )
         return {
