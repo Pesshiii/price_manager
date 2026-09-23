@@ -605,6 +605,30 @@ class LinkUnlinkedMainProductsTests(_PimSearchTestCase):
         self.assertIsNone(too_long.product_id)
         self.assertEqual(fine.product.number, 'FINE')
 
+    def test_case_variant_sku_links_to_existing_product_instead_of_duplicating(self):
+        # number's uniqueness is case-insensitive: a differently-cased sku is
+        # the same Product, not grounds for a second row.
+        existing = PimProduct.objects.create(number='abc123')
+        main_product = self.product(sku='ABC123')
+
+        link_unlinked_main_products()
+
+        main_product.refresh_from_db()
+        self.assertEqual(main_product.product_id, existing.pk)
+        self.assertEqual(PimProduct.objects.count(), 1)
+
+    def test_case_variant_skus_in_the_same_batch_collapse_onto_one_product(self):
+        first = self.product(sku='ABC123')
+        second = self.product(sku='abc123', article='OTHER')
+
+        linked = link_unlinked_main_products()
+
+        first.refresh_from_db()
+        second.refresh_from_db()
+        self.assertEqual(linked, 2)
+        self.assertEqual(first.product_id, second.product_id)
+        self.assertEqual(PimProduct.objects.count(), 1)
+
 
 class BackfillProductNumbersTests(_PimSearchTestCase):
     """Placeholder Products (number NULL) take their MainProducts' sku only when unambiguous."""
@@ -646,6 +670,20 @@ class BackfillProductNumbersTests(_PimSearchTestCase):
         # Two placeholders wanting SKU-2: the lower pk gets it, the other waits.
         second.refresh_from_db()
         self.assertEqual(second.number, 'SKU-2')
+
+    def test_case_variant_of_a_taken_number_is_treated_as_a_conflict(self):
+        # number's uniqueness is case-insensitive: assigning 'SKU-1' while
+        # 'sku-1' is already taken must be caught here, not left to raise an
+        # IntegrityError out of the bulk_update below.
+        PimProduct.objects.create(number='sku-1')
+        placeholder = PimProduct.objects.create()
+        self.product(sku='SKU-1', product=placeholder)
+
+        with self.assertLogs(mp_utils.logger, level='WARNING'):
+            self.assertEqual(backfill_product_numbers(), 0)
+
+        placeholder.refresh_from_db()
+        self.assertIsNone(placeholder.number)
 
 
 class IterUnpushedProductPkBatchesTests(_PimSearchTestCase):
