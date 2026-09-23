@@ -10,13 +10,16 @@ from django.core.files.uploadedfile import SimpleUploadedFile
 from django.db import IntegrityError, transaction
 from django.http import QueryDict
 from django.test import TestCase, override_settings
+from django.urls import reverse
 from django.utils import timezone
 
 from main_product_manager.models import MainProduct
 from product.models import Product
 from supplier_manager.models import Currency, Discount, Supplier
 from supplier_product_manager.filters import SupplierProductFilter
+from core.models import PersistentNotification
 from supplier_product_manager.functions import (
+    SupplierImportError,
     auto_detect_link_keys,
     get_sps,
     get_df,
@@ -24,7 +27,11 @@ from supplier_product_manager.functions import (
     load_setting,
 )
 from supplier_product_manager.models import Link, Setting, SupplierFile, SupplierProduct
-from supplier_product_manager.tasks import copy_supplier_products_to_main_task
+from supplier_product_manager.tasks import (
+    cleanup_supplier_files_task,
+    copy_supplier_products_to_main_task,
+    process_supplier_file_import,
+)
 
 
 class _PimUnreachable:
@@ -822,3 +829,222 @@ class MainProductLinkUniquenessTests(TestCase):
 
         other.refresh_from_db()
         self.assertIsNone(other.main_product_id)
+
+
+def _xlsx_upload(sheets: dict[str, pd.DataFrame], filename: str = "supplier.xlsx") -> SimpleUploadedFile:
+    excel_buffer = BytesIO()
+    with pd.ExcelWriter(excel_buffer, engine="openpyxl") as writer:
+        for sheet_name, dataframe in sheets.items():
+            dataframe.to_excel(writer, index=False, sheet_name=sheet_name)
+    return SimpleUploadedFile(
+        filename,
+        excel_buffer.getvalue(),
+        content_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    )
+
+
+class _SupplierFixtureMixin:
+    def _make_supplier(self, name="Поставщик для быстрых исправлений"):
+        currency, _ = Currency.objects.get_or_create(name="KZT", defaults={"value": Decimal("1")})
+        return Supplier.objects.create(
+            name=name,
+            currency=currency,
+            price_update_rate="Каждый день",
+            stock_update_rate="Каждый день",
+            delivery_days_available=1,
+            delivery_days_navailable=3,
+        )
+
+
+@override_settings(DEBUG=False)
+class GetDfSheetCacheTests(_SupplierFixtureMixin, TestCase):
+    def setUp(self):
+        cache.clear()
+        self.addCleanup(cache.clear)
+        self.supplier = self._make_supplier()
+
+    def test_switching_sheet_is_not_served_from_the_old_sheets_cache(self):
+        setting = Setting.objects.create(name="Два листа", supplier=self.supplier, sheet_name="Первый")
+        SupplierFile.objects.create(
+            setting=setting,
+            file=_xlsx_upload({
+                "Первый": pd.DataFrame([{"marker": "first"}]),
+                "Второй": pd.DataFrame([{"other": "second"}]),
+            }),
+        )
+        self.assertEqual(list(get_df(setting.pk).columns), ["marker"])
+
+        setting.sheet_name = "Второй"
+        setting.save()
+        self.assertEqual(list(get_df(setting.pk).columns), ["other"])
+
+
+class UploadSupplierFileTests(_SupplierFixtureMixin, TestCase):
+    def setUp(self):
+        self.supplier = self._make_supplier()
+        self.user = get_user_model().objects.create_user(username="uploader", password="x")
+        self.client.force_login(self.user)
+        self.url = reverse("supplier-upload", kwargs={"pk": self.supplier.pk})
+
+    def test_unreadable_file_creates_no_setting(self):
+        broken = SimpleUploadedFile("broken.xlsx", b"not a workbook", content_type="application/octet-stream")
+        response = self.client.post(self.url, {"file": broken})
+
+        self.assertEqual(response.status_code, 200)
+        self.assertFalse(Setting.objects.filter(supplier=self.supplier).exists())
+        self.assertFalse(SupplierFile.objects.exists())
+
+    def test_name_clash_gets_numbered_setting(self):
+        Setting.objects.create(name="price", supplier=self.supplier, sheet_name="Sheet1")
+        upload = _xlsx_upload({"Sheet1": pd.DataFrame([{"Артикул": "А-1"}])}, "price.xlsx")
+        self.client.post(self.url, {"file": upload})
+
+        names = set(Setting.objects.filter(supplier=self.supplier).values_list("name", flat=True))
+        self.assertEqual(names, {"price", "price(1)"})
+        created = Setting.objects.get(supplier=self.supplier, name="price(1)")
+        self.assertEqual(created.sheet_name, "Sheet1")
+        self.assertEqual(created.supplierfiles.count(), 1)
+
+
+class CleanupSupplierFilesTests(_SupplierFixtureMixin, TestCase):
+    def setUp(self):
+        self.supplier = self._make_supplier()
+        self.setting = Setting.objects.create(name="Очистка", supplier=self.supplier, sheet_name="Sheet1")
+
+    def _file(self, status):
+        return SupplierFile.objects.create(
+            setting=self.setting,
+            status=status,
+            file=_xlsx_upload({"Sheet1": pd.DataFrame([{"a": "1"}])}),
+        )
+
+    @override_settings(SUPPLIER_FILES_KEEP_LAST=0)
+    def test_latest_file_survives_even_with_keep_last_zero(self):
+        old = self._file(SupplierFile.STATUS_SUCCESS)
+        latest = self._file(SupplierFile.STATUS_SUCCESS)
+
+        cleanup_supplier_files_task()
+
+        self.assertEqual(list(self.setting.supplierfiles.values_list("pk", flat=True)), [latest.pk])
+        self.assertFalse(SupplierFile.objects.filter(pk=old.pk).exists())
+
+    def test_queued_and_running_files_are_not_deleted(self):
+        queued = self._file(SupplierFile.STATUS_QUEUED)
+        running = self._file(SupplierFile.STATUS_RUNNING)
+        latest = self._file(SupplierFile.STATUS_SUCCESS)
+
+        cleanup_supplier_files_task()
+
+        self.assertEqual(
+            set(self.setting.supplierfiles.values_list("pk", flat=True)),
+            {queued.pk, running.pk, latest.pk},
+        )
+
+
+class ImportRefusalReasonTests(TestCase):
+    """Импорт, которому нечего загрузить, отказывает с причиной и ничего не меняет.
+
+    Раньше get_sps молча возвращал None («обработано строк 0» без причины) или
+    [] — и тогда load_setting падал с KeyError ['name'] на пустом DataFrame.
+    Пустой результат, дошедший до обнуления пропавших строк, стёр бы остатки
+    и цены всех товаров поставщика."""
+
+    # Borrowed rather than inherited: subclassing BasicLoadTests would re-run
+    # all of its tests a second time.
+    setUp = BasicLoadTests.setUp
+    _create_supplier_file = BasicLoadTests._create_supplier_file
+
+    def _setting(self, create_new=False, **links):
+        setting = Setting.objects.create(
+            name=f"Отказ {Setting.objects.count()}",
+            supplier=self.supplier,
+            sheet_name="Sheet1",
+            create_new=create_new,
+        )
+        for key, value in links.items():
+            Link.objects.create(setting=setting, key=key, value=value)
+        return setting
+
+    def _existing(self):
+        return SupplierProduct.objects.create(
+            supplier=self.supplier, article="СТАРЫЙ-1", name="Старый товар",
+            stock=7, supplier_price=Decimal("100"),
+        )
+
+    def test_no_matching_rows_is_a_reason_not_a_keyerror_and_keeps_existing_data(self):
+        existing = self._existing()
+        setting = self._setting(article="Артикул", name="Название", stock="Остаток")
+        self._create_supplier_file(
+            setting, pd.DataFrame([{"Артикул": "НОВЫЙ-1", "Название": "Новый", "Остаток": "3"}]),
+        )
+
+        with self.assertRaisesMessage(SupplierImportError, "не совпала с товарами поставщика"):
+            load_setting(setting.pk)
+
+        existing.refresh_from_db()
+        self.assertEqual(existing.stock, 7)
+        self.assertEqual(existing.supplier_price, Decimal("100"))
+
+    def test_missing_article_column_names_it_and_lists_file_columns(self):
+        setting = self._setting(create_new=True, article="Артикул", name="Название")
+        self._create_supplier_file(setting, pd.DataFrame([{"Код": "А-1", "Название": "Товар"}]))
+
+        with self.assertRaisesMessage(SupplierImportError, "нет столбца артикула «Артикул»"):
+            get_sps(setting.pk)
+        with self.assertRaisesMessage(SupplierImportError, "«Код»"):
+            get_sps(setting.pk)
+
+    def test_create_new_without_name_column(self):
+        setting = self._setting(create_new=True, article="Артикул", stock="Остаток")
+        self._create_supplier_file(setting, pd.DataFrame([{"Артикул": "А-1", "Остаток": "1"}]))
+
+        with self.assertRaisesMessage(SupplierImportError, "нужен столбец названия"):
+            get_sps(setting.pk)
+
+    def test_rows_without_any_value(self):
+        setting = self._setting(create_new=True, article="Артикул", name="Название", stock="Остаток")
+        self._create_supplier_file(
+            setting, pd.DataFrame([{"Артикул": "А-1", "Название": "Товар", "Остаток": "нет данных"}]),
+        )
+
+        with self.assertRaisesMessage(SupplierImportError, "ни в одной нет значений"):
+            get_sps(setting.pk)
+
+    def test_no_file_and_no_links(self):
+        setting = self._setting(create_new=True)
+        with self.assertRaisesMessage(SupplierImportError, "не загружен файл"):
+            get_sps(setting.pk)
+
+        self._create_supplier_file(setting, pd.DataFrame([{"Артикул": "А-1"}]))
+        with self.assertRaisesMessage(SupplierImportError, "Не сопоставлен ни один столбец"):
+            get_sps(setting.pk)
+
+    def test_mapped_column_missing_from_file_falls_back_to_initial(self):
+        setting = self._setting(create_new=True, article="Артикул", name="Название")
+        Link.objects.create(setting=setting, key="stock", value="Остаток", initial="5")
+        self._create_supplier_file(setting, pd.DataFrame([{"Артикул": "А-1", "Название": "Товар"}]))
+
+        load_setting(setting.pk)
+
+        self.assertEqual(SupplierProduct.objects.get(supplier=self.supplier, article="А-1").stock, 5)
+
+    def test_task_reports_reason_and_does_not_raise(self):
+        existing = self._existing()
+        setting = self._setting(article="Артикул", name="Название", stock="Остаток")
+        supplier_file = self._create_supplier_file(
+            setting, pd.DataFrame([{"Артикул": "НОВЫЙ-1", "Название": "Новый", "Остаток": "3"}]),
+        )
+        user = get_user_model().objects.create_user(username="importer", password="x")
+
+        result = process_supplier_file_import(setting.pk, user.pk)
+
+        self.assertEqual(result["status"], "error")
+        self.assertIn("Причина: Ни одна из 1 строк", result["message"])
+        supplier_file.refresh_from_db()
+        self.assertEqual(supplier_file.status, SupplierFile.STATUS_ERROR)
+        self.assertIn("не совпала", supplier_file.logs)
+        notification = PersistentNotification.objects.get(user=user)
+        self.assertEqual(notification.level, "danger")
+        self.assertIn("данные не изменены", notification.message)
+        existing.refresh_from_db()
+        self.assertEqual(existing.stock, 7)
