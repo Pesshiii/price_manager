@@ -1,0 +1,38 @@
+<div class="modal-header border-0 pb-0">
+  <h5 class="modal-title">Проверьте импорт «{{ run.setting }}»</h5>
+  <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Закрыть"></button>
+</div>
+<div class="modal-body">
+  {% for line in run.reason_lines %}
+    <p class="mb-1"><i class="bi bi-exclamation-triangle-fill text-warning me-2"></i>{{ line }}</p>
+  {% endfor %}
+
+  <div class="d-flex gap-4 mt-3">
+    {% for value, label, danger in figures %}
+      <div>
+        <div class="fs-4 lh-1{% if danger %} text-danger{% endif %}">{{ value }}</div>
+        <div class="small text-muted">{{ label }}</div>
+      </div>
+    {% endfor %}
+  </div>
+
+  <details class="small text-muted mt-3">
+    <summary>Разбор файла</summary>
+    <dl class="row mb-0 mt-2">
+      {% for label, value in breakdown %}
+        <dt class="col-7 fw-normal">{{ label }}</dt>
+        <dd class="col-5 mb-0 text-end">{{ value }}</dd>
+      {% endfor %}
+    </dl>
+  </details>
+</div>
+<div class="modal-footer border-0 pt-0">
+  {% if pending %}
+    <button type="button" class="btn btn-link text-secondary"
+            hx-post="{% url 'import-run-cancel' run.pk %}">Отменить импорт</button>
+    <button type="button" class="btn btn-warning"
+            hx-post="{% url 'import-run-apply' run.pk %}">Применить всё равно</button>
+  {% else %}
+    <span class="small text-muted">Импорт уже обработан: {{ run.get_status_display|lower }}</span>
+  {% endif %}
+</div>
