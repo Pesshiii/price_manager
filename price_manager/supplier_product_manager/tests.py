@@ -1868,3 +1868,129 @@ class ImportRobustnessTests(TestCase):
         # The running file stays until its import ends; the pending one goes.
         self.assertEqual(set(self.setting.supplierfiles.values_list("pk", flat=True)),
                          {running.pk, max(statuses)})
+
+
+@override_settings(SUPPLIER_IMPORT_GUARD_RATIO=0.7, SUPPLIER_IMPORT_GUARD_WINDOW=5,
+                   SUPPLIER_IMPORT_GUARD_MIN_HISTORY=3,
+                   SUPPLIER_IMPORT_GUARD_MISSING_LINKED_SHARE=0.05,
+                   SUPPLIER_IMPORT_GUARD_MISSING_LINKED_MIN=10)
+class MissingLinkedGuardTests(TestCase):
+    """Импорт, который обнулит заметную долю привязанных к ГП строк, ждёт подтверждения.
+
+    Покрытие этого не видит: поставщик, переименовавший товары, даёт столько же
+    строк, а привязанные к каталогу уходят в «нет в файле»."""
+
+    setUp = ImportGuardTests.setUp
+    _create_supplier_file = BasicLoadTests._create_supplier_file
+    _setting = ImportRefusalReasonTests._setting
+    _history = ImportGuardTests._history
+    _file = ImportGuardTests._file
+    _import = ImportGuardTests._import
+
+    def _linked_rows(self, count, prefix="Л"):
+        """Строки настройки, привязанные к ГП, как после её прошлого импорта."""
+        rows = []
+        for i in range(count):
+            mp = MainProduct.objects.create(supplier=self.supplier, article=f"{prefix}-{i}", name=f"{prefix} {i}")
+            row = SupplierProduct.objects.create(supplier=self.supplier, article=f"{prefix}-{i}", name=f"{prefix} {i}",
+                                                 stock=5, supplier_price=Decimal("10"), main_product=mp)
+            row.source_settings.add(self.setting)
+            rows.append(row)
+        return rows
+
+    def _verdict(self, missing_linked, linked_own, setting=None):
+        from supplier_product_manager import guard
+        setting = setting or self.setting
+        for _ in range(3):
+            ImportRun.objects.create(setting=setting, supplier=self.supplier, status=ImportRun.STATUS_APPLIED,
+                                     covered_price=1, covered_stock=1)
+        return guard.evaluate(setting, {
+            "covered_price": 1, "covered_stock": 1,
+            "missing_linked": missing_linked, "linked_own": linked_own,
+        })
+
+    def test_threshold_is_a_share_of_linked_rows_but_at_least_min(self):
+        self.assertTrue(self._verdict(9, 100).ok)
+        self.assertFalse(self._verdict(10, 100).ok)
+        self.assertTrue(self._verdict(99, 2000).ok)
+        self.assertEqual(self._verdict(100, 2000).reasons,
+                         [{"kind": "missing_linked", "value": 100, "linked": 2000}])
+
+    def test_setting_that_clears_nothing_is_not_held(self):
+        setting = self._setting(article="Артикул", name="Название", description="Описание")
+
+        self.assertTrue(self._verdict(500, 500, setting=setting).ok)
+
+    def test_renamed_price_list_waits_despite_normal_coverage(self):
+        linked = self._linked_rows(12)
+        self._history((12, 12), (12, 12), (12, 12))
+        # The same twelve products under new names: coverage as usual.
+        self._file([("10", "5")] * 12)
+
+        result = self._import()
+
+        self.assertEqual(result["status"], "needs_confirmation")
+        run = ImportRun.objects.get(pk=result["run_id"])
+        self.assertEqual(run.guard_reasons, [{"kind": "missing_linked", "value": 12, "linked": 12}])
+        self.assertEqual((run.missing, run.missing_linked), (13, 12))
+        self.assertEqual(run.reason_lines(), [
+            "Нет в файле 12 строк, привязанных к ГП, из 12: у товаров каталога обнулятся остаток и цены",
+        ])
+        linked[0].refresh_from_db()
+        self.assertEqual((linked[0].stock, linked[0].supplier_price), (5, Decimal("10")))
+
+    def test_applied_import_records_cleared_linked_rows(self):
+        self._linked_rows(2)
+        self._history((2, 2), (2, 2), (2, 2))
+        self._file([("10", "1"), ("20", "2")])
+
+        result = self._import()
+
+        self.assertEqual(result["status"], "ok")
+        self.assertIn("нет в файле 3 (привязаны к ГП 2)", result["message"])
+        run = ImportRun.objects.get(setting=self.setting, status=ImportRun.STATUS_APPLIED, user=self.user)
+        self.assertEqual((run.missing, run.missing_linked), (3, 2))
+
+
+class PriceChangesTests(TestCase):
+    """Изменения цен существующих строк считаются и записываются, импорт не задерживают."""
+
+    setUp = BasicLoadTests.setUp
+    _create_supplier_file = BasicLoadTests._create_supplier_file
+    _setting = ImportRefusalReasonTests._setting
+
+    def test_changes_are_counted_per_price_field(self):
+        from supplier_product_manager.functions import price_changes
+        setting = self._setting(article="Артикул", name="Название", supplier_price="Цена", rrp="РРЦ")
+        for article, price, rrp in (("А-1", "100", "150"), ("А-2", "50", None), ("А-3", "10", "20")):
+            SupplierProduct.objects.create(supplier=self.supplier, article=article, name=article,
+                                           supplier_price=Decimal(price), rrp=rrp and Decimal(rrp))
+
+        changes = price_changes(setting, [
+            {"article": "А-1", "name": "А-1", "supplier_price": 100.0, "rrp": 150.0},
+            {"article": "А-2", "name": "А-2", "supplier_price": 200.0, "rrp": 70.0},  # x4; no old rrp
+            {"article": "А-3", "name": "А-3", "supplier_price": 11.0, "rrp": None},
+            {"article": "НОВЫЙ", "name": "НОВЫЙ", "supplier_price": 5.0, "rrp": 5.0},
+        ])
+
+        self.assertEqual(changes, {
+            "supplier_price": {"compared": 3, "changed": 2, "jumps": 1, "median_ratio": 1.1},
+            "rrp": {"compared": 1, "changed": 0, "jumps": 0, "median_ratio": 1.0},
+        })
+
+    @override_settings(SUPPLIER_IMPORT_GUARD_MIN_HISTORY=0)
+    def test_jumps_are_recorded_and_shown_but_do_not_hold_the_import(self):
+        setting = self._setting(create_new=True, article="Артикул", name="Название", supplier_price="Цена")
+        SupplierProduct.objects.create(supplier=self.supplier, article="А-1", name="Товар", supplier_price=Decimal("10"))
+        self._create_supplier_file(setting, pd.DataFrame([{"Артикул": "А-1", "Название": "Товар", "Цена": "1000"}]))
+        user = get_user_model().objects.create_user(username="prices", password="x")
+
+        result = process_supplier_file_import(setting.pk, user.pk)
+
+        self.assertEqual(result["status"], "ok")
+        run = ImportRun.objects.get(setting=setting)
+        self.assertEqual(run.price_changes,
+                         {"supplier_price": {"compared": 1, "changed": 1, "jumps": 1, "median_ratio": 100.0}})
+        self.client.force_login(user)
+        response = self.client.get(reverse("import-run-confirm", kwargs={"pk": run.pk}))
+        self.assertContains(response, "Цена поставщика: больше чем в 2 раза")

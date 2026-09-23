@@ -18,6 +18,7 @@ from .functions import (
     duplicate_warning,
     get_sps_result,
     load_setting,
+    price_changes,
 )
 from .filters import SupplierProductFilter
 from .models import (
@@ -55,7 +56,7 @@ def _set_file_status(supplier_file: SupplierFile | None, status: int) -> None:
 
 
 _RUN_OUTCOME_FIELDS = ("status", "message", "finished_at", "guard_reasons", "mapped_keys",
-                       *ImportRun.COUNTER_FIELDS)
+                       "price_changes", *ImportRun.COUNTER_FIELDS)
 
 
 def _finish_run(run: ImportRun, status: str, stats: dict, message: str = "") -> None:
@@ -204,7 +205,8 @@ def _import_setting(setting: Setting, user_id: int, confirmed_run_id: int | None
     try:
         _append_supplier_file_log(supplier_file, "Чтение и обработка файла")
         payload, parse_stats = get_sps_result(setting)
-        stats = {**parse_stats, **apply_counts(setting, payload)}
+        changes = price_changes(setting, payload)
+        stats = {**parse_stats, **apply_counts(setting, payload), "price_changes": changes}
         if not confirmed_run_id:
             verdict = guard.evaluate(setting, stats, exclude_pk=run.pk)
             if not verdict.ok:
@@ -212,14 +214,16 @@ def _import_setting(setting: Setting, user_id: int, confirmed_run_id: int | None
 
         outcome = load_setting(setting_id, parsed=(payload, parse_stats))
         duration_seconds = round((timezone.now() - started_at).total_seconds(), 2)
-        stats = outcome.stats
+        stats = {**outcome.stats, "price_changes": changes}
         processed_rows = len(outcome.sps)
         message = (
             f"Импорт «{setting.name}» завершен: обработано строк {processed_rows} "
             f"(с ценой {stats.get('covered_price', 0)}, с остатком {stats.get('covered_stock', 0)}), "
             f"новых {stats.get('created', 0)}, "
             + (f"переименовано {stats['renamed']}, " if stats.get('renamed') else "")
-            + f"нет в файле {stats.get('missing', 0)}, "
+            + f"нет в файле {stats.get('missing', 0)}"
+            + (f" (привязаны к ГП {stats['missing_linked']})" if stats.get('missing_linked') else "")
+            + ", "
             f"длительность {duration_seconds} сек."
         )
         # Repeated rows and articles with several names do not stop an import,

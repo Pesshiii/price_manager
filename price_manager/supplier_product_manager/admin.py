@@ -32,7 +32,7 @@ class SupplierFileAdmin(admin.ModelAdmin):
 class ImportRunAdmin(admin.ModelAdmin):
     # История только для чтения: её пишет задача импорта.
     list_display = ['started_at', 'setting', 'supplier', 'status',
-                    'covered', 'covered_price', 'covered_stock', 'created', 'missing']
+                    'covered', 'covered_price', 'covered_stock', 'created', 'missing', 'missing_linked']
     list_filter = ['status', 'supplier']
     list_select_related = ['setting', 'supplier']
 
