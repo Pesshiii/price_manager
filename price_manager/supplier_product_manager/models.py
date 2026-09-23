@@ -105,8 +105,12 @@ class Setting(models.Model):
                               on_delete=models.CASCADE,
                               blank=False)
   sheet_name = models.CharField(verbose_name='Название листа')
-  ignore_name = models.BooleanField(
-    verbose_name='Игнорировать название при создании',
+  # Identity of a supplier row is (article, name) by default: many suppliers sell
+  # variants under one article. For a supplier whose articles are unique, the
+  # article alone identifies the row — a new name in the file renames it instead
+  # of creating a second product. Replaced ignore_name (0014).
+  match_by_article = models.BooleanField(
+    verbose_name='Артикул уникален — сопоставлять только по артикулу',
     default=False)
   create_new = models.BooleanField(verbose_name='Создавать если нет',
                                    default=False)
@@ -282,6 +286,9 @@ class ImportRun(models.Model):
   duplicates = models.PositiveIntegerField(verbose_name="Дубликатов", null=True, blank=True)
   article_conflicts = models.PositiveIntegerField(verbose_name="Артикулов с разными названиями",
                                                   null=True, blank=True)
+  renamed = models.PositiveIntegerField(verbose_name="Переименовано", null=True, blank=True)
+  articles_multi_db = models.PositiveIntegerField(verbose_name="Артикулов с несколькими товарами в базе",
+                                                  null=True, blank=True)
   covered = models.PositiveIntegerField(verbose_name="Покрыто строк", null=True, blank=True)
   covered_price = models.PositiveIntegerField(verbose_name="Покрыто с ценой", null=True, blank=True)
   covered_stock = models.PositiveIntegerField(verbose_name="Покрыто с остатком", null=True, blank=True)
@@ -291,7 +298,8 @@ class ImportRun(models.Model):
 
   COUNTER_FIELDS = (
     "rows_in_sheet", "rows_with_article", "rows_with_values", "rows_without_name",
-    "rows_unmatched", "duplicates", "article_conflicts", "covered", "covered_price", "covered_stock",
+    "rows_unmatched", "duplicates", "article_conflicts", "renamed", "articles_multi_db",
+    "covered", "covered_price", "covered_stock",
     "created", "updated", "missing",
   )
 

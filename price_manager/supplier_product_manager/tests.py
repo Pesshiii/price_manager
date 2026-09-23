@@ -385,7 +385,7 @@ class BasicLoadTests(TestCase):
         self.assertIsNotNone(self.supplier.stock_updated_at)
         self.assertIsNotNone(self.supplier.price_updated_at)
 
-    def test_ignorename_on_create(self):
+    def test_match_by_article_writes_into_all_existing_rows_of_an_article(self):
         setting = Setting.objects.create(
             name="Загрузка артикул",
             supplier=self.supplier,
@@ -410,7 +410,9 @@ class BasicLoadTests(TestCase):
             uppload_df_initial,
         )
         load_setting(setting.pk)
-        setting.ignore_name = True
+        # Was ignore_name: an article already in the database takes the data
+        # into all its existing rows, names untouched.
+        setting.match_by_article = True
         setting.save()
 
 
@@ -1500,3 +1502,109 @@ class DuplicateWarningTests(TestCase):
 
         self.assertEqual(stats["article_conflicts"], 0)
         self.assertEqual(stats["covered"], 2)
+
+
+@override_settings(SUPPLIER_IMPORT_GUARD_MIN_HISTORY=0)
+class MatchByArticleTests(TestCase):
+    """Setting.match_by_article: товар определяется одним артикулом."""
+
+    _create_supplier_file = BasicLoadTests._create_supplier_file
+    _setting = ImportRefusalReasonTests._setting
+
+    def setUp(self):
+        BasicLoadTests.setUp(self)
+        self.user = get_user_model().objects.create_user(username="by-article", password="x")
+
+    def _by_article(self, create_new=True, **links):
+        setting = self._setting(create_new=create_new, **(links or
+                                {"article": "Артикул", "name": "Название", "stock": "Остаток"}))
+        setting.match_by_article = True
+        setting.save()
+        return setting
+
+    def _import(self, setting):
+        return process_supplier_file_import(setting.pk, self.user.pk)
+
+    def test_new_name_renames_the_row_and_keeps_its_link(self):
+        mp = MainProduct.objects.create(supplier=self.supplier, article="А-1", name="Старое")
+        sp = SupplierProduct.objects.create(supplier=self.supplier, article="А-1", name="Старое",
+                                            main_product=mp, stock=1)
+        setting = self._by_article()
+        self._create_supplier_file(setting, pd.DataFrame([
+            {"Артикул": "А-1", "Название": "Новое", "Остаток": "5"},
+        ]))
+
+        result = self._import(setting)
+
+        self.assertEqual(SupplierProduct.objects.filter(supplier=self.supplier).count(), 1)
+        sp.refresh_from_db()
+        self.assertEqual((sp.name, sp.stock, sp.main_product_id), ("Новое", 5, mp.pk))
+        run = ImportRun.objects.get(setting=setting)
+        self.assertEqual((run.renamed, run.created, run.updated, run.missing), (1, 0, 1, 0))
+        self.assertIn("переименовано 1", result["message"])
+
+    def test_repeated_article_in_file_takes_the_first_row_and_warns(self):
+        setting = self._by_article()
+        self._create_supplier_file(setting, pd.DataFrame([
+            {"Артикул": "А-1", "Название": "Кабель 1 м", "Остаток": "1"},
+            {"Артикул": "А-1", "Название": "Кабель 2 м", "Остаток": "2"},
+        ]))
+
+        self._import(setting)
+
+        row = SupplierProduct.objects.get(supplier=self.supplier, article="А-1")
+        self.assertEqual((row.name, row.stock), ("Кабель 1 м", 1))
+        message = PersistentNotification.objects.get(user=self.user).message
+        self.assertIn("повторов строк: 1", message)
+        self.assertIn("артикулов с разными названиями: 1 (например: А-1) — взята первая строка", message)
+
+    def test_several_existing_rows_of_an_article_all_get_the_data_and_are_reported(self):
+        SupplierProduct.objects.create(supplier=self.supplier, article="А-1", name="Вариант 1", stock=1)
+        SupplierProduct.objects.create(supplier=self.supplier, article="А-1", name="Вариант 2", stock=1)
+        setting = self._by_article()
+        self._create_supplier_file(setting, pd.DataFrame([
+            {"Артикул": "А-1", "Название": "Что-то третье", "Остаток": "7"},
+        ]))
+
+        self._import(setting)
+
+        rows = SupplierProduct.objects.filter(supplier=self.supplier).order_by("name")
+        self.assertEqual([(r.name, r.stock) for r in rows], [("Вариант 1", 7), ("Вариант 2", 7)])
+        message = PersistentNotification.objects.get(user=self.user).message
+        self.assertIn("у которых в базе несколько товаров: 1 (например: А-1) — данные записаны во все", message)
+
+    def test_without_create_new_unknown_articles_do_not_match(self):
+        SupplierProduct.objects.create(supplier=self.supplier, article="А-1", name="Старое", stock=1)
+        setting = self._by_article(create_new=False)
+        self._create_supplier_file(setting, pd.DataFrame([
+            {"Артикул": "А-1", "Название": "Новое", "Остаток": "3"},
+            {"Артикул": "Б-2", "Название": "Чужой", "Остаток": "4"},
+        ]))
+
+        _, stats = get_sps_result(setting.pk)
+        self._import(setting)
+
+        self.assertEqual((stats["rows_unmatched"], stats["renamed"], stats["covered"]), (1, 1, 1))
+        self.assertEqual(list(SupplierProduct.objects.filter(supplier=self.supplier)
+                              .values_list("article", "name", "stock")), [("А-1", "Новое", 3)])
+
+    def test_without_a_name_column_the_existing_name_is_kept(self):
+        SupplierProduct.objects.create(supplier=self.supplier, article="А-1", name="Старое", stock=1)
+        setting = self._by_article(create_new=False, article="Артикул", stock="Остаток")
+        self._create_supplier_file(setting, pd.DataFrame([{"Артикул": "А-1", "Остаток": "9"}]))
+
+        self._import(setting)
+
+        row = SupplierProduct.objects.get(supplier=self.supplier)
+        self.assertEqual((row.name, row.stock), ("Старое", 9))
+
+    def test_default_mode_keeps_variants_as_separate_products(self):
+        setting = self._setting(create_new=True, article="Артикул", name="Название", stock="Остаток")
+        self._create_supplier_file(setting, pd.DataFrame([
+            {"Артикул": "А-1", "Название": "Кабель 1 м", "Остаток": "1"},
+            {"Артикул": "А-1", "Название": "Кабель 2 м", "Остаток": "2"},
+        ]))
+
+        self._import(setting)
+
+        self.assertEqual(SupplierProduct.objects.filter(supplier=self.supplier, article="А-1").count(), 2)

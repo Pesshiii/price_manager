@@ -242,6 +242,9 @@ def import_run_confirm(request, pk):
       ('Не совпали с товарами', n(run.rows_unmatched)),
       ('Повторы строк (взята первая)', n(run.duplicates)),
       ('Артикулов с разными названиями', n(run.article_conflicts)),
+      *([('Будет переименовано', n(run.renamed)),
+         ('Артикулов с несколькими товарами в базе', n(run.articles_multi_db))]
+        if run.setting.match_by_article else []),
       ('С ценой', n(run.covered_price)),
       ('С остатком', n(run.covered_stock)),
     ],
@@ -382,8 +385,8 @@ class SettingUpdate(UpdateView):
     if not setting.create_new == form.cleaned_data['create_new']:
       setting.create_new = form.cleaned_data['create_new']
       setting.save()
-    if not setting.ignore_name == form.cleaned_data['ignore_name']:
-      setting.ignore_name = form.cleaned_data['ignore_name']
+    if not setting.match_by_article == form.cleaned_data['match_by_article']:
+      setting.match_by_article = form.cleaned_data['match_by_article']
       setting.save()
       
     if not setting.index_row == form.cleaned_data['index_row']:
