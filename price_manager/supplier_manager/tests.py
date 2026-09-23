@@ -4,7 +4,8 @@ from datetime import timedelta
 
 from django.contrib.auth.models import User
 from django.core.exceptions import ValidationError
-from django.db import connection
+from django.db import IntegrityError, connection, transaction
+from django.forms import modelform_factory
 from django.test import TestCase
 from django.test.utils import CaptureQueriesContext
 from django.urls import reverse
@@ -16,6 +17,7 @@ from .forms import IntervalField, SupplierForm
 from .models import Currency, Supplier, format_interval
 
 migration_0012 = importlib.import_module('supplier_manager.migrations.0012_supplier_update_days')
+migration_0013 = importlib.import_module('supplier_manager.migrations.0013_supplier_unique_priorities')
 
 
 def _supplier(name, **kwargs):
@@ -153,7 +155,7 @@ class SupplierListViewTests(TestCase):
 class SupplierPriorityUpdateTests(TestCase):
     def setUp(self):
         self.client.force_login(User.objects.create_user(username='priority', password='pw'))
-        self.supplier = _supplier('Приоритет', price_priority=5)
+        self.supplier = _supplier('Приоритет', price_priority=1)
 
     def _post(self, field, value):
         return self.client.post(
@@ -161,11 +163,21 @@ class SupplierPriorityUpdateTests(TestCase):
         )
 
     def test_saves_value(self):
-        response = self._post('stock_priority', '3')
+        response = self._post('stock_priority', '1')
         self.assertEqual(response.status_code, 200)
         self.supplier.refresh_from_db()
-        self.assertEqual(self.supplier.stock_priority, 3)
+        self.assertEqual(self.supplier.stock_priority, 1)
         self.assertIn('is-valid', response.content.decode())
+
+    def test_too_large_value_becomes_last_and_is_shown(self):
+        _supplier('Второй', price_priority=2)
+        response = self._post('price_priority', '40')
+        self.supplier.refresh_from_db()
+        self.assertEqual(self.supplier.price_priority, 2)
+        self.assertIn(
+            f'id="priority-price_priority-{self.supplier.pk}">', response.content.decode(),
+        )
+        self.assertIn('value="2"', response.content.decode())
 
     def test_empty_clears(self):
         self._post('price_priority', '')
@@ -176,10 +188,151 @@ class SupplierPriorityUpdateTests(TestCase):
         response = self._post('price_priority', '-1')
         self.assertIn('is-invalid', response.content.decode())
         self.supplier.refresh_from_db()
-        self.assertEqual(self.supplier.price_priority, 5)
+        self.assertEqual(self.supplier.price_priority, 1)
 
     def test_unknown_field_is_404(self):
         self.assertEqual(self._post('name', 'x').status_code, 404)
+
+    def test_renumbered_neighbours_come_back_oob(self):
+        other = _supplier('Сосед', price_priority=2)
+        response = self._post('price_priority', '2')
+        html = response.content.decode()
+
+        self.supplier.refresh_from_db()
+        other.refresh_from_db()
+        self.assertEqual(self.supplier.price_priority, 2)
+        self.assertEqual(other.price_priority, 1)
+        self.assertIn(f'id="priority-price_priority-{other.pk}" hx-swap-oob="true"', html)
+
+    def test_clearing_closes_the_gap_oob(self):
+        other = _supplier('Сосед', price_priority=2)
+        html = self._post('price_priority', '').content.decode()
+        other.refresh_from_db()
+        self.assertEqual(other.price_priority, 1)
+        self.assertIn(f'id="priority-price_priority-{other.pk}" hx-swap-oob="true"', html)
+
+
+def _priorities(field='price_priority'):
+    # TestCase не коммитит, так что отложенное ограничение само не сработает.
+    with connection.cursor() as cursor:
+        cursor.execute('SET CONSTRAINTS ALL IMMEDIATE')
+    return dict(Supplier.objects.filter(**{f'{field}__isnull': False}).values_list('name', field))
+
+
+def _abc():
+    for name, value in (('a', 1), ('b', 2), ('c', 3)):
+        _supplier(name, price_priority=value)
+
+
+def _set(name, value, field='price_priority'):
+    supplier = Supplier.objects.get(name=name)
+    setattr(supplier, field, value)
+    supplier.save()
+    return supplier
+
+
+class PriorityNumberingTests(TestCase):
+    """Проранжированные поставщики всегда занимают 1…N без пропусков и повторов."""
+
+    def test_insert_into_the_middle(self):
+        _abc()
+        _supplier('new', price_priority=2)
+        self.assertEqual(_priorities(), {'a': 1, 'new': 2, 'b': 3, 'c': 4})
+
+    def test_too_large_becomes_last(self):
+        _abc()
+        new = _supplier('new', price_priority=99)
+        self.assertEqual(new.price_priority, 4)
+        self.assertEqual(_priorities(), {'a': 1, 'b': 2, 'c': 3, 'new': 4})
+
+    def test_zero_becomes_first(self):
+        _abc()
+        _supplier('new', price_priority=0)
+        self.assertEqual(_priorities(), {'new': 1, 'a': 2, 'b': 3, 'c': 4})
+
+    def test_moving_up(self):
+        _abc()
+        _set('c', 1)
+        self.assertEqual(_priorities(), {'c': 1, 'a': 2, 'b': 3})
+
+    def test_moving_down_leaves_no_gap(self):
+        _abc()
+        _set('a', 3)
+        self.assertEqual(_priorities(), {'b': 1, 'c': 2, 'a': 3})
+
+    def test_clearing_closes_the_gap(self):
+        _abc()
+        _set('b', None)
+        self.assertEqual(_priorities(), {'a': 1, 'c': 2})
+
+    def test_deleting_closes_the_gap(self):
+        _abc()
+        Supplier.objects.get(name='a').delete()
+        self.assertEqual(_priorities(), {'b': 1, 'c': 2})
+
+    def test_queryset_delete_closes_the_gap(self):
+        _abc()
+        Supplier.objects.filter(name__in=['a', 'b']).delete()
+        self.assertEqual(_priorities(), {'c': 1})
+
+    def test_saving_unchanged_priority_renumbers_nothing(self):
+        _abc()
+        b = Supplier.objects.get(name='b')
+        b.name = 'b2'
+        b.save()
+        self.assertEqual(b.shifted, {})
+        self.assertEqual(_priorities(), {'a': 1, 'b2': 2, 'c': 3})
+
+    def test_fields_are_independent(self):
+        _supplier('a', price_priority=1, stock_priority=1)
+        _supplier('b', price_priority=2, stock_priority=1)
+        self.assertEqual(_priorities('price_priority'), {'a': 1, 'b': 2})
+        self.assertEqual(_priorities('stock_priority'), {'b': 1, 'a': 2})
+        _set('a', None, field='stock_priority')
+        self.assertEqual(_priorities('price_priority'), {'a': 1, 'b': 2})
+        self.assertEqual(_priorities('stock_priority'), {'b': 1})
+
+    def test_unranked_are_not_limited(self):
+        _supplier('a')
+        _supplier('b')
+        self.assertEqual(Supplier.objects.filter(price_priority__isnull=True).count(), 2)
+
+    def test_save_of_other_fields_does_not_touch_priorities(self):
+        a = _supplier('a', price_priority=1)
+        with CaptureQueriesContext(connection) as ctx:
+            a.save(update_fields=['name'])
+        self.assertFalse(any('FOR UPDATE' in q['sql'] for q in ctx.captured_queries))
+
+    def test_form_accepts_taken_value(self):
+        """Django 5.2 проверяет UniqueConstraint в ModelForm — без исключения в
+        Supplier.validate_constraints форма отказала бы раньше, чем сработает сдвиг."""
+        _supplier('a', price_priority=1)
+        b = _supplier('b')
+        form = modelform_factory(Supplier, fields=['price_priority'])({'price_priority': 1}, instance=b)
+        self.assertTrue(form.is_valid(), form.errors)
+        form.save()
+        self.assertEqual(_priorities(), {'b': 1, 'a': 2})
+
+    def test_database_rejects_duplicates_that_bypass_save(self):
+        """queryset.update() обходит save(); тогда ловит база. Ограничение
+        отложенное, а TestCase не коммитит — проверку форсирует SET CONSTRAINTS."""
+        _supplier('a', price_priority=1)
+        b = _supplier('b', price_priority=2)
+        with self.assertRaises(IntegrityError):
+            with transaction.atomic():
+                Supplier.objects.filter(pk=b.pk).update(price_priority=1)
+                with connection.cursor() as cursor:
+                    cursor.execute('SET CONSTRAINTS ALL IMMEDIATE')
+
+
+class Migration0013RenumberTests(TestCase):
+    def test_duplicates_and_gaps_become_dense_in_order(self):
+        pairs = [('a', 1), ('b', 1), ('c', 2), ('d', 5), ('e', 5)]
+        # e уже стоит на 5 — его номер не меняется, и в результат он не попадает.
+        self.assertEqual(migration_0013.renumber(pairs), {'b': 2, 'c': 3, 'd': 4})
+
+    def test_dense_data_untouched(self):
+        self.assertEqual(migration_0013.renumber([('a', 1), ('b', 2)]), {})
 
 
 def _layout_field_names(layout):
@@ -218,11 +371,12 @@ class SupplierPriorityFieldTests(TestCase):
         self.assertIsNone(supplier.stock_priority)
 
     def test_priorities_are_stored_independently(self):
-        supplier = self.make_supplier('С приоритетами', price_priority=1, stock_priority=5)
+        self.make_supplier('Первый', stock_priority=1)
+        supplier = self.make_supplier('С приоритетами', price_priority=1, stock_priority=2)
         supplier.refresh_from_db()
 
         self.assertEqual(supplier.price_priority, 1)
-        self.assertEqual(supplier.stock_priority, 5)
+        self.assertEqual(supplier.stock_priority, 2)
 
 
 class SupplierFormPriorityTests(TestCase):

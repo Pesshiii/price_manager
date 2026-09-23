@@ -1,7 +1,11 @@
 from datetime import timedelta
 
-from django.db import models
+from django.db import models, transaction
+from django.db.models.signals import post_delete
+from django.dispatch import receiver
 from django.utils import timezone
+
+PRIORITY_FIELDS = ('price_priority', 'stock_priority')
 
 
 def format_interval(days):
@@ -113,9 +117,86 @@ class Supplier(models.Model):
     class Meta:
         verbose_name = 'Поставщик'
         ordering = ['name']
+        # DEFERRED: перенумерация идёт одним UPDATE, и посреди него номера
+        # на мгновение совпадают. Проверка — при коммите.
+        constraints = [
+            models.UniqueConstraint(
+                fields=[field],
+                name=f'supplier_unique_{field}',
+                deferrable=models.Deferrable.DEFERRED,
+            )
+            for field in PRIORITY_FIELDS
+        ]
     def __str__(self):
         return self.name
-    
+
+    def validate_constraints(self, exclude=None):
+        # Занятый приоритет — не ошибка формы: save() ставит поставщика на
+        # этот номер и перенумеровывает остальных (place).
+        super().validate_constraints(exclude={*(exclude or ()), *PRIORITY_FIELDS})
+
+    def save(self, *args, **kwargs):
+        update_fields = kwargs.get('update_fields')
+        with transaction.atomic():
+            old = {}
+            if self.pk is not None:
+                old = Supplier.objects.filter(pk=self.pk).values(*PRIORITY_FIELDS).first() or {}
+            self.shifted = {
+                field: self.place(field)
+                for field in PRIORITY_FIELDS
+                if (update_fields is None or field in update_fields)
+                and getattr(self, field) != old.get(field)
+            }
+            super().save(*args, **kwargs)
+
+    def place(self, field):
+        """Ставит поставщика на номер `field` в сплошной нумерации 1…N.
+
+        Проранжированные поставщики всегда занимают номера 1…N без пропусков
+        и повторов. Номер больше N+1 становится последним, меньше 1 — первым;
+        пустой номер убирает поставщика из рейтинга, и остальные смыкаются.
+        Возвращает pk поставщиков, чей номер поменялся.
+        """
+        current = dict(
+            Supplier.objects.select_for_update()
+            .exclude(pk=self.pk)
+            .filter(**{f'{field}__isnull': False})
+            .order_by(field, 'name')
+            .values_list('pk', field)
+        )
+        order = list(current)
+        value = getattr(self, field)
+        if value is not None:
+            value = min(max(value, 1), len(order) + 1)
+            setattr(self, field, value)
+            order.insert(value - 1, None)  # место этого поставщика
+        return Supplier._apply_order(field, order, current)
+
+    @staticmethod
+    def _apply_order(field, order, current):
+        """Пишет номера 1…N по списку pk (None — пропустить) одним UPDATE."""
+        changed = {
+            pk: n for n, pk in enumerate(order, 1)
+            if pk is not None and current[pk] != n
+        }
+        if changed:
+            Supplier.objects.filter(pk__in=changed).update(**{field: models.Case(
+                *(models.When(pk=pk, then=n) for pk, n in changed.items()),
+                output_field=models.PositiveIntegerField(),
+            )})
+        return list(changed)
+
+    @classmethod
+    def renumber(cls, field):
+        """Смыкает нумерацию `field` после удаления поставщика."""
+        current = dict(
+            cls.objects.select_for_update()
+            .filter(**{f'{field}__isnull': False})
+            .order_by(field, 'name')
+            .values_list('pk', field)
+        )
+        return cls._apply_order(field, list(current), current)
+
     def update_status(self, kind, now=None):
         """Статус обновления цен (`kind='price'`) или остатков (`'stock'`).
 
@@ -148,6 +229,14 @@ class Supplier(models.Model):
             return self.delivery_days_available
         return self.delivery_days_navailable
   
+
+@receiver(post_delete, sender=Supplier)
+def _close_priority_gaps(sender, instance, **kwargs):
+    # Срабатывает и при queryset.delete(): Django шлёт сигнал на каждый объект.
+    for field in PRIORITY_FIELDS:
+        if getattr(instance, field) is not None:
+            Supplier.renumber(field)
+
 
 class Discount(models.Model):
     """

@@ -20,6 +20,7 @@ from django.views.generic import (View,
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.urls import reverse
 from django.http import Http404
+from django.db import IntegrityError
 from django.forms import modelform_factory
 from typing import Optional, Any, Dict, Iterable
 from collections import defaultdict, OrderedDict
@@ -49,8 +50,6 @@ PRICE_COLUMNS = [
 ]
 
 UPDATE_KINDS = [('price', 'Цены'), ('stock', 'Остатки')]
-
-PRIORITY_FIELDS = ('price_priority', 'stock_priority')
 
 
 def _status_title(supplier, kind, status):
@@ -139,6 +138,8 @@ class SupplierPriorityUpdate(View):
   '''Правка приоритета прямо в ячейке таблицы поставщиков.
 
   Отвечает той же ячейкой (hx-swap outerHTML) — страница не перезагружается.
+  Если правка перенумеровала других поставщиков (Supplier.place), их
+  ячейки приезжают в том же ответе через hx-swap-oob.
   '''
   def post(self, request, pk, field):
     if field not in PRIORITY_FIELDS:
@@ -147,14 +148,27 @@ class SupplierPriorityUpdate(View):
     raw = request.POST.get('value', '').strip()
     form = modelform_factory(Supplier, fields=[field])({field: raw}, instance=supplier)
     saved = form.is_valid()
+    errors = None if saved else form.errors.get(field)
+    shifted = []
     if saved:
-      form.save()
-    return render(request, 'supplier/partials/priority_cell.html', {
+      try:
+        form.save()
+      except IntegrityError:
+        # Кто-то поменял нумерацию между place() и коммитом.
+        saved = False
+        errors = ['Приоритеты только что изменил кто-то ещё — обновите страницу.']
+      else:
+        shifted = (
+          Supplier.objects.filter(pk__in=supplier.shifted.get(field, []))
+          .values_list('pk', field)
+        )
+    return render(request, 'supplier/partials/priority_response.html', {
       'pk': supplier.pk,
       'field': field,
       'value': getattr(supplier, field) if saved else raw,
-      'errors': None if saved else form.errors.get(field),
+      'errors': errors,
       'saved': saved,
+      'shifted': shifted,
     })
 
 
