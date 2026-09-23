@@ -1,0 +1,15 @@
+<td class="supplier-priority-cell">
+  <input type="number"
+         min="1"
+         name="value"
+         value="{{ value|default_if_none:'' }}"
+         placeholder="—"
+         aria-label="{% if field == 'price_priority' %}Приоритет по ценам{% else %}Приоритет по остаткам{% endif %}"
+         title="Меньше — выше приоритет. Пусто — не проранжирован."
+         class="form-control form-control-sm text-center{% if errors %} is-invalid{% elif saved %} is-valid{% endif %}"
+         hx-post="{% url 'supplier-priority' pk field %}"
+         hx-trigger="change"
+         hx-target="closest td"
+         hx-swap="outerHTML">
+  {% if errors %}<div class="invalid-feedback">{{ errors|first }}</div>{% endif %}
+</td>

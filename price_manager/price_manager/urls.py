@@ -45,6 +45,7 @@ urlpatterns = [
     path('supplier/', sm_views.SupplierList.as_view(), name='supplier'),
     
     path('supplier/<int:pk>/update', sm_views.SupplierUpdate.as_view(), name='supplier-update'),
+    path('supplier/<int:pk>/priority/<str:field>/', sm_views.SupplierPriorityUpdate.as_view(), name='supplier-priority'),
     path('supplier/<int:id>/delete/', sm_views.SupplierDelete.as_view(), name='supplier-delete'),
 
     path('supplier/create/', sm_views.SupplierCreate.as_view(), name='supplier-create'),
