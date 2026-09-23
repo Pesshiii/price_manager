@@ -102,6 +102,16 @@ def merge_case_duplicate_numbers(apps, schema_editor):
         winner.save()
         groups_merged += 1
 
+    # Django FKs are DEFERRABLE INITIALLY DEFERRED, so the rebinds and deletes
+    # above leave FK-check trigger events queued on product_product until
+    # commit. The AddConstraint below is a CREATE INDEX on that same table in
+    # the same transaction, and Postgres refuses it while events are pending
+    # ("cannot CREATE INDEX ... because it has pending trigger events").
+    # Fire them now, then restore the default deferral.
+    if groups_merged:
+        schema_editor.execute('SET CONSTRAINTS ALL IMMEDIATE')
+        schema_editor.execute('SET CONSTRAINTS ALL DEFERRED')
+
     print(
         f'  0009: смерджено групп регистро-дублей: {groups_merged}, удалено строк: {rows_deleted}, '
         f'с конфликтом pim_id (id проигравшей отброшен): {pim_id_conflicts}'
