@@ -53,8 +53,10 @@ class MergeCaseDuplicateNumbersTests(TestCase):
             cursor.execute('DROP INDEX product_product_number_lower_uniq')
 
     def _run(self):
-        with contextlib.redirect_stdout(io.StringIO()):
-            migration.merge_case_duplicate_numbers(apps, None)
+        # A real schema editor, not None: the step flushes deferred FK
+        # triggers through it (SET CONSTRAINTS), as RunPython would.
+        with contextlib.redirect_stdout(io.StringIO()), connection.schema_editor(atomic=False) as schema_editor:
+            migration.merge_case_duplicate_numbers(apps, schema_editor)
 
     def test_merges_into_existing_lowercase_and_relinks_main_product(self):
         lower = Product.objects.create(number='abc123', pim_id='pmp-1')
