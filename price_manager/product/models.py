@@ -4,6 +4,7 @@ from django.contrib.postgres.indexes import GinIndex
 from django.contrib.postgres.search import SearchVector, SearchVectorField
 from django.db import models
 from django.db.models import Value
+from django.db.models.functions import Lower
 from django.utils.text import slugify
 from mptt.models import MPTTModel, TreeForeignKey
 
@@ -79,7 +80,10 @@ class Product(models.Model):
         'Id связи в PIM (PriceManagerProduct)', max_length=64, null=True, blank=True, unique=True,
     )
     # The match key: MainProduct.sku. Local, never overwritten from PIM.
-    number = models.CharField('Артикул', max_length=128, null=True, blank=True, unique=True)
+    # Case-insensitive: uniqueness is enforced by Meta.constraints on
+    # Lower('number'), not by unique=True here — see the product_product_number_lower_uniq
+    # constraint below.
+    number = models.CharField('Артикул', max_length=128, null=True, blank=True)
     # Not unique: several Products can sit on one PIM Product, and PIM does not
     # keep Product.name unique either.
     name = models.CharField('Название', max_length=512, null=True, blank=True)
@@ -105,6 +109,9 @@ class Product(models.Model):
         ordering = ['-updated_at']
         indexes = [
             GinIndex(fields=['search_vector'], name='product_search_vector_gin'),
+        ]
+        constraints = [
+            models.UniqueConstraint(Lower('number'), name='product_product_number_lower_uniq'),
         ]
 
     def __str__(self) -> str:

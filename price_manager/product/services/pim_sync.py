@@ -124,8 +124,11 @@ def sync_product_from_pim(pim_id: str, data: dict | None = None) -> Product:
         # `or None`, not `or ''`: number is unique, and Postgres treats NULLs
         # as distinct in a unique index but '' as equal.
         number = link.get('number') or None
+        # iexact: number's uniqueness is case-insensitive (Lower('number')),
+        # so a differently-cased match is the same Product, not a new one.
         product = (
-            Product.objects.filter(number=number, pim_id__isnull=True).first() if number else None
+            Product.objects.filter(number__iexact=number, pim_id__isnull=True).first()
+            if number else None
         ) or Product(number=number)
         product.pim_id = pim_id
     if data is None:

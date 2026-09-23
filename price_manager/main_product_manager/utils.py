@@ -9,7 +9,7 @@ from django.db.models import Max, F
 from django.core.cache import cache
 from django.db.models import Value, OuterRef, Subquery, Q, F, Sum, IntegerField, Count, Min
 from django.utils import timezone
-from django.db.models.functions import Coalesce, Length
+from django.db.models.functions import Coalesce, Length, Lower
 
 from pim_api import EntityList, Entity, Where, FileRecord, upsert_async as _upsert_async
 
@@ -534,16 +534,23 @@ def backfill_product_numbers() -> int:
         .filter(sku_count__gte=1)
         .order_by('pk')
     )
-    taken = set(PimProduct.objects.exclude(number__isnull=True).values_list('number', flat=True))
+    # Lower-cased: number's uniqueness is case-insensitive (Lower('number')),
+    # so a sku that's a case-variant of an already-taken number is still taken
+    # — missing this would let bulk_update below hit that constraint instead
+    # of skipping the row as a logged conflict.
+    taken = {
+        n.lower() for n in
+        PimProduct.objects.exclude(number__isnull=True).values_list('number', flat=True)
+    }
     numbered = []
     conflicts = 0
     for product in candidates.iterator():
         sku = product.first_sku
-        if product.sku_count != 1 or len(sku) > PRODUCT_NUMBER_MAX_LENGTH or sku in taken:
+        if product.sku_count != 1 or len(sku) > PRODUCT_NUMBER_MAX_LENGTH or sku.lower() in taken:
             conflicts += 1
             continue
         product.number = sku
-        taken.add(sku)
+        taken.add(sku.lower())
         numbered.append(product)
     if numbered:
         PimProduct.objects.bulk_update(numbered, fields=['number'], batch_size=1000)
@@ -587,21 +594,44 @@ def link_unlinked_main_products(batch_size: int = 1000) -> int:
     skus = list(linkable.order_by('sku').values_list('sku', flat=True).distinct())
     for start in range(0, len(skus), batch_size):
         chunk = skus[start:start + batch_size]
-        existing = set(PimProduct.objects.filter(number__in=chunk).values_list('number', flat=True))
-        missing = [sku for sku in chunk if sku not in existing]
+        # number's uniqueness is case-insensitive (Lower('number')), so both
+        # the "already has a Product" check and the dedup below have to
+        # compare on Lower(...), not the exact string.
+        existing = {
+            n.lower() for n in
+            PimProduct.objects.annotate(lower_number=Lower('number'))
+            .filter(lower_number__in=[s.lower() for s in chunk])
+            .values_list('lower_number', flat=True)
+        }
+        missing = [sku for sku in chunk if sku.lower() not in existing]
         if not missing:
             continue
+        # Two skus in the same chunk that are case-variants of each other
+        # (e.g. "ABC"/"abc", neither pre-existing) must collapse onto one new
+        # Product, not two -- bulk_create's ignore_conflicts would otherwise
+        # silently drop whichever one loses the race against the index.
+        missing_by_lower = {}
+        for sku in missing:
+            missing_by_lower.setdefault(sku.lower(), sku)
+        missing = list(missing_by_lower.values())
+
         names = {}
-        for sku, name in linkable.filter(sku__in=missing).order_by('sku', 'pk').values_list('sku', 'name'):
-            names.setdefault(sku, name)
+        for lower_sku, name in (
+            linkable.annotate(lower_sku=Lower('sku'))
+            .filter(lower_sku__in=missing_by_lower.keys())
+            .order_by('pk')
+            .values_list('lower_sku', 'name')
+        ):
+            names.setdefault(lower_sku, name)
         PimProduct.objects.bulk_create(
             [
-                PimProduct(number=sku, name=(names.get(sku) or '')[:PRODUCT_NAME_MAX_LENGTH] or None)
+                PimProduct(number=sku, name=(names.get(sku.lower()) or '')[:PRODUCT_NAME_MAX_LENGTH] or None)
                 for sku in missing
             ],
             batch_size=batch_size,
-            # number is unique: a row created since `existing` was read is
-            # simply the Product this sku should link to.
+            # number is unique on Lower(number): a row created since
+            # `existing` was read -- exact match or case-variant -- is simply
+            # the Product this sku should link to.
             ignore_conflicts=True,
         )
 
@@ -610,7 +640,11 @@ def link_unlinked_main_products(batch_size: int = 1000) -> int:
     # what it already had — so count what got linked instead of trusting
     # update()'s row count.
     unlinked().update(
-        product_id=Subquery(PimProduct.objects.filter(number=OuterRef('sku')).values('id')[:1])
+        product_id=Subquery(
+            PimProduct.objects.annotate(lower_number=Lower('number'))
+            .filter(lower_number=Lower(OuterRef('sku')))
+            .values('id')[:1]
+        )
     )
     return before - unlinked().count()
 

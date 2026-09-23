@@ -103,6 +103,17 @@ class SyncProductFromPimTests(TestCase):
         self.assertEqual(saved.pim_id, 'pmp-1')
         self.assertEqual(Product.objects.count(), 1)
 
+    def test_unlinked_product_with_a_case_variant_number_adopts_it(self):
+        # number's uniqueness is case-insensitive: a differently-cased match
+        # is the same Product, not grounds for a second row.
+        waiting = Product.objects.create(number='n1')
+
+        saved, _ = self._sync({'name': 'Товар', 'categoriesIds': []})
+
+        self.assertEqual(saved.pk, waiting.pk)
+        self.assertEqual(saved.pim_id, 'pmp-1')
+        self.assertEqual(Product.objects.count(), 1)
+
     def test_link_without_product_id_saves_the_link_only(self):
         with patch(LINK_PATCH, return_value={'id': 'pmp-1', 'number': 'N1', 'productId': None}), \
                 patch(PRODUCT_PATCH) as fetch_product:
