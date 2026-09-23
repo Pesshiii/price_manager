@@ -359,12 +359,26 @@ class Bitrix24LoginTests(TestCase):
         User.objects.create_user('ivan', email='ivan@example.com', password='x')
         state = self.start_login(next_url='/shopping-tabs/')
         response, _ = self.callback(state, side_effect=_fake_bitrix24())
-        self.assertRedirects(
-            response, reverse('login') + '?next=%2Fshopping-tabs%2F', fetch_redirect_response=False
-        )
         self.assertIsNone(self.logged_in_user_id())
         self.assertFalse(Bitrix24Account.objects.exists())
         self.assertIn('Войдите один раз по паролю', self.error_messages(response)[0])
+
+        # Login page, whose next is the link page, whose next is the original page.
+        location = urlparse(response['Location'])
+        self.assertEqual(location.path, reverse('login'))
+        link_next = urlparse(parse_qs(location.query)['next'][0])
+        self.assertEqual(link_next.path, reverse('bitrix24-link'))
+        self.assertEqual(parse_qs(link_next.query)['next'], ['/shopping-tabs/'])
+
+        # The password login then really lands on the link page -- the link is
+        # offered even with BITRIX24_LINK_REQUIRED off (the default here).
+        login_response = self.client.post(
+            response['Location'], {'username': 'ivan', 'password': 'x'}
+        )
+        self.assertRedirects(
+            login_response, parse_qs(location.query)['next'][0], fetch_redirect_response=False
+        )
+        self.assertContains(self.client.get(login_response['Location']), 'Привязать Bitrix24')
 
     # --- callback: linked by ID --------------------------------------------
 

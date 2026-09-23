@@ -174,8 +174,12 @@ def bitrix24_callback(request):
         user = bitrix24.user_from_code(code)
     except bitrix24.Bitrix24PasswordRequired as exc:
         messages.warning(request, str(exc))
-        login_url = resolve_url('login')
-        return redirect(f'{login_url}?{urlencode({"next": next_url})}' if next_url else login_url)
+        # The password login lands on the link page (then on next_url), so the
+        # link is offered whether or not BITRIX24_LINK_REQUIRED is on.
+        link_url = reverse('bitrix24-link')
+        if next_url:
+            link_url += '?' + urlencode({'next': next_url})
+        return redirect(f"{resolve_url('login')}?{urlencode({'next': link_url})}")
     except bitrix24.Bitrix24LoginDenied as exc:
         messages.error(request, str(exc))
         return redirect('login')
