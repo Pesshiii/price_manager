@@ -44,3 +44,12 @@ BITRIX24_OAUTH_SERVER = os.environ.get('BITRIX24_OAUTH_SERVER', 'https://oauth.b
 # already have a PM user (matched by e-mail) get in.
 BITRIX24_AUTO_CREATE_USERS = os.environ.get('BITRIX24_AUTO_CREATE_USERS', 'true').lower() == 'true'
 
+
+# FEEDBACK TO DEVELOPERS AS BITRIX24 TASKS (developers/bitrix24.py)
+#
+# An inbound webhook with the `task` scope, full URL including the secret code:
+# https://<portal>/rest/<user id>/<code>/. Each message becomes a task for the
+# responsible user. Either empty = messages are only kept in the admin.
+BITRIX24_FEEDBACK_WEBHOOK = os.environ.get('BITRIX24_FEEDBACK_WEBHOOK', '')
+BITRIX24_FEEDBACK_RESPONSIBLE_ID = int(os.environ.get('BITRIX24_FEEDBACK_RESPONSIBLE_ID') or 0) or None
+

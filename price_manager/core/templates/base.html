@@ -39,6 +39,15 @@
     </main>
     {% if request.user.is_authenticated %}
       {% include "core/partials/notifications_sidebar.html" %}
+      <div class="modal fade" id="developersFeedbackModal" tabindex="-1" aria-labelledby="developersFeedbackModalLabel" aria-hidden="true">
+        <div class="modal-dialog modal-dialog-centered modal-lg">
+          <div class="modal-content">
+            <div class="modal-body">
+              <p class="mb-0 text-muted">Загрузка…</p>
+            </div>
+          </div>
+        </div>
+      </div>
     {% endif %}
     <div class="modal fade" id="shoppingTabSelectionModal" tabindex="-1" aria-labelledby="shoppingTabSelectionModalLabel" aria-hidden="true">
       <div class="modal-dialog modal-dialog-centered modal-lg modal-dialog-scrollable">
