@@ -13,6 +13,8 @@ from main_product_manager.models import MainProduct
 from .forms import (DictFormset, LinkFormset,
                     InitialForm,
                     LINKS,)
+from dataclasses import dataclass, field
+
 import pandas as pd
 import numpy as np
 from decimal import Decimal
@@ -25,7 +27,20 @@ SPS_CACHE_TTL_SECONDS = 60 * 30
 CACHE_TTL = 60 * 60 * 24 * 30  # 30 дней
 # 1.1: без category и manufacturer (Phase 2b). Смена версии меняет ключ кэша
 # get_sps, так что разбор, закэшированный до удаления колонок, не всплывёт.
-SPS_JSON_SCHEMA_VERSION = "1.1"
+# 1.2: в кэше лежит {'payload', 'stats'}, а не голый список.
+SPS_JSON_SCHEMA_VERSION = "1.2"
+# Счётчики разбора, которые get_sps_result отдаёт вместе с payload, по этапам.
+SPS_STAT_FIELDS = (
+    "rows_in_sheet",      # непустые строки листа
+    "rows_with_article",  # из них с артикулом
+    "rows_with_values",   # из них хоть одно значение распозналось
+    "rows_without_name",  # отброшены: нет названия
+    "rows_unmatched",     # отброшены: не совпали с товарами поставщика (create_new выключен)
+    "duplicates",         # отброшены: повтор артикула и названия в файле
+    "covered",            # будут записаны
+    "covered_price",      # из них с ценой
+    "covered_stock",      # из них с остатком
+)
 SPS_JSON_FIELDS = (
     "article",
     "name",
@@ -81,6 +96,11 @@ class SupplierFileStorageMissingError(FileNotFoundError):
 
 class SupplierImportError(Exception):
   """Файл нельзя импортировать по этой настройке; сообщение — причина для пользователя."""
+
+  def __init__(self, *args):
+    super().__init__(*args)
+    # Parse counters gathered before the refusal; get_sps_result fills them in.
+    self.stats: dict = {}
 
 
 def _format_columns(columns, limit: int = 15) -> str:
@@ -372,6 +392,16 @@ def get_sps(setting_or_pk: Setting | int, recache: bool = False) -> list[dict]:
     Никогда не возвращает пустой результат: если импортировать нечего,
     выбрасывает SupplierImportError с причиной для пользователя.
     """
+    return get_sps_result(setting_or_pk, recache=recache)[0]
+
+
+def get_sps_result(setting_or_pk: Setting | int, recache: bool = False) -> tuple[list[dict], dict]:
+    """
+    То же, что get_sps, плюс счётчики разбора по этапам (см. SPS_STAT_FIELDS).
+
+    Счётчики кэшируются вместе с payload. SupplierImportError несёт в .stats
+    те счётчики, что успели накопиться до отказа.
+    """
     setting = (
         setting_or_pk
         if isinstance(setting_or_pk, Setting)
@@ -380,11 +410,28 @@ def get_sps(setting_or_pk: Setting | int, recache: bool = False) -> list[dict]:
     signature = _get_setting_signature(setting)
     cache_key = _get_sps_cache_key(setting, signature)
     if not settings.DEBUG and not recache:
-        cached_payload = cache.get(cache_key)
-        if cached_payload is not None:
-            return cached_payload
+        cached = cache.get(cache_key)
+        if cached is not None:
+            return cached['payload'], cached['stats']
 
     links = Link.objects.filter(setting=setting)
+    stats = {
+        'mapped_keys': sorted(
+            links.filter(Q(value__isnull=False) & ~Q(value='') | Q(initial__isnull=False) & ~Q(initial=''))
+            .values_list('key', flat=True)
+        ),
+    }
+    try:
+        payload = _parse_sps(setting, links, stats)
+    except SupplierImportError as exc:
+        exc.stats = stats
+        raise
+    if not settings.DEBUG:
+        cache.set(cache_key, {'payload': payload, 'stats': stats}, timeout=SPS_CACHE_TTL_SECONDS)
+    return payload, stats
+
+
+def _parse_sps(setting: Setting, links, stats: dict) -> list[dict]:
     df = get_df(setting.pk)
     sps = SupplierProduct.objects.filter(supplier=setting.supplier)
     s_values = map(tuple, sps.values_list('article', 'name'))
@@ -396,6 +443,7 @@ def get_sps(setting_or_pk: Setting | int, recache: bool = False) -> list[dict]:
             f'Лист «{setting.sheet_name}» пуст'
             + (f' начиная со строки {setting.index_row}' if setting.index_row else '')
             + ' — проверьте лист и ряд заголовков')
+    stats['rows_in_sheet'] = len(df)
     if not links.filter(Q(value__isnull=False) | Q(initial__isnull=False)).exists():
         raise SupplierImportError('Не сопоставлен ни один столбец файла')
     file_columns = list(df.columns)
@@ -432,12 +480,13 @@ def get_sps(setting_or_pk: Setting | int, recache: bool = False) -> list[dict]:
             df[link.key] = df[link.key].apply(lambda val: val if val >= 0 else None)
 
     df = df.dropna(subset=['article'])
-    rows_with_article = len(df)
+    rows_with_article = stats['rows_with_article'] = len(df)
     df = df.dropna(
         subset=[link.key for link in links if not link.key == 'article' and not link.key == 'name' and link.key in df.columns],
         how='all'
     )
-    rows_with_values = len(df)
+    rows_with_values = stats['rows_with_values'] = len(df)
+    rows_unmatched = 0
 
     if not 'name' in df.columns:
         if setting.create_new:
@@ -447,7 +496,9 @@ def get_sps(setting_or_pk: Setting | int, recache: bool = False) -> list[dict]:
         _df = df.copy()
         names = _df['article'].apply(lambda article: sps.filter(article=article).values_list('name', flat=True))
         _df['name'] = names
-        _df = _df[_df['name'].apply(len) > 0]
+        has_names = _df['name'].apply(len) > 0
+        rows_unmatched += int((~has_names).sum())
+        _df = _df[has_names]
         _df = _df.explode('name', ignore_index=True)
         df = _df
 
@@ -460,28 +511,61 @@ def get_sps(setting_or_pk: Setting | int, recache: bool = False) -> list[dict]:
         _df.drop('names_indb', axis=1)
         df = _df
 
+    rows_before = len(df)
     df = df.dropna(subset=['name'])
+    stats['rows_without_name'] = rows_before - len(df)
     df = df.replace({pd.NA: None, float('nan'): None, '': None, 'NaN': None})
 
     if not setting.create_new:
         mask = df[['article', 'name']].apply(tuple, axis=1).isin(s_values)
+        rows_unmatched += int((~mask).sum())
         df = df[mask]
+    stats['rows_unmatched'] = rows_unmatched
 
+    rows_before = len(df)
     df = df.drop_duplicates(subset=['article', 'name'], keep='first')
+    stats['duplicates'] = rows_before - len(df)
+    stats.update(_coverage(df))
     for required_field in SPS_JSON_REQUIRED_FIELDS:
         if required_field not in df.columns:
             raise SupplierImportError(f'После разбора нет обязательного поля «{LINKS[required_field]}»')
     if df.empty:
         raise SupplierImportError(_empty_result_reason(setting, rows_with_article, rows_with_values))
-    payload = df.to_dict(orient="records")
-    if not settings.DEBUG:
-        cache.set(cache_key, payload, timeout=SPS_CACHE_TTL_SECONDS)
-    return payload
+    return df.to_dict(orient="records")
 
 
-def load_setting(pk):
+def _coverage(df: pd.DataFrame) -> dict:
+    """Сколько строк импорт запишет — всего, с ценой и с остатком.
+
+    Цены и остатки считаются раздельно: столбец остатка может перестать
+    распознаваться, пока цены грузятся как обычно, и общее число строк этого
+    не покажет. Несопоставленный остаток даёт covered_stock = 0 — так же, как
+    столбец, в котором не распозналось ни одно число.
+    """
+    price_columns = [column for column in SP_PRICES if column in df.columns]
+    return {
+        'covered': len(df),
+        'covered_price': int(df[price_columns].notna().any(axis=1).sum()) if price_columns else 0,
+        'covered_stock': int(df['stock'].notna().sum()) if 'stock' in df.columns else 0,
+    }
+
+
+@dataclass
+class ImportOutcome:
+    """Результат load_setting: записанные строки и счётчики.
+
+    stats — счётчики разбора из get_sps_result плус счётчики применения:
+    created / updated (новые и существующие строки среди записанных) и
+    missing (строки поставщика, которых нет в файле; у них обнулены
+    сопоставленные остаток и цены).
+    """
+    sps: list
+    stats: dict = field(default_factory=dict)
+
+
+def load_setting(pk) -> ImportOutcome:
     '''
-        Возвращает обработанные товары ПП\\
+        Записывает товары ПП из файла настройки\\
         Если импортировать нечего, выбрасывает SupplierImportError
     '''
     setting = Setting.objects.get(pk=pk)
@@ -492,7 +576,8 @@ def load_setting(pk):
     # get_sps raises SupplierImportError instead of returning nothing: an empty
     # result must never reach the "missing rows" update below, which would
     # clear stock and prices of every product of the supplier.
-    sps_payload = get_sps(setting)
+    sps_payload, parse_stats = get_sps_result(setting)
+    stats = dict(parse_stats)
     df = pd.DataFrame(sps_payload)
     df = df.dropna(subset=['name'])
     df = df.replace({pd.NA: None, float('nan'): None, '': None, 'NaN': None})
@@ -516,6 +601,14 @@ def load_setting(pk):
             **data
             )
     
+    existing_keys = set(
+        SupplierProduct.objects.filter(supplier=setting.supplier).values_list('article', 'name')
+    )
+    stats['created'] = sum(
+        1 for key in zip(df['article'], df['name']) if key not in existing_keys
+    )
+    stats['updated'] = len(df) - stats['created']
+
     sp_model_instances = map(get_spmodel, df.itertuples(index=False))
     sp_update_fields = [link.key for link in links if not link.key=='article' and not link.key == 'name' and link.key in df.columns]
     sp_update_fields.append('updated_at')
@@ -526,6 +619,7 @@ def load_setting(pk):
         unique_fields=['supplier', 'article', 'name'])
 
     missing_sps = SupplierProduct.objects.filter(supplier=setting.supplier).exclude(pk__in=map(lambda sp: sp.pk, sps))
+    stats['missing'] = missing_sps.count()
 
     # A row that vanished from the new file has no figure at all, so the raw
     # layer stores NULL - "the supplier did not tell us" - and never a synced 0.
@@ -542,4 +636,4 @@ def load_setting(pk):
            if column in SP_PRICES:
               missing_sps.update(**{column:None})
     setting.supplier.save()
-    return sps
+    return ImportOutcome(sps=sps, stats=stats)

@@ -188,6 +188,32 @@ missing column is still silently skipped. Making the last case an error was
 considered and left out on purpose — it would start failing imports that
 succeed today.
 
+## Import history — `ImportRun` and the parse counters
+
+Every run of `process_supplier_file_import` leaves one `ImportRun`
+(`models.py`) — `applied`, `refused` (a `SupplierImportError` or missing
+storage file, `message` = the user-facing reason) or `failed` (anything else,
+re-raised). It is the per-setting coverage history the import guard compares a
+new file against, so **do not add an import path that bypasses the task**
+without recording a run.
+
+- The counters come from `get_sps_result` (`functions.py`), which returns
+  `(payload, stats)`; `get_sps` is its payload-only wrapper. Stage counters are
+  listed in `SPS_STAT_FIELDS`. Payload and stats are cached **together** under
+  schema version `1.2` — a bare-list entry from `1.1` would break the unpack, so
+  changing the cached shape again means bumping `SPS_JSON_SCHEMA_VERSION`.
+- **Price and stock coverage are separate on purpose** (`covered_price`,
+  `covered_stock`, `_coverage`): a stock column can stop parsing, or lose its
+  `Link`, while prices keep loading, and the total row count hides that. An
+  unmapped stock yields `covered_stock = 0`, the same as a column where no
+  number parsed. Production has had exactly this — suppliers with prices on
+  nearly every row and stock NULL on nearly all of them.
+- A refusal carries the counters gathered so far on `exc.stats`, so a refused
+  run shows where the rows were lost. `created`/`updated`/`missing` exist only
+  for applied runs (`load_setting` returns `ImportOutcome(sps, stats)`).
+- `supplier_file` is `SET_NULL` with `file_name` copied: the cleanup task deletes
+  files, the history must outlive them.
+
 ## Upload and cleanup — the file a setting depends on
 
 - **`UploadSupplierFile.form_valid`** (`views.py:145`) reads the workbook's
