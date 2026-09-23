@@ -41,6 +41,9 @@ live legacy stack — treat anything here as in-motion; check
   `raw_data`** — no network call. Joins with `' '`, not `''`: the old
   `MainProduct` version glued category names into one token, so neither word
   was searchable.
+- `ProductExport` (`models.py:165-184`) — `user` FK (`related_name=
+  'product_exports'`), `file` (`upload_to='product_exports/'`), `rows_count`,
+  `created_at`. One row per completed export run; see the export section below.
 
 ## `Product.pim_id` now names a PIM `PriceManagerProduct` (PMP), not a PIM `Product`
 
@@ -109,7 +112,8 @@ embedding/characteristics-era fields (`sku`, `characteristics`,
 `product_chars_gin_idx`); `0003` removes every one of them — see "What it is
 not" below. `0008_brand_and_product_search_vector` is purely additive
 (`Brand`, `Product.brand`, `Product.search_vector` + its GIN index) — no data
-migration, nothing to trap here.
+migration, nothing to trap here. `0010_product_export` adds `ProductExport`
+(see the export section below) — purely additive as well.
 
 ## What it is *not* — earlier docs described these; they do not exist
 
@@ -408,6 +412,80 @@ still showed ticked filters while the results and the pushed URL ignored them.
 `products` needs both selectors, as `columns_picker.html` already does. Neither form
 carries `sort`, so a search or a filter change drops a column sort and grouping comes
 back — an existing behaviour, left alone.
+
+## The «Экспорт» button — `/products/` to xlsx (`product/export.py`, `product/tasks.py`)
+
+Background export of the exact page a user is looking at: click «Экспорт» →
+`export_products_task` (Celery, `EXPORT_TIME_LIMIT = 60*60`,
+`product/tasks.py:77-128`) builds the file and drops a toast notification
+(`core.tasks._notify`) with a download link to `ProductExport`
+(`product-export-download`). The task is locked per user
+(`task_name=f'product.export_products:{user_id}'`, `lock_ttl=EXPORT_TIME_LIMIT`)
+and runs `atomic=False` — reading + one file upload + one insert, no reason to
+hold a transaction for up to an hour. `ProductExport` rows
+(`product/models.py:165-184`, `upload_to='product_exports/'`) are **never
+cleaned up** — a known gap, not a bug.
+
+- **The export has its own copy of the page's ordering pipeline, and the two
+  must stay in lockstep.** `ordered_product_pks(params)` (`export.py:53-74`)
+  reproduces `ProductPage`: no `sort` param (the name comes from
+  `ProductTable._meta.prefix + ProductTable._meta.order_by_field`, captured
+  as `SORT_PARAM` at `export.py:34`) → `by_category=True` →
+  `ProductFilter(params, _base_queryset(by_category=by_category))` → invalid
+  filterset returns `[]` (FilterView's strict behaviour) →
+  `best_match_groups_first` applied when `by_category` and a search term is
+  present → `ProductTable(qs, order_by=sort or None)` (the `order_by` setter
+  applies django-tables2 ordering to `table.data.data`). Change
+  `ProductPage.groups_by_category` / `get_table_data` / the table's orderable
+  columns and `export.py` has to change with it. `ExportOrderTests`
+  (`product/tests/test_export.py:126`) pins the contract by comparing against
+  the page's own `product_rows` for default order, `sort=number`,
+  `sort=-total_stock`, search, and search+sort.
+- **Chunked `pk__in` loses order; the pk list restores it.** `build()`
+  (`export.py:267-280`) walks `_chunks(pks)` and looks each chunk up by
+  `pk__in`, then re-emits rows in the original chunk order from a dict — `IN`
+  itself does not preserve order. Don't switch to iterating the ordered
+  queryset with `.iterator()`: without an explicit `chunk_size` it silently
+  drops `prefetch_related` (the categories N+1 would come back).
+- **Main-value rule** (`main_value`, `export.py:90-104`): first value that is
+  neither `NULL` nor `0`, walking suppliers in priority order
+  (`ranked_suppliers`, `export.py:107-118` — `Supplier.price_priority` for
+  price columns, `stock_priority` for the stock column, ascending,
+  unranked suppliers last by name/pk, rows with `supplier=NULL`
+  («Без поставщика») always last of all). If nothing is non-zero: `0` when at
+  least one supplier has an explicit `0`, else empty (keeps a `NULL` stock —
+  "no data" — distinct from a `0` stock — "confirmed out of stock").
+  `MainProduct` has no unique `(product, supplier)` constraint, so
+  `supplier_cells` (`export.py:221-242`) applies the same rule *within* one
+  supplier's own rows first (ordered by `pk`), then across suppliers.
+  Non-price/non-stock supplier columns instead join distinct values with
+  `_joined()` (`export.py:139-150`, «; »-separated).
+- **Supplier columns are the suppliers actually present in the export, not
+  every `Supplier` row.** Collected in a first chunked pass over the pk list
+  (`export.py:247-254`) before the main pass. A product-page supplier filter
+  still exports all of that product's suppliers — the column set is driven by
+  the exported rows' data, not narrowed by the filter that selected them.
+- **openpyxl rejects model instances and tz-aware datetimes.** The `supplier`
+  column's accessor (`self.cell`, `export.py:177-187`) can yield a `Supplier`
+  object, and `*_updated_at` fields are timezone-aware. `_excel_value`
+  (`export.py:126-136`) localizes and strips tzinfo from datetimes, and
+  stringifies anything else non-scalar. Caught only once every selectable
+  column was actually exercised —
+  `test_every_selectable_column_is_writable` (`test_export.py:100`) exports
+  the full `COLUMN_LABELS` set for this reason; earlier tests exporting only
+  price columns passed while a real run raised
+  `Cannot convert <Supplier: …> to Excel`.
+- **`write_only=True` workbook** (`export.py:256`) — cells are streamed via
+  `WriteOnlyCell`/`sheet.append`, not built in memory as a normal `Workbook`
+  would; necessary at catalogue scale (measured on a synthetic ~158k-product /
+  ~174k-`MainProduct` / 60-supplier dataset in an isolated DB: ordering ~1.1s,
+  a full build with the default column set ~130s, ~560 columns wide, ~10.7MB
+  file). Re-measure if `DEFAULT_COLUMNS` or the supplier-column fan-out
+  changes materially — the 60-minute task time limit is not a lot of headroom
+  above 130s once real catalogue growth is added.
+
+See [[core]] for the export notification/toast mechanics (the 204 response
+trap on the triggering HTMX request) — not repeated here.
 
 ## Filling the mirror from PIM (dev-only) — `load_pim_mirror`
 

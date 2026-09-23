@@ -70,3 +70,59 @@ def sync_products_batch_task(pks: list[int], delay: float = 0.5) -> dict:
         # записи сбойных товаров просто попадут в следующий прогон.
         atomic=False,
     )
+
+
+# Весь каталог — ~158 тыс. товаров: общего лимита воркера (30 мин) на него
+# впритык, а lock_ttl должен пережить самый долгий прогон.
+EXPORT_TIME_LIMIT = 60 * 60
+
+
+@shared_task(name='product.export_products', time_limit=EXPORT_TIME_LIMIT,
+             soft_time_limit=EXPORT_TIME_LIMIT - 60)
+def export_products_task(query: str, columns: list[str], user_id: int) -> dict:
+    """Экспорт товарной страницы в xlsx. Ссылка на скачивание — в уведомлении.
+
+    query — строка запроса страницы (фильтры, поиск, сортировка) в том виде,
+    в каком она стоит в адресной строке; columns — выбор колонок на момент
+    нажатия.
+    """
+    from django.http import QueryDict
+    from django.urls import reverse
+    from django.utils.html import escape
+
+    from core.tasks import _notify
+
+    from .export import build_product_export
+
+    created = {}
+
+    def _runner():
+        export = build_product_export(QueryDict(query), columns, user_id)
+        created['export'] = export
+        return export.rows_count
+
+    try:
+        payload = execute_locked_task(
+            task_name=f'product.export_products:{user_id}',
+            lock_ttl=EXPORT_TIME_LIMIT,
+            runner=_runner,
+            # Минуты чтения и в конце одна загрузка файла и одна вставка —
+            # транзакция на весь проход ничего не даёт, а держалась бы открытой.
+            atomic=False,
+        )
+    except Exception as exc:
+        _notify(user_id, 'danger', f'Экспорт товаров завершился с ошибкой: {escape(exc)}')
+        raise
+
+    export = created.get('export')
+    if payload.get('status') == 'skipped':
+        _notify(user_id, 'warning', 'Экспорт товаров пропущен: предыдущий ещё выполняется.')
+    elif export is not None:
+        _notify(
+            user_id,
+            'success',
+            f'Экспорт товаров готов. Строк: {export.rows_count}.',
+            link=reverse('product-export-download', kwargs={'pk': export.pk}),
+            link_text='Скачать файл',
+        )
+    return payload
