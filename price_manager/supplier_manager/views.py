@@ -138,7 +138,7 @@ class SupplierPriorityUpdate(View):
   '''Правка приоритета прямо в ячейке таблицы поставщиков.
 
   Отвечает той же ячейкой (hx-swap outerHTML) — страница не перезагружается.
-  Если занятый номер сдвинул других поставщиков (Supplier.make_room), их
+  Если правка перенумеровала других поставщиков (Supplier.place), их
   ячейки приезжают в том же ответе через hx-swap-oob.
   '''
   def post(self, request, pk, field):
@@ -154,7 +154,7 @@ class SupplierPriorityUpdate(View):
       try:
         form.save()
       except IntegrityError:
-        # Кто-то занял номер в ряду между make_room и коммитом.
+        # Кто-то поменял нумерацию между place() и коммитом.
         saved = False
         errors = ['Приоритеты только что изменил кто-то ещё — обновите страницу.']
       else:

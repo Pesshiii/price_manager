@@ -38,10 +38,15 @@ was removed.
     in `SupplierForm` and inline in the `/supplier/` table
     (`SupplierPriorityUpdate`, route `supplier-priority`, answers with the
     `priority_cell.html` `<td>`, plus OOB cells for any shifted neighbours).
-    **Unique per field** (migration `0013`, `DEFERRED` constraints; NULLs
-    unlimited). A taken number is not an error: `Supplier.save()` calls
-    `make_room()`, which shifts the contiguous run of taken numbers from the
-    target by +1 (a gap stops it). For that to work, `validate_constraints`
+    **Dense per field: ranked suppliers always hold exactly 1…N** (migration
+    `0013` renumbers existing data by (priority, name), then adds `DEFERRED`
+    unique constraints; NULLs unlimited). `Supplier.save()` calls `place()`
+    only when a priority actually changed: it clamps the value into 1…N+1,
+    inserts the supplier there and rewrites everyone else's number in one
+    `UPDATE … CASE`. Clearing a priority closes the gap the same way; so does
+    deleting a ranked supplier (`post_delete` → `Supplier.renumber`, which
+    `queryset.delete()` also triggers). `self.shifted` holds the pks whose
+    number moved — the inline view returns them OOB. For this, `validate_constraints`
     excludes both fields — Django 5.2 checks `UniqueConstraint`s in
     `ModelForm`, and would otherwise reject the number before `save()` runs.
     `queryset.update()` bypasses all of this; the database then catches it at
