@@ -291,14 +291,14 @@ class FullCsvExportTests(TestCase):
 
         row = next(row for row in rows if row['Артикул'] == 'SKU-1')
         # У А (приоритет по цене 1) себестоимость 0 — основная берётся у Б.
-        self.assertEqual(row['Себестоимость (основная)'], '80.00')
-        self.assertEqual(row['Базовая цена (основная)'], '100.00')
+        self.assertEqual(row['Себестоимость (основная)'], '80,00')
+        self.assertEqual(row['Базовая цена (основная)'], '100,00')
         # По остаткам первым идёт Б.
         self.assertEqual(row['Остаток (основной)'], '7')
         self.assertEqual(row['Цена ИМ (основная)'], '')
         # Ноль остаётся нулём, а не пустой ячейкой (main_value).
         self.assertEqual(row['А • Себестоимость'], '0')
-        self.assertEqual(row['Б • Базовая цена'], '120.00')
+        self.assertEqual(row['Б • Базовая цена'], '120,00')
         self.assertEqual(row['А • Остаток'], '0')
 
         # Товар без строк поставщиков тоже в файле — с пустыми ценами.
@@ -312,8 +312,8 @@ class FullCsvExportTests(TestCase):
                                    name='Смеситель А2', m_price=Decimal('55'))
         _, (header, rows) = self.export()
         self.assertFalse(any(title.startswith('Б • ') for title in header))
-        self.assertEqual(rows[0]['А • Цена ИМ'], '55.00')
-        self.assertEqual(rows[0]['Цена ИМ (основная)'], '55.00')
+        self.assertEqual(rows[0]['А • Цена ИМ'], '55,00')
+        self.assertEqual(rows[0]['Цена ИМ (основная)'], '55,00')
 
     def test_admin_button_posts_and_queues_task(self):
         self.client.force_login(self.user)

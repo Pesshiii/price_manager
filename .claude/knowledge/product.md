@@ -538,9 +538,10 @@ the **whole catalogue**, whatever the changelist is filtered to (empty
 - **CSV has one sheet, so suppliers are column blocks**: `<поставщик> • <колонка>`,
   price-priority order, only suppliers that have rows. A product a supplier
   lacks gets empty cells there.
-- **Format**: `;` delimiter + UTF-8 BOM (opens in RU-locale Excel), decimals
-  with a dot (machine-readable). A zero collapsed by `main_value` is written
-  as `0`, not `0.00`.
+- **Format**: `;` delimiter + UTF-8 BOM + **comma decimals** (`_csv_value`) —
+  for RU-locale Excel. `;` with dot decimals is the one wrong pair: that Excel
+  reads `3.10` as 3 October. A zero collapsed by `main_value` is written as
+  `0`, not `0,00`.
 - Written to a `TemporaryFile`, not `BytesIO` — hundreds of columns × ~158k rows.
 - Its own lock (`product.export_products_full_csv:{user}`), so a running xlsx
   export doesn't make it «пропущен». Both tasks share `_run_export`.

@@ -184,8 +184,15 @@ def _excel_value(value):
 
 
 def _csv_value(value):
-    """Ячейка csv: пусто — пустая строка, остальное — как есть строкой."""
-    return '' if value is None else _excel_value(value)
+    """Ячейка csv: пусто — пустая строка, дробные — с запятой.
+
+    Файл для Excel с русской локалью: с точкой «3.10» он прочтёт как 3 октября.
+    """
+    if value is None:
+        return ''
+    if isinstance(value, (Decimal, float)):
+        return str(value).replace('.', ',')
+    return _excel_value(value)
 
 
 def _joined(values):
@@ -392,8 +399,8 @@ class FullCsvExporter(ProductExporter):
     остаток, колонки «<поставщик> • <колонка>», поставщики по приоритету
     цены. У csv один лист, поэтому поставщики — колонками, а не листами.
 
-    Разделитель «;» и BOM — так файл сразу открывает Excel с русской
-    локалью; числа — с точкой, как их прочтёт другая система.
+    Разделитель «;», BOM и дробные с запятой — так файл сразу открывает Excel
+    с русской локалью, числа остаются числами.
     """
 
     DELIMITER = ';'
