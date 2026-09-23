@@ -14,7 +14,8 @@ from django.views.generic import (View, TemplateView,
                                   UpdateView,
                                   DeleteView)
 from django.core.paginator import Paginator
- 
+from django.db import IntegrityError, transaction
+
 
 
 from django_tables2 import SingleTableView, RequestConfig, SingleTableMixin
@@ -33,6 +34,7 @@ from .tables import *
 from .filters import *
 
 import io
+import logging
 from typing import Dict, Any
 import pandas as pd
 import re
@@ -40,6 +42,13 @@ from pathlib import Path
 
 from .functions import *
 from .tasks import process_supplier_file_import, copy_supplier_products_to_main_task
+
+logger = logging.getLogger(__name__)
+
+# A new setting is named after the file; "(1)", "(2)", ... resolve a clash with
+# an existing setting of the same supplier. Bounded so a failure that is not a
+# name clash cannot loop.
+MAX_SETTING_NAME_ATTEMPTS = 100
 
 class SupplierDetail(SingleTableMixin, FilterView):
   '''
@@ -135,25 +144,39 @@ class UploadSupplierFile(CreateView):
     return context
   def form_valid(self, form):
     instance = form.save(commit=False)
+    # Read the workbook once, before anything is created. A corrupt or
+    # password-protected file used to fail inside the create-setting loop,
+    # which caught the error as a name clash and kept creating settings.
+    try:
+      sheet_names = pd.ExcelFile(instance.file, engine='calamine').sheet_names
+    except Exception as ex:
+      logger.warning('Supplier file %s is not a readable workbook: %s', instance.file.name, ex)
+      messages.error(self.request, 'Не удалось прочитать файл: он повреждён, защищён паролем или это не Excel')
+      return self.form_invalid(form)
+    finally:
+      instance.file.seek(0)
+    if not sheet_names:
+      messages.error(self.request, 'В файле нет ни одного листа')
+      return self.form_invalid(form)
     if not instance.setting:
-      number = 0
-      created = False
-      while not created:
+      supplier = Supplier.objects.get(pk=self.kwargs.get('pk'))
+      stem = Path(instance.file.name).stem
+      for number in range(MAX_SETTING_NAME_ATTEMPTS):
+        anti_copy = f'({number})' if number else ''
         try:
-          anti_copy = f'({number})' if not number == 0 else ''
-          setting = Setting.objects.create(
-            name = Path(instance.file.name).stem + anti_copy, 
-            supplier = Supplier.objects.get(pk=self.kwargs.get('pk')))
-          setting.sheet_name = pd.ExcelFile(instance.file, engine='calamine').sheet_names[0]
-          setting.save()
-          created = True
-          instance.setting = setting
-          messages.info(self.request, f"Новая настройка создана: {instance.setting.name}")
-        except BaseException as ex:
-          print(ex)
-          number += 1
-          created = False
-    if not instance.setting.sheet_name in pd.ExcelFile(instance.file, engine='calamine').sheet_names:
+          with transaction.atomic():
+            instance.setting = Setting.objects.create(
+              name=stem + anti_copy,
+              supplier=supplier,
+              sheet_name=sheet_names[0])
+          break
+        except IntegrityError:
+          continue
+      else:
+        messages.error(self.request, f'Не удалось подобрать свободное название настройки для «{stem}»')
+        return self.form_invalid(form)
+      messages.info(self.request, f"Новая настройка создана: {instance.setting.name}")
+    if not instance.setting.sheet_name in sheet_names:
       messages.error(self.request, f'Нет листа {instance.setting.sheet_name}')
       return self.form_invalid(form)
     for supplierfile in instance.setting.supplierfiles.all():

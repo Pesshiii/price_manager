@@ -79,6 +79,30 @@ class SupplierFileStorageMissingError(FileNotFoundError):
   """Файл настройки отсутствует в storage backend."""
 
 
+class SupplierImportError(Exception):
+  """Файл нельзя импортировать по этой настройке; сообщение — причина для пользователя."""
+
+
+def _format_columns(columns, limit: int = 15) -> str:
+  shown = ', '.join(f'«{column}»' for column in columns[:limit])
+  if len(columns) > limit:
+    shown += f' и ещё {len(columns) - limit}'
+  return shown or 'нет'
+
+
+def _empty_result_reason(setting, rows_with_article: int, rows_with_values: int) -> str:
+  if rows_with_article == 0:
+    return 'В столбце артикула нет ни одного значения — проверьте ряд заголовков и сопоставление столбцов'
+  if rows_with_values == 0:
+    return (f'Строк с артикулом: {rows_with_article}, но ни в одной нет значений '
+            'в сопоставленных столбцах (цена, остаток и т. п.)')
+  if not setting.create_new:
+    match_by = 'артикулу и названию' if setting.links.filter(key='name').exclude(value__isnull=True).exclude(value='').exists() else 'артикулу'
+    return (f'Ни одна из {rows_with_values} строк файла не совпала с товарами поставщика по {match_by}. '
+            'Добавление новых товаров выключено — включите его или проверьте столбцы артикула и названия')
+  return f'Ни у одной из {rows_with_values} строк файла нет названия'
+
+
 def _normalize_column_name(value: str | None) -> str:
   if value is None:
     return ""
@@ -164,6 +188,13 @@ def get_df_sheet_names(pk):
   file.close()
   return columns
 
+def _df_cache_key(setting: Setting, supplier_file: SupplierFile) -> str:
+  # The instance's sheet_name and index_row, not the class attribute: keyed on
+  # `Setting.sheet_name` every sheet shared one entry, so switching the sheet
+  # kept serving the old sheet's columns until the entry expired.
+  return (f'setting<{setting.pk}>::dataframe<{supplier_file.pk}>'
+          f'::sheet<{setting.sheet_name}>::row<{setting.index_row}>')
+
 def get_df(pk, recache=False)->pd.DataFrame|None:
   '''
     Возвращает pd.Dataframe из файла настройки если он есть\\
@@ -189,7 +220,7 @@ def get_df(pk, recache=False)->pd.DataFrame|None:
       f"Файл настройки отсутствует в media-хранилище: setting_id={pk}, file={validated_file.name}"
     )
   if not settings.DEBUG:
-    cached_df=cache.get(f'setting<{pk}>::dataframe<{sf.pk}>::<{Setting.sheet_name}>')
+    cached_df=cache.get(_df_cache_key(setting, sf))
     if not recache and not cached_df is None:
         return cached_df
   validated_file.open('rb')
@@ -202,7 +233,7 @@ def get_df(pk, recache=False)->pd.DataFrame|None:
   if df.shape[0] == 0:
     return None
   if not settings.DEBUG:
-    cache.set(f'setting<{pk}>::dataframe<{sf.pk}>::<{Setting.sheet_name}>', df, timeout=60*30)
+    cache.set(_df_cache_key(setting, sf), df, timeout=60*30)
   return df
 
 def get_dictformset(post, pk, link):
@@ -331,12 +362,15 @@ def _get_sps_cache_key(setting: Setting, signature: str) -> str:
 
 
 
-def get_sps(setting_or_pk: Setting | int, recache: bool = False) -> list[dict] | None:
+def get_sps(setting_or_pk: Setting | int, recache: bool = False) -> list[dict]:
     """
     Возвращает каноничные товары поставщика в JSON-виде:
     required: article(str), name(str)
     optional: description(str|null), discount(str|null),
               stock(int|null), supplier_price(str|null), rrp(str|null), discount_price(str|null)
+
+    Никогда не возвращает пустой результат: если импортировать нечего,
+    выбрасывает SupplierImportError с причиной для пользователя.
     """
     setting = (
         setting_or_pk
@@ -355,19 +389,37 @@ def get_sps(setting_or_pk: Setting | int, recache: bool = False) -> list[dict] |
     sps = SupplierProduct.objects.filter(supplier=setting.supplier)
     s_values = map(tuple, sps.values_list('article', 'name'))
     resolve_conflicts(sps)
-    if df is None or not links.filter(Q(value__isnull=False) | Q(initial__isnull=False)).exists():
-        return None
+    if df is None:
+        if not setting.supplierfiles.exists():
+            raise SupplierImportError('Для настройки не загружен файл')
+        raise SupplierImportError(
+            f'Лист «{setting.sheet_name}» пуст'
+            + (f' начиная со строки {setting.index_row}' if setting.index_row else '')
+            + ' — проверьте лист и ряд заголовков')
+    if not links.filter(Q(value__isnull=False) | Q(initial__isnull=False)).exists():
+        raise SupplierImportError('Не сопоставлен ни один столбец файла')
+    file_columns = list(df.columns)
     for link in links:
         if link.value == '' or link.value is None:
             if link.initial == '' or link.initial is None:
                 continue
             df[link.key] = link.initial
-        else:
+        elif link.value in df.columns:
             df = df.rename(columns={link.value: link.key})
             if not link.initial == '' and not link.initial is None:
                 df[link.key] = df[link.key].fillna(link.initial)
+        elif not link.initial == '' and not link.initial is None:
+            # The mapped column is gone from this file; the setting's fallback
+            # value still applies. (fillna on the missing column used to raise
+            # a bare KeyError.)
+            df[link.key] = link.initial
     if not 'article' in df.columns:
-        return None
+        article_link = links.filter(key='article').first()
+        if article_link and article_link.value:
+            raise SupplierImportError(
+                f'В файле нет столбца артикула «{article_link.value}». '
+                f'Столбцы в файле: {_format_columns(file_columns)}')
+        raise SupplierImportError('Не указан столбец артикула')
     for link in links:
         if not link.key in df.columns:
             continue
@@ -380,14 +432,18 @@ def get_sps(setting_or_pk: Setting | int, recache: bool = False) -> list[dict] |
             df[link.key] = df[link.key].apply(lambda val: val if val >= 0 else None)
 
     df = df.dropna(subset=['article'])
+    rows_with_article = len(df)
     df = df.dropna(
         subset=[link.key for link in links if not link.key == 'article' and not link.key == 'name' and link.key in df.columns],
         how='all'
     )
+    rows_with_values = len(df)
 
     if not 'name' in df.columns:
         if setting.create_new:
-            return None
+            raise SupplierImportError(
+                'Для добавления новых товаров нужен столбец названия — '
+                'сопоставьте его или выключите «Добавлять новые товары»')
         _df = df.copy()
         names = _df['article'].apply(lambda article: sps.filter(article=article).values_list('name', flat=True))
         _df['name'] = names
@@ -414,7 +470,9 @@ def get_sps(setting_or_pk: Setting | int, recache: bool = False) -> list[dict] |
     df = df.drop_duplicates(subset=['article', 'name'], keep='first')
     for required_field in SPS_JSON_REQUIRED_FIELDS:
         if required_field not in df.columns:
-            return None
+            raise SupplierImportError(f'После разбора нет обязательного поля «{LINKS[required_field]}»')
+    if df.empty:
+        raise SupplierImportError(_empty_result_reason(setting, rows_with_article, rows_with_values))
     payload = df.to_dict(orient="records")
     if not settings.DEBUG:
         cache.set(cache_key, payload, timeout=SPS_CACHE_TTL_SECONDS)
@@ -424,16 +482,17 @@ def get_sps(setting_or_pk: Setting | int, recache: bool = False) -> list[dict] |
 def load_setting(pk):
     '''
         Возвращает обработанные товары ПП\\
-        Если не найден файл возвращает None
+        Если импортировать нечего, выбрасывает SupplierImportError
     '''
     setting = Setting.objects.get(pk=pk)
     # Только ключи из LINKS: каждый ключ ниже становится полем SupplierProduct.
     # Ссылка на удалённое поле (category и manufacturer до Phase 2b) иначе
     # роняла бы весь импорт прайса, а не пропускалась.
     links = [link for link in Link.objects.filter(setting=setting) if link.key in LINKS]
+    # get_sps raises SupplierImportError instead of returning nothing: an empty
+    # result must never reach the "missing rows" update below, which would
+    # clear stock and prices of every product of the supplier.
     sps_payload = get_sps(setting)
-    if sps_payload is None:
-        return None
     df = pd.DataFrame(sps_payload)
     df = df.dropna(subset=['name'])
     df = df.replace({pd.NA: None, float('nan'): None, '': None, 'NaN': None})

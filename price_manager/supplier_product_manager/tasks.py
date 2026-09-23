@@ -7,7 +7,7 @@ from core.models import PersistentNotification
 from main_product_manager.utils import compute_supplier_sku, link_to_local_products
 from main_product_manager.models import MainProduct
 
-from .functions import load_setting, SupplierFileStorageMissingError
+from .functions import load_setting, SupplierFileStorageMissingError, SupplierImportError
 from .filters import SupplierProductFilter
 from .models import (
     CopySupplierProductsToMainRun,
@@ -55,50 +55,40 @@ def process_supplier_file_import(setting_id: int, user_id: int) -> dict:
         _append_supplier_file_log(supplier_file, "Чтение и обработка файла")
         products = load_setting(setting_id)
         duration_seconds = round((timezone.now() - started_at).total_seconds(), 2)
-
-        processed_rows = len(products) if products else 0
-        errors_count = 0 if products else 1
-        success = products is not None
-
-        if success:
-            message = (
-                f"Импорт «{setting.name}» завершен: обработано строк {processed_rows}, "
-                f"ошибок {errors_count}, длительность {duration_seconds} сек."
-            )
-            status = SupplierFile.STATUS_SUCCESS
-            level = "success"
-        else:
-            message = (
-                f"Импорт «{setting.name}» завершен с ошибкой: обработано строк {processed_rows}, "
-                f"ошибок {errors_count}, длительность {duration_seconds} сек."
-            )
-            status = SupplierFile.STATUS_ERROR
-            level = "warning"
+        processed_rows = len(products)
+        message = (
+            f"Импорт «{setting.name}» завершен: обработано строк {processed_rows}, "
+            f"длительность {duration_seconds} сек."
+        )
 
         _append_supplier_file_log(supplier_file, message)
         if supplier_file:
-            supplier_file.status = status
+            supplier_file.status = SupplierFile.STATUS_SUCCESS
             supplier_file.save(update_fields=["status"])
 
         PersistentNotification.objects.create(
             user_id=user_id,
-            level=level,
+            level="success",
             message=message,
         )
         return {
-            "status": "ok" if success else "error",
+            "status": "ok",
             "processed_rows": processed_rows,
-            "errors": errors_count,
+            "errors": 0,
             "duration_seconds": duration_seconds,
             "message": message,
         }
-    except SupplierFileStorageMissingError as exc:
+    except (SupplierImportError, SupplierFileStorageMissingError) as exc:
+        # Expected refusals: the file or the setting is wrong, not the code.
+        # Reported to the user with the reason and not re-raised.
         duration_seconds = round((timezone.now() - started_at).total_seconds(), 2)
+        storage_missing = isinstance(exc, SupplierFileStorageMissingError)
+        reason = "Файл настройки отсутствует в media-хранилище." if storage_missing else str(exc)
         error_message = (
-            f"Импорт «{setting.name}» завершен с ошибкой: обработано строк 0, ошибок 1, "
-            f"длительность {duration_seconds} сек. Причина: Файл настройки отсутствует в media-хранилище."
+            f"Импорт «{setting.name}» не выполнен, данные не изменены. Причина: {reason} "
+            f"(длительность {duration_seconds} сек.)"
         )
-        _append_supplier_file_log(supplier_file, f"{error_message} ({exc})")
+        _append_supplier_file_log(supplier_file, f"{error_message} ({exc})" if storage_missing else error_message)
         if supplier_file:
             supplier_file.status = SupplierFile.STATUS_ERROR
             supplier_file.save(update_fields=["status"])
@@ -141,9 +131,14 @@ def process_setting_upload(setting_id: int, user_id: int) -> dict:
 def cleanup_supplier_files_task() -> dict:
     """
     Удаляет старые SupplierFile, оставляя только последние N файлов на каждую настройку.
+
+    Последний файл настройки не удаляется никогда (N не меньше 1): его читают
+    экран сопоставления колонок и импорт. Файлы в очереди или в обработке
+    тоже не трогаются.
     """
-    keep_last = max(getattr(settings, "SUPPLIER_FILES_KEEP_LAST", 1), 0)
+    keep_last = max(getattr(settings, "SUPPLIER_FILES_KEEP_LAST", 1), 1)
     deleted_count = 0
+    in_progress = (SupplierFile.STATUS_QUEUED, SupplierFile.STATUS_RUNNING)
 
     for setting in Setting.objects.only("id").iterator():
         file_ids = list(
@@ -153,7 +148,8 @@ def cleanup_supplier_files_task() -> dict:
         if not ids_to_delete:
             continue
 
-        for supplier_file in SupplierFile.objects.filter(pk__in=ids_to_delete).iterator():
+        stale_files = SupplierFile.objects.filter(pk__in=ids_to_delete).exclude(status__in=in_progress)
+        for supplier_file in stale_files.iterator():
             supplier_file.delete()
             deleted_count += 1
 
