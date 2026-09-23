@@ -522,6 +522,34 @@ supplier; a user asked for supplier data split out, and the shape changed
   helper, not raw `iter_rows` output, or a real trailing-`None` bug reads as
   a passing test.
 
+### Full CSV export from the admin (`FullCsvExporter`)
+
+The Product changelist in the admin has a «Полный экспорт (csv)» button
+(`product/templates/admin/product/product/change_list.html`, POST to
+`admin:product_product_export_full_csv`, `ProductAdmin.export_full_csv_view`,
+view permission required) → `export_products_full_csv_task`. It always exports
+the **whole catalogue**, whatever the changelist is filtered to (empty
+`QueryDict` → page default order), with a fixed column set
+`FULL_EXPORT_COLUMNS` (every price in `PRICE_COLUMNS` + `stock`).
+
+- **Same rules as the xlsx, not a copy of them.** `build()` was split into
+  `suppliers(pks)` and the `rows()` generator; `FullCsvExporter.write()` consumes
+  the same rows. Change main-value rules in one place and both formats follow.
+- **CSV has one sheet, so suppliers are column blocks**: `<поставщик> • <колонка>`,
+  price-priority order, only suppliers that have rows. A product a supplier
+  lacks gets empty cells there.
+- **Format**: `;` delimiter + UTF-8 BOM + **comma decimals** (`_csv_value`) —
+  for RU-locale Excel. `;` with dot decimals is the one wrong pair: that Excel
+  reads `3.10` as 3 October. A zero collapsed by `main_value` is written as
+  `0`, not `0,00`.
+- Written to a `TemporaryFile`, not `BytesIO` — hundreds of columns × ~158k rows.
+- Its own lock (`product.export_products_full_csv:{user}`), so a running xlsx
+  export doesn't make it «пропущен». Both tasks share `_run_export`.
+- `ProductExportDownloadView` takes the extension from the stored file name —
+  it used to hardcode `.xlsx`.
+- The admin doesn't render `PersistentNotification`s; the message tells the
+  user the link arrives «в оповещениях на сайте».
+
 See [[core]] for the export notification/toast mechanics (the 204 response
 trap on the triggering HTMX request) — not repeated here.
 
