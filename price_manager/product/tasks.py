@@ -77,6 +77,50 @@ def sync_products_batch_task(pks: list[int], delay: float = 0.5) -> dict:
 EXPORT_TIME_LIMIT = 60 * 60
 
 
+def _run_export(task_name: str, title: str, user_id: int, build) -> dict:
+    """Общий ход экспорта: блокировка, файл, уведомление со ссылкой на скачивание.
+
+    build() возвращает сохранённый ProductExport.
+    """
+    from django.urls import reverse
+    from django.utils.html import escape
+
+    from core.tasks import _notify
+
+    created = {}
+
+    def _runner():
+        export = build()
+        created['export'] = export
+        return export.rows_count
+
+    try:
+        payload = execute_locked_task(
+            task_name=task_name,
+            lock_ttl=EXPORT_TIME_LIMIT,
+            runner=_runner,
+            # Минуты чтения и в конце одна загрузка файла и одна вставка —
+            # транзакция на весь проход ничего не даёт, а держалась бы открытой.
+            atomic=False,
+        )
+    except Exception as exc:
+        _notify(user_id, 'danger', f'{title} завершился с ошибкой: {escape(exc)}')
+        raise
+
+    export = created.get('export')
+    if payload.get('status') == 'skipped':
+        _notify(user_id, 'warning', f'{title} пропущен: предыдущий ещё выполняется.')
+    elif export is not None:
+        _notify(
+            user_id,
+            'success',
+            f'{title} готов. Строк: {export.rows_count}.',
+            link=reverse('product-export-download', kwargs={'pk': export.pk}),
+            link_text='Скачать файл',
+        )
+    return payload
+
+
 @shared_task(name='product.export_products', time_limit=EXPORT_TIME_LIMIT,
              soft_time_limit=EXPORT_TIME_LIMIT - 60)
 def export_products_task(query: str, columns: list[str], user_id: int) -> dict:
@@ -87,42 +131,24 @@ def export_products_task(query: str, columns: list[str], user_id: int) -> dict:
     нажатия.
     """
     from django.http import QueryDict
-    from django.urls import reverse
-    from django.utils.html import escape
-
-    from core.tasks import _notify
 
     from .export import build_product_export
 
-    created = {}
+    return _run_export(
+        f'product.export_products:{user_id}', 'Экспорт товаров', user_id,
+        lambda: build_product_export(QueryDict(query), columns, user_id))
 
-    def _runner():
-        export = build_product_export(QueryDict(query), columns, user_id)
-        created['export'] = export
-        return export.rows_count
 
-    try:
-        payload = execute_locked_task(
-            task_name=f'product.export_products:{user_id}',
-            lock_ttl=EXPORT_TIME_LIMIT,
-            runner=_runner,
-            # Минуты чтения и в конце одна загрузка файла и одна вставка —
-            # транзакция на весь проход ничего не даёт, а держалась бы открытой.
-            atomic=False,
-        )
-    except Exception as exc:
-        _notify(user_id, 'danger', f'Экспорт товаров завершился с ошибкой: {escape(exc)}')
-        raise
+@shared_task(name='product.export_products_full_csv', time_limit=EXPORT_TIME_LIMIT,
+             soft_time_limit=EXPORT_TIME_LIMIT - 60)
+def export_products_full_csv_task(user_id: int) -> dict:
+    """Полный экспорт каталога в csv (кнопка в админке). Ссылка — в уведомлении.
 
-    export = created.get('export')
-    if payload.get('status') == 'skipped':
-        _notify(user_id, 'warning', 'Экспорт товаров пропущен: предыдущий ещё выполняется.')
-    elif export is not None:
-        _notify(
-            user_id,
-            'success',
-            f'Экспорт товаров готов. Строк: {export.rows_count}.',
-            link=reverse('product-export-download', kwargs={'pk': export.pk}),
-            link_text='Скачать файл',
-        )
-    return payload
+    Своя блокировка, не общая с xlsx: идущий экспорт страницы не должен
+    пропускать полный.
+    """
+    from .export import build_full_csv_export
+
+    return _run_export(
+        f'product.export_products_full_csv:{user_id}', 'Полный экспорт товаров (csv)', user_id,
+        lambda: build_full_csv_export(user_id))

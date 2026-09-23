@@ -1,5 +1,9 @@
-"""Экспорт товарной страницы в xlsx: та же выборка, тот же порядок, выбранные колонки.
+"""Экспорт товаров: страница в xlsx и полный каталог в csv.
 
+Полный csv (кнопка в админке товаров) — FullCsvExporter: те же правила, но
+весь каталог, фиксированные колонки и поставщики колонками, а не листами.
+
+xlsx — та же выборка, что на странице, тот же порядок, выбранные колонки.
 Листы:
 
 - «Товары» — строка на товар (Product), как строка страницы: колонки товара
@@ -15,13 +19,17 @@
 не все поставщики базы: иначе фильтр по одному поставщику давал бы файл из
 пустых листов остальных.
 """
+import csv
+import tempfile
 from collections import defaultdict
 from datetime import date, datetime
 from decimal import Decimal
-from io import BytesIO
+from io import BytesIO, TextIOWrapper
 
+from django.core.files import File
 from django.core.files.base import ContentFile
 from django.db.models import Prefetch
+from django.http import QueryDict
 from django.utils import timezone
 from openpyxl import Workbook
 from openpyxl.cell import WriteOnlyCell
@@ -56,6 +64,10 @@ MAIN_SHEET = 'Товары'
 PRODUCT_TITLES = ['Артикул', 'Название', 'Бренд', 'Категории']
 # Начало строки на листе поставщика — по нему лист сверяется с «Товарами».
 IDENTITY_TITLES = ['Артикул', 'Название']
+
+# Полный csv-экспорт (FullCsvExporter): все цены и остаток, в порядке выбора колонок.
+FULL_EXPORT_COLUMNS = [key for key in SUPPLIER_ROW_COLUMNS
+                       if key in PRICE_COLUMNS or key == STOCK_COLUMN]
 
 # Имя листа Excel: не длиннее 31 символа, без []:*?/\ и не пустое.
 SHEET_NAME_LIMIT = 31
@@ -169,6 +181,11 @@ def _excel_value(value):
     if value is None or isinstance(value, (str, int, float, Decimal, date)):
         return value
     return str(value)
+
+
+def _csv_value(value):
+    """Ячейка csv: пусто — пустая строка, остальное — как есть строкой."""
+    return '' if value is None else _excel_value(value)
 
 
 def _joined(values):
@@ -290,9 +307,8 @@ class ProductExporter:
             cells.append(main_value(values[pk][key] for pk in order if pk in values))
         return cells
 
-    def build(self) -> tuple[bytes, int]:
-        pks = ordered_product_pks(self.params)
-
+    def suppliers(self, pks):
+        """Поставщики выгружаемых товаров: [(pk, имя)] по приоритету цены и [pk] по остаткам."""
         supplier_ids = set()
         if self.supplier_columns:
             for chunk in _chunks(pks):
@@ -300,8 +316,37 @@ class ProductExporter:
                     MainProduct.objects.filter(product_id__in=chunk)
                     .order_by().values_list('supplier_id', flat=True).distinct())
         price_suppliers = ranked_suppliers(supplier_ids, 'price_priority')
-        price_order = [pk for pk, _ in price_suppliers]
         stock_order = [pk for pk, _ in ranked_suppliers(supplier_ids, 'stock_priority')]
+        return price_suppliers, stock_order
+
+    def rows(self, pks, price_order, stock_order):
+        """По строке на товар в порядке pks: (ячейки товара, основные значения,
+        {pk поставщика: {колонка: значение}} — только поставщики, у которых
+        товар есть).
+
+        Общая часть xlsx и csv: правила основного значения и свёртки строк
+        одного поставщика у них одни.
+        """
+        for chunk in _chunks(pks):
+            products = self.products(chunk)
+            main_products = defaultdict(list)
+            for main_product in self.main_products(chunk):
+                main_products[main_product.product_id].append(main_product)
+            # pk__in порядок не хранит — порядок страницы восстанавливается по chunk.
+            for pk in chunk:
+                product = products.get(pk)
+                if product is None:
+                    continue
+                rows = main_products.get(pk, [])
+                values = self.supplier_values(rows) if self.supplier_columns else {}
+                yield (self.product_cells(product, rows),
+                       self.main_value_cells(values, price_order, stock_order),
+                       values)
+
+    def build(self) -> tuple[bytes, int]:
+        pks = ordered_product_pks(self.params)
+        price_suppliers, stock_order = self.suppliers(pks)
+        price_order = [pk for pk, _ in price_suppliers]
 
         workbook = Workbook(write_only=True)
         bold = Font(bold=True)
@@ -325,30 +370,54 @@ class ProductExporter:
                                       sheet_names(name for _, name in price_suppliers))
         }
 
-        for chunk in _chunks(pks):
-            products = self.products(chunk)
-            main_products = defaultdict(list)
-            for main_product in self.main_products(chunk):
-                main_products[main_product.product_id].append(main_product)
-            # pk__in порядок не хранит — порядок страницы восстанавливается по chunk.
-            for pk in chunk:
-                product = products.get(pk)
-                if product is None:
-                    continue
-                rows = main_products.get(pk, [])
-                product_cells = self.product_cells(product, rows)
-                values = self.supplier_values(rows) if self.supplier_columns else {}
-                main_sheet.append([_excel_value(value) for value in (
-                    product_cells + self.main_value_cells(values, price_order, stock_order))])
-                identity = product_cells[:len(IDENTITY_TITLES)]
-                for supplier_pk in price_order:
-                    if supplier_pk in values:
-                        supplier_sheets[supplier_pk].append([_excel_value(value) for value in (
-                            identity + [values[supplier_pk][key] for key in self.supplier_columns])])
+        for product_cells, main_cells, values in self.rows(pks, price_order, stock_order):
+            main_sheet.append([_excel_value(value) for value in product_cells + main_cells])
+            identity = product_cells[:len(IDENTITY_TITLES)]
+            for supplier_pk in price_order:
+                if supplier_pk in values:
+                    supplier_sheets[supplier_pk].append([_excel_value(value) for value in (
+                        identity + [values[supplier_pk][key] for key in self.supplier_columns])])
 
         buffer = BytesIO()
         workbook.save(buffer)
         return buffer.getvalue(), len(pks)
+
+
+class FullCsvExporter(ProductExporter):
+    """Полный экспорт каталога в csv — кнопка в админке товаров.
+
+    Весь каталог (фильтров нет, порядок — страница по умолчанию), одна
+    строка на товар: товар, основные цены и остаток по приоритету
+    поставщика, затем по блоку на каждого поставщика — все его цены и
+    остаток, колонки «<поставщик> • <колонка>», поставщики по приоритету
+    цены. У csv один лист, поэтому поставщики — колонками, а не листами.
+
+    Разделитель «;» и BOM — так файл сразу открывает Excel с русской
+    локалью; числа — с точкой, как их прочтёт другая система.
+    """
+
+    DELIMITER = ';'
+    ENCODING = 'utf-8-sig'
+
+    def __init__(self):
+        super().__init__(QueryDict(), FULL_EXPORT_COLUMNS)
+
+    def write(self, stream) -> int:
+        pks = ordered_product_pks(self.params)
+        price_suppliers, stock_order = self.suppliers(pks)
+        price_order = [pk for pk, _ in price_suppliers]
+        labels = [COLUMN_LABELS[key] for key in self.supplier_columns]
+
+        writer = csv.writer(stream, delimiter=self.DELIMITER)
+        writer.writerow(self.main_titles() + [
+            f'{name} • {label}' for _, name in price_suppliers for label in labels])
+        empty = dict.fromkeys(self.supplier_columns)
+        for product_cells, main_cells, values in self.rows(pks, price_order, stock_order):
+            supplier_cells = [values.get(pk, empty)[key]
+                              for pk in price_order for key in self.supplier_columns]
+            writer.writerow([_csv_value(value)
+                             for value in product_cells + main_cells + supplier_cells])
+        return len(pks)
 
 
 def build_product_export(params, selected_columns, user_id) -> ProductExport:
@@ -357,4 +426,19 @@ def build_product_export(params, selected_columns, user_id) -> ProductExport:
     # Имя на диске — ASCII; человеческое имя подставляет представление скачивания.
     export.file.save(f'products-{user_id}-{timezone.now():%Y%m%d-%H%M%S}.xlsx',
                      ContentFile(content), save=True)
+    return export
+
+
+def build_full_csv_export(user_id) -> ProductExport:
+    # Весь каталог — сотни колонок на ~158 тыс. строк: пишется во временный
+    # файл, а не собирается в памяти.
+    with tempfile.TemporaryFile() as raw:
+        stream = TextIOWrapper(raw, encoding=FullCsvExporter.ENCODING, newline='')
+        rows_count = FullCsvExporter().write(stream)
+        stream.flush()
+        raw.seek(0)
+        export = ProductExport(user_id=user_id, rows_count=rows_count)
+        export.file.save(f'products-full-{user_id}-{timezone.now():%Y%m%d-%H%M%S}.csv',
+                         File(raw), save=True)
+        stream.detach()
     return export

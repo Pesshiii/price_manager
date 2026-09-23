@@ -1,5 +1,6 @@
+import csv
 from decimal import Decimal
-from io import BytesIO
+from io import BytesIO, StringIO
 from unittest import mock
 
 from django.contrib.auth.models import User
@@ -15,7 +16,8 @@ from supplier_manager.models import Supplier
 
 from product.columns import COLUMN_LABELS
 from product.export import (
-    ProductExporter, main_value, ordered_product_pks, ranked_suppliers, sheet_names,
+    FULL_EXPORT_COLUMNS, ProductExporter, build_full_csv_export, main_value,
+    ordered_product_pks, ranked_suppliers, sheet_names,
 )
 from product.models import Brand, Category, Product, ProductExport
 
@@ -246,3 +248,104 @@ class ExportViewTests(TestCase):
         notification = PersistentNotification.objects.get(user=self.user)
         self.assertEqual(notification.link,
                          reverse('product-export-download', kwargs={'pk': export.pk}))
+
+
+def read_csv(content):
+    """csv полного экспорта: (заголовок, строки словарями по заголовку)."""
+    rows = list(csv.reader(StringIO(content.decode('utf-8-sig')), delimiter=';'))
+    return rows[0], as_dicts(rows)
+
+
+class FullCsvExportTests(TestCase):
+    def setUp(self):
+        self.user = User.objects.create_superuser(username='admin', password='pw')
+        # По цене первым идёт А, по остаткам — Б.
+        self.a = Supplier.objects.create(name='А', price_priority=1, stock_priority=2)
+        self.b = Supplier.objects.create(name='Б', price_priority=2, stock_priority=1)
+        self.product = Product.objects.create(pim_id='p-1', number='SKU-1', name='Смеситель')
+        MainProduct.objects.create(
+            product=self.product, supplier=self.a, article='A-1', name='Смеситель А',
+            prime_cost=Decimal('0'), basic_price=Decimal('100'), stock=0)
+        MainProduct.objects.create(
+            product=self.product, supplier=self.b, article='B-1', name='Смеситель Б',
+            prime_cost=Decimal('80'), basic_price=Decimal('120'), stock=7)
+
+    def export(self):
+        export = build_full_csv_export(self.user.pk)
+        with export.file.open('rb') as file:
+            return export, read_csv(file.read())
+
+    def test_main_values_then_every_supplier_block_in_price_priority(self):
+        Product.objects.create(pim_id='p-2', number='SKU-2', name='Без поставщиков')
+        export, (header, rows) = self.export()
+        self.assertEqual(export.rows_count, 2)
+        self.assertTrue(export.file.name.endswith('.csv'))
+
+        labels = [COLUMN_LABELS[key] for key in FULL_EXPORT_COLUMNS]
+        self.assertEqual(header, (
+            ['Артикул', 'Название', 'Бренд', 'Категории']
+            + [f'{label} (основной)' if key == 'stock' else f'{label} (основная)'
+               for key, label in zip(FULL_EXPORT_COLUMNS, labels)]
+            + [f'А • {label}' for label in labels]
+            + [f'Б • {label}' for label in labels]))
+
+        row = next(row for row in rows if row['Артикул'] == 'SKU-1')
+        # У А (приоритет по цене 1) себестоимость 0 — основная берётся у Б.
+        self.assertEqual(row['Себестоимость (основная)'], '80.00')
+        self.assertEqual(row['Базовая цена (основная)'], '100.00')
+        # По остаткам первым идёт Б.
+        self.assertEqual(row['Остаток (основной)'], '7')
+        self.assertEqual(row['Цена ИМ (основная)'], '')
+        # Ноль остаётся нулём, а не пустой ячейкой (main_value).
+        self.assertEqual(row['А • Себестоимость'], '0')
+        self.assertEqual(row['Б • Базовая цена'], '120.00')
+        self.assertEqual(row['А • Остаток'], '0')
+
+        # Товар без строк поставщиков тоже в файле — с пустыми ценами.
+        bare = next(row for row in rows if row['Артикул'] == 'SKU-2')
+        self.assertEqual(bare['Базовая цена (основная)'], '')
+        self.assertEqual(bare['А • Базовая цена'], '')
+
+    def test_several_rows_of_one_supplier_fall_through(self):
+        MainProduct.objects.filter(supplier=self.b).delete()
+        MainProduct.objects.create(product=self.product, supplier=self.a, article='A-2',
+                                   name='Смеситель А2', m_price=Decimal('55'))
+        _, (header, rows) = self.export()
+        self.assertFalse(any(title.startswith('Б • ') for title in header))
+        self.assertEqual(rows[0]['А • Цена ИМ'], '55.00')
+        self.assertEqual(rows[0]['Цена ИМ (основная)'], '55.00')
+
+    def test_admin_button_posts_and_queues_task(self):
+        self.client.force_login(self.user)
+        changelist = reverse('admin:product_product_changelist')
+        url = reverse('admin:product_product_export_full_csv')
+        self.assertContains(self.client.get(changelist), url)
+
+        self.assertEqual(self.client.get(url).status_code, 405)
+        with mock.patch('product.admin.export_products_full_csv_task.delay') as delay:
+            response = self.client.post(url)
+        self.assertRedirects(response, changelist)
+        delay.assert_called_once_with(user_id=self.user.pk)
+
+    def test_admin_export_needs_view_permission(self):
+        staff = User.objects.create_user(username='staff', password='pw', is_staff=True)
+        self.client.force_login(staff)
+        with mock.patch('product.admin.export_products_full_csv_task.delay') as delay:
+            response = self.client.post(reverse('admin:product_product_export_full_csv'))
+        self.assertEqual(response.status_code, 403)
+        delay.assert_not_called()
+
+    def test_task_notifies_and_download_is_csv(self):
+        from core.models import PersistentNotification
+        from product.tasks import export_products_full_csv_task
+
+        export_products_full_csv_task(user_id=self.user.pk)
+        export = ProductExport.objects.get(user=self.user)
+        notification = PersistentNotification.objects.get(user=self.user)
+        self.assertEqual(notification.link,
+                         reverse('product-export-download', kwargs={'pk': export.pk}))
+
+        self.client.force_login(self.user)
+        response = self.client.get(notification.link)
+        self.assertEqual(response.status_code, 200)
+        self.assertIn('.csv', response['Content-Disposition'])

@@ -1,4 +1,5 @@
 import logging
+import os
 
 from django.contrib import messages
 from django.db.models import OuterRef, Prefetch, Subquery
@@ -248,8 +249,10 @@ class ProductExportDownloadView(View):
         export = get_object_or_404(ProductExport, pk=pk, user=request.user)
         if not export.file:
             raise Http404('Файл выгрузки не найден')
+        # Расширение — с диска: там и xlsx страницы, и полный csv из админки.
+        extension = os.path.splitext(export.file.name)[1] or '.xlsx'
         return FileResponse(export.file.open('rb'), as_attachment=True,
-                            filename=f'Товары {export.created_at:%Y-%m-%d %H-%M}.xlsx')
+                            filename=f'Товары {export.created_at:%Y-%m-%d %H-%M}{extension}')
 
 
 class PimImageView(View):
