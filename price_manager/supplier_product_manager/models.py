@@ -159,12 +159,14 @@ class SupplierFile(models.Model):
   STATUS_RUNNING = 2
   STATUS_SUCCESS = 1
   STATUS_ERROR = -1
+  STATUS_NEEDS_CONFIRMATION = 3
 
   STATUS_CHOICES = [
     (STATUS_QUEUED, 'В очереди'),
     (STATUS_RUNNING, 'В процессе'),
     (STATUS_SUCCESS, 'Успешно'),
     (STATUS_ERROR, 'Ошибка'),
+    (STATUS_NEEDS_CONFIRMATION, 'Ждёт подтверждения'),
   ]
 
   setting = models.ForeignKey(Setting,
@@ -191,24 +193,46 @@ def document_pre_delete(sender, instance, **kwargs):
     instance.file.delete(save=False)
 
 
+def format_count(value) -> str:
+  """1234567 -> «1 234 567» (узкий неразрывный пробел)."""
+  return f"{int(value):,}".replace(",", " ")
+
+
+def _rows_word(value) -> str:
+  """1 строка, 2 строки, 5 строк, 21 строка, 11 строк."""
+  value = abs(int(value))
+  if value % 10 == 1 and value % 100 != 11:
+    return "строка"
+  if 2 <= value % 10 <= 4 and not 12 <= value % 100 <= 14:
+    return "строки"
+  return "строк"
+
+
 class ImportRun(models.Model):
   """Один запуск импорта прайса по настройке и его счётчики.
 
   История покрытия настройки: по ней проверка импорта сравнивает новый файл с
   обычным для этой настройки числом строк — отдельно с ценой и с остатком.
-  Счётчики разбора — см. functions.SPS_STAT_FIELDS; created/updated/missing
-  заполняются только у применённого импорта.
+  Счётчики разбора — см. functions.SPS_STAT_FIELDS. created/updated/missing
+  есть у применённого импорта и у ждущего подтверждения (там — что сделает
+  применение); у отказа их нет.
   """
   STATUS_RUNNING = "running"
   STATUS_APPLIED = "applied"
   STATUS_REFUSED = "refused"
   STATUS_FAILED = "failed"
+  STATUS_NEEDS_CONFIRMATION = "pending"
+  STATUS_CANCELLED = "cancelled"
+  STATUS_SUPERSEDED = "superseded"
 
   STATUS_CHOICES = [
     (STATUS_RUNNING, "Выполняется"),
     (STATUS_APPLIED, "Применён"),
     (STATUS_REFUSED, "Отказ"),
     (STATUS_FAILED, "Ошибка"),
+    (STATUS_NEEDS_CONFIRMATION, "Ждёт подтверждения"),
+    (STATUS_CANCELLED, "Отменён"),
+    (STATUS_SUPERSEDED, "Заменён"),
   ]
 
   setting = models.ForeignKey(Setting,
@@ -239,6 +263,16 @@ class ImportRun(models.Model):
   started_at = models.DateTimeField(verbose_name="Начало", auto_now_add=True)
   finished_at = models.DateTimeField(verbose_name="Окончание", null=True, blank=True)
   mapped_keys = models.JSONField(verbose_name="Сопоставленные поля", default=list, blank=True)
+  # Setting + file signature at the time of the check: a confirmation applies
+  # only the file and mapping the user was shown.
+  signature = models.CharField(verbose_name="Сигнатура настройки", max_length=64, blank=True, default="")
+  guard_reasons = models.JSONField(verbose_name="Причины проверки", default=list, blank=True)
+  confirmed_by = models.ForeignKey(settings.AUTH_USER_MODEL,
+                                   verbose_name="Подтвердил",
+                                   related_name="confirmed_import_runs",
+                                   on_delete=models.SET_NULL,
+                                   null=True, blank=True)
+  confirmed_at = models.DateTimeField(verbose_name="Подтверждён", null=True, blank=True)
 
   rows_in_sheet = models.PositiveIntegerField(verbose_name="Строк на листе", null=True, blank=True)
   rows_with_article = models.PositiveIntegerField(verbose_name="Строк с артикулом", null=True, blank=True)
@@ -267,6 +301,22 @@ class ImportRun(models.Model):
 
   def __str__(self):
     return f"{self.setting} · {self.get_status_display()} · {self.started_at:%Y-%m-%d %H:%M}"
+
+  GUARD_METRIC_LABELS = {"covered_price": "С ценой", "covered_stock": "С остатком"}
+
+  def reason_lines(self) -> list[str]:
+    """Причины, по которым импорт ждёт подтверждения, — по строке на причину."""
+    lines = []
+    for reason in self.guard_reasons:
+      if reason.get("kind") == "history":
+        lines.append(
+          f"Первые загрузки этой настройки: история ещё копится "
+          f"({reason['have']} из {reason['need']})")
+      elif reason.get("kind") == "drop":
+        label = self.GUARD_METRIC_LABELS.get(reason["metric"], reason["metric"])
+        lines.append(f"{label}: {format_count(reason['value'])} {_rows_word(reason['value'])}, "
+                     f"обычно ~{format_count(reason['baseline'])}")
+    return lines
 
   def record_stats(self, stats: dict) -> None:
     """Перенести известные счётчики и mapped_keys из stats, лишние ключи игнорируются."""

@@ -56,6 +56,9 @@ urlpatterns = [
     path('setting/<int:pk>/table', spm_views.XMLTableView.as_view(), name='setting-table'),
     path('setting/<int:pk>/sps', spm_views.SettingSPSTableView.as_view(), name='setting-sps-table'),
     path('setting/<int:pk>/upload/<int:state>', spm_views.setting_upload, name='setting-upload'),
+    path('import-run/<int:pk>/', spm_views.import_run_confirm, name='import-run-confirm'),
+    path('import-run/<int:pk>/apply', spm_views.import_run_apply, name='import-run-apply'),
+    path('import-run/<int:pk>/cancel', spm_views.import_run_cancel, name='import-run-cancel'),
 
     path('supplier/<int:pk>/pricemanagers/', ppm_views.PriceManagerList.as_view(), name='pricemanagers'),
     path('pricemanager/<int:pk>/', ppm_views.PriceManagerUpdate.as_view(), name='pricemanager-update'),

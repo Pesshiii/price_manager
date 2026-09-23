@@ -66,9 +66,13 @@ SP_AVAILABLE_COLUMN_CHOICES = [item for _, options in SP_AVAILABLE_COLUMN_GROUPS
 SP_AVAILABLE_COLUMN_MAP = dict(SP_AVAILABLE_COLUMN_CHOICES)
 
 class SettingListTable(tables.Table):
+  # Annotated by SettingList.get_queryset (last_run_pk/_status/_at).
+  last_import = tables.Column(verbose_name='Последний импорт', accessor='last_run_status',
+                              empty_values=(), orderable=False)
+
   class Meta:
     model = Setting
-    fields = ['name']
+    fields = ['name', 'last_import']
     template_name = 'core/includes/table_htmx.html'
     attrs = {
       'class': 'table table-auto table-stripped table-hover clickable-rows'
@@ -87,6 +91,28 @@ class SettingListTable(tables.Table):
       </a>
         <span>{}</span>
       """, reverse('setting-update', kwargs={'pk':record.pk}), record.name)
+
+  def render_last_import(self, record):
+    status = getattr(record, 'last_run_status', None)
+    if not status:
+      return '—'
+    if status == ImportRun.STATUS_NEEDS_CONFIRMATION:
+      return format_html("""
+        <button type="button" class="btn btn-sm btn-warning"
+          data-bs-toggle="modal"
+          data-bs-target="#import-confirm-modal"
+          hx-get="{}"
+          hx-target="#import-confirm-modal .modal-content"
+          hx-swap="innerHTML">Ждёт подтверждения</button>
+        """, reverse('import-run-confirm', kwargs={'pk': record.last_run_pk}))
+    css = {
+      ImportRun.STATUS_APPLIED: 'text-success',
+      ImportRun.STATUS_REFUSED: 'text-danger',
+      ImportRun.STATUS_FAILED: 'text-danger',
+    }.get(status, 'text-muted')
+    label = dict(ImportRun.STATUS_CHOICES).get(status, status)
+    return format_html('<span class="{}">{}</span> <span class="text-muted small">{}</span>',
+                       css, label, timezone.localtime(record.last_run_at).strftime('%d.%m %H:%M'))
   
 
 

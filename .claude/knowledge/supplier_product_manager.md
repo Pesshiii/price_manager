@@ -214,6 +214,46 @@ without recording a run.
 - `supplier_file` is `SET_NULL` with `file_name` copied: the cleanup task deletes
   files, the history must outlive them.
 
+## The import guard — confirmation instead of a silent bad import
+
+`process_supplier_file_import` parses first (`get_sps_result` + `apply_counts`),
+then asks `guard.evaluate` whether to apply. It holds the import (status
+`pending`, `SupplierFile.STATUS_NEEDS_CONFIRMATION`, a `warning` notification
+whose link opens the dialog) when:
+
+- the setting has fewer than `SUPPLIER_IMPORT_GUARD_MIN_HISTORY` (3) applied
+  runs — **every** import asks until history exists; there is deliberately no
+  history-free heuristic and no seeding from old notifications;
+- `covered_price` or `covered_stock` is below `SUPPLIER_IMPORT_GUARD_RATIO`
+  (0.7) × the **median** of the last `SUPPLIER_IMPORT_GUARD_WINDOW` (5) applied
+  runs. Median, not mean: one force-applied outlier must not drag the
+  baseline. A metric whose median is 0 (the setting never delivered it) is
+  not checked. Thresholds live in `settings/project.py`.
+
+Confirmed runs are `applied` runs, so they feed the history: a genuine shrink
+stops asking after a few confirmations.
+
+Confirmation mechanics — each piece closes a specific race:
+
+- `import_run_apply` claims the run with a conditional
+  `UPDATE … WHERE status='pending'` → `running` and dispatches through
+  `dispatch_after_commit`; a double click finds nothing to claim.
+- The confirmed task re-applies **without** a second check, but only if the
+  newest file and `_get_setting_signature` still match `ImportRun.signature`;
+  otherwise the run becomes `superseded`. A confirmation never applies a file
+  or mapping the user did not see.
+- A new import of the setting, or a new upload, marks a pending run
+  `superseded`. Cleanup skips files in `STATUS_NEEDS_CONFIRMATION`.
+- `load_setting` writes inside `transaction.atomic()` (`_apply`): upsert,
+  clearing of missing rows and `supplier.save()` land together or not at all.
+
+UI: `SettingListTable.last_import` (annotated by `SettingList.get_queryset`,
+one subquery, no N+1) shows the last run; a pending one is a button opening
+`import_confirm_modal.html` in its own compact `#import-confirm-modal` on the
+supplier page (not the shared `modal-xl` container). `SupplierDetail` opens it
+on load for `?import_run=<pk>` only while that run is still pending, so the
+`HttpResponseClientRefresh` after apply/cancel does not reopen it.
+
 ## Upload and cleanup — the file a setting depends on
 
 - **`UploadSupplierFile.form_valid`** (`views.py:145`) reads the workbook's
