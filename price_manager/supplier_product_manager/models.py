@@ -320,6 +320,9 @@ class ImportRun(models.Model):
   article_conflicts = models.PositiveIntegerField(verbose_name="Артикулов с разными названиями",
                                                   null=True, blank=True)
   renamed = models.PositiveIntegerField(verbose_name="Переименовано", null=True, blank=True)
+  possible_renames = models.PositiveIntegerField(verbose_name="Похоже на переименование", null=True, blank=True)
+  whitespace_ambiguous = models.PositiveIntegerField(
+    verbose_name="Отличаются пробелами от нескольких товаров", null=True, blank=True)
   articles_multi_db = models.PositiveIntegerField(verbose_name="Артикулов с несколькими товарами в базе",
                                                   null=True, blank=True)
   covered = models.PositiveIntegerField(verbose_name="Покрыто строк", null=True, blank=True)
@@ -336,6 +339,7 @@ class ImportRun(models.Model):
   COUNTER_FIELDS = (
     "rows_in_sheet", "rows_with_article", "rows_with_values", "rows_without_name",
     "rows_unmatched", "duplicates", "article_conflicts", "renamed", "articles_multi_db",
+    "possible_renames", "whitespace_ambiguous",
     "covered", "covered_price", "covered_stock",
     "created", "updated", "missing", "missing_linked",
   )

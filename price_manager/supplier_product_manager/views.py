@@ -253,9 +253,13 @@ def import_run_confirm(request, pk):
       ('Повторы строк (взята первая)', n(run.duplicates)),
       ('Артикулов с разными названиями', n(run.article_conflicts)),
       ('Нет в файле, привязаны к ГП', n(run.missing_linked)),
-      *([('Будет переименовано', n(run.renamed)),
-         ('Артикулов с несколькими товарами в базе', n(run.articles_multi_db))]
+      *([('Будет переименовано', n(run.renamed))]
+        if run.setting.match_by_article or run.renamed else []),
+      *([('Артикулов с несколькими товарами в базе', n(run.articles_multi_db))]
         if run.setting.match_by_article else []),
+      *([('Похоже на переименование', n(run.possible_renames))] if run.possible_renames else []),
+      *([('Отличаются пробелами от нескольких товаров', n(run.whitespace_ambiguous))]
+        if run.whitespace_ambiguous else []),
       ('С ценой', n(run.covered_price)),
       ('С остатком', n(run.covered_stock)),
       *run.price_change_lines(),

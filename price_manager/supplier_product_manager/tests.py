@@ -1994,3 +1994,128 @@ class PriceChangesTests(TestCase):
         self.client.force_login(user)
         response = self.client.get(reverse("import-run-confirm", kwargs={"pk": run.pk}))
         self.assertContains(response, "Цена поставщика: больше чем в 2 раза")
+
+
+class WhitespaceMatchTests(TestCase):
+    """Строка файла, которая отличается от товара базы только пробелами, обновляет его, а не создаёт новый.
+
+    Раньше «Товар» и «Товар␠» были разными товарами: импорт создавал новую
+    строку, а старую, привязанную к ГП, обнулял как «нет в файле»."""
+
+    setUp = BasicLoadTests.setUp
+    _create_supplier_file = BasicLoadTests._create_supplier_file
+    _setting = ImportRefusalReasonTests._setting
+
+    def _row(self, article, name, **fields):
+        mp = MainProduct.objects.create(supplier=self.supplier, article=article.strip(), name=name.strip())
+        return SupplierProduct.objects.create(supplier=self.supplier, article=article, name=name,
+                                              main_product=mp, stock=1, **fields)
+
+    def _load(self, setting, rows):
+        self._create_supplier_file(setting, pd.DataFrame(rows))
+        return load_setting(setting.pk)
+
+    def _keys(self):
+        return sorted(SupplierProduct.objects.filter(supplier=self.supplier).values_list("article", "name", "stock"))
+
+    def test_name_differing_by_whitespace_updates_the_existing_row(self):
+        row = self._row("А-1", "Товар ")
+        setting = self._setting(create_new=True, article="Артикул", name="Название", stock="Остаток")
+
+        outcome = self._load(setting, [{"Артикул": "А-1", "Название": "Товар", "Остаток": "7"}])
+
+        self.assertEqual(self._keys(), [("А-1", "Товар", 7)])
+        renamed = SupplierProduct.objects.get(supplier=self.supplier)
+        self.assertEqual((renamed.pk, renamed.main_product_id), (row.pk, row.main_product_id))
+        self.assertEqual({k: outcome.stats[k] for k in ("renamed", "created", "updated", "missing")},
+                         {"renamed": 1, "created": 0, "updated": 1, "missing": 0})
+
+    def test_whitespace_match_works_without_adding_new_products(self):
+        self._row("А-1", "Товар  1")
+        setting = self._setting(article="Артикул", name="Название", stock="Остаток")
+
+        self._load(setting, [{"Артикул": "А-1", "Название": "Товар 1", "Остаток": "7"}])
+
+        self.assertEqual(self._keys(), [("А-1", "Товар 1", 7)])
+
+    def test_article_differing_by_whitespace_is_renamed_too(self):
+        self._row("А-1 ", "Товар")
+        setting = self._setting(create_new=True, article="Артикул", name="Название", stock="Остаток")
+
+        self._load(setting, [{"Артикул": "А-1", "Название": "Товар", "Остаток": "7"}])
+
+        self.assertEqual(self._keys(), [("А-1", "Товар", 7)])
+
+    def test_exact_match_wins_and_its_whitespace_twin_is_not_renamed(self):
+        self._row("А-1", "Товар")
+        self._row("А-1", "Товар ")
+        setting = self._setting(create_new=True, article="Артикул", name="Название", stock="Остаток")
+
+        outcome = self._load(setting, [{"Артикул": "А-1", "Название": "Товар", "Остаток": "7"}])
+
+        self.assertEqual(outcome.stats["renamed"], 0)
+        # The twin is simply not in the file: cleared as missing, as before.
+        self.assertEqual(self._keys(), [("А-1", "Товар", 7), ("А-1", "Товар ", None)])
+
+    def test_several_whitespace_candidates_load_as_new_with_a_warning(self):
+        from supplier_product_manager.functions import duplicate_warning
+        self._row("А-1", "Товар ")
+        self._row("А-1", " Товар")
+        setting = self._setting(create_new=True, article="Артикул", name="Название", stock="Остаток")
+
+        outcome = self._load(setting, [{"Артикул": "А-1", "Название": "Товар", "Остаток": "7"}])
+
+        self.assertEqual((outcome.stats["renamed"], outcome.stats["whitespace_ambiguous"]), (0, 1))
+        self.assertIn(("А-1", "Товар", 7), self._keys())
+        self.assertIn("отличаются только пробелами сразу от нескольких товаров в базе: 1 (например: А-1)",
+                      duplicate_warning(outcome.stats))
+
+    def test_match_by_article_finds_an_article_differing_by_whitespace(self):
+        row = self._row("А-1 ", "Товар")
+        setting = self._setting(article="Артикул", name="Название", stock="Остаток")
+        setting.match_by_article = True
+        setting.save()
+
+        self._load(setting, [{"Артикул": "А-1", "Название": "Товар", "Остаток": "7"}])
+
+        self.assertEqual(self._keys(), [("А-1", "Товар", 7)])
+        self.assertEqual(SupplierProduct.objects.get(supplier=self.supplier).pk, row.pk)
+
+    def test_file_without_names_finds_an_article_differing_by_whitespace(self):
+        self._row("А-1 ", "Товар")
+        setting = self._setting(article="Артикул", stock="Остаток")
+
+        self._load(setting, [{"Артикул": "А-1", "Остаток": "7"}])
+
+        self.assertEqual(self._keys(), [("А-1", "Товар", 7)])
+
+
+class PossibleRenameTests(TestCase):
+    """Похожее на переименование не переносится автоматически, а попадает в предупреждение."""
+
+    setUp = BasicLoadTests.setUp
+    _create_supplier_file = BasicLoadTests._create_supplier_file
+    _setting = ImportRefusalReasonTests._setting
+
+    def _stats(self, db_rows, file_rows):
+        for article, name in db_rows:
+            SupplierProduct.objects.create(supplier=self.supplier, article=article, name=name, stock=1)
+        setting = self._setting(create_new=True, article="Артикул", name="Название", stock="Остаток")
+        self._create_supplier_file(setting, pd.DataFrame(
+            [{"Артикул": article, "Название": name, "Остаток": "1"} for article, name in file_rows]))
+        return get_sps_result(setting, recache=True)[1]
+
+    def test_single_row_article_with_a_new_name_is_flagged(self):
+        from supplier_product_manager.functions import duplicate_warning
+        stats = self._stats([("А-1", "Старое"), ("Б-1", "Другое")], [("А-1", "Новое"), ("Б-1", "Другое")])
+
+        self.assertEqual((stats["possible_renames"], stats["possible_rename_examples"]), (1, ["А-1"]))
+        self.assertIn("«Артикул уникален»", duplicate_warning(stats))
+
+    def test_variants_and_new_articles_are_not_flagged(self):
+        stats = self._stats(
+            [("А-1", "Красный"), ("А-1", "Синий")],
+            [("А-1", "Зелёный"), ("НОВЫЙ", "Товар")],
+        )
+
+        self.assertEqual(stats["possible_renames"], 0)

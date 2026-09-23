@@ -32,14 +32,18 @@ CACHE_TTL = 60 * 60 * 24 * 30  # 30 дней
 # 1.2: в кэше лежит {'payload', 'stats'}, а не голый список.
 # 1.3: в stats появились article_conflicts и article_conflict_examples.
 # 1.4: сопоставление по артикулу — renamed, articles_multi_db, _rename_from в payload.
-SPS_JSON_SCHEMA_VERSION = "1.4"
+# 1.5: _rename_from — пара (артикул, название); совпадение с точностью до
+#      пробелов, possible_renames, whitespace_ambiguous.
+SPS_JSON_SCHEMA_VERSION = "1.5"
 # Счётчики разбора, которые get_sps_result отдаёт вместе с payload, по этапам.
 SPS_STAT_FIELDS = (
     "rows_in_sheet",      # непустые строки листа
     "rows_with_article",  # из них с артикулом
     "rows_with_values",   # из них хоть одно значение распозналось
     "article_conflicts",  # артикулов, которые в файле встречаются с разными названиями
-    "renamed",            # match_by_article: строк, которые получат новое название
+    "renamed",            # строк, которые получат новый артикул или название (см. RENAME_FROM)
+    "possible_renames",   # похоже на переименование: подсказка включить match_by_article
+    "whitespace_ambiguous",  # отличаются пробелами от нескольких товаров базы сразу — загружены как новые
     "articles_multi_db",  # match_by_article: артикулов с несколькими товарами в базе (запись во все)
     "rows_without_name",  # отброшены: нет названия
     "rows_unmatched",     # отброшены: не совпали с товарами поставщика (create_new выключен)
@@ -447,7 +451,7 @@ def _parse_sps(setting: Setting, links, stats: dict) -> list[dict]:
     # held. The file's cleaned name then matched the copy, and the original row,
     # the one linked to the catalog, was cleared as missing. The admin action
     # is still there for a deliberate cleanup.
-    s_values = map(tuple, sps.values_list('article', 'name'))
+    db_keys = set(sps.values_list('article', 'name'))
     if df is None:
         if not setting.supplierfiles.exists():
             raise SupplierImportError('Для настройки не загружен файл')
@@ -508,6 +512,7 @@ def _parse_sps(setting: Setting, links, stats: dict) -> list[dict]:
             'Для добавления новых товаров нужен столбец названия — '
             'сопоставьте его или выключите «Добавлять новые товары»')
 
+    names_from_file = 'name' in df.columns
     if setting.match_by_article:
         rows_before = len(df)
         df = df.drop_duplicates(subset=['article'], keep='first')
@@ -516,20 +521,33 @@ def _parse_sps(setting: Setting, links, stats: dict) -> list[dict]:
         rows_unmatched += unmatched
     elif not 'name' in df.columns:
         # No names in the file: the row goes to every existing product with
-        # that article.
-        db_names = _db_names_by_article(sps, df['article'])
-        df = df.assign(name=df['article'].map(lambda article: db_names.get(article, [])))
+        # that article (or with the same article up to whitespace).
+        db_article = _db_articles(sps, df['article'])
+        db_names = _db_names_by_article(sps, db_article.values())
+        df = df.assign(name=df['article'].map(lambda article: db_names.get(db_article[article], [])))
         has_names = df['name'].apply(len) > 0
         rows_unmatched += int((~has_names).sum())
         df = df[has_names].explode('name', ignore_index=True)
+        rename_from = [
+            (db_article[article], name) if db_article[article] != article else None
+            for article, name in zip(df['article'], df['name'])
+        ]
+        df = df.assign(**{RENAME_FROM: rename_from})
+        stats['renamed'] = sum(old is not None for old in rename_from)
 
     rows_before = len(df)
     df = df.dropna(subset=['name'])
     stats['rows_without_name'] = rows_before - len(df)
     df = df.replace({pd.NA: None, float('nan'): None, '': None, 'NaN': None})
 
+    if names_from_file and not setting.match_by_article:
+        df = _match_whitespace_variants(df, db_keys, stats)
+
     if not setting.create_new and not setting.match_by_article:
-        mask = df[['article', 'name']].apply(tuple, axis=1).isin(s_values)
+        mask = pd.Series(
+            [(article, name) in db_keys or bool(old)
+             for article, name, old in zip(df['article'], df['name'], df.get(RENAME_FROM, [None] * len(df)))],
+            index=df.index, dtype=bool)
         rows_unmatched += int((~mask).sum())
         df = df[mask]
     stats['rows_unmatched'] = rows_unmatched
@@ -568,7 +586,90 @@ def _article_conflicts(df: pd.DataFrame) -> dict:
     }
 
 
+# Payload column: (article, name) of the existing row the file row updates
+# under a new article or name. _apply renames that row before the upsert, so
+# it keeps its pk, main_product link and history.
 RENAME_FROM = '_rename_from'
+
+
+def _normalize(value) -> str:
+    """Значение без различий в пробелах: по краям, повторы, табуляция, неразрывный пробел."""
+    return re.sub(r'\s+', ' ', str(value)).strip()
+
+
+def _db_articles(sps, articles) -> dict:
+    """{артикул файла: артикул в базе}.
+
+    Точное совпадение, иначе — единственный артикул базы, который отличается
+    только пробелами. Если таких несколько или нет ни одного, артикул файла
+    остаётся как есть.
+    """
+    db = set(sps.values_list('article', flat=True))
+    by_norm = {}
+    for article in db:
+        by_norm.setdefault(_normalize(article), []).append(article)
+    result = {}
+    for article in set(articles):
+        candidates = [article] if article in db else by_norm.get(_normalize(article), [])
+        result[article] = candidates[0] if len(candidates) == 1 else article
+    return result
+
+
+def _match_whitespace_variants(df: pd.DataFrame, db_keys: set, stats: dict) -> pd.DataFrame:
+    """Строки файла, которые отличаются от товара базы только пробелами, обновляют его.
+
+    Ключ строки — (артикул, название), и «Товар» с «Товар␠» были разными
+    товарами: импорт создавал новую строку, а старую, привязанную к ГП,
+    обнулял как «нет в файле». Теперь, если точного совпадения нет, а с
+    точностью до пробелов совпадает ровно одна строка базы, которую файл не
+    занял точным совпадением, — эта строка переименовывается в вид из файла.
+    Несколько кандидатов — неоднозначно: строка файла грузится как новая, и
+    это попадает в предупреждение.
+
+    Заодно считает возможные переименования (possible_renames): новая строка
+    файла под артикулом, у которого и в файле, и в базе ровно по одной строке.
+    Автоматически их не переносим — так выглядит и замена одного варианта
+    товара другим, — только подсказываем включить «Артикул уникален».
+    """
+    keys = list(zip(df['article'], df['name']))
+    by_norm = {}
+    for key in db_keys:
+        by_norm.setdefault((_normalize(key[0]), _normalize(key[1])), []).append(key)
+    claimed = set(keys) & db_keys
+    rename_from, ambiguous = [], []
+    for article, name in keys:
+        if (article, name) in db_keys:
+            rename_from.append(None)
+            continue
+        candidates = [key for key in by_norm.get((_normalize(article), _normalize(name)), []) if key not in claimed]
+        if len(candidates) == 1:
+            claimed.add(candidates[0])
+            rename_from.append(candidates[0])
+        else:
+            if candidates:
+                ambiguous.append(str(article))
+            rename_from.append(None)
+    stats['renamed'] = sum(old is not None for old in rename_from)
+    stats['whitespace_ambiguous'] = len(ambiguous)
+    stats['whitespace_ambiguous_examples'] = ambiguous[:ARTICLE_CONFLICT_EXAMPLES]
+
+    file_rows_per_article, db_rows_per_article = {}, {}
+    for article, _ in keys:
+        norm = _normalize(article)
+        file_rows_per_article[norm] = file_rows_per_article.get(norm, 0) + 1
+    for key in db_keys:
+        db_rows_per_article.setdefault(_normalize(key[0]), []).append(key)
+    possible = [
+        str(article)
+        for (article, name), old in zip(keys, rename_from)
+        if old is None and (article, name) not in db_keys
+        and file_rows_per_article[_normalize(article)] == 1
+        and len(db_rows_per_article.get(_normalize(article), [])) == 1
+        and db_rows_per_article[_normalize(article)][0] not in claimed
+    ]
+    stats['possible_renames'] = len(possible)
+    stats['possible_rename_examples'] = possible[:ARTICLE_CONFLICT_EXAMPLES]
+    return df.assign(**{RENAME_FROM: rename_from})
 
 
 def _db_names_by_article(sps, articles) -> dict:
@@ -586,18 +687,21 @@ def _resolve_by_article(df: pd.DataFrame, sps, setting, stats: dict) -> tuple[pd
     - артикула нет в базе — новый товар с названием из файла (если
       create_new, иначе строка не совпала);
     - в базе ровно одна строка — она и обновляется; другое название в файле
-      её переименовывает (RENAME_FROM — старое имя, _apply переименует до upsert);
+      её переименовывает (RENAME_FROM — старый ключ, _apply переименует до upsert);
+    - артикул, который отличается от артикула базы только пробелами, находит его.
     - в базе несколько строк (наследие ключа «артикул + название») — данные
       пишутся во все, названия не меняются, и это попадает в предупреждение.
 
     Возвращает строки для записи и число несовпавших.
     """
-    db_names = _db_names_by_article(sps, df['article'])
+    db_article = _db_articles(sps, df['article'])
+    db_names = _db_names_by_article(sps, db_article.values())
     has_file_names = 'name' in df.columns
     rows, multi_db = [], []
     renamed = unmatched = 0
     for record in df.to_dict('records'):
-        names = db_names.get(record['article'], [])
+        article = db_article[record['article']]
+        names = db_names.get(article, [])
         if not names:
             if setting.create_new:
                 rows.append(record)
@@ -605,15 +709,20 @@ def _resolve_by_article(df: pd.DataFrame, sps, setting, stats: dict) -> tuple[pd
                 unmatched += 1
         elif len(names) == 1:
             new_name = record.get('name') if has_file_names else None
-            if new_name is not None and not pd.isna(new_name) and new_name != names[0]:
-                record[RENAME_FROM] = names[0]
+            if new_name is None or pd.isna(new_name):
+                record['name'] = new_name = names[0]
+            if new_name != names[0] or article != record['article']:
+                record[RENAME_FROM] = (article, names[0])
                 renamed += 1
-            else:
-                record['name'] = names[0]
             rows.append(record)
         else:
             multi_db.append(str(record['article']))
-            rows.extend({**record, 'name': name} for name in names)
+            for name in names:
+                # Written to every row; only an article that differs by
+                # whitespace is renamed, the names stay.
+                moved = {RENAME_FROM: (article, name)} if article != record['article'] else {}
+                rows.append({**record, 'name': name, **moved})
+                renamed += bool(moved)
     stats['renamed'] = renamed
     stats['articles_multi_db'] = len(multi_db)
     stats['articles_multi_db_examples'] = multi_db[:ARTICLE_CONFLICT_EXAMPLES]
@@ -641,6 +750,19 @@ def duplicate_warning(stats: dict) -> str:
             f'артикулов, у которых в базе несколько товаров: {multi_db}'
             + _examples(stats.get('articles_multi_db_examples'))
             + ' — данные записаны во все')
+    ambiguous = stats.get('whitespace_ambiguous') or 0
+    if ambiguous:
+        parts.append(
+            f'строк, которые отличаются только пробелами сразу от нескольких товаров в базе: {ambiguous}'
+            + _examples(stats.get('whitespace_ambiguous_examples'))
+            + ' — загружены как новые')
+    possible = stats.get('possible_renames') or 0
+    if possible:
+        parts.append(
+            f'похоже на переименование товаров: {possible}'
+            + _examples(stats.get('possible_rename_examples'))
+            + ' — загружены как новые, старые обнулятся. Если это переименования, '
+              'включите в настройке «Артикул уникален»')
     return ('Внимание: ' + '; '.join(parts) + '.') if parts else ''
 
 
@@ -724,7 +846,13 @@ def apply_counts(setting: Setting, payload: list[dict]) -> dict:
 
 
 def _payload_keys(payload: list[dict]) -> set:
-    return {(row['article'], row.get(RENAME_FROM) or row['name']) for row in payload}
+    return {_existing_key(row) for row in payload}
+
+
+def _existing_key(row: dict) -> tuple:
+    """Ключ строки базы, которую обновит строка payload: старый ключ при переименовании."""
+    old = row.get(RENAME_FROM)
+    return tuple(old) if old else (row['article'], row['name'])
 
 
 PRICE_JUMP_FACTOR = 2
@@ -752,7 +880,7 @@ def price_changes(setting: Setting, payload: list[dict]) -> dict:
     }
     ratios = {column: [] for column in fields}
     for row in payload:
-        old = old_prices.get((row['article'], row.get(RENAME_FROM) or row['name']))
+        old = old_prices.get(_existing_key(row))
         if old is None:
             continue
         for column, old_price in zip(fields, old):
@@ -822,13 +950,15 @@ def _apply(setting: Setting, links, sps_payload: list[dict], stats: dict) -> Imp
     counts = apply_counts(setting, sps_payload)
     stats['created'], stats['updated'] = counts['created'], counts['updated']
 
-    # match_by_article: rename first, so the upsert below finds the row under
-    # its new name — it keeps its pk, main_product link and history.
+    # Rename first (match_by_article, or an article/name that differs only by
+    # whitespace), so the upsert below finds the row under its new key — it
+    # keeps its pk, main_product link and history.
     for row in sps_payload:
         if row.get(RENAME_FROM):
+            old_article, old_name = row[RENAME_FROM]
             SupplierProduct.objects.filter(
-                supplier=setting.supplier, article=row['article'], name=row[RENAME_FROM],
-            ).update(name=row['name'])
+                supplier=setting.supplier, article=old_article, name=old_name,
+            ).update(article=row['article'], name=row['name'])
 
     sp_model_instances = map(get_spmodel, df.itertuples(index=False))
     sp_update_fields = [link.key for link in links if not link.key=='article' and not link.key == 'name' and link.key in df.columns]
