@@ -1,5 +1,8 @@
+from datetime import timedelta
+
 from django.db import models
-from django.db.models import TextChoices
+from django.db.models import Q, TextChoices
+from django.utils import timezone
 from main_product_manager.models import MainProduct
 # Обработка заявок
 
@@ -106,6 +109,48 @@ class LevelChoices(TextChoices):
     WARNING = 'warning', 'Предупреждение'
     DANGER = 'danger', 'Ошибка'
 
+class NotificationKind(TextChoices):
+    REGULAR = 'regular', 'Обычное'
+    EXPORT = 'export', 'Выгрузка'
+    CONFIRMATION = 'confirmation', 'Подтверждение'
+    RELEASE = 'release', 'Обновление'
+
+
+# Сколько обычное уведомление живёт после первого показа. Выгрузки и
+# обновления удаляются только вручную, подтверждение — когда его решили
+# (supplier_product_manager удаляет его по ref).
+NOTIFICATION_TTL_AFTER_SEEN = {
+    LevelChoices.INFO: timedelta(seconds=10),
+    LevelChoices.SUCCESS: timedelta(seconds=10),
+    LevelChoices.WARNING: timedelta(minutes=10),
+    LevelChoices.DANGER: timedelta(minutes=10),
+}
+# Уровни вне списка (например, debug из django.contrib.messages).
+NOTIFICATION_DEFAULT_TTL_AFTER_SEEN = timedelta(seconds=10)
+
+
+def notification_expiry(kind: str, level: str, seen_at):
+    if kind != NotificationKind.REGULAR:
+        return None
+    return seen_at + NOTIFICATION_TTL_AFTER_SEEN.get(level, NOTIFICATION_DEFAULT_TTL_AFTER_SEEN)
+
+
+class PersistentNotificationQuerySet(models.QuerySet):
+    def visible(self):
+        return self.filter(Q(expires_at__isnull=True) | Q(expires_at__gt=timezone.now()))
+
+    def mark_seen(self, pks) -> None:
+        """Первый показ: запускает отсчёт времени жизни. Повторный показ ничего не меняет."""
+        now = timezone.now()
+        unseen = self.filter(pk__in=list(pks), seen_at__isnull=True)
+        for level, ttl in NOTIFICATION_TTL_AFTER_SEEN.items():
+            unseen.filter(kind=NotificationKind.REGULAR, level=level).update(
+                seen_at=now, expires_at=now + ttl)
+        unseen.filter(kind=NotificationKind.REGULAR).update(
+            seen_at=now, expires_at=now + NOTIFICATION_DEFAULT_TTL_AFTER_SEEN)
+        unseen.update(seen_at=now)
+
+
 class PersistentNotification(models.Model):
 
     user = models.ForeignKey(
@@ -123,7 +168,19 @@ class PersistentNotification(models.Model):
     # Необязательная кнопка-действие: например, ссылка на скачивание экспорта.
     link = models.CharField(verbose_name='Ссылка', max_length=500, null=True, blank=True)
     link_text = models.CharField(verbose_name='Текст ссылки', max_length=100, null=True, blank=True)
+    kind = models.CharField(
+        max_length=16,
+        choices=NotificationKind.choices,
+        default=NotificationKind.REGULAR,
+        verbose_name='Вид')
+    # Чего касается уведомление, например "import_run:12": по нему
+    # подтверждение удаляют, когда импорт перестал ждать решения.
+    ref = models.CharField(verbose_name='Объект', max_length=64, blank=True, default='', db_index=True)
     created_at = models.DateTimeField(auto_now_add=True)
+    seen_at = models.DateTimeField(verbose_name='Впервые показано', null=True, blank=True)
+    expires_at = models.DateTimeField(verbose_name='Удалить после', null=True, blank=True, db_index=True)
+
+    objects = PersistentNotificationQuerySet.as_manager()
 
     class Meta:
         ordering = ('-created_at',)
@@ -132,6 +189,13 @@ class PersistentNotification(models.Model):
 
     def __str__(self):
         return f"{self.user}: {self.message[:40]}"
+
+    @property
+    def expires_in_ms(self) -> int | None:
+        """Сколько осталось показывать; панель убирает уведомление сама, без перезагрузки."""
+        if self.expires_at is None:
+            return None
+        return max(0, int((self.expires_at - timezone.now()).total_seconds() * 1000))
 
 class StatusChoices(TextChoices):
     SUCCESS = 'success', 'Успешно'

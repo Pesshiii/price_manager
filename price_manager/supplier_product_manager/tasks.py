@@ -6,7 +6,7 @@ from django.urls import reverse
 from django.utils import timezone
 from django.conf import settings
 
-from core.models import PersistentNotification
+from core.models import NotificationKind, PersistentNotification
 from core.task_runner import execute_locked_task
 from main_product_manager.utils import compute_supplier_sku, link_to_local_products, update_stocks
 from product_price_manager.models import update_prices
@@ -73,6 +73,45 @@ def _finish_run(run: ImportRun, status: str, stats: dict, message: str = "") -> 
     # the user without a notification.
     ImportRun.objects.filter(pk=run.pk).update(
         **{name: getattr(run, name) for name in _RUN_OUTCOME_FIELDS})
+    if status != ImportRun.STATUS_NEEDS_CONFIRMATION:
+        dismiss_confirmations([run.pk])
+
+
+def import_run_ref(run_id: int) -> str:
+    return f"import_run:{run_id}"
+
+
+def dismiss_confirmations(run_ids) -> None:
+    """Импорт больше не ждёт решения: его подтверждение удаляется у всех, кому пришло.
+
+    Вызывать везде, где ImportRun уходит из STATUS_NEEDS_CONFIRMATION:
+    подтверждение не истекает по времени, пропущенный переход оставит его
+    висеть (до страховочной чистки в cleanup_supplier_files_task).
+    """
+    PersistentNotification.objects.filter(
+        kind=NotificationKind.CONFIRMATION,
+        ref__in=[import_run_ref(pk) for pk in run_ids],
+    ).delete()
+
+
+def _notify_confirmation(run: ImportRun, user_id: int, message: str) -> None:
+    PersistentNotification.objects.create(
+        user_id=user_id,
+        level="warning",
+        message=message,
+        link=import_confirmation_link(run),
+        link_text="Проверить",
+        kind=NotificationKind.CONFIRMATION,
+        ref=import_run_ref(run.pk),
+    )
+
+
+def supersede_pending_runs(runs, message: str) -> None:
+    """Неподтверждённые импорты больше не актуальны: закрыть их вместе с подтверждениями."""
+    run_ids = list(runs.filter(status=ImportRun.STATUS_NEEDS_CONFIRMATION).values_list("pk", flat=True))
+    ImportRun.objects.filter(pk__in=run_ids, status=ImportRun.STATUS_NEEDS_CONFIRMATION).update(
+        status=ImportRun.STATUS_SUPERSEDED, message=message, finished_at=timezone.now())
+    dismiss_confirmations(run_ids)
 
 
 def _hold_for_confirmation(run, setting, supplier_file, user_id, stats, verdict) -> dict:
@@ -86,13 +125,7 @@ def _hold_for_confirmation(run, setting, supplier_file, user_id, stats, verdict)
         message = f"{message} {warning}"
     _append_supplier_file_log(supplier_file, message)
     _set_file_status(supplier_file, SupplierFile.STATUS_NEEDS_CONFIRMATION)
-    PersistentNotification.objects.create(
-        user_id=user_id,
-        level="warning",
-        message=message,
-        link=import_confirmation_link(run),
-        link_text="Проверить",
-    )
+    _notify_confirmation(run, user_id, message)
     return {"status": "needs_confirmation", "run_id": run.pk, "message": message}
 
 
@@ -145,10 +178,11 @@ def _refuse_busy(setting: Setting, user_id: int, confirmed_run_id: int | None) -
     два параллельных применения одной настройки.
     """
     reason = "эта настройка уже импортируется. Дождитесь окончания и запустите снова"
+    back_to_pending = False
     if confirmed_run_id:
         # The user confirmed it, the apply just could not start: back to
         # pending, so "Применить" in the dialog works again.
-        ImportRun.objects.filter(pk=confirmed_run_id, status=ImportRun.STATUS_RUNNING).update(
+        back_to_pending = ImportRun.objects.filter(pk=confirmed_run_id, status=ImportRun.STATUS_RUNNING).update(
             status=ImportRun.STATUS_NEEDS_CONFIRMATION, confirmed_by=None, confirmed_at=None)
     else:
         supplier_file = setting.supplierfiles.order_by("-pk").first()
@@ -161,7 +195,11 @@ def _refuse_busy(setting: Setting, user_id: int, confirmed_run_id: int | None) -
             _append_supplier_file_log(supplier_file, f"Импорт не запущен: {reason}")
             _set_file_status(supplier_file, SupplierFile.STATUS_ERROR)
     message = f"Импорт «{setting.name}» не запущен: {reason}."
-    PersistentNotification.objects.create(user_id=user_id, level="warning", message=message)
+    if back_to_pending:
+        # Applying dismissed the confirmation; the run waits again, so does it.
+        _notify_confirmation(ImportRun.objects.get(pk=confirmed_run_id), user_id, message)
+    else:
+        PersistentNotification.objects.create(user_id=user_id, level="warning", message=message)
     return {"status": "busy", "message": message}
 
 
@@ -192,10 +230,7 @@ def _import_setting(setting: Setting, user_id: int, confirmed_run_id: int | None
             return {"status": "superseded", "message": reason}
     else:
         # A newer import of the same setting makes an unconfirmed one moot.
-        ImportRun.objects.filter(
-            setting=setting, status=ImportRun.STATUS_NEEDS_CONFIRMATION,
-        ).update(status=ImportRun.STATUS_SUPERSEDED, message="Запущен новый импорт",
-                 finished_at=timezone.now())
+        supersede_pending_runs(ImportRun.objects.filter(setting=setting), "Запущен новый импорт")
         run = ImportRun.objects.create(
             setting=setting,
             supplier_id=setting.supplier_id,
@@ -381,7 +416,20 @@ def cleanup_supplier_files_task() -> dict:
         "status": "ok",
         "keep_last": keep_last,
         "deleted_count": deleted_count,
+        "stale_confirmations": _drop_stale_confirmations(),
     }
+
+
+def _drop_stale_confirmations() -> int:
+    """Страховка к dismiss_confirmations: подтверждения импортов, которые уже не ждут решения или удалены."""
+    pending_refs = [
+        import_run_ref(pk) for pk in
+        ImportRun.objects.filter(status=ImportRun.STATUS_NEEDS_CONFIRMATION).values_list("pk", flat=True)
+    ]
+    deleted, _ = PersistentNotification.objects.filter(
+        kind=NotificationKind.CONFIRMATION, ref__startswith="import_run:",
+    ).exclude(ref__in=pending_refs).delete()
+    return deleted
 
 def _restore_querydict(filter_params: dict | None) -> QueryDict:
     query_dict = QueryDict("", mutable=True)

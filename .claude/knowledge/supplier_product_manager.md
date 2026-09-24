@@ -275,7 +275,20 @@ Confirmation mechanics — each piece closes a specific race:
   otherwise the run becomes `superseded`. A confirmation never applies a file
   or mapping the user did not see.
 - A new import of the setting, or a new upload, marks a pending run
-  `superseded`. Cleanup skips files in `STATUS_NEEDS_CONFIRMATION`.
+  `superseded` through `supersede_pending_runs`. Cleanup skips files in
+  `STATUS_NEEDS_CONFIRMATION`.
+- **The confirmation notification never expires.** It is a `PersistentNotification`
+  with `kind='confirmation'` and `ref='import_run:<pk>'` (see [[core]]). Every
+  exit from pending deletes it for all users through `dismiss_confirmations`:
+  - apply and cancel (the views)
+  - both supersede sites (`supersede_pending_runs`)
+  - `_finish_run` with any status other than pending
+
+  `_refuse_busy` puts a confirmed run back to pending, so it re-creates the
+  notification with the dialog link. A missed transition leaves the
+  notification hanging until `_drop_stale_confirmations` in
+  `cleanup_supplier_files_task` catches it (every 30 min). Don't lean on that:
+  a new transition out of pending should call `dismiss_confirmations` itself.
 - `load_setting` writes inside `transaction.atomic()` (`_apply`): upsert,
   clearing of missing rows and the supplier's `stock_updated_at` /
   `price_updated_at` land together or not at all.

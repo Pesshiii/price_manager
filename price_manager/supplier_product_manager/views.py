@@ -46,7 +46,12 @@ import re
 from pathlib import Path
 
 from .functions import *
-from .tasks import process_supplier_file_import, copy_supplier_products_to_main_task
+from .tasks import (
+  copy_supplier_products_to_main_task,
+  dismiss_confirmations,
+  process_supplier_file_import,
+  supersede_pending_runs,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -195,9 +200,7 @@ class UploadSupplierFile(CreateView):
     # removes the older ones once they are not in progress.
     instance.save()
     # The file an unconfirmed import was checked against is replaced.
-    ImportRun.objects.filter(
-      setting=instance.setting, status=ImportRun.STATUS_NEEDS_CONFIRMATION,
-    ).update(status=ImportRun.STATUS_SUPERSEDED, message='Загружен новый файл', finished_at=timezone.now())
+    supersede_pending_runs(ImportRun.objects.filter(setting=instance.setting), 'Загружен новый файл')
     # Older queued or pending files will never be imported now; releasing
     # them lets the cleanup delete them. A running one finishes on its own.
     instance.setting.supplierfiles.exclude(pk=instance.pk).filter(
@@ -278,6 +281,7 @@ def import_run_apply(request, pk):
   if not claimed:
     messages.warning(request, 'Этот импорт уже обработан')
     return HttpResponseClientRefresh()
+  dismiss_confirmations([pk])
   run = ImportRun.objects.get(pk=pk)
   dispatch_after_commit(process_supplier_file_import, run.setting_id, request.user.pk, confirmed_run_id=run.pk)
   messages.info(request, f'Импорт «{run.setting}» применяется. Уведомление придёт после завершения.')
@@ -291,6 +295,7 @@ def import_run_cancel(request, pk):
     status=ImportRun.STATUS_CANCELLED, finished_at=timezone.now(),
     message=f'Отменён пользователем {request.user}')
   if cancelled:
+    dismiss_confirmations([pk])
     SupplierFile.objects.filter(
       import_runs__pk=pk, status=SupplierFile.STATUS_NEEDS_CONFIRMATION,
     ).update(status=SupplierFile.STATUS_ERROR)

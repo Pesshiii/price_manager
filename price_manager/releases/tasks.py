@@ -23,7 +23,7 @@ def notify_release(release_id: int) -> int:
     """
     from django.contrib.auth import get_user_model
 
-    from core.models import LevelChoices, PersistentNotification
+    from core.models import LevelChoices, NotificationKind, PersistentNotification
     from releases.models import Release
 
     release = Release.objects.select_for_update().filter(pk=release_id).first()
@@ -41,6 +41,7 @@ def notify_release(release_id: int) -> int:
                 message=message,
                 link=link,
                 link_text=LINK_TEXT,
+                kind=NotificationKind.RELEASE,
             )
             for user_id in user_ids
         ],

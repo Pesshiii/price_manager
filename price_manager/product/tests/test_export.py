@@ -366,6 +366,7 @@ class ExportViewTests(TestCase):
         notification = PersistentNotification.objects.get(user=self.user)
         self.assertEqual(notification.link,
                          reverse('product-export-download', kwargs={'pk': export.pk}))
+        self.assertEqual(notification.kind, 'export')  # удаляется только вручную
 
 
 def read_csv(content):

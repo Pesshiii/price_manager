@@ -55,11 +55,16 @@ def persist_notification(context, message):
     if request is None or not request.user.is_authenticated:
         return ""
 
-    from core.models import PersistentNotification
+    from django.utils import timezone
+    from core.models import NotificationKind, PersistentNotification, notification_expiry
 
+    # The toast rendered next to this tag is the first showing.
+    now = timezone.now()
     PersistentNotification.objects.create(
         user=request.user,
         level=message.level_tag,
         message=str(message),
+        seen_at=now,
+        expires_at=notification_expiry(NotificationKind.REGULAR, message.level_tag, now),
     )
     return ""

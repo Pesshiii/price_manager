@@ -19,7 +19,7 @@
 
 <div class="notifications-list">
   {% for notification in persistent_notifications %}
-    <div class="alert alert-{{ notification.level }} alert-dismissible py-2 px-3 mb-2" id="notification-{{ notification.pk }}">
+    <div class="alert alert-{{ notification.level }} alert-dismissible py-2 px-3 mb-2" id="notification-{{ notification.pk }}"{% if notification.expires_in_ms is not None %} data-expires-in-ms="{{ notification.expires_in_ms }}"{% endif %}>
       <div class="small">{{ notification.message|safe }}</div>
       {% if notification.link %}
         <a href="{{ notification.link }}" class="btn btn-sm btn-light border mt-2">

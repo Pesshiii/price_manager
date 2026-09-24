@@ -67,11 +67,7 @@ class PersistentNotificationDeleteView(LoginRequiredMixin, View):
     def post(self, request, pk):
         notification = get_object_or_404(PersistentNotification, pk=pk, user=request.user)
         notification.delete()
-        remaining = (
-            PersistentNotification.objects
-            .filter(user=request.user)
-            .order_by('-created_at')[:30]
-        )
+        remaining = PersistentNotification.objects.filter(user=request.user).visible()[:30]
         return render(
             request,
             "core/partials/notifications_delete_response.html",
@@ -91,11 +87,14 @@ class PersistentNotificationDeleteAllView(LoginRequiredMixin, View):
 
 class PersistentNotificationsPanelView(LoginRequiredMixin, View):
     def get(self, request):
-        notifications = (
-            PersistentNotification.objects
-            .filter(user=request.user)
-            .order_by('-created_at')[:30]
-        )
+        user_notifications = PersistentNotification.objects.filter(user=request.user)
+        notifications = user_notifications.visible()[:30]
+        # The panel polls while closed too; only a poll from an open panel in a
+        # visible tab counts as the user having seen what it shows.
+        if request.GET.get('seen') == 'true':
+            pks = [notification.pk for notification in notifications]
+            user_notifications.mark_seen(pks)
+            notifications = user_notifications.filter(pk__in=pks)
         return render(
             request,
             "core/partials/notifications_panel.html",
