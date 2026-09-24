@@ -335,7 +335,7 @@ implements it:
   into `duplicates`, and `article_conflicts` is reported with «взята первая
   строка» wording (`duplicate_warning` reads `stats['match_by_article']`).
 - Article with **one** existing row → that row is updated; a different name in
-  the file **renames** it. The payload carries the old name under
+  the file **renames** it. The payload carries the old `(article, name)` under
   `RENAME_FROM`; `_apply` renames before the upsert so the upsert (still keyed
   on `(supplier, article, name)`) finds the same pk — the `main_product` link
   and history survive. `apply_counts` counts it as updated, not created+missing.
@@ -345,6 +345,30 @@ implements it:
 - Unknown article → created (with `create_new`) or unmatched.
 
 The DB constraint stays `(supplier, article, name)`; no data migration needed.
+
+## Matching up to whitespace, and rename hints
+
+Every path also finds a row that differs from the file **only by whitespace**
+(edges, repeats, tab, NBSP — `_normalize`) and renames it to the file's form
+through the same `RENAME_FROM` mechanism, article included:
+
+- default key: `_match_whitespace_variants` — no exact `(article, name)` match,
+  and exactly one row of the base normalizes to the file's key and is not
+  taken by an exact match of another file row. Several candidates →
+  `whitespace_ambiguous`: loaded as new, reported in the warning. It also works
+  with «Добавлять новые товары» off (a renamed row counts as matched);
+- `match_by_article` and the no-name-column path: `_db_articles` maps a file
+  article to the one base article that differs only by whitespace.
+
+`possible_renames` (default key only) counts new file rows whose normalized
+article has exactly one row both in the file and in the base, that row not
+taken. **Deliberately not transferred automatically**: a variant swap («red»
+gone, «blue» added under a single-variant article) looks identical, and moving
+the `main_product` link to a different product is worse than clearing — the
+catalog would sell the wrong product at another's price. The warning tells the
+user to enable «Артикул уникален» if these are real renames. On the
+production snapshot there were no such renames at all; the history-free guard
+(`missing_linked`) catches a mass rename anyway.
 Migration 0014 turned `ignore_name AND create_new` into `match_by_article`
 (`ignore_name` without `create_new` never did anything). Its reverse restores
 `ignore_name` only on the migrated settings.
@@ -397,11 +421,12 @@ decision, not a quick patch.
   «Matching by article» above); by default the import **warns** about
   `article_conflicts` instead.
 - **Stored articles and names carry leading/trailing whitespace** — common in
-  production. `get_df` collapses runs of whitespace but does not strip. Adding a
-  `strip()` to the parser alone would re-key every such row on the next import
-  (new row created, old one nulled); it needs a data migration that trims
-  stored values and resolves the rows that collide after trimming, some of
-  them linked to a `MainProduct`.
+  production. `get_df` collapses runs of whitespace but does not strip yet.
+  Whitespace matching (above) is what makes a parser `strip()` safe now: a
+  stored row with edge spaces is renamed in place on the next import instead of
+  being re-keyed. Left over: `MainProduct.sku` copied from such articles keeps
+  the space, and pairs of rows that already differ only by whitespace — both
+  linked to *different* `MainProduct`s — need a manual decision.
 - **Numbers**: only `','→'.'` before `pd.to_numeric(errors='coerce')`
   (`get_sps`), so `1 234,50`, `1,234.50`, currency signs, `>10`, `10+` become
   NaN; a row whose every mapped value is NaN is dropped and then nulled as
