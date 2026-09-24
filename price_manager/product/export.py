@@ -7,8 +7,10 @@ xlsx — та же выборка, что на странице, тот же п�
 Листы:
 
 - «Товары» — строка на товар (Product), как строка страницы: колонки товара
-  и основные цены и остаток — по приоритету поставщика
-  (Supplier.price_priority / stock_priority), см. main_value.
+  и основные цены и остаток — по уровням приоритета поставщиков
+  (Supplier.price_priority / stock_priority), см. main_value_cells. Основное
+  значение есть только у цен в тенге (MP_PRICES) и у остатка: цены
+  SupplierProduct — в валюте поставщика, между поставщиками их не сравнить.
 - по листу на поставщика, в порядке приоритета по цене — все выбранные
   колонки строк поставщиков (цены, остаток, артикул поставщика, статус
   наличия, …) с его значениями. На листе только товары, которые у него есть,
@@ -51,8 +53,9 @@ SUPPLIER_PRODUCT_PRICES = ['supplier_product_price', 'supplier_product_rrp',
                            'supplier_product_discount_price']
 PRICE_COLUMNS = set(MP_PRICES) | set(SUPPLIER_PRODUCT_PRICES)
 
-# Колонки, у которых на «Товарах» есть основное значение: цены и остаток.
-# Остальные колонки строк поставщиков — только на листах поставщиков.
+# Колонки, у которых на «Товарах» есть основное значение: цены в тенге и
+# остаток. Остальные колонки строк поставщиков — только на листах поставщиков.
+MAIN_PRICE_COLUMNS = set(MP_PRICES)
 STOCK_COLUMN = 'stock'
 
 # Колонки товара, которые в файл не идут: «Действия» — кнопки, фото — картинка.
@@ -134,27 +137,47 @@ def is_zero(value) -> bool:
     return value is None or value == 0
 
 
-def main_value(values):
-    """Основное значение: первое ненулевое по приоритету.
+def main_value(levels, pick):
+    """Основное значение по уровням: pick (min или max) из ненулевых значений
+    первого уровня, где они есть.
 
-    Ноль и пусто пропускаются — у самого приоритетного поставщика ноль чаще
-    значит «цены нет», чем «бесплатно». Если ненулевого нет ни у кого: 0, если
-    хоть у кого-то 0 (остаток синхронизировался, товара нет), иначе пусто
-    (ни у кого нет данных) — NULL и 0 в остатке разные вещи.
+    levels — значения, сгруппированные по уровням, сверху вниз; уровень из
+    одного значения — просто «первое ненулевое по порядку». Ноль и пусто
+    пропускаются — у самого приоритетного поставщика ноль чаще значит «цены
+    нет», чем «бесплатно», и тогда решает следующий уровень. Если ненулевого
+    нет ни на одном уровне: 0, если хоть у кого-то 0 (остаток
+    синхронизировался, товара нет), иначе пусто (ни у кого нет данных) — NULL
+    и 0 в остатке разные вещи.
     """
-    values = list(values)
-    for value in values:
-        if not is_zero(value):
-            return value
-    if any(value is not None for value in values):
-        return 0
-    return None
+    seen = False
+    for level in levels:
+        level = list(level)
+        non_zero = [value for value in level if not is_zero(value)]
+        if non_zero:
+            return pick(non_zero)
+        seen = seen or any(value is not None for value in level)
+    return 0 if seen else None
+
+
+def cost_key(cost):
+    """Ключ сортировки по себестоимости: меньшая — раньше, ноль и пусто — в конце."""
+    return (is_zero(cost), cost or 0)
+
+
+def winner_order(level, costs) -> list:
+    """Поставщики уровня по цене: победитель (минимальная себестоимость) первым.
+
+    Без себестоимости — в конце. sorted устойчив, так что при равной
+    себестоимости остаётся порядок уровня — по имени.
+    """
+    return sorted(level, key=lambda pk: cost_key(costs.get(pk)))
 
 
 def ranked_suppliers(supplier_ids, priority_field) -> list:
     """Поставщики по приоритету: меньше — выше, непроранжированные в конце.
 
-    None в supplier_ids — строки без поставщика; они всегда последние.
+    Внутри уровня — по имени. None в supplier_ids — строки без поставщика;
+    они всегда последние.
     """
     suppliers = list(Supplier.objects.filter(pk__in=[pk for pk in supplier_ids if pk]))
     suppliers.sort(key=lambda s: (getattr(s, priority_field) is None,
@@ -162,6 +185,26 @@ def ranked_suppliers(supplier_ids, priority_field) -> list:
     result = [(supplier.pk, supplier.name) for supplier in suppliers]
     if None in supplier_ids:
         result.append((None, NO_SUPPLIER))
+    return result
+
+
+def supplier_levels(supplier_ids, priority_field) -> list[list]:
+    """pk поставщиков, сгруппированные по уровням приоритета, сверху вниз.
+
+    Один номер — один уровень. Все непроранжированные — один общий уровень
+    ниже проранжированных: порядок между ними ничего не значит. Строки без
+    поставщика (None) — отдельный уровень в самом конце. Внутри уровня — по имени.
+    """
+    levels = defaultdict(list)
+    unranked = []
+    for pk, level in (Supplier.objects.filter(pk__in=[pk for pk in supplier_ids if pk])
+                      .order_by('name', 'pk').values_list('pk', priority_field)):
+        (unranked if level is None else levels[level]).append(pk)
+    result = [levels[level] for level in sorted(levels)]
+    if unranked:
+        result.append(unranked)
+    if None in supplier_ids:
+        result.append([None])
     return result
 
 
@@ -246,10 +289,10 @@ class ProductExporter:
         return value
 
     def main_titles(self) -> list[str]:
-        """«Товары»: товар и основные цены и остаток (по приоритету поставщика)."""
+        """«Товары»: товар и основные цены и остаток (по уровням поставщиков)."""
         titles = PRODUCT_TITLES + [COLUMN_LABELS[key] for key in self.product_columns]
         for key in self.supplier_columns:
-            if key in PRICE_COLUMNS:
+            if key in MAIN_PRICE_COLUMNS:
                 titles.append(f'{COLUMN_LABELS[key]} (основная)')
             elif key == STOCK_COLUMN:
                 titles.append(f'{COLUMN_LABELS[key]} (основной)')
@@ -284,49 +327,76 @@ class ProductExporter:
         """{pk поставщика: {колонка: значение}} по строкам товара.
 
         Уникальности (товар, поставщик) у MainProduct нет, и строк у поставщика
-        бывает несколько. Цены и остаток сводятся тем же правилом, что между
-        поставщиками (main_value, строки в порядке pk), текст — различающиеся
-        значения через «; ».
+        бывает несколько. Они сводятся тем же правилом, что поставщики одного
+        уровня: цены — первое ненулевое по строкам от минимальной
+        себестоимости, остаток — максимальный; текст — различающиеся значения
+        через «; ».
         """
         by_supplier = defaultdict(list)
         for main_product in main_products:
             by_supplier[main_product.supplier_id].append(main_product)
         values = {}
         for supplier_pk, rows in by_supplier.items():
+            rows = sorted(rows, key=lambda mp: cost_key(mp.prime_cost))
             values[supplier_pk] = {
-                key: (main_value(self.cell(mp, key) for mp in rows)
-                      if key in PRICE_COLUMNS or key == STOCK_COLUMN
+                key: (main_value([[self.cell(mp, key) for mp in rows]], max)
+                      if key == STOCK_COLUMN
+                      else main_value([[self.cell(mp, key)] for mp in rows], min)
+                      if key in PRICE_COLUMNS
                       else _joined(self.cell(mp, key) for mp in rows))
                 for key in self.supplier_columns
             }
         return values
 
-    def main_value_cells(self, values, price_order, stock_order):
-        """Основные цены и остаток: первое ненулевое по приоритету поставщика."""
+    @staticmethod
+    def supplier_costs(main_products) -> dict:
+        """{pk поставщика: себестоимость} — минимальная ненулевая по его строкам.
+
+        Считается всегда, даже если колонка себестоимости не выбрана: по ней
+        выбирается победитель уровня.
+        """
+        by_supplier = defaultdict(list)
+        for main_product in main_products:
+            by_supplier[main_product.supplier_id].append(main_product.prime_cost)
+        return {pk: main_value([costs], min) for pk, costs in by_supplier.items()}
+
+    def main_value_cells(self, values, costs, price_levels, stock_levels):
+        """Основные цены и остаток по уровням поставщиков (main_value).
+
+        Цены: на уровне побеждает поставщик с минимальной себестоимостью, и
+        все цены берутся у него — чтобы цены строки были от одного поставщика.
+        Нет у него какой-то цены (0 или пусто) — она берётся у следующего по
+        себестоимости на том же уровне, затем с уровней ниже.
+
+        Остаток: максимальный ненулевой на первом уровне по остаткам, где он есть.
+        """
+        price_order = [[pk] for level in price_levels
+                       for pk in winner_order([pk for pk in level if pk in values], costs)]
         cells = []
         for key in self.supplier_columns:
-            if key in PRICE_COLUMNS:
-                order = price_order
+            if key in MAIN_PRICE_COLUMNS:
+                cells.append(main_value(([values[pk][key] for pk in single]
+                                         for single in price_order), min))
             elif key == STOCK_COLUMN:
-                order = stock_order
-            else:
-                continue
-            cells.append(main_value(values[pk][key] for pk in order if pk in values))
+                cells.append(main_value(
+                    ([values[pk][key] for pk in level if pk in values] for level in stock_levels),
+                    max))
         return cells
 
     def suppliers(self, pks):
-        """Поставщики выгружаемых товаров: [(pk, имя)] по приоритету цены и [pk] по остаткам."""
+        """Поставщики выгружаемых товаров: [(pk, имя)] по приоритету цены (порядок
+        листов и блоков) и уровни по цене и по остаткам (supplier_levels)."""
         supplier_ids = set()
         if self.supplier_columns:
             for chunk in _chunks(pks):
                 supplier_ids.update(
                     MainProduct.objects.filter(product_id__in=chunk)
                     .order_by().values_list('supplier_id', flat=True).distinct())
-        price_suppliers = ranked_suppliers(supplier_ids, 'price_priority')
-        stock_order = [pk for pk, _ in ranked_suppliers(supplier_ids, 'stock_priority')]
-        return price_suppliers, stock_order
+        return (ranked_suppliers(supplier_ids, 'price_priority'),
+                supplier_levels(supplier_ids, 'price_priority'),
+                supplier_levels(supplier_ids, 'stock_priority'))
 
-    def rows(self, pks, price_order, stock_order):
+    def rows(self, pks, price_levels, stock_levels):
         """По строке на товар в порядке pks: (ячейки товара, основные значения,
         {pk поставщика: {колонка: значение}} — только поставщики, у которых
         товар есть).
@@ -347,12 +417,13 @@ class ProductExporter:
                 rows = main_products.get(pk, [])
                 values = self.supplier_values(rows) if self.supplier_columns else {}
                 yield (self.product_cells(product, rows),
-                       self.main_value_cells(values, price_order, stock_order),
+                       self.main_value_cells(values, self.supplier_costs(rows),
+                                             price_levels, stock_levels),
                        values)
 
     def build(self) -> tuple[bytes, int]:
         pks = ordered_product_pks(self.params)
-        price_suppliers, stock_order = self.suppliers(pks)
+        price_suppliers, price_levels, stock_levels = self.suppliers(pks)
         price_order = [pk for pk, _ in price_suppliers]
 
         workbook = Workbook(write_only=True)
@@ -377,7 +448,7 @@ class ProductExporter:
                                       sheet_names(name for _, name in price_suppliers))
         }
 
-        for product_cells, main_cells, values in self.rows(pks, price_order, stock_order):
+        for product_cells, main_cells, values in self.rows(pks, price_levels, stock_levels):
             main_sheet.append([_excel_value(value) for value in product_cells + main_cells])
             identity = product_cells[:len(IDENTITY_TITLES)]
             for supplier_pk in price_order:
@@ -394,8 +465,8 @@ class FullCsvExporter(ProductExporter):
     """Полный экспорт каталога в csv — кнопка в админке товаров.
 
     Весь каталог (фильтров нет, порядок — страница по умолчанию), одна
-    строка на товар: товар, основные цены и остаток по приоритету
-    поставщика, затем по блоку на каждого поставщика — все его цены и
+    строка на товар: товар, основные цены и остаток по уровням
+    поставщиков, затем по блоку на каждого поставщика — все его цены и
     остаток, колонки «<поставщик> • <колонка>», поставщики по приоритету
     цены. У csv один лист, поэтому поставщики — колонками, а не листами.
 
@@ -411,7 +482,7 @@ class FullCsvExporter(ProductExporter):
 
     def write(self, stream) -> int:
         pks = ordered_product_pks(self.params)
-        price_suppliers, stock_order = self.suppliers(pks)
+        price_suppliers, price_levels, stock_levels = self.suppliers(pks)
         price_order = [pk for pk, _ in price_suppliers]
         labels = [COLUMN_LABELS[key] for key in self.supplier_columns]
 
@@ -419,7 +490,7 @@ class FullCsvExporter(ProductExporter):
         writer.writerow(self.main_titles() + [
             f'{name} • {label}' for _, name in price_suppliers for label in labels])
         empty = dict.fromkeys(self.supplier_columns)
-        for product_cells, main_cells, values in self.rows(pks, price_order, stock_order):
+        for product_cells, main_cells, values in self.rows(pks, price_levels, stock_levels):
             supplier_cells = [values.get(pk, empty)[key]
                               for pk in price_order for key in self.supplier_columns]
             writer.writerow([_csv_value(value)

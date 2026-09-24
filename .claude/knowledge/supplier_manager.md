@@ -34,29 +34,21 @@ was removed.
     stored** — `IntervalWidget.decompress` shows any multiple of 7 as weeks,
     so «14 дней» reopens as «2 недель».
   - `price_priority` / `stock_priority` (added in migration `0010`) —
-    nullable, "меньше — выше приоритет, пусто — не проранжирован." Editable
-    in `SupplierForm` and inline in the `/supplier/` table
+    **levels, not ranks** (migration `0014`, which dropped `0013`'s
+    `DEFERRED` unique constraints): several suppliers may share a number,
+    gaps are fine, and nothing is renumbered on save, clear or delete. NULL
+    means "the common bottom level", not "ignored". Editable in
+    `SupplierForm` and inline in the `/supplier/` table
     (`SupplierPriorityUpdate`, route `supplier-priority`, answers with the
-    `priority_cell.html` `<td>`, plus OOB cells for any shifted neighbours).
-    **Dense per field: ranked suppliers always hold exactly 1…N** (migration
-    `0013` renumbers existing data by (priority, name), then adds `DEFERRED`
-    unique constraints; NULLs unlimited). `Supplier.save()` calls `place()`
-    only when a priority actually changed: it clamps the value into 1…N+1,
-    inserts the supplier there and rewrites everyone else's number in one
-    `UPDATE … CASE`. Clearing a priority closes the gap the same way; so does
-    deleting a ranked supplier (`post_delete` → `Supplier.renumber`, which
-    `queryset.delete()` also triggers). `self.shifted` holds the pks whose
-    number moved — the inline view returns them OOB. For this, `validate_constraints`
-    excludes both fields — Django 5.2 checks `UniqueConstraint`s in
-    `ModelForm`, and would otherwise reject the number before `save()` runs.
-    `queryset.update()` bypasses all of this; the database then catches it at
-    commit. Tests must `SET CONSTRAINTS ALL IMMEDIATE` to see a violation —
-    `TestCase` never commits. And a `RunPython` that updates this table must
-    do the same before an `AddConstraint` in the same migration, or Postgres
-    refuses with «pending trigger events» (only on a populated DB). **Nothing
-    in business logic reads them yet** — no consumer in
-    `main_product_manager` or `product_price_manager`. Scaffolding for a
-    not-yet-built cross-supplier price/stock selection, not dead code.
+    `priority_cell.html` `<td>` alone — no OOB neighbours any more). `0013`'s
+    dense 1…N data was kept as is: N single-supplier levels reproduce the old
+    strict order for ranked suppliers (unranked ones used to go by name;
+    now they tie). The only consumer is the product export
+    (`product/export.py`, see [[product]]): per price level the supplier with
+    the lowest non-zero `prime_cost` wins and *every* MP price comes from it
+    (a missing one falls to the next by cost on that level, then to lower
+    levels); stock takes the max on the first stock level that has one.
+    `SupplierProduct` prices (supplier currency) get no main value at all.
 
 ## `/supplier/` list (`SupplierList`)
 

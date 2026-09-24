@@ -282,9 +282,7 @@ Confirmation mechanics — each piece closes a specific race:
 - **The supplier is stamped with a queryset `update()`** (`_stamp_supplier`),
   never `setting.supplier.save()`. The `Supplier` object is loaded early in
   the import; a full `save()` wrote back every field a manager changed in the
-  meantime, and `Supplier.save()` renumbers priorities whenever the in-memory
-  number differs from the database — so the import put the supplier back on
-  its old priority and shifted the others.
+  meantime — a priority level edited mid-import, for instance.
 
 UI: `SettingListTable.last_import` (annotated by `SettingList.get_queryset`,
 one subquery, no N+1) shows the last run; a pending one is a button opening

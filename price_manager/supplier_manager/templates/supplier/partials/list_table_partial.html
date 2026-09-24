@@ -11,15 +11,15 @@
               </a>
             </th>
             <th scope="col" class="text-center" style="width: 110px;">
-              <a class="text-decoration-none text-reset" title="Меньше — выше приоритет"
+              <a class="text-decoration-none text-reset" title="Уровень приоритета: меньше — выше"
                  href="?sort=price_priority&dir={% if sort_by == 'price_priority' and sort_dir == 'asc' %}desc{% else %}asc{% endif %}">
-                Приоритет<br>цен{% if sort_by == 'price_priority' %} {% if sort_dir == 'asc' %}↑{% else %}↓{% endif %}{% endif %}
+                Уровень<br>цен{% if sort_by == 'price_priority' %} {% if sort_dir == 'asc' %}↑{% else %}↓{% endif %}{% endif %}
               </a>
             </th>
             <th scope="col" class="text-center" style="width: 110px;">
-              <a class="text-decoration-none text-reset" title="Меньше — выше приоритет"
+              <a class="text-decoration-none text-reset" title="Уровень приоритета: меньше — выше"
                  href="?sort=stock_priority&dir={% if sort_by == 'stock_priority' and sort_dir == 'asc' %}desc{% else %}asc{% endif %}">
-                Приоритет<br>остатков{% if sort_by == 'stock_priority' %} {% if sort_dir == 'asc' %}↑{% else %}↓{% endif %}{% endif %}
+                Уровень<br>остатков{% if sort_by == 'stock_priority' %} {% if sort_dir == 'asc' %}↑{% else %}↓{% endif %}{% endif %}
               </a>
             </th>
             {% for key, label in price_columns %}

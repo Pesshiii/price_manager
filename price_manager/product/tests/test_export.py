@@ -16,8 +16,8 @@ from supplier_manager.models import Supplier
 
 from product.columns import COLUMN_LABELS
 from product.export import (
-    FULL_EXPORT_COLUMNS, ProductExporter, build_full_csv_export, main_value,
-    ordered_product_pks, ranked_suppliers, sheet_names,
+    FULL_EXPORT_COLUMNS, MAIN_PRICE_COLUMNS, ProductExporter, build_full_csv_export,
+    main_value, ordered_product_pks, ranked_suppliers, sheet_names, supplier_levels,
 )
 from product.models import Brand, Category, Product, ProductExport
 
@@ -43,17 +43,29 @@ def as_dicts(rows):
 
 
 class MainValueTests(TestCase):
-    def test_first_non_zero_wins(self):
-        self.assertEqual(main_value([Decimal('0'), None, Decimal('7')]), Decimal('7'))
+    def test_single_supplier_levels_first_non_zero_wins(self):
+        self.assertEqual(main_value([[Decimal('0')], [None], [Decimal('7')]], min), Decimal('7'))
+
+    def test_min_or_max_within_level(self):
+        levels = [[Decimal('5'), Decimal('3'), Decimal('9')], [Decimal('1')]]
+        self.assertEqual(main_value(levels, min), Decimal('3'))
+        self.assertEqual(main_value(levels, max), Decimal('9'))
+
+    def test_zero_and_empty_skipped_within_level(self):
+        # Ноль не «самая низкая цена» — это «цены нет».
+        self.assertEqual(main_value([[0, None, Decimal('4')]], min), Decimal('4'))
+
+    def test_level_without_values_falls_through(self):
+        self.assertEqual(main_value([[0, None], [Decimal('2'), Decimal('8')]], max), Decimal('8'))
 
     def test_all_zero_or_empty_gives_zero(self):
-        self.assertEqual(main_value([None, 0, None]), 0)
+        self.assertEqual(main_value([[None, 0], [None]], min), 0)
 
     def test_all_empty_gives_empty(self):
-        self.assertIsNone(main_value([None, None]))
+        self.assertIsNone(main_value([[None], [None, None]], min))
 
     def test_no_suppliers_gives_empty(self):
-        self.assertIsNone(main_value([]))
+        self.assertIsNone(main_value([], min))
 
 
 class RankedSuppliersTests(TestCase):
@@ -63,6 +75,22 @@ class RankedSuppliersTests(TestCase):
         first = Supplier.objects.create(name='В', price_priority=1)
         ranked = ranked_suppliers({unranked.pk, second.pk, first.pk, None}, 'price_priority')
         self.assertEqual([name for _, name in ranked], ['В', 'Б', 'А-без приоритета', 'Без поставщика'])
+
+
+class SupplierLevelsTests(TestCase):
+    def test_shared_numbers_group_unranked_share_one_level_no_supplier_last(self):
+        a = Supplier.objects.create(name='А', price_priority=5)
+        b = Supplier.objects.create(name='Б', price_priority=1)
+        c = Supplier.objects.create(name='В', price_priority=5)
+        d = Supplier.objects.create(name='Г')
+        e = Supplier.objects.create(name='Д')
+        levels = supplier_levels({a.pk, b.pk, c.pk, d.pk, e.pk, None}, 'price_priority')
+        self.assertEqual([sorted(level, key=str) for level in levels],
+                         [[b.pk], sorted([a.pk, c.pk], key=str),
+                          sorted([d.pk, e.pk], key=str), [None]])
+
+    def test_no_suppliers(self):
+        self.assertEqual(supplier_levels(set(), 'stock_priority'), [])
 
 
 class SheetNamesTests(TestCase):
@@ -172,6 +200,96 @@ class ExportContentTests(TestCase):
         sheets, count = self.export(['m_price'], query='search=SKU-1')
         self.assertEqual(count, 1)
         self.assertNotIn('В', sheets)
+
+
+class ExportLevelTests(TestCase):
+    """Цены: на уровне побеждает поставщик с минимальной себестоимостью.
+    Остаток: максимальный на уровне."""
+
+    def setUp(self):
+        self.a = Supplier.objects.create(name='А', price_priority=1, stock_priority=1)
+        self.b = Supplier.objects.create(name='Б', price_priority=1, stock_priority=1)
+        self.c = Supplier.objects.create(name='В', price_priority=2, stock_priority=2)
+        self.product = Product.objects.create(pim_id='p-1', number='SKU-1', name='Смеситель')
+
+    def row(self, supplier, **values):
+        return MainProduct.objects.create(product=self.product, supplier=supplier,
+                                          name=self.product.name, **values)
+
+    def main(self, columns):
+        content, _ = ProductExporter(QueryDict(''), columns).build()
+        return as_dicts(read_sheets(content)['Товары'])[0]
+
+    def test_all_prices_from_winner_by_prime_cost_max_stock(self):
+        self.row(self.a, prime_cost=Decimal('90'), basic_price=Decimal('120'), stock=2)
+        self.row(self.b, prime_cost=Decimal('95'), basic_price=Decimal('100'), stock=5)
+        # Нижний уровень дешевле и с большим остатком — но он не решает.
+        self.row(self.c, prime_cost=Decimal('40'), basic_price=Decimal('50'), stock=99)
+        values = self.main(['prime_cost', 'basic_price', 'stock'])
+        # Победитель — А (себестоимость 90): и базовая цена его, хоть у Б она ниже.
+        self.assertEqual(values['Себестоимость (основная)'], 90)
+        self.assertEqual(values['Базовая цена (основная)'], 120)
+        self.assertEqual(values['Остаток (основной)'], 5)
+
+    def test_winner_chosen_even_when_prime_cost_not_exported(self):
+        self.row(self.a, prime_cost=Decimal('90'), basic_price=Decimal('120'))
+        self.row(self.b, prime_cost=Decimal('80'), basic_price=Decimal('130'))
+        self.assertEqual(self.main(['basic_price'])['Базовая цена (основная)'], 130)
+
+    def test_missing_price_of_winner_taken_from_next_in_level(self):
+        self.row(self.a, prime_cost=Decimal('90'), basic_price=Decimal('0'), m_price=Decimal('150'))
+        self.row(self.b, prime_cost=Decimal('95'), basic_price=Decimal('110'), m_price=Decimal('140'))
+        self.row(self.c, prime_cost=Decimal('10'), basic_price=Decimal('20'))
+        values = self.main(['basic_price', 'm_price'])
+        self.assertEqual(values['Цена ИМ (основная)'], 150)
+        # У победителя базовой цены нет — берётся у следующего на его уровне, не с нижнего.
+        self.assertEqual(values['Базовая цена (основная)'], 110)
+
+    def test_supplier_without_prime_cost_loses_to_one_with(self):
+        self.row(self.a, basic_price=Decimal('50'))
+        self.row(self.b, prime_cost=Decimal('95'), basic_price=Decimal('110'))
+        self.assertEqual(self.main(['basic_price'])['Базовая цена (основная)'], 110)
+
+    def test_level_without_values_falls_through(self):
+        self.row(self.a, basic_price=Decimal('0'), stock=0)
+        self.row(self.b, basic_price=None, stock=None)
+        self.row(self.c, basic_price=Decimal('50'), stock=4)
+        values = self.main(['basic_price', 'stock'])
+        self.assertEqual(values['Базовая цена (основная)'], 50)
+        self.assertEqual(values['Остаток (основной)'], 4)
+
+    def test_unranked_are_one_level_below_ranked(self):
+        alpha = Supplier.objects.create(name='Альфа')
+        yashma = Supplier.objects.create(name='Яшма')
+        self.row(alpha, prime_cost=Decimal('250'), basic_price=Decimal('300'), stock=1)
+        self.row(yashma, prime_cost=Decimal('150'), basic_price=Decimal('200'), stock=8)
+        values = self.main(['basic_price', 'stock'])
+        # Не «Альфа» по алфавиту, а победитель по себестоимости и максимум остатка.
+        self.assertEqual(values['Базовая цена (основная)'], 200)
+        self.assertEqual(values['Остаток (основной)'], 8)
+        self.row(self.c, basic_price=Decimal('900'), stock=1)
+        values = self.main(['basic_price', 'stock'])
+        self.assertEqual(values['Базовая цена (основная)'], 900)
+        self.assertEqual(values['Остаток (основной)'], 1)
+
+    def test_several_rows_of_one_supplier_cheapest_row_wins(self):
+        self.row(self.a, prime_cost=Decimal('50'), m_price=Decimal('70'), stock=1)
+        self.row(self.a, prime_cost=Decimal('40'), m_price=Decimal('75'), stock=3)
+        content, _ = ProductExporter(QueryDict(''), ['m_price', 'stock']).build()
+        sheet = as_dicts(read_sheets(content)['А'])[0]
+        self.assertEqual(sheet['Цена ИМ'], 75)
+        self.assertEqual(sheet['Остаток'], 3)
+
+    def test_supplier_currency_prices_have_no_main_value(self):
+        self.row(self.a, basic_price=Decimal('100'))
+        columns = ['supplier_product_price', 'supplier_product_rrp',
+                   'supplier_product_discount_price', 'basic_price']
+        content, _ = ProductExporter(QueryDict(''), columns).build()
+        sheets = read_sheets(content)
+        header = sheets['Товары'][0]
+        self.assertEqual(header[4:], ['Базовая цена (основная)'])
+        # На листе поставщика они остаются.
+        self.assertEqual(sheets['А'][0][2:], [COLUMN_LABELS[key] for key in columns])
 
 
 class ExportOrderTests(TestCase):
@@ -285,7 +403,8 @@ class FullCsvExportTests(TestCase):
         self.assertEqual(header, (
             ['Артикул', 'Название', 'Бренд', 'Категории']
             + [f'{label} (основной)' if key == 'stock' else f'{label} (основная)'
-               for key, label in zip(FULL_EXPORT_COLUMNS, labels)]
+               for key, label in zip(FULL_EXPORT_COLUMNS, labels)
+               if key == 'stock' or key in MAIN_PRICE_COLUMNS]
             + [f'А • {label}' for label in labels]
             + [f'Б • {label}' for label in labels]))
 
