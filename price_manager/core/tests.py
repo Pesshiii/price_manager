@@ -757,3 +757,23 @@ class PersistentNotificationLifetimeTests(TestCase):
 
         notification = PersistentNotification.objects.get(user=self.user)
         self.assertEqual(notification.expires_at - notification.seen_at, timedelta(seconds=10))
+
+    def test_migration_classifies_notifications_created_before_it(self):
+        import importlib
+
+        from django.apps import apps
+
+        migration = importlib.import_module('core.migrations.0012_persistentnotification_lifetime')
+        export = self._create(link='/shopping-tab/export/3/download/', link_text='Скачать файл')
+        release = self._create(level='info', link='/releases/1.4.0/', link_text='Читать')
+        confirmation = self._create(level='warning', link='/supplier/5/?import_run=42#settings', link_text='Проверить')
+        plain = self._create()
+
+        migration.classify_existing(apps, None)
+
+        for notification, kind, ref in ((export, 'export', ''), (release, 'release', ''),
+                                        (confirmation, 'confirmation', 'import_run:42'),
+                                        (plain, 'regular', '')):
+            notification.refresh_from_db()
+            self.assertEqual((notification.kind, notification.ref), (kind, ref))
+            self.assertIsNone(notification.seen_at)

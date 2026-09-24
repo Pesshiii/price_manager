@@ -1,17 +1,24 @@
-from datetime import timedelta
+import re
 
 from django.db import migrations, models
-from django.db.models import F
+
+IMPORT_RUN_IN_LINK = re.compile(r'[?&]import_run=(\d+)')
 
 
-def expire_existing(apps, schema_editor):
-    # Old rows carry no kind, so exports and confirmations cannot be told apart
-    # reliably: they keep the 72 hours they were created under.
+def classify_existing(apps, schema_editor):
+    # Old rows carry no kind; each manual one is recognisable by the link its
+    # single call site wrote. Everything else stays regular and unseen, so its
+    # countdown starts at the next panel open like any new notification.
     PersistentNotification = apps.get_model('core', 'PersistentNotification')
-    PersistentNotification.objects.update(
-        seen_at=F('created_at'),
-        expires_at=F('created_at') + timedelta(hours=72),
-    )
+    PersistentNotification.objects.filter(link_text='Скачать файл').update(kind='export')
+    PersistentNotification.objects.filter(link__startswith='/releases/').update(kind='release')
+    for notification in PersistentNotification.objects.filter(link_text='Проверить', link__contains='import_run='):
+        match = IMPORT_RUN_IN_LINK.search(notification.link)
+        if match:
+            # Ones no longer pending go with the next cleanup_supplier_files_task.
+            notification.kind = 'confirmation'
+            notification.ref = f'import_run:{match.group(1)}'
+            notification.save(update_fields=['kind', 'ref'])
 
 
 class Migration(migrations.Migration):
@@ -41,5 +48,5 @@ class Migration(migrations.Migration):
             name='expires_at',
             field=models.DateTimeField(blank=True, db_index=True, null=True, verbose_name='Удалить после'),
         ),
-        migrations.RunPython(expire_existing, migrations.RunPython.noop),
+        migrations.RunPython(classify_existing, migrations.RunPython.noop),
     ]
