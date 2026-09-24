@@ -15,9 +15,8 @@ from .models import Brand, Category, Product
 #
 # Живут на уровне модуля, потому что у них два потребителя: товарная страница
 # (ProductFilter, корень — Product) и выбор строк поставщиков
-# (main_product_manager.MainProductFilter — корзина и «Привязать из ГП»,
-# корень — MainProduct). Определение поиска должно быть одно на оба места,
-# иначе они разъедутся.
+# (main_product_manager.MainProductFilter — корзина, корень — MainProduct).
+# Определение поиска должно быть одно на оба места, иначе они разъедутся.
 
 def search_terms(value) -> list[str]:
     return [term for term in (value or '').split() if term]

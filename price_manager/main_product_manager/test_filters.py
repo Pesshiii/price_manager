@@ -1,4 +1,4 @@
-"""MainProductFilter — выбор строк поставщиков для корзины и «Привязать из ГП».
+"""MainProductFilter — выбор строк поставщиков для корзины.
 
 Главное, что здесь проверяется: фильтр НЕ опирается на search_vector,
 categories и manufacturer самого MainProduct — Phase 2 их удаляет. Поиск и

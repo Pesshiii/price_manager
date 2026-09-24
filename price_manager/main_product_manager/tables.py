@@ -10,27 +10,6 @@ from .forms import *
 
 import pandas as pd
 
-class MainProductResolveTable(tables.Table):
-  class Meta:
-    model = MainProduct
-    fields = [
-      'sku',
-      'article',
-      'name',
-      'supplier'
-    ]
-    template_name = 'core/includes/table_htmx.html'
-    attrs = {
-      'class': 'clickable-rows table table-auto table-stripped table-hover'
-      }
-    
-  def __init__(self, *args, **kwargs):
-    self.request = kwargs.pop('request')
-    self.url = kwargs.pop('url', None)
-    if not self.url:
-      self.url = self.request.path_info
-    super().__init__(*args, **kwargs)
-
 class MainProductLogTable(tables.Table):
   record_type = tables.Column(
     accessor='record_type',
