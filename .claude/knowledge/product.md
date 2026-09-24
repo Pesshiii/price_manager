@@ -4,8 +4,10 @@
 `Product.pim_id` *means*; the product-shift Phase 1 (2026-09-19) made
 `Product` the root of search and filtering at `/products/`; PR #197
 (2026-09-2x) redesigned that page (sticky filters, compact table, search
-fixes). Re-verify anything below that predates those if this file looks old.
-Design and decisions: `.claude/shift-to-product-brief.md`.
+fixes); an uncommitted branch (`worktree-dynamic-facets`) added dynamic facet
+narrowing — see the dedicated section below. Re-verify anything below that
+predates those if this file looks old. Design and decisions:
+`.claude/shift-to-product-brief.md`.
 
 ## What it is *now*
 
@@ -231,48 +233,51 @@ line numbers. Every trap below passed a green suite and was caught only by
 measuring on the prod snapshot or driving the page in a browser.
 
 - **`SearchRank(F('search_vector'), …)`, never `SearchRank('search_vector', …)`**
-  (`filters.py:42-57`). With a string, Django re-tokenizes the stored tsvector
+  (`filters.py:44-59`). With a string, Django re-tokenizes the stored tsvector
   as text on every row with the default config, bypassing the GIN index.
-- **Rank order needs `nulls_last=True`** (`filters.py:100-114`, `ranked()`).
+- **Rank order needs `nulls_last=True`** (`filters.py:102-116`, `ranked()`).
   `'-rank'` compiles to `ORDER BY rank DESC`, and Postgres puts NULLs *first*
   on DESC. Products with no PIM data have no vector, so their rank is NULL,
   and they filled all of page 1 on every search measured.
   `test_full_text_match_ranks_above_a_supplier_name_only_match` guards this.
-- **Search is a UNION, not an OR** (`matching_product_pks`, `filters.py:60-97`).
+- **Search is a UNION, not an OR** (`matching_product_pks`, `filters.py:62-99`).
   Vector, `number__icontains` and the MainProduct-name `Exists` are each
   cheap alone; OR'd together Postgres can't combine the GIN scan with the
   subquery and scans everything (622ms vs 263–586ms measured).
 - **The category facet needs `select_related` to depth 5**
-  (`CATEGORY_LABEL_DEPTH`, `filters.py:131-135,175`). `Category.__str__`
+  (`CATEGORY_LABEL_DEPTH`, `filters.py:185`, used at `:225`). `Category.__str__`
   recurses through `self.parent`: 1,567 queries / 1.6s on the real tree vs 1
   query / 36ms.
 - **The category facet is a tree, not a checkbox list**
   (`product/partials/category_tree_field.html` + `category_tree_node.html`,
   `{% recursetree %}`, shared — see below). A flat list was 668 rows with
   paths up to 126 chars. Filtering to "has products" doesn't help: 633 of 668
-  categories do (measured).
+  categories do (measured; now moot — the panel hides empty categories
+  entirely, see "Dynamic facet narrowing" below).
 - **`ProductPage.get_template_names()` must return the table fragment for
-  HTMX** (`views.py:64-80`). Filter and search both `hx-get` back to
+  HTMX** (`views.py:94-110`). Filter and search both `hx-get` back to
   `products`, not a separate fragment endpoint — so `hx-push-url` keeps the
   address bar correct. Without the `request.htmx` branch the whole page
   renders inside `#products-table`.
 - **The search widget needs an explicit `id='products-search'`**
-  (`filters.py:167`). Django's default `id_search` isn't what
+  (`filters.py:217`). Django's default `id_search` isn't what
   `hx-trigger`/`hx-include` select on.
 - **`self.data` is not always a QueryDict** — `selected_values()`
-  (`filters.py:26-39`) handles a plain dict, since django-filter 25.1 only
+  (`filters.py:28-41`) handles a plain dict, since django-filter 25.1 only
   swaps a *falsy* `data` for an empty `QueryDict`. [[supplier_product_manager]]'s
   `SupplierProductFilter` calls `self.data.getlist()` bare and raises
   `AttributeError` from `__init__` if built from a plain dict.
 - **Search is shared, not copied.** `filters.py` exposes
-  `matching_product_pks`, `ranked`, `search_rank`, `category_with_descendants`
-  and `selected_values` at module level; [[main_product_manager]]'s
-  `MainProductFilter` (cart's product picker) imports and reuses every one
-  (`main_product_manager/filters.py:9-16`). Change search here and the cart
-  changes with it — that is the point.
+  `matching_product_pks`, `ranked`, `search_rank`, `category_with_descendants`,
+  `selected_values` **and now `expanded_category_pks`, `category_subtree_counts`**
+  at module level; [[main_product_manager]]'s `MainProductFilter` (cart's
+  product picker) imports and reuses several of them
+  (`main_product_manager/filters.py:9-17`, includes `expanded_category_pks`
+  since the dynamic-facets branch). Change search or the tree-expansion rule
+  here and the cart changes with it — that is the point.
 - **`price_from`/`price_to` filter on `MainProduct.prime_cost`** via the same
   `_with_main_product(Exists(...))` helper as `supplier`/`available`
-  (`filters.py:201-211,272-295`) — added with the PR #197 redesign, no
+  (`filters.py:387-410`) — added with the PR #197 redesign, no
   surprise mechanism, just note it exists if you're looking for "cost" and
   don't see a field on `Product`.
 - **Column preferences (`columns.py`) are cached per user under
@@ -284,24 +289,137 @@ measuring on the prod snapshot or driving the page in a browser.
   that «снял всё» still sends the key: with no `columns` in the request the
   view loads the saved choice instead of saving (`views.py:92-96`).
 
+### Dynamic facet narrowing (uncommitted, branch `worktree-dynamic-facets`)
+
+The brand/supplier/category checkbox lists on `/products/` now hide options
+with zero results under the current filters and show a live count next to
+each option that remains — a second round-trip after every table refresh,
+kept off the table's own response because it costs real time.
+
+- **Two querysets, two purposes, don't conflate them.** `config_filters()`
+  (`filters.py:269-278`, called from `__init__`) sets the **broad**
+  querysets (all `Brand`, all `Supplier`) — purely so
+  `ModelMultipleChoiceField` validates any pk that legitimately appears in
+  the URL. It does **not** narrow to "used" brands/suppliers any more (an
+  earlier revision of this file claimed it did — that behaviour moved to
+  `narrow_facets`). `.qs` (table, export, cart) never calls `narrow_facets`
+  and pays no facet cost. Narrowing happens only in `narrow_facets()`
+  (`:305-359`), called by `ProductFilterView.get` (`views.py:189-190`, the
+  first paint of the panel) and the new `ProductFacetsView.get`
+  (`views.py:203-209`, route `product-facets` = `/products/facets/`,
+  `views.py:37`).
+- **`_queryset_without(facet)`** (`filters.py:283-303`) computes "all
+  conditions except this facet's own" — ticking Bosch under Brand must not
+  hide Makita from the same list. Root is bare `Product.objects.all()`, not
+  `self.queryset`: the page's annotations/ordering would pollute the
+  aggregate. Wraps the result in `Product.objects.filter(pk__in=queryset
+  .order_by().values('pk'))` — dropping `order_by()` is required because a
+  search leaves `order_by(rank)` on the queryset, which would otherwise leak
+  into the `GROUP BY` of the `Count`/`annotate` calls in `narrow_facets` and
+  collapse every group to one product. Returns the base queryset unchanged
+  (identity check `queryset is base`) when no other filter applies.
+- **Writes land on `self.form.fields[...]`, never `self.filters[...].field`.**
+  The form deep-copies its fields at construction, so writing to the filter
+  field after that point never reaches the render (`filters.py:310-312`
+  documents this explicitly). `narrow_facets` attaches `facet_counts` (dict
+  `int pk → count`) to each form field, and `expanded_pks` to the category
+  field. A selected option stays visible even at count 0 — taken from
+  `cleaned_data`, i.e. already-validated instances, so junk in the URL can't
+  reach the `pk__in` and can't fabricate a phantom option.
+- **Counts must equal "select this option and count the results."**
+  `test_every_count_matches_selecting_that_option`
+  (`product/tests/test_filters.py:260`, class `ProductFacetNarrowingTests`
+  at `:163`) drives every visible facet option through both a direct
+  `.qs.count()` and the displayed count and asserts equality. Supplier count
+  = distinct products with a `MainProduct` of that supplier
+  (`filters.py:335-340`) — matches `supplier_method`'s own `Exists` exactly.
+  Category count = **DISTINCT products in the node's whole subtree**, from
+  raw SQL `category_subtree_counts()` (`filters.py:149-178`) joining the
+  category-M2M-through rows to their ancestor categories on MPTT intervals
+  (`tree_id`, `lft`/`rght`) — summing direct child counts would double-count
+  a product that sits in two subcategories of one branch. Its output is
+  ancestor-closed by construction (every counted node's ancestors are also
+  counted), which is what makes it safe to feed straight to
+  `{% recursetree %}`; a *selected* zero-count node still needs its
+  ancestors added explicitly via `expanded_category_pks()`
+  (`filters.py:133-146`) since a node with no products in its subtree isn't
+  in the counts dict at all.
+- **Measured cost on a prod snapshot (~159k products): 60–450 ms for
+  `narrow_facets`, depending on how many conditions are active.** That is why
+  facets are a **separate** request, not embedded in the table response.
+  `ProductPage.render_to_response` (`views.py:81-92`) adds an `HX-Trigger:
+  products-updated` header (`PRODUCTS_UPDATED_EVENT = 'products-updated'`,
+  `views.py:31`) to every HTMX response — table refresh, search, pagination,
+  sort, and column changes all trigger it, deliberately over-inclusive since
+  a spare facets refresh is cheap to skip. `#product-facets-refresh`
+  (`list.html:758`, hidden div, `hx-trigger="products-updated from:body"`,
+  `hx-swap="none"`, `hx-sync="this:replace"`, `hx-include="#product-filter,
+  #products-search"`) picks it up and fetches `/products/facets/`, which
+  renders `build_facets_helper()` (`filters.py:467-485`) — **only** the two
+  OOB fragments: the category tree root (`div_id_categories`,
+  `hx-swap-oob="true"`) and the `#checkboxes` partialdef of the brand/supplier
+  checkbox lists (`hx-swap-oob="outerHTML"`, `core/includes/checkbox_field.html:37-74`).
+  The listener **must** sit outside `#product-filter` and
+  `#product-filters-card`: inside the form it would inherit `hx-push-url`
+  and the facets URL would land in the address bar, which
+  `ProductExportView` reads from `window.location.search`.
+- **`list.html:1028+` JS**: a facets response is dropped
+  (`event.detail.shouldSwap = false`, `list.html:1050`) if the form's state
+  changed since the request was sent — otherwise a slow facets response
+  could untick a box the user ticked mid-flight. User-expanded accordion
+  branches and each `.filter-scroll-list`'s `scrollTop` are captured before
+  the OOB swap and reapplied after. Console `htmx:sendAbort` errors are
+  **expected, not a bug** — `hx-sync="this:replace"` aborts a stale
+  in-flight facets request when a newer one supersedes it.
+- **Tree template perf trap (fixed).** `category_tree_node.html` used to do
+  `node.get_descendants|values_list:'pk'|intersection:selected_values` twice
+  per branch node — 2 queries per branch even with nothing selected in the
+  facet. It now reads the precomputed `field.field.expanded_pks`
+  (`category_tree_node.html:17,23`), computed once per request by
+  `expanded_category_pks` and attached in `narrow_facets`/`config_filters`.
+  Guarded by `test_facets_query_count_does_not_grow_with_the_tree` and
+  `test_facets_query_count_with_a_selected_category`
+  (`product/tests/test_views.py:413,423`) — same query count at 2 branches
+  and 20. The cart's `MainProductFilter.config_filters` sets `expanded_pks`
+  too (`main_product_manager/filters.py:208-209`) — without it no branch in
+  the cart's tree renders expanded, since the template no longer computes it
+  itself. `category_tree_field.html:29-31` now shows «Категории не найдены»
+  when the (narrowed) queryset is empty.
+- Existing panel test `test_filter_panel_hides_empty_options_and_shows_counts`
+  (`test_views.py:366`) covers brand/supplier hiding + counts; the older
+  `test_filter_fragment_does_not_leak_template_comments`
+  (`test_views.py:346`) had to be given categories with products — empty
+  categories are now hidden from the panel, so the old fixture (categories
+  with no products) stopped exercising the comment-leak bug it was written
+  for.
+- See [[core]] for the `facet_counts` rendering hook inside
+  `checkbox_field.html` (shared across apps) and [[main_product_manager]]
+  for the `expanded_pks` contract `MainProductFilter` must also satisfy.
+
 ### Rendering — found by driving the page in a browser
 
 - **The filter partials are shared: an edit lands on every screen that
   renders them.** `category_tree_field.html`/`category_tree_node.html`:
-  `product/filters.py:175` and `main_product_manager/filters.py:121`
+  `product/filters.py:449,479` and `main_product_manager/filters.py:122`
   ([[main_product_manager]]'s cart picker).
-  `core/includes/checkbox_field.html`: `product/filters.py:337,339`,
-  `main_product_manager/filters.py:118-119,138,142` (`:118-119` render its
-  `#checkboxes` partialdef on the OOB path — see [[core]]) and
+  `core/includes/checkbox_field.html`: `product/filters.py:451,453,480-481`
+  (`:480-481` render its `#checkboxes` partialdef on the OOB path — see
+  [[core]]), `main_product_manager/filters.py:126,130` and
   `supplier_product_manager/filters.py:108`. `radio_field.html` emits the
-  same classes (`:50,54`) via `CustomRadio('supplier')` in the «Добавить
+  same classes via `CustomRadio('supplier')` in the «Добавить
   товар» form (`main_product_manager/forms.py:43`). The tree needs an
   ancestor-closed queryset — `recursetree` on an orphaned node raises, a 500
   in the cart modal — so `MainProductFilter` adds
-  `get_ancestors(include_self=True)` (`main_product_manager/filters.py:194-205`);
-  `ProductFilter` passes the whole tree. The tree's root id `div_<auto_id>`
-  is also the OOB-swap target for the stripped render
-  (`main_product_manager/filters.py:117`): rename it and the refresh
+  `get_ancestors(include_self=True)` (`main_product_manager/filters.py:191`);
+  `ProductFilter.narrow_facets` does the equivalent by unioning
+  `category_subtree_counts` (ancestor-closed by construction) with
+  `expanded_category_pks` of the selection (`filters.py:352-357`) — **not**
+  "the whole tree" any more (an earlier revision of this file said it was;
+  the dynamic-facets branch narrows it to categories with products, plus any
+  selected-but-empty branch's ancestors). The tree's root id `div_<auto_id>`
+  is the OOB-swap target for `ProductFacetsView`'s refresh on `/products/`
+  (`filters.py:479`) — since «Привязать из ГП» and its stripped render left
+  `MainProductFilter` (#231), the only one. Rename it and the refresh
   silently stops.
 - **Checkbox/radio-facet `<script>` blocks must not declare at top level —
   they run once per facet.** `core/includes/checkbox_field.html` and
@@ -332,7 +450,7 @@ measuring on the prod snapshot or driving the page in a browser.
   and `product/partials/table.html` (top-of-file note, now `{% comment %}`
   at `:2-13`) had this. Guarded by
   `test_filter_fragment_does_not_leak_template_comments`
-  (`test_views.py:185-200`) and
+  (`test_views.py:346`) and
   `test_fragment_does_not_leak_template_comments_into_the_response`
   (`test_views.py:158-167`).
 - **The name column cannot sort — by construction — and there is no sort by
@@ -343,14 +461,14 @@ measuring on the prod snapshot or driving the page in a browser.
   (`partials/table.html:33`): only `number`, `supplier_count`, `total_stock`
   sort. Brand and categories render as a `brand · category · …` line under
   the name (`tables.py:139-144`), not columns — hence no brand sort.
-  `_base_queryset` (`views.py:23-32`) keeps `select_related('brand')` and the
+  `_base_queryset` (`views.py:34-49`) keeps `select_related('brand')` and the
   categories prefetch for that cell; drop either and it's N+1, unguarded by
   `assertNumQueries`.
 - **Known gap, not fixed — the mobile filter drawer stays open after a
   checkbox tick.** Below `lg` the filters sit in an offcanvas
   (`#products-filters`, `list.html:634`) closed only by a `submit` listener
   on `#product-filter` (`list.html:837-842`), i.e. by «Применить». A tick
-  auto-applies via `hx-trigger` `change delay:600ms` (`filters.py:315`),
+  auto-applies via `hx-trigger` `change delay:600ms` (`filters.py:430`),
   which fires no `submit`, so the drawer stays open over the refreshed
   results.
 

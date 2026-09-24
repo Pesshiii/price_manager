@@ -2,9 +2,11 @@ from crispy_forms.helper import FormHelper
 from crispy_forms.layout import Div, Field, HTML, Hidden, Layout, Submit
 from django import forms
 from django.contrib.postgres.search import SearchQuery, SearchRank
-from django.db.models import Exists, F, OuterRef, Q
+from django.db import connection
+from django.db.models import Count, Exists, F, OuterRef, Q
 from django_filters import FilterSet, filters
 
+from core.crispy_fields import OobField
 from main_product_manager.models import MainProduct
 from supplier_manager.models import Supplier
 
@@ -127,6 +129,54 @@ def category_with_descendants(categories) -> set[int]:
     return pks
 
 
+def expanded_category_pks(selected) -> set[int]:
+    """Ветки дерева, раскрытые при отрисовке: выбранные узлы и их предки.
+
+    Считается здесь одним запросом, а не в шаблоне: там это было пересечение
+    потомков узла с выбором — по запросу на каждую ветку, дважды, даже без
+    выбора. Пока дерево рисовалось раз на страницу, это терпелось; теперь оно
+    перерисовывается после каждого фильтра. selected — список pk.
+    """
+    if not selected:
+        return set()
+    return set(
+        Category.objects.filter(pk__in=selected)
+        .get_ancestors(include_self=True).values_list('pk', flat=True)
+    )
+
+
+def category_subtree_counts(products) -> dict[int, int]:
+    """Сколько РАЗНЫХ товаров из products лежит в каждой категории или под ней.
+
+    Считается по поддереву, потому что так же работает сам фильтр
+    (category_with_descendants): число рядом с «Сантехникой» обязано совпасть
+    с тем, что покажет выбор «Сантехники». Сумма прямых счётчиков потомков
+    тут не годится — товар в двух подкатегориях одной ветки был бы посчитан
+    дважды.
+
+    Сырой SQL, потому что соединение «узел — его предки» идёт не по внешнему
+    ключу, а по интервалам MPTT (tree_id + lft/rght), и ORM его не выражает.
+    В выдачу попадают только узлы с товарами; их предки — тоже, так что
+    набор замкнут вверх и годится для {% recursetree %} как есть.
+    """
+    pairs = Product.categories.through.objects.filter(
+        product_id__in=products.values('pk')
+    ).values('product_id', 'category_id')
+    pairs_sql, params = pairs.query.sql_with_params()
+    category = connection.ops.quote_name(Category._meta.db_table)
+    with connection.cursor() as cursor:
+        cursor.execute(
+            f'SELECT a.id, COUNT(DISTINCT p.product_id) '
+            f'FROM ({pairs_sql}) p '
+            f'JOIN {category} c ON c.id = p.category_id '
+            f'JOIN {category} a ON a.tree_id = c.tree_id '
+            f'AND a.lft <= c.lft AND a.rght >= c.rght '
+            f'GROUP BY a.id',
+            params,
+        )
+        return dict(cursor.fetchall())
+
+
 # Глубина 5 покрывает всё дерево (уровни 0-5). Category.__str__ рекурсивно идёт
 # по self.parent, и без предзагрузки каждая метка стоит по запросу на уровень.
 # На боевом дереве это 1567 запросов и 1.6 с против одного запроса и 36 мс —
@@ -229,32 +279,97 @@ class ProductFilter(FilterSet):
 
     # --- фасеты -----------------------------------------------------------
 
-    def _selected(self, name):
-        return selected_values(self.data, name)
-
     def config_filters(self):
-        """Наполняет списки фасетов и держит уже выбранное наверху.
+        """Справочники целиком — ТОЛЬКО для проверки выбранных значений.
 
-        Бренды и поставщики ограничены тем, что реально встречается, иначе
-        список брендов — это весь справочник PIM. Выбранное подмешивается
-        обратно: иначе снятие последнего товара из выборки выкинуло бы галочку
-        из списка, и снять её стало бы нечем.
+        Что показать в панели, решает narrow_facets(), и он дорогой: три
+        агрегата по всей выдаче. Таблице, экспорту и корзине нужен лишь .qs,
+        поэтому здесь ничего не считается — поле всего лишь должно принять
+        любой существующий pk из адреса.
         """
-        selected_brands = self._selected('brand')
-        brands = Brand.objects.filter(products__isnull=False).distinct().order_by('name')
-        if selected_brands:
-            brands = Brand.objects.filter(
-                Q(pk__in=brands) | Q(pk__in=selected_brands)
-            ).order_by('name')
-        self.filters['brand'].field.queryset = brands
+        self.filters['brand'].field.queryset = Brand.objects.order_by('name')
+        self.filters['supplier'].field.queryset = Supplier.objects.order_by('name')
 
-        selected_suppliers = self._selected('supplier')
-        suppliers = Supplier.objects.filter(main_products__isnull=False).distinct().order_by('name')
-        if selected_suppliers:
-            suppliers = Supplier.objects.filter(
-                Q(pk__in=suppliers) | Q(pk__in=selected_suppliers)
-            ).order_by('name')
-        self.filters['supplier'].field.queryset = suppliers
+    # Фасеты, которые сужаются под выдачу. Порядок не важен.
+    FACETS = ('categories', 'brand', 'supplier')
+
+    def _queryset_without(self, facet):
+        """Товары под всеми условиями, кроме условий самого фасета.
+
+        «Все, кроме своего» — иначе после галочки на Bosch из списка брендов
+        пропали бы все остальные, и добавить Makita (бренды внутри фасета
+        складываются через ИЛИ) стало бы нельзя.
+
+        Корень — голый Product.objects, а не self.queryset: у выдачи страницы
+        аннотации цен и сортировка по категориям, и в агрегате они только
+        мешают. Оборачивание в pk__in снимает order_by(rank), который оставляет
+        поиск: поле из ORDER BY попало бы в GROUP BY, и каждая группа
+        выродилась бы в один товар.
+        """
+        base = Product.objects.all()
+        queryset = base
+        for name, value in self.form.cleaned_data.items():
+            if name != facet and name in self.filters:
+                queryset = self.filters[name].filter(queryset, value)
+        if queryset is base:
+            return base
+        return Product.objects.filter(pk__in=queryset.order_by().values('pk'))
+
+    def narrow_facets(self):
+        """Оставляет в фасетах только варианты с товарами и считает их.
+
+        Вызывают только панель фильтров и её обновление (views), не .qs.
+
+        Пишем в self.form.fields, а не в self.filters[...].field: форма при
+        создании копирует поля, и запись в поле фильтра до отрисовки уже не
+        доходит.
+
+        Выбранное остаётся в списке всегда, даже с нулём: иначе условие,
+        сузившее выдачу до пустоты, выкинуло бы собственную галочку, и снять
+        её стало бы нечем. Выбранное берётся из cleaned_data — это уже
+        проверенные объекты, мусор из адреса сюда не доходит.
+        """
+        self.form.is_valid()
+        data = self.form.cleaned_data
+        fields = self.form.fields
+
+        brand_counts = dict(
+            self._queryset_without('brand').filter(brand__isnull=False)
+            .order_by().values_list('brand').annotate(n=Count('pk'))
+        )
+        fields['brand'].queryset = Brand.objects.filter(
+            Q(pk__in=list(brand_counts)) | Q(pk__in=[b.pk for b in data.get('brand') or []])
+        ).order_by('name')
+        fields['brand'].facet_counts = brand_counts
+
+        # Товар засчитывается поставщику, если у поставщика есть его строка, —
+        # ровно условие supplier_method (отдельный Exists), поэтому число
+        # совпадает с тем, что покажет выбор этого поставщика.
+        supplier_counts = dict(
+            MainProduct.objects.filter(
+                product__in=self._queryset_without('supplier').values('pk'),
+                supplier__isnull=False,
+            ).order_by().values_list('supplier').annotate(n=Count('product', distinct=True))
+        )
+        fields['supplier'].queryset = Supplier.objects.filter(
+            Q(pk__in=list(supplier_counts))
+            | Q(pk__in=[s.pk for s in data.get('supplier') or []])
+        ).order_by('name')
+        fields['supplier'].facet_counts = supplier_counts
+
+        # Узлы с товарами замкнуты вверх сами (см. category_subtree_counts).
+        # Выбранному узлу без товаров предков надо добавить явно:
+        # {% recursetree %} на узле без родителя в выборке падает с 500.
+        # Предки выбранных — это и есть раскрытые ветки, так что один набор
+        # служит обеим целям.
+        category_counts = category_subtree_counts(self._queryset_without('categories'))
+        expanded = expanded_category_pks([c.pk for c in data.get('categories') or []])
+        fields['categories'].queryset = (
+            Category.objects.filter(pk__in=set(category_counts) | expanded)
+            .select_related(CATEGORY_LABEL_DEPTH)
+        )
+        fields['categories'].facet_counts = category_counts
+        fields['categories'].expanded_pks = expanded
 
     # --- поиск ------------------------------------------------------------
 
@@ -373,6 +488,26 @@ class ProductFilter(FilterSet):
                      '<i class="bi bi-arrow-counterclockwise"></i></a>'),
                 css_class='d-flex gap-2 filter-actions',
             ),
+        )
+        self.form.helper = helper
+        return helper
+
+    def build_facets_helper(self):
+        """Хелпер для обновления фасетов: только списки, все — OOB.
+
+        Панель после каждого фильтра не перерисовывается целиком: в ней поля
+        цены, быстрый поиск по брендам, раскрытые ветки — всё это слетело бы
+        посреди ввода. Заменяются лишь сами списки: у дерева корень
+        div_<auto_id>, у галочек — блок #checkboxes из checkbox_field.html
+        (строка быстрого поиска лежит вне него и переживает замену). Id те же,
+        что у первой отрисовки build_helper, — по ним и идёт замена.
+        """
+        helper = FormHelper(self.form)
+        helper.form_tag = False
+        helper.layout = Layout(
+            OobField('categories', template='product/partials/category_tree_field.html'),
+            OobField('brand', template='core/includes/checkbox_field.html#checkboxes'),
+            OobField('supplier', template='core/includes/checkbox_field.html#checkboxes'),
         )
         self.form.helper = helper
         return helper
