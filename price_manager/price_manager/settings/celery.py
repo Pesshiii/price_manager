@@ -52,6 +52,10 @@ CELERY_BEAT_SCHEDULE = {
         'task': 'main_product_manager.reindex_pim_ids',
         'schedule': crontab(hour=3, minute=0),
     },
+    'sync-product-sets': {
+        'task': 'product.sync_product_sets',
+        'schedule': crontab(hour=4, minute=0),
+    },
     'cleanup-persistent-notifications': {
         'task': 'core.cleanup_persistent_notifications',
         'schedule': CELERY_NOTIFICATION_CLEANUP_MINUTES * 60,

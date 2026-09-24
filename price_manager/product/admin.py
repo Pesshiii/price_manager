@@ -5,7 +5,7 @@ from django.urls import path
 from django.views.decorators.http import require_POST
 from mptt.admin import DraggableMPTTAdmin
 
-from .models import Category, Product
+from .models import Category, Product, ProductSetItem
 from .tasks import export_products_full_csv_task
 
 
@@ -15,8 +15,24 @@ class CategoryAdmin(DraggableMPTTAdmin):
     search_fields = ('name', 'slug', 'pim_id')
 
 
+class ProductSetItemInline(admin.TabularInline):
+    """Состав набора. Только чтение: его пересобирает sync_product_sets из PIM,
+    и ручная правка пропала бы на следующем прогоне."""
+    model = ProductSetItem
+    fk_name = 'set_product'
+    extra = 0
+    can_delete = False
+    fields = ('component', 'component_number', 'component_name', 'amount', 'sorting')
+    readonly_fields = fields
+    verbose_name_plural = 'Состав набора'
+
+    def has_add_permission(self, request, obj=None):
+        return False
+
+
 @admin.register(Product)
 class ProductAdmin(admin.ModelAdmin):
+    inlines = (ProductSetItemInline,)
     list_display = ('number', 'name', 'pim_id',  'updated_at')
     search_fields = ('number', 'name', 'pim_id')
     filter_horizontal = ('categories',)
