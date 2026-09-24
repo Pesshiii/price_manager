@@ -4,13 +4,15 @@
     {% if persistent_notifications %}
       <button
         type="button"
-        class="btn btn-sm btn-outline-danger"
+        class="btn btn-sm btn-link"
         hx-post="{% url 'persistent-notifications-delete-all' %}"
         hx-target="#persistent-notifications-panel"
         hx-swap="innerHTML"
-        hx-confirm="Удалить все уведомления?"
+        hx-confirm="Прочитать все уведомления? Они пропадут из списка."
+        title="Прочитать все"
+        aria-label="Прочитать все"
       >
-        <i class="bi bi-trash"></i> Удалить все
+        <i class="bi bi-check2-all" aria-hidden="true"></i>
       </button>
     {% endif %}
     {% include "core/partials/notifications_count.html" %}

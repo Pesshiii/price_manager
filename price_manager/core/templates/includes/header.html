@@ -37,7 +37,7 @@
         <a class="btn btn-link" href="{% url 'admin:index' %}">Админ</a>
         {% if user.is_authenticated %}
           <button
-            class="btn btn-outline-secondary"
+            class="btn"
             type="button"
             data-bs-toggle="modal"
             data-bs-target="#developersFeedbackModal"
@@ -50,7 +50,7 @@
             <i class="bi bi-flag" aria-hidden="true"></i>
           </button>
           <button
-            class="btn btn-outline-secondary position-relative"
+            class="btn position-relative"
             type="button"
             data-bs-toggle="offcanvas"
             data-bs-target="#persistentNotificationsOffcanvas"
