@@ -1,4 +1,6 @@
 from celery import shared_task
+from django.core.cache import cache
+from django.db import transaction
 from django.http import QueryDict
 from django.urls import reverse
 from django.utils import timezone
@@ -6,7 +8,8 @@ from django.conf import settings
 
 from core.models import PersistentNotification
 from core.task_runner import execute_locked_task
-from main_product_manager.utils import compute_supplier_sku, link_to_local_products
+from main_product_manager.utils import compute_supplier_sku, link_to_local_products, update_stocks
+from product_price_manager.models import update_prices
 from main_product_manager.models import MainProduct
 
 from . import guard
@@ -213,6 +216,7 @@ def _import_setting(setting: Setting, user_id: int, confirmed_run_id: int | None
                 return _hold_for_confirmation(run, setting, supplier_file, user_id, stats, verdict)
 
         outcome = load_setting(setting_id, parsed=(payload, parse_stats))
+        schedule_catalog_refresh()
         duration_seconds = round((timezone.now() - started_at).total_seconds(), 2)
         stats = {**outcome.stats, "price_changes": changes}
         processed_rows = len(outcome.sps)
@@ -224,7 +228,8 @@ def _import_setting(setting: Setting, user_id: int, confirmed_run_id: int | None
             + f"нет в файле {stats.get('missing', 0)}"
             + (f" (привязаны к ГП {stats['missing_linked']})" if stats.get('missing_linked') else "")
             + ", "
-            f"длительность {duration_seconds} сек."
+            f"длительность {duration_seconds} сек. "
+            "Остатки и цены в каталоге обновятся в течение пары минут."
         )
         # Repeated rows and articles with several names do not stop an import,
         # but the user has to hear about them: the latter usually mean variants
@@ -289,6 +294,50 @@ def _import_setting(setting: Setting, user_id: int, confirmed_run_id: int | None
             message=error_message,
         )
         raise
+
+
+# The catalog (MainProduct stock and prices) is recomputed from supplier rows
+# by the beat tasks every 15/30 minutes. An applied import asks for a refresh
+# right away instead, debounced: imports within the delay share one refresh.
+CATALOG_REFRESH_DELAY_SECONDS = 60
+CATALOG_REFRESH_RETRIES = 3
+CATALOG_REFRESH_PENDING_KEY = "supplier_import:catalog_refresh_pending"
+# The beat tasks' lock names (main_product_manager.tasks): a refresh and a beat
+# run of the same step never overlap.
+_CATALOG_STEPS = (
+    ("main_product_manager.update_stocks", 60 * 15, update_stocks),
+    ("main_product_manager.update_prices", 60 * 30, update_prices),
+)
+
+
+def schedule_catalog_refresh() -> None:
+    """Пересчитать остатки и цены каталога вскоре после применённого импорта.
+
+    После коммита и с задержкой: несколько импортов подряд дают один
+    пересчёт — пока пересчёт запланирован, новый не ставится.
+    """
+    def enqueue():
+        if cache.add(CATALOG_REFRESH_PENDING_KEY, 1, timeout=CATALOG_REFRESH_DELAY_SECONDS * 5):
+            refresh_catalog_after_import.apply_async(countdown=CATALOG_REFRESH_DELAY_SECONDS)
+    transaction.on_commit(enqueue)
+
+
+@shared_task(bind=True, name="supplier_product_manager.refresh_catalog_after_import",
+             max_retries=CATALOG_REFRESH_RETRIES)
+def refresh_catalog_after_import(self) -> dict:
+    """Остатки, затем цены каталога — теми же шагами и локами, что и по расписанию.
+
+    Ключ «запланирован» снимается до пересчёта: импорт, применённый во время
+    него, мог в него не попасть, поэтому ставит следующий. Шаг, который
+    застал идущий по расписанию пересчёт (лок занят), повторяется через
+    задержку — идущий мог начаться до импорта.
+    """
+    cache.delete(CATALOG_REFRESH_PENDING_KEY)
+    results = {name: execute_locked_task(task_name=name, lock_ttl=ttl, runner=runner)
+               for name, ttl, runner in _CATALOG_STEPS}
+    if any(result["status"] == "skipped" for result in results.values()):
+        raise self.retry(countdown=CATALOG_REFRESH_DELAY_SECONDS)
+    return {name: result["status"] for name, result in results.items()}
 
 
 @shared_task

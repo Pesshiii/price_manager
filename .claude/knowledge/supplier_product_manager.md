@@ -473,6 +473,26 @@ The other three `@shared_task`s still work **inline**: `process_setting_upload`
 known exception in the convention reviewer — do not report it as a new
 finding, but **new** tasks here should route through it.
 
+**An applied import refreshes the catalog** (`schedule_catalog_refresh` →
+`refresh_catalog_after_import`): on commit, if no refresh is pending
+(`CATALOG_REFRESH_PENDING_KEY` via `cache.add`), one is queued with a 60 s
+countdown, so a series of imports shares one refresh. It runs `update_stocks`
+then `update_prices` through `execute_locked_task` under the **beat tasks' lock
+names** (`main_product_manager.update_stocks/_prices`), so it never overlaps a
+beat run; a step that finds the lock held retries the task (up to 3×, 60 s) —
+the running beat pass may have started before the import committed. The
+pending key is cleared *before* the refresh runs, so an import committed during
+it queues the next one. `on_commit` also keeps tests from enqueueing into the
+real broker (the suite has no eager mode).
+
+**Freshness per setting** (settings table): `SettingList.get_queryset`
+annotates `last_applied_at`, `maps_stock`, `maps_prices`. After a failed or
+pending last run the cell adds «данные от dd.mm»; `tables.setting_overdue`
+flags a setting whose last applied import is older than the supplier's
+`stock_update_days`/`price_update_days` for what it maps (the smaller). The
+supplier-level `update_status` cannot show this: any of its settings moves the
+supplier's dates, so a frozen second setting hides behind a working first.
+
 The mapping screen (`SettingUpdate.form_valid`) is `@transaction.atomic`: it
 saves the mapping by deleting every `Link` and recreating it, and a failure
 halfway used to leave the setting with no mapping.
