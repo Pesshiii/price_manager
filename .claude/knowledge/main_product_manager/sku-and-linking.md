@@ -10,12 +10,12 @@ code: price_manager/main_product_manager/utils.py
 `compute_supplier_sku(article, supplier)` (`utils.py:500-509`) applies
 `supplier.sku_type`/`sku_value` as prefix/suffix, feeds
 `copy_supplier_products_to_main_task`'s `MainProduct.sku`
-(`supplier_product_manager/tasks.py:244`). The pre-copy PIM push this used to
+(`supplier_product_manager/tasks.py:507`). The pre-copy PIM push this used to
 agree with is gone. **The Excel upload no longer talks to PIM at all** — it
 only has to produce the right `sku`, which becomes `product.Product.number`
-via `link_unlinked_main_products` (the copy task's own link step,
-`supplier_product_manager/tasks.py:263`), and `number` is reindex's only
-search key into PIM. `SupplierProduct.pim_id`
+via [[main_product_manager/pim-link]]'s `link_to_local_products` (the copy
+task's own link step, `supplier_product_manager/tasks.py:525-526`), and
+`number` is reindex's only search key into PIM. `SupplierProduct.pim_id`
 (`supplier_product_manager/models.py:17`) is dead weight — only the field
 def and its migrations reference it, no read/write site (confirm with
 [[supplier_product_manager]] if its code changes).

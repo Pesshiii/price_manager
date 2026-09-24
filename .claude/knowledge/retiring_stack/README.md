@@ -7,5 +7,5 @@ Keeper: `retiring-stack-keeper`. Covers `pricing`, `supplier`, `supplier_feed`, 
 |---|---|---|
 | [retiring_stack — overview](overview.md) | pricing, supplier, supplier_feed, dataframe: where they came from and what each holds. | `price_manager/pricing/`, `price_manager/supplier/`, `price_manager/supplier_feed/`, `price_manager/dataframe/` |
 | [Isolation from the live stack](isolation.md) | The four apps are isolated with one qualification — verify before claiming otherwise. | `price_manager/api_urls.py` |
-| [The two rules](rules.md) | Rule 1 — do not build here; rule 2 — do not delete them either: all four are mounted under /api/ behind session auth. | `price_manager/api_urls.py`, `price_manager/price_manager/settings/api.py` |
-| [Testing the retiring apps](testing.md) | A fossil test suite — neither maintain nor delete it; the old supplier_feed failure catalog is stale. | `price_manager/supplier_feed/tests/` |
+| [The two rules](rules.md) | Rule 1 — do not build here. Rule 2 — removal is allowed (owner confirmed 2026-09-19), but cut product's migration dependency on supplier_feed first. | `price_manager/api_urls.py`, `price_manager/price_manager/settings/api.py` |
+| [Testing the retiring apps](testing.md) | A fossil test suite — neither maintain nor delete it; an old supplier_feed failure catalog was stale and has been pruned. | `price_manager/supplier_feed/tests/` |

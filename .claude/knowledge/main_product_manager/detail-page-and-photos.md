@@ -5,18 +5,21 @@ code: price_manager/main_product_manager/templates/mainproduct/, price_manager/m
 ---
 # Detail page, PIM errors and photos
 
-## Detail page — three PIM states (`templates/mainproduct/partials/detail.html:65-84`)
+## Detail page — three PIM states (`templates/mainproduct/partials/detail.html:63-82`)
 
 No `product` → «Не привязан». `product` set, no `pim_id` → «Не отправлен в
 PIM». `pim_id` set, `pim_data` empty → «Нет данных» (PMP exists with no
 `productId` yet, or PIM unreachable). Only the third state is a live call.
+PR #231 also added a fourth «Остаток» stat card next to the price cards on
+the same detail page, and split the card's «Наценки» panel into fixed vs.
+rule-driven price tags — see [[main_product_manager/filters-and-columns]].
 
 ## `maybe_notify_pim_error` deliberately not gated on `settings.DEBUG` (`utils.py:109-139`)
 
 DEBUG defaults false, so gating on it meant production — the environment a
 PIM outage actually costs something — got no signal. Throttled per user
 instead (`_PIM_NOTIF_THROTTLE_TTL`, 30 min).
-`test_notifies_even_though_debug_is_false` (`tests.py:1006`) guards it.
+`test_notifies_even_though_debug_is_false` (`tests.py:1036`) guards it.
 
 ## PIM photos — `get_file_url` vs `pim_image_url` (`utils.py:341-405`)
 
@@ -34,7 +37,7 @@ token only to `settings.PIM_HOST`, redirects followed **by hand** with the
 same host check each hop (httpx's own redirect-follow would carry the token
 to any host off a relative 302), bytes cached a day, failures not cached.
 Callers of `get_file_url` render full-size, not thumbnail: `render_photo` in
-[[product]]'s `ProductTable` (`product/tables.py:176-188`, imports
+[[product]]'s `ProductTable` (`product/tables.py:336-360`, imports
 `pim_image_url` from here) and `mainproduct/partials/detail.html`.
-`GetFileUrlTests` (`tests.py:311`) still describes the older
+`GetFileUrlTests` (`tests.py:305`) still describes the older
 `downloadUrl`-only shape, which also remains handled.

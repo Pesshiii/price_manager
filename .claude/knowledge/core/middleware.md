@@ -7,17 +7,18 @@ code: price_manager/core/middleware.py
 
 ## Middleware (`core/middleware.py`)
 
-`LoginRequiredMiddleware` — global login gate; **everything behind `/` requires
-login**. Exemptions: `STATIC_URL`/`MEDIA_URL` prefixes, `settings.LOGIN_URL`,
-`LOGIN_EXEMPT_URLS`, `LOGIN_EXEMPT_API_PREFIXES`, and `/admin/login`,
-`/admin/logout` (hardcoded, so the stock admin login still works). Requests
-under `/api/` get a **401 JSON** response rather than a redirect
-(`middleware.py:46`) — worth knowing when an API client reports a redirect loop.
+`LoginRequiredMiddleware` (class starts `:72`) — global login gate;
+**everything behind `/` requires login**. Exemptions: `STATIC_URL`/`MEDIA_URL`
+prefixes, `settings.LOGIN_URL`, `LOGIN_EXEMPT_URLS`,
+`LOGIN_EXEMPT_API_PREFIXES`, and `/admin/login`, `/admin/logout` (hardcoded,
+so the stock admin login still works). Requests under `/api/` get a **401
+JSON** response rather than a redirect (`middleware.py:104-105`) — worth
+knowing when an API client reports a redirect loop.
 
-`LOGIN_EXEMPT_URLS` entries are **URL names**, not raw paths: the middleware
-resolves each via `resolve_url()` once at `__init__` into a path set
-(`middleware.py:21-24,69-79`), then does an exact `path in self.exempt_paths`
-check per request (`:57`). `'bitrix24-login'`/`'bitrix24-callback'` were added
+`LOGIN_EXEMPT_URLS` entries are **URL names**, not raw paths: `__init__`
+(`:75-93`) resolves each via `resolve_url()` once, into a path set
+(`:80-83`), then `_is_exempt` does an exact `path in self.exempt_paths` check
+per request (`:116`). `'bitrix24-login'`/`'bitrix24-callback'` were added
 here (`settings/messages.py:19-20`) alongside `'login'`/`'logout'`/`'admin:*'`.
 
 `toaster_middleware` (`:149-165`) — if `django.contrib.messages` storage is
@@ -36,6 +37,10 @@ empty **200** (`HttpResponse()`) instead of `HttpResponse(status=204)`, paired
 with `hx-swap="none"` on the triggering element — the swap is a no-op but
 settle still happens. `HttpResponseClientRefresh` actions are unaffected
 (the reload itself re-renders the message). Worked example:
-`product/views.py:217-241` `ProductExportView` — its docstring (`:226-230`)
+`product/views.py:260-284` `ProductExportView` — its docstring (`:269-274`)
 states the same reasoning after the view was changed from 204 to 200; see
 [[product]] for the export feature itself.
+
+`Bitrix24LinkRequiredMiddleware` (`:12-68`, ahead of `LoginRequiredMiddleware`
+in this file) is the Bitrix24 link gate — see [[core/bitrix24-login]] for the
+mechanism it enforces.

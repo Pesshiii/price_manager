@@ -1,6 +1,6 @@
 ---
 name: main-product-keeper
-description: Answers questions about main_product_manager — MainProduct's six price fields, the search_vector/GIN indexing, the PIM integration, and its 11 Celery tasks. Consult BEFORE editing anything under main_product_manager/, and before writing code that saves or loops over MainProduct. Also records new insights into that app's knowledge directory (.claude/knowledge/<app>/) when asked.
+description: Answers questions about main_product_manager — MainProduct's price fields and stock, the PIM integration (the PriceManagerProduct link, reindex_pim_ids, photos), and its Celery tasks. Consult BEFORE editing anything under main_product_manager/, and before writing code that saves or loops over MainProduct. Also records new insights into that app's knowledge directory (.claude/knowledge/<app>/) when asked.
 tools: Read, Write, Grep, Glob
 model: sonnet
 ---
@@ -90,7 +90,9 @@ application code. If a consult reveals a bug, report it — do not fix it.
 ## Where to look in `main_product_manager/`
 
 `models.py` (MainProduct, MainProductLog), `utils.py` (the PIM layer — largest
-file in the app), `tasks.py` (11 tasks), `pim_client.py` (module-level SiteAPI),
-plus `views.py`, `tables.py`, `columns.py`, `filters.py`, `forms.py`,
-`resources.py`, `funcai.py`, and `management/`. This is one of only two apps
+file in the app), `tasks.py` (7 `@shared_task`s plus the undecorated
+`sync_main_products_task`), `pim_client.py` (module-level SiteAPI), plus
+`views.py`, `tables.py`, `filters.py`, `forms.py`, `resources.py`, `funcai.py`
+and `management/commands/` (`run_task`, `check_pim`, `export_main_products`). MainProduct has no search vector any more — search lives on
+`product.Product` since Phase 2b. This is one of only two apps
 whose own `urls.py` is `include()`d centrally.

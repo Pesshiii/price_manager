@@ -61,7 +61,7 @@ link a newly-created MainProduct makes it invisible on `/products/` until
 the nightly reindex, no error anywhere. Canary:
 `unlinked_main_product_count()` in `product/views.py`.
 
-`push_pim_links(pks)` (`utils.py:755-816`), run per-batch as
+`push_pim_links(pks)` (`utils.py:789-850`), run per-batch as
 `reindex_pim_ids_batch_task` (`tasks.py:166-175`, `atomic=False` — see
 CLAUDE.md's shared-infra note; wrapping this in a transaction would turn
 "skip this chunk on error" into "lose everything since the last commit"):
@@ -71,24 +71,24 @@ CLAUDE.md's shared-infra note; wrapping this in a transaction would turn
   ABSENT/AMBIGUOUS → push without it; ERROR → skip (an unanswered search
   must not drop a `productId` it might have found).
 - Payload name/description come from the **lowest-pk MainProduct** on that
-  Product (`utils.py:781-807`) — description off that MainProduct's first
+  Product (`utils.py:812-842`) — description off that MainProduct's first
   `SupplierProduct.description` (MainProduct's own field is gone).
-- `_push_pim_links` (`utils.py:678-752`) `upsertAsync`s the batch, matching
+- `_push_pim_links` (`utils.py:712-786`) `upsertAsync`s the batch, matching
   PIM's live behaviour on the PMP's two unique fields (`number`,
   `platformID`): both match one record → `NotModified`/`Updated` with its
   id; only one matches → per-item `Failed` (unique violation; job still ends
   `Success`). A `Failed`/id-less item goes to `_take_over_pim_link`
-  (`utils.py:637-675`): GET the PMP holding `number`, upsert
+  (`utils.py:671-709`): GET the PMP holding `number`, upsert
   `{...payload, id: that_id}` to repoint its `platformID`. What even that
   can't place is logged, not raised.
 - Before `bulk_update`, any other local Product still holding a
-  newly-linked PMP id gets `pim_id=None` first (`utils.py:741-749`) —
+  newly-linked PMP id gets `pim_id=None` first (`utils.py:775-783`) —
   `Product.pim_id` is `unique=True`.
 - Result shape/length validated before zipping against the input chunk
-  (`utils.py:708-721`) — results tie back by *position only*.
+  (`utils.py:742-755`) — results tie back by *position only*.
 - Never sends `productId: null`, omits the key on no match
-  (`utils.py:806-807`) — a push can never clear a link PIM staff set by hand.
-- Raises `PimScanError` (`utils.py:811-815`) *after* all writes on any
+  (`utils.py:840-841`) — a push can never clear a link PIM staff set by hand.
+- Raises `PimScanError` (`utils.py:845-849`) *after* all writes on any
   unanswered search or rejected push, so `TaskRunHistory` records an error
   even though committed progress survives. **Returns a plain `int`** — must
   stay scalar: `core/task_runner.py`'s `_normalize_updated_count` (`:14-21`)
@@ -115,15 +115,15 @@ matching the *wrong* product and landing as `_SEARCH_FOUND`.
 "live" can mean production** (repo-root `.env`, gitignored, carries real PIM
 creds). `site` is bound into `utils`'s own namespace — patch
 `main_product_manager.utils.site`, not `pim_client.site`.
-`_PimSearchTestCase` (`tests.py:473-499`) is the shared fixture;
+`_PimSearchTestCase` (`tests.py:467-491`) is the shared fixture;
 `SearchPimProductIdTests`/`PushPimLinksTests`/`GetPimDataTests`
-(`tests.py:503`/`666`/`825`) are the current pattern, under
+(`tests.py:495`/`696`/`855`) are the current pattern, under
 `@override_settings(CACHES=LOCMEM_CACHE)`.
 
 ## `reindex_pim_ids` — order matters (`tasks.py:129-163`)
 
-`backfill_product_numbers()` (`utils.py:512-556`) runs **before**
-`link_unlinked_main_products()` (`utils.py:559-615`) inside the parent
+`backfill_product_numbers()` (`utils.py:512-563`) runs **before**
+`link_unlinked_main_products()` (`utils.py:566-649`) inside the parent
 task's transaction — deliberately. Placeholder Products seeded by
 `product.0005`/`main_product_manager.0011` have `number=NULL`; linking first
 would let an unlinked MainProduct with a matching sku claim its own new
@@ -139,7 +139,7 @@ sku longer than `PRODUCT_NUMBER_MAX_LENGTH` (`utils.py:25`) stays unlinked,
 only logged.
 
 PIM-facing half fans out via `iter_unpushed_product_pk_batches`
-(`utils.py:618-634`), dispatched through `dispatch_after_commit`
+(`utils.py:652-668`), dispatched through `dispatch_after_commit`
 (`tasks.py:146-150`). **The two halves are not equally safe on a snapshot.**
 `backfill_product_numbers()`/`link_unlinked_main_products()` are purely
 local — safe directly on prod data. The fan-out **writes to PIM**, so

@@ -7,8 +7,8 @@ code: price_manager/product/models.py
 
 ## `Product.pim_id` now names a PIM `PriceManagerProduct` (PMP), not a PIM `Product`
 
-Before this branch, `pim_id` was the id of a PIM `Product`. Now it's the id of
-a PIM **`PriceManagerProduct`** — a through record whose `platformID` is our
+Before PR #184, `pim_id` was the id of a PIM `Product`. Now it's the id of a
+PIM **`PriceManagerProduct`** — a through record whose `platformID` is our
 `Product.pk` and whose `productId` points at the PIM `Product`. The full link
 chain, who pushes it (`reindex_pim_ids`), and the two-hop read path are owned
 by [[main_product_manager]] — don't restate them here. Product-owned
@@ -21,7 +21,8 @@ consequences:
   seed migration: `main_product_manager.utils.link_unlinked_main_products`
   creates `Product(number=sku, name=<that MainProduct's name>)` with `pim_id`
   left `NULL`. Don't assume a `Product` with data came from
-  `sync_product_from_pim` or `0005`'s seed.
+  `sync_product_from_pim` (see [[product/pim-sync]]) or `0005`'s seed (see
+  [[product/migrations]]).
 - `name` **stopped being unique** (it was, briefly, under `0006`): several
   local `Product`s can point at one PIM `Product` (PIM `Product` hasMany
   `priceManagerProducts`), and PIM's own metadata doesn't declare

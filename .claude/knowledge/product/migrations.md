@@ -14,8 +14,9 @@ cross-app dependency wrinkle here):
 1. `AlterField pim_id → nullable` (`:55`) first — the next step can't write
    NULLs into a NOT-NULL column.
 2. `RunPython(reset_pim_ids)` (`:27`) nulls **every** `pim_id` unconditionally
-   — the old values are PIM `Product` ids, meaningless under the new schema.
-   `reindex_pim_ids` re-derives them by `number` search.
+   — the old values are PIM `Product` ids, meaningless under the new schema
+   (see [[product/pim-link]]). `reindex_pim_ids` re-derives them by `number`
+   search.
 3. Same RunPython deletes "residue": `Product`s with `number IS NULL` that
    nothing references — checked against `MainProduct.product`,
    `supplier_feed.SupplierFeedEntry.product` **and**
@@ -28,10 +29,10 @@ cross-app dependency wrinkle here):
 Depends on `main_product_manager.0011` and `supplier_feed.0001` (`:48-51`)
 because the `RunPython` reads those apps' models — a real cross-app migration
 dependency, not just ordering. Not reversible on data (reverse is noop).
-**CI migrates an empty database**, so this data step never meets a row there —
-`product/tests/test_migration_0007.py` (imports the module via `importlib`
+**CI migrates an empty database**, so this data step never meets a row there
+— `product/tests/test_migration_0007.py` (imports the module via `importlib`
 since its name starts with a digit, calls `reset_pim_ids` directly against
-real rows) is the only coverage. **Deploy note:** run
+real rows; see [[product/testing]]) is the only coverage. **Deploy note:** run
 `manage.py run_task reindex_pim_ids` right after migrating — no PIM data shows
 on any `Product` until it re-pushes.
 
@@ -42,22 +43,23 @@ default for a nullable `CharField`) — invisible to CI since `0005` seeds zero
 rows there. `0006_alter_product_name` added a unique constraint on `name`
 despite that (nullable → `RunPython` turning `''` into `NULL`, raising with
 the offending duplicate values rather than a bare `IntegrityError` →
-`AlterField unique=True`); `0007` removes the constraint again for the reason
-above, repeating the same three-step shape. `0002`/`0003` briefly carried
+`AlterField unique=True`); `0007` removes the constraint again for the same
+reason, repeating the same three-step shape. `0002`/`0003` briefly carried
 embedding/characteristics-era fields (`sku`, `characteristics`,
 `embedding_text_hash`, an FK to `supplier_manager.Manufacturer`, a
-`product_chars_gin_idx`); `0003` removes every one of them — see "What it is
-not" below. `0008_brand_and_product_search_vector` is purely additive
-(`Brand`, `Product.brand`, `Product.search_vector` + its GIN index) — no data
-migration, nothing to trap here. `0009_product_number_case_insensitive`
-replaces `number`'s plain `unique=True` with the `Lower('number')`
-`UniqueConstraint` above. `0010_product_export` adds `ProductExport` (see the
-export section below) — purely additive. `0011_productsetitem` adds
-`ProductSetItem` — purely additive, see below.
+`product_chars_gin_idx`); `0003` removes every one of them — none of that
+exists any more, see [[product/overview]]. `0008_brand_and_product_search_vector`
+is purely additive (`Brand`, `Product.brand`, `Product.search_vector` + its
+GIN index) — no data migration, nothing to trap here.
+`0009_product_number_case_insensitive` replaces `number`'s plain
+`unique=True` with the `Lower('number')` `UniqueConstraint` (see
+[[product/overview]]). `0010_product_export` adds `ProductExport` — purely
+additive, see [[product/export]]. `0011_productsetitem` adds
+`ProductSetItem` — purely additive, see [[product/sets]].
 
 ### Migration-graph trap — a cross-app FK can silently reorder old migrations
 
-`0002_product_sku.py` (now `:7-16`) originally added a `brand` FK to
+`0002_product_sku.py` (`:7-16`) originally added a `brand` FK to
 `supplier_manager.Manufacturer` **without declaring a dependency on
 `supplier_manager`**, and `supplier_manager.0011` (which deletes
 `Manufacturer`) didn't depend on `product.0003` (which drops that FK) either.

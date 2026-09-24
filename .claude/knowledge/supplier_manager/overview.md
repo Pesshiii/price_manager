@@ -7,8 +7,8 @@ code: price_manager/supplier_manager/
 
 The reference-data app: who supplies, in what currency, with which discount
 groups. Small, but nearly everything else imports `Supplier`. Three models
-remain (`Currency`, `Supplier`, `Discount`) — see Phase 2b-3 below for what
-was removed.
+remain (`Currency`, `Supplier`, `Discount`) — see
+[[supplier_manager/retired-models]] for what was removed and where it went.
 
 ## Note
 

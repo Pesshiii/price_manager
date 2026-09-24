@@ -1,6 +1,6 @@
 ---
 name: retiring-stack-keeper
-description: Answers questions about the retiring API-first apps — pricing, supplier, supplier_feed, dataframe. Knows what each holds, that all four are still mounted under /api/ behind token auth with no external consumer (confirmed 2026-09-19), and that removing them first requires cutting product's migration dependency on supplier_feed. Consult BEFORE editing, importing from, or deleting any of these four, and whenever the retiring supplier app is being confused with the live supplier_manager. Also records new insights into its knowledge directory when asked.
+description: Answers questions about the retiring API-first apps — pricing, supplier, supplier_feed, dataframe. Knows what each holds, that all four are still mounted under /api/ behind session auth with no external consumer (confirmed 2026-09-19), and that removing them first requires cutting product's migration dependency on supplier_feed. Consult BEFORE editing, importing from, or deleting any of these four, and whenever the retiring supplier app is being confused with the live supplier_manager. Also records new insights into its knowledge directory when asked.
 tools: Read, Write, Grep, Glob
 model: sonnet
 ---

@@ -32,15 +32,20 @@ trust a stale number here, they drift every time a test file is added.)
   'match_candidates', 'best_score']` — none of those product fields ever reach
   the client. Read the serializer, not the docstring, before trusting a claim
   about what an endpoint returns. `FeedColumnMapping` (`models.py:123`) has no
-  viewset — `api/urls.py:12-15` registers only `mappings` (`FeedMappingViewSet`,
+  viewset — `api/urls.py:13-15` registers only `mappings` (`FeedMappingViewSet`,
   which manages `FeedMapping`, not `FeedColumnMapping`), `feeds`
   (`SupplierFeedViewSet`) and `links` (`SupplierLinkViewSet`). There is no CRUD
   surface for column mappings at all, and (as of this pass) no dedicated test
-  module for it either — see Testing note.
+  module for it either — see [[retiring_stack/testing]].
 - **`pricing`** (370 LOC) — `PriceType:4`, `PricingRule:17`. The abandoned
   counterpart to [[product_price_manager]]. `PricingRule.category`
   (`models.py:46-53`) is an FK to `product.Category` — another
-  retiring-app-into-carved-out-app edge, alongside `supplier_feed`'s.
+  retiring-app-into-carved-out-app edge, alongside `supplier_feed`'s (see
+  [[retiring_stack/isolation]]).
 - **`supplier`** (173 LOC) — a second `Supplier:4`. The live one is in
   [[supplier_manager]]. Getting these two confused is the most common way to
   waste an hour in this repo.
+
+See [[retiring_stack/rules]] for whether it's safe to build in or delete these,
+and [[retiring_stack/isolation]] for how they connect (or don't) to the rest
+of the tree.

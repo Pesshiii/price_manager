@@ -7,20 +7,21 @@ code: price_manager/core/models.py
 
 ## Models (`core/models.py`)
 
-- `CartItem:6` — `search_query`, M2M `products`, FK `confirmed_product`,
-  `quantity`. `confirmed_price`/`line_total` are properties (`:30`, `:37`).
-  `source_set:28` — nullable FK to `product.Product`, `SET_NULL`,
+- `CartItem:9` — `search_query`, M2M `products`, FK `confirmed_product`,
+  `quantity`. `confirmed_price`/`line_total` are properties (`:43`, `:50`).
+  `source_set:31` — nullable FK to `product.Product`, `SET_NULL`,
   `related_name='exploded_cart_items'` (migration `0012_cartitem_source_set`,
-  depends on `product.0011`). Set only by `add_set_to_cart` (see below); it is
-  purely a label — deleting the source set does not touch the cart item.
-- `ShoppingTab:44` — named tab, `file`, M2M `items`, `open` flag.
-- `ShoppingTabExport:65` — generated export file + `rows_count`.
+  depends on `product.0011`). Set only by `add_set_to_cart` (see
+  [[core/cart-sets]]); it is purely a label — deleting the source set does not
+  touch the cart item.
+- `ShoppingTab:57` — named tab, `file`, M2M `items`, `open` flag.
+- `ShoppingTabExport:78` — generated export file + `rows_count`.
 - `PersistentNotification:154` — user-facing notification with `level`
   (`LevelChoices:106`), optional `link`/`link_text`, `kind`
   (`NotificationKind:112`), `ref`, `seen_at`, `expires_at`. Lifetimes, see
   below.
-- `TaskRunHistory:205` — written by `execute_locked_task`, never by hand.
-  `status` from `StatusChoices:126`.
+- `TaskRunHistory:205` — written by `execute_locked_task`
+  ([[core/task-runner]]), never by hand. `status` from `StatusChoices:200`.
 
 ## `PersistentNotification` lifetimes
 
