@@ -4,10 +4,10 @@
 `Product.pim_id` *means*; the product-shift Phase 1 (2026-09-19) made
 `Product` the root of search and filtering at `/products/`; PR #197
 (2026-09-2x) redesigned that page (sticky filters, compact table, search
-fixes); an uncommitted branch (`worktree-dynamic-facets`) added dynamic facet
-narrowing — see the dedicated section below. Re-verify anything below that
-predates those if this file looks old. Design and decisions:
-`.claude/shift-to-product-brief.md`.
+fixes); PRs #230/#236/#233 (2026-09-24) added **product sets** (`ProductSetItem`,
+sync from PIM, set cost/buildable, page + export surfacing) — see that section
+below. Re-verify anything below that predates those if this file looks old.
+Design and decisions: `.claude/shift-to-product-brief.md`.
 
 ## What it is *now*
 
@@ -29,21 +29,28 @@ live legacy stack — treat anything here as in-motion; check
   Added later than the rest of the model, in migration `0008`, alongside
   `search_vector`.
 - `Product` — `pim_id` (nullable, unique — see next section for what it now
-  identifies), `number` (unique, nullable, the local match key =
-  `MainProduct.sku`, never overwritten from PIM), `name` (**not** unique),
-  M2M `categories`, FK `brand` (nullable — PIM returns `brandId` as a
-  **scalar**, hence FK not M2M), `raw_data` JSON, `search_vector` + GIN
-  (`product_search_vector_gin`, `config='russian'`), timestamps.
-  `ordering = ['-updated_at']`.
-- `Product.display_name` (`models.py:113-126`) — `name`, else the first linked
+  identifies), `number` (nullable, the local match key = `MainProduct.sku`,
+  never overwritten from PIM). **Not `unique=True` on the field** —
+  uniqueness is a `Meta.constraints` `UniqueConstraint(Lower('number'),
+  name='product_product_number_lower_uniq')` (`models.py:113-115`, added by
+  migration `0009_product_number_case_insensitive`), i.e. **case-insensitive**:
+  `sync_product_from_pim` matches with `number__iexact`, and so does
+  `services/sets.py`'s `_candidates` — any new code matching a PIM number to a
+  local `Product` must use `iexact` too, or it will create a duplicate that
+  differs only in case. `name` (**not** unique), M2M `categories`, FK `brand`
+  (nullable — PIM returns `brandId` as a **scalar**, hence FK not M2M),
+  `raw_data` JSON, `search_vector` + GIN (`product_search_vector_gin`,
+  `config='russian'`), timestamps. `ordering = ['-updated_at']`.
+- `Product.display_name` (`models.py:120-133`) — `name`, else the first linked
   MainProduct's name, else (none linked) `number`, else `pim_id`. Needed because
   `name` comes from PIM and most Products (still true as of the last measured
   pass — see coverage below) have no PIM content at all.
-- `Product._build_searchvector()` (`models.py:128-151`) builds **only from
+- `Product._build_searchvector()` (`models.py:135-158`) builds **only from
   `raw_data`** — no network call. Joins with `' '`, not `''`: the old
   `MainProduct` version glued category names into one token, so neither word
   was searchable.
-- `ProductExport` (`models.py:165-184`) — `user` FK (`related_name=
+- `ProductSetItem` (`models.py:165-209`) — see «Product sets» below.
+- `ProductExport` (`models.py:212-234`) — `user` FK (`related_name=
   'product_exports'`), `file` (`upload_to='product_exports/'`), `rows_count`,
   `created_at`. One row per completed export run; see the export section below.
 
@@ -114,8 +121,26 @@ embedding/characteristics-era fields (`sku`, `characteristics`,
 `product_chars_gin_idx`); `0003` removes every one of them — see "What it is
 not" below. `0008_brand_and_product_search_vector` is purely additive
 (`Brand`, `Product.brand`, `Product.search_vector` + its GIN index) — no data
-migration, nothing to trap here. `0010_product_export` adds `ProductExport`
-(see the export section below) — purely additive as well.
+migration, nothing to trap here. `0009_product_number_case_insensitive`
+replaces `number`'s plain `unique=True` with the `Lower('number')`
+`UniqueConstraint` above. `0010_product_export` adds `ProductExport` (see the
+export section below) — purely additive. `0011_productsetitem` adds
+`ProductSetItem` — purely additive, see below.
+
+### Migration-graph trap — a cross-app FK can silently reorder old migrations
+
+`0002_product_sku.py` (now `:7-16`) originally added a `brand` FK to
+`supplier_manager.Manufacturer` **without declaring a dependency on
+`supplier_manager`**, and `supplier_manager.0011` (which deletes
+`Manufacturer`) didn't depend on `product.0003` (which drops that FK) either.
+Fresh-DB migration order held on luck until `core.0012` (an FK to
+`product.Product`, depending on `product.0011`) reshuffled the graph and CI
+started failing with «Related model 'supplier_manager.manufacturer' cannot be
+resolved». Fixed in #233 by adding `('supplier_manager', '0001_initial')` to
+`product.0002` and `('product', '0003_...')` to `supplier_manager.0011`
+(`0002_product_sku.py:7-16`). **Lesson: any new cross-app dependency on
+`product.*` can reorder migrations that looked settled for years — verify
+with `migrate` on a fresh throwaway DB, not just CI as it stands today.**
 
 ## What it is *not* — earlier docs described these; they do not exist
 
@@ -141,7 +166,10 @@ haven't found yet.
   (`:151`, **after** `save()` — the rebuild does an `update()` by `pk`, which
   a brand-new row doesn't have yet). **Never `number`** — PIM staff can link a
   PMP to a PIM `Product` numbered differently from our local sku, and
-  `number` is the local match key, not PIM's.
+  `number` is the local match key, not PIM's. This full "name/raw_data/
+  brand/categories" write step is now factored out as `apply_pim_product(product,
+  data)` (`services/pim_sync.py`) so `services/sets.py` can reuse it verbatim
+  for a set's own `Product` row — see below.
 - **PMP with no `productId` yet:** only the link (`pim_id`/`number`) is
   saved; `name`/`raw_data`/`brand`/`categories` are left alone
   (`test_link_without_product_id_saves_the_link_only`).
@@ -157,7 +185,8 @@ haven't found yet.
   `_ensure_pim_category`/`_ensure_pim_brand` can still create rows before
   `product.save()` runs.
 - `IntegrityError` still propagates uncaught: a new `Product` whose `number`
-  another `Product` already holds under a different `pim_id`.
+  another `Product` already holds under a different `pim_id` (now
+  case-insensitively, per the `Lower('number')` constraint above).
 - **`or None`, two fields, two different reasons:** `number = link.get('number')
   or None` (`:126`) is still constraint-driven (Postgres treats `NULL`s as
   distinct in a unique index but `''` as equal — coercing to `''` would let
@@ -222,6 +251,144 @@ instance intact and would let the same class of bug pass silently again.
 `test_migration_0007.py` runs the migration's `RunPython` function directly
 against ORM-created rows inside a normal `TestCase` — the only place its
 filters meet real data (CI's DB is otherwise empty).
+
+## Product sets («наборы») — PRs #230/#236/#233, 2026-09-24
+
+A "set" is just a `Product` that has `ProductSetItem` rows — **no boolean
+flag**. `ProductSetItem` (`models.py:165-209`, migration `0011`) mirrors the
+PIM association code `set_components`, one row per set-component pair:
+`set_product` FK CASCADE (`related_name='set_items'`), `component` FK
+**SET_NULL**, nullable (`related_name='in_sets'`), plus a **snapshot** of the
+PIM side (`component_pim_product_id`, `component_number`, `component_name`),
+`amount`, `sorting`. Unique on `(set_product, component_pim_product_id)`.
+
+- **Why `component` is nullable + snapshotted, not just an FK:** a set's
+  component may be a PIM `Product` no local `Product` matches at all (real
+  data: a shelving set's *both* components, and 2 of the electrician kit's 20)
+  — the row still has to render and count toward "missing" in the cost/
+  buildable numbers, so the PIM number/name travel with the row regardless of
+  whether a local match exists.
+- **Why SET_NULL, not CASCADE:** deleting a component `Product` must never
+  silently shorten someone else's set composition; the row survives as
+  "not found" and the next sync re-resolves it.
+- **A set can be assembled-in-stock** (has its own `MainProduct`s/PMP, e.g.
+  AL10009 in prod — set cost then sits *next to* its own supplier price, not
+  instead of it) **or purely virtual** (no suppliers at all). Virtual sets are
+  invisible to the rest of the PIM pipeline: `main_product_manager.utils`'s
+  `iter_unpushed_product_pk_batches` requires `main_products`, and
+  `services/pim_sync.py`'s `unsynced_products()` requires `pim_id` — so a
+  virtual set's `Product` is created **only** by `sync_product_sets`, with
+  `pim_id` left `NULL`, and content is fed to it from the same sync
+  (`apply_pim_product`), not from `sync_product_from_pim`/backfill. Its
+  `display_name` falls back straight to `number` (no `MainProduct` to fall
+  back to at all).
+
+### Sync — `product/services/sets.py: sync_product_sets()`
+
+Task `product.sync_product_sets` (`execute_locked_task`, `atomic=False` — it's
+on the network per set/component), scheduled at 04:00, **after**
+`reindex_pim_ids` (`price_manager/settings/celery.py`).
+
+- Reads only the **direct** association (`AssociatedProduct` rows for the
+  `Association` whose `code == 'set_components'`) — PIM auto-creates the
+  reverse `part_of_set` association too, and its `amount` is always `NULL`,
+  so reading it would silently drop quantities.
+- **Resolving a PIM product id → local `Product`** (`_candidates`/`_pick`):
+  match by PMP `platformID` (= local pk) first, then `number__iexact`
+  (case-insensitive per the `Lower('number')` constraint); among several
+  candidates prefer one already PMP-linked, then one with `stock > 0`, then
+  one with any `MainProduct`, then the lowest pk. A set with **neither** a
+  PIM number **nor** a PMP match is skipped (`skipped_sets`), never
+  created — creating it would duplicate it on every future run.
+- **Composition is fully replaced per set, in its own transaction**
+  (`product.set_items.all().delete()` + `bulk_create`) — one bad set can't
+  half-write.
+- **Pruning of sets that vanished from PIM is skipped for the whole run if
+  any set failed to fetch** — a failed fetch is indistinguishable from a
+  deletion, and `_fetch_all` (wrapping `pim_api.fetch_list`) raises on a
+  truncated page for the same reason: a short listing must not read as
+  "these sets no longer exist."
+- `amount` from PIM is integer and nullable: `NULL` → `1`; `<= 0` → the link
+  is skipped, not zeroed.
+- `apply_pim_product(product, data)` (`services/pim_sync.py`) is the
+  name/raw_data/brand/categories write step **extracted out of**
+  `sync_product_from_pim` specifically so this sync can reuse it for a set's
+  own `Product` row.
+- **PIM API facts verified live while building this:** `where type='in'`
+  works on `PriceManagerProduct.productId` and `Product.id` (list value via
+  `pim_api.Where`); `type='equals'` works on `Association.code` and
+  `AssociatedProduct.associationId`.
+
+### `product/main_values.py` — the shared "main value" rule, generalized
+
+The level rule that used to live only in `export.py` (`Supplier.price_priority`
+/`stock_priority`: first level with a non-zero value wins, `min` for price /
+`max` for stock; unranked suppliers form one shared bottom level; rows with no
+supplier are last) moved here **unchanged** (`is_zero`, `main_value`,
+`cost_key` — `export.py` re-imports them) and gained `level_key` and
+`main_row(main_products, attr, priority_field, pick)`, which applies the same
+rule directly to a list of `MainProduct` rows and returns `(value, winning
+MainProduct)`. `product/tests/test_set_costs.py::MainRowTests::
+test_matches_the_main_value_of_the_export` pins that `main_row` agrees with
+the export's main value for the same product — this is what lets a set
+component's "cost" match what the export would print for it. **Note the
+`/products/` «Себестоимость» column is unrelated:** it's a min–max *range*
+across all suppliers, ignoring levels entirely — deliberately different from
+both the export's main value and a set's component cost.
+
+### `product/set_costs.py` — cost and buildable count for a set
+
+`SetLine` (one `ProductSetItem` + its resolved `cost`/`stock`/`buildable`) and
+`SetTotals` (a set's lines + aggregates). Set cost = Σ `amount × component's
+main prime_cost` (via `main_row`); buildable = `min(component main stock //
+component amount)` across lines. **Components with no cost or no stock data
+are excluded from the sum/min but still counted** — `SetTotals.missing_cost`/
+`missing_stock` — so the UI can show «нет цены у N из M» instead of
+presenting an incomplete sum as if it were the whole set's price.
+
+`set_totals_for(pks)` is **2 queries for any number of sets**
+(`ProductSetItem` + `MainProduct`, both `pk__in`), asserted with
+`assertNumQueries` in tests. `attach_set_info(products)` (called from
+`ProductPage.get_context_data`, `views.py:165`, **after pagination**) sets
+`.set_totals` and `.in_sets_count` as plain **attributes** on the page's
+`Product` instances — not queryset annotations — because an aggregate over
+composition joined into the main `GROUP BY` would drag the 158k-row base
+query; `ProductTable`'s `render_*` methods read them via `getattr`, which
+works only because cells render lazily, after `get_context_data` has already
+attached them.
+
+### Page/UI surfacing
+
+- Badge «Набор» and a «в N наборах» link (to `?contains=<pk>`) in
+  `ProductTable.render_display_name` (`tables.py:278-299`).
+- «из компл.: …» cost hint under the own prime-cost range,
+  `render_prime_cost_range` → `set_cost_html` (`tables.py:301-319`).
+- Filters (`filters.py`): `is_set` — a switch/`BooleanFilter` — and a hidden
+  `contains` (`NumberFilter`, matches a component's pk) added to
+  `Meta.fields`; `contains` is kept in the crispy layout as a **hidden**
+  `Field` so that changing any *other* filter doesn't silently drop it from
+  the query string.
+- `ProductSuppliersView` (the expand panel) passes `set_totals` too
+  (`views.py:203`); template `product/partials/set_assembly.html` uses plain
+  `<details>`/`<summary>` rather than Bootstrap collapse, because the panel
+  itself arrives over HTMX. `suppliers.html` wraps both blocks in
+  `.product-suppliers-content {width:max-content; min-width:100%}` — found in
+  the browser: without it the assembly row was cut off at the visible width
+  because the panel needs to scroll horizontally.
+- **A button inside `<summary>` does not toggle the `<details>`** (verified in
+  the browser) — the shopping-tab cart button relies on this to add a set
+  without expanding it; see [[core]].
+
+### Export — `product/export.py`
+
+Two columns, «Себестоимость из комплектующих» and «Комплектующих без цены»
+(`SET_TITLES`, `export.py:74`), are appended to sheet «Товары» **only if** the
+export actually contains at least one set — `detect_sets(pks)`
+(`export.py:240-242`) runs before headers are built, in both `build()` and the
+CSV path (`export.py:420,480`). This matters because existing export tests
+assert exact header lists, and a non-set export must produce byte-identical
+headers to before. Both the xlsx path and `FullCsvExporter` share the same
+`rows()` generator, so set columns behave identically in both formats.
 
 ## The product page `/products/` — traps, all found on real data
 
@@ -541,7 +708,7 @@ Background export of the exact page a user is looking at: click «Экспорт
 (`task_name=f'product.export_products:{user_id}'`, `lock_ttl=EXPORT_TIME_LIMIT`)
 and runs `atomic=False` — reading + one file upload + one insert, no reason to
 hold a transaction for up to an hour. `ProductExport` rows
-(`product/models.py:165-184`, `upload_to='product_exports/'`) are **never
+(`product/models.py:212-234`, `upload_to='product_exports/'`) are **never
 cleaned up** — a known gap, not a bug.
 
 **The workbook is no longer one wide sheet.** It used to be a single sheet
@@ -553,7 +720,9 @@ supplier; a user asked for supplier data split out, and the shape changed
   `PRODUCT_TITLES` (`export.py:56`, артикул/название/бренд/категории) + the
   selected product columns, then, per selected supplier-row column, **one
   main value**, not one column per supplier: price columns get a `… (основная)`
-  header, `stock` gets `Остаток (основной)` (`main_titles`, `export.py:224-232`).
+  header, `stock` gets `Остаток (основной)` (`main_titles`, `export.py:224-232`),
+  then, **only if the export contains a set** (`detect_sets`, see above),
+  `SET_TITLES` («Себестоимость из комплектующих», «Комплектующих без цены»).
   Any other selected supplier-row column (article, stock_msg, delivery_days,
   supplier__*…) does **not** appear on this sheet at all.
 - **One sheet per supplier** that actually has a `MainProduct` row among the
@@ -576,13 +745,15 @@ supplier; a user asked for supplier data split out, and the shape changed
   (`test_export.py:66`) is the guard, including a supplier literally named
   «товары» colliding with «Товары».
 - **Main values are by supplier *levels*** (`Supplier.price_priority` /
-  `stock_priority` may repeat; see [[supplier_manager]]). `supplier_levels()`
-  groups the exported suppliers top-down; all unranked suppliers are **one
-  shared bottom level** (they used to be ordered by name, a hidden
-  alphabetical priority), `supplier=NULL` rows a level of their own at the
-  very end. `main_value(levels, pick)` returns `pick(non-zero values)` of the
-  first level that has any, else `0` if any explicit `0`, else empty (a
-  `NULL` stock stays distinct from a confirmed `0`).
+  `stock_priority` may repeat; see [[supplier_manager]]) — the rule now lives
+  in `main_values.py` (see the sets section above), `export.py` re-imports
+  it. `supplier_levels()` groups the exported suppliers top-down; all
+  unranked suppliers are **one shared bottom level** (they used to be ordered
+  by name, a hidden alphabetical priority), `supplier=NULL` rows a level of
+  their own at the very end. `main_value(levels, pick)` returns
+  `pick(non-zero values)` of the first level that has any, else `0` if any
+  explicit `0`, else empty (a `NULL` stock stays distinct from a confirmed
+  `0`).
   - **Prices — winner supplier, not per-column min.** `main_value_cells()`
     orders each price level by `winner_order()`: lowest non-zero
     `prime_cost` first (`supplier_costs()` computes it from the rows even
@@ -668,6 +839,7 @@ the **whole catalogue**, whatever the changelist is filtered to (empty
 - **Same rules as the xlsx, not a copy of them.** `build()` was split into
   `suppliers(pks)` and the `rows()` generator; `FullCsvExporter.write()` consumes
   the same rows. Change main-value rules in one place and both formats follow.
+  Set columns follow the same `detect_sets` gate as the xlsx path.
 - **CSV has one sheet, so suppliers are column blocks**: `<поставщик> • <колонка>`,
   price-priority order, only suppliers that have rows. A product a supplier
   lacks gets empty cells there.
@@ -725,8 +897,10 @@ catalogue rather than walking already-assigned `pim_id`s one at a time.
 `CLAUDE.md` still lists `product` among the retiring five, with an exception
 for the PIM-mirror reconnection. **The product shift has since gone further
 than that exception described:** `Product` is now the root of search and
-filtering, with its own page. Work that serves that shift — decided by the
-user and specified in `.claude/shift-to-product-brief.md` — is in scope.
-Growing `product` into something *independent of PIM and the legacy stack* is
-still not. It remains the only one of the five with no `api/` package — not
-mounted in `api_urls.py`. Its siblings are covered by [[retiring_stack]].
+filtering, with its own page, and now also carries a second concept (sets)
+entirely native to this app — not mirrored from `MainProduct`. Work that
+serves that shift — decided by the user and specified in
+`.claude/shift-to-product-brief.md` — is in scope. Growing `product` into
+something *independent of PIM and the legacy stack* is still not. It remains
+the only one of the five with no `api/` package — not mounted in
+`api_urls.py`. Its siblings are covered by [[retiring_stack]].
