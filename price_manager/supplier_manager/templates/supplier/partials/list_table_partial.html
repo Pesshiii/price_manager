@@ -77,9 +77,9 @@
                   {% else %}
                     <div class="d-flex justify-content-between small">
                       {% if price.missing %}
-                        <span class="text-danger-emphasis fw-semibold" title="Товаров без цены">нет: {{ price.missing }}</span>
+                        <span class="text-danger-emphasis fw-semibold" title="Товаров без цены">Нет цены: {{ price.missing }}</span>
                       {% else %}
-                        <span class="text-success-emphasis">все</span>
+                        <span class="text-success-emphasis">Цена у всех</span>
                       {% endif %}
                       <span class="text-body-secondary">{{ price.coverage }}%</span>
                     </div>
