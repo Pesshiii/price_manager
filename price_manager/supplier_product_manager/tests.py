@@ -2119,3 +2119,48 @@ class PossibleRenameTests(TestCase):
         )
 
         self.assertEqual(stats["possible_renames"], 0)
+
+
+@override_settings(SUPPLIER_IMPORT_GUARD_MIN_HISTORY=0)
+class StripWhitespaceTests(TestCase):
+    """Пробелы по краям ячеек не значат ничего: разбор их обрезает, а строки базы с пробелами переименовываются."""
+
+    setUp = BasicLoadTests.setUp
+    _create_supplier_file = BasicLoadTests._create_supplier_file
+    _setting = ImportRefusalReasonTests._setting
+
+    def test_cells_are_stripped_and_blank_cells_are_empty(self):
+        setting = self._setting(create_new=True, article="Артикул", name="Название",
+                                supplier_price="Цена", stock="Остаток")
+        self._create_supplier_file(setting, pd.DataFrame([
+            {"Артикул": "  А-1 ", "Название": "\tТовар  1 ", "Цена": " 10 ", "Остаток": "   "},
+            {"Артикул": "А-2", "Название": "Товар 2", "Цена": "20", "Остаток": "3"},
+        ]))
+
+        payload, stats = get_sps_result(setting, recache=True)
+
+        self.assertEqual([(r["article"], r["name"], r["supplier_price"], r["stock"]) for r in payload],
+                         [("А-1", "Товар 1", 10.0, None), ("А-2", "Товар 2", 20.0, 3.0)])
+        self.assertEqual((stats["covered_price"], stats["covered_stock"]), (2, 1))
+
+    def test_rows_stored_with_spaces_are_renamed_in_place_on_the_next_import(self):
+        setting = self._setting(create_new=True, article="Артикул", name="Название", stock="Остаток")
+        stored = []
+        for i in range(3):
+            mp = MainProduct.objects.create(supplier=self.supplier, article=f"А-{i}", name=f"Товар {i}")
+            row = SupplierProduct.objects.create(supplier=self.supplier, article=f"А-{i} ", name=f" Товар {i}",
+                                                 stock=1, main_product=mp)
+            row.source_settings.add(setting)
+            stored.append(row)
+        self._create_supplier_file(setting, pd.DataFrame(
+            [{"Артикул": f"А-{i} ", "Название": f" Товар {i}", "Остаток": "5"} for i in range(3)]))
+
+        user = get_user_model().objects.create_user(username="strip", password="x")
+        result = process_supplier_file_import(setting.pk, user.pk)
+
+        self.assertEqual(result["status"], "ok")
+        rows = SupplierProduct.objects.filter(supplier=self.supplier).order_by("pk")
+        self.assertEqual([(r.pk, r.article, r.name, r.stock, r.main_product_id) for r in rows],
+                         [(s.pk, f"А-{i}", f"Товар {i}", 5, s.main_product_id) for i, s in enumerate(stored)])
+        run = ImportRun.objects.get(setting=setting)
+        self.assertEqual((run.renamed, run.created, run.missing), (3, 0, 0))

@@ -34,7 +34,8 @@ CACHE_TTL = 60 * 60 * 24 * 30  # 30 дней
 # 1.4: сопоставление по артикулу — renamed, articles_multi_db, _rename_from в payload.
 # 1.5: _rename_from — пара (артикул, название); совпадение с точностью до
 #      пробелов, possible_renames, whitespace_ambiguous.
-SPS_JSON_SCHEMA_VERSION = "1.5"
+# 1.6: значения ячеек без пробелов по краям (get_df).
+SPS_JSON_SCHEMA_VERSION = "1.6"
 # Счётчики разбора, которые get_sps_result отдаёт вместе с payload, по этапам.
 SPS_STAT_FIELDS = (
     "rows_in_sheet",      # непустые строки листа
@@ -223,8 +224,9 @@ def _df_cache_key(setting: Setting, supplier_file: SupplierFile) -> str:
   # The instance's sheet_name and index_row, not the class attribute: keyed on
   # `Setting.sheet_name` every sheet shared one entry, so switching the sheet
   # kept serving the old sheet's columns until the entry expired.
+  # v2: cell values are stripped; an entry cached before that must not return.
   return (f'setting<{setting.pk}>::dataframe<{supplier_file.pk}>'
-          f'::sheet<{setting.sheet_name}>::row<{setting.index_row}>')
+          f'::sheet<{setting.sheet_name}>::row<{setting.index_row}>::v2')
 
 def get_df(pk, recache=False)->pd.DataFrame|None:
   '''
@@ -256,11 +258,17 @@ def get_df(pk, recache=False)->pd.DataFrame|None:
         return cached_df
   validated_file.open('rb')
   try:
-    df = pd.read_excel(validated_file, engine='calamine', dtype=str, skiprows=setting.index_row, sheet_name=setting.sheet_name, index_col=None, na_values=['']).dropna(axis=0, how='all').dropna(axis=1, how='all')
+    df = pd.read_excel(validated_file, engine='calamine', dtype=str, skiprows=setting.index_row, sheet_name=setting.sheet_name, index_col=None, na_values=[''])
   finally:
     validated_file.close()
+  # Whitespace carries no meaning in a price list: runs collapse to one space,
+  # edges are stripped, and a cell of only whitespace is empty. Without the
+  # strip, «Товар» and «Товар␠» were two products. Rows stored with edge
+  # spaces before this are found by _match_whitespace_variants and renamed in
+  # place on their next import, so the strip does not re-key them.
   for column in df.columns:
-    df[column] = df[column].str.replace(r'\s+', ' ', regex=True)
+    df[column] = df[column].str.replace(r'\s+', ' ', regex=True).str.strip().replace('', np.nan)
+  df = df.dropna(axis=0, how='all').dropna(axis=1, how='all')
   if df.shape[0] == 0:
     return None
   if not settings.DEBUG:
@@ -953,12 +961,7 @@ def _apply(setting: Setting, links, sps_payload: list[dict], stats: dict) -> Imp
     # Rename first (match_by_article, or an article/name that differs only by
     # whitespace), so the upsert below finds the row under its new key — it
     # keeps its pk, main_product link and history.
-    for row in sps_payload:
-        if row.get(RENAME_FROM):
-            old_article, old_name = row[RENAME_FROM]
-            SupplierProduct.objects.filter(
-                supplier=setting.supplier, article=old_article, name=old_name,
-            ).update(article=row['article'], name=row['name'])
+    _rename_rows(setting, sps_payload)
 
     sp_model_instances = map(get_spmodel, df.itertuples(index=False))
     sp_update_fields = [link.key for link in links if not link.key=='article' and not link.key == 'name' and link.key in df.columns]
@@ -1006,6 +1009,30 @@ def _apply(setting: Setting, links, sps_payload: list[dict], stats: dict) -> Imp
         ignore_conflicts=True)
     _stamp_supplier(setting.supplier_id, stamps)
     return ImportOutcome(sps=sps, stats=stats)
+
+
+def _rename_rows(setting: Setting, payload: list[dict]) -> None:
+    """Переименовать строки базы, которые payload обновляет под новым ключом (RENAME_FROM).
+
+    Одним bulk_update, а не UPDATE на строку: первый импорт после обрезки
+    пробелов переименовывает все строки поставщика, у которого артикулы или
+    названия хранились с пробелами, — это десятки тысяч строк. Новый ключ
+    каждой строки в базе не занят (так их выбирает разбор), поэтому
+    ограничение уникальности по ходу не нарушается.
+    """
+    new_keys = {tuple(row[RENAME_FROM]): (row['article'], row['name'])
+                for row in payload if row.get(RENAME_FROM)}
+    if not new_keys:
+        return
+    old_articles = {article for article, _ in new_keys}
+    rows = []
+    for row in SupplierProduct.objects.filter(supplier_id=setting.supplier_id, article__in=old_articles).only(
+            'pk', 'article', 'name'):
+        new_key = new_keys.get((row.article, row.name))
+        if new_key is not None:
+            row.article, row.name = new_key
+            rows.append(row)
+    SupplierProduct.objects.bulk_update(rows, ['article', 'name'], batch_size=1000)
 
 
 def _stamp_supplier(supplier_id: int, stamps: dict) -> None:
