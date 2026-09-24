@@ -24,6 +24,10 @@
         <span>Запрос клиента</span>
         <span>·</span>
         <span class="ci-qty-pill"><b class="ci-num">{{ item.quantity }}</b> шт.</span>
+        {% if item.source_set %}
+          <span>·</span>
+          <span><i class="bi bi-boxes" aria-hidden="true"></i> из набора {{ item.source_set.number }}{% if item.source_set.name %} — {{ item.source_set.name }}{% endif %}</span>
+        {% endif %}
       </div>
     </div>
     {% include 'shopping_tab/partials/item_state_chip.html' %}

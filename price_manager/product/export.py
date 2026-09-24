@@ -41,8 +41,10 @@ from main_product_manager.models import MP_PRICES, MainProduct
 from supplier_manager.models import Supplier
 
 from .columns import COLUMN_LABELS, SUPPLIER_ROW_COLUMNS
+from .main_values import cost_key, is_zero, main_value  # noqa: F401 — is_zero/main_value и для тестов
 from .filters import CATEGORY_LABEL_DEPTH, ProductFilter, search_terms
-from .models import Category, Product, ProductExport
+from .models import Category, Product, ProductExport, ProductSetItem
+from .set_costs import set_totals_for
 from .tables import ProductTable, SupplierRowTable, best_match_groups_first, category_path
 
 # Параметр сортировки таблицы — тот же, что читает ProductPage.groups_by_category.
@@ -67,6 +69,9 @@ MAIN_SHEET = 'Товары'
 PRODUCT_TITLES = ['Артикул', 'Название', 'Бренд', 'Категории']
 # Начало строки на листе поставщика — по нему лист сверяется с «Товарами».
 IDENTITY_TITLES = ['Артикул', 'Название']
+# Колонки наборов на «Товарах» (set_costs.py) — только если в выгрузке есть
+# хоть один набор: иначе у каждого файла было бы две пустые колонки.
+SET_TITLES = ['Себестоимость из комплектующих', 'Комплектующих без цены']
 
 # Полный csv-экспорт (FullCsvExporter): все цены и остаток, в порядке выбора колонок.
 FULL_EXPORT_COLUMNS = [key for key in SUPPLIER_ROW_COLUMNS
@@ -131,37 +136,6 @@ def export_columns(selected) -> tuple[list[str], list[str]]:
     supplier_columns = [key for key in selected
                         if key in SUPPLIER_ROW_COLUMNS and key not in NOT_EXPORTED]
     return product_columns, supplier_columns
-
-
-def is_zero(value) -> bool:
-    return value is None or value == 0
-
-
-def main_value(levels, pick):
-    """Основное значение по уровням: pick (min или max) из ненулевых значений
-    первого уровня, где они есть.
-
-    levels — значения, сгруппированные по уровням, сверху вниз; уровень из
-    одного значения — просто «первое ненулевое по порядку». Ноль и пусто
-    пропускаются — у самого приоритетного поставщика ноль чаще значит «цены
-    нет», чем «бесплатно», и тогда решает следующий уровень. Если ненулевого
-    нет ни на одном уровне: 0, если хоть у кого-то 0 (остаток
-    синхронизировался, товара нет), иначе пусто (ни у кого нет данных) — NULL
-    и 0 в остатке разные вещи.
-    """
-    seen = False
-    for level in levels:
-        level = list(level)
-        non_zero = [value for value in level if not is_zero(value)]
-        if non_zero:
-            return pick(non_zero)
-        seen = seen or any(value is not None for value in level)
-    return 0 if seen else None
-
-
-def cost_key(cost):
-    """Ключ сортировки по себестоимости: меньшая — раньше, ноль и пусто — в конце."""
-    return (is_zero(cost), cost or 0)
 
 
 def winner_order(level, costs) -> list:
@@ -260,6 +234,12 @@ class ProductExporter:
         self.product_columns, self.supplier_columns = export_columns(selected_columns)
         # Та же отрисовка «Статуса наличия» и «Срока поставки», что на экране.
         self.row_table = SupplierRowTable([])
+        # Есть ли в выгрузке наборы — решает detect_sets до заголовков.
+        self.with_sets = False
+
+    def detect_sets(self, pks):
+        self.with_sets = any(ProductSetItem.objects.filter(set_product_id__in=chunk).exists()
+                             for chunk in _chunks(pks))
 
     def main_products(self, pks):
         queryset = (MainProduct.objects.filter(product_id__in=pks)
@@ -296,7 +276,19 @@ class ProductExporter:
                 titles.append(f'{COLUMN_LABELS[key]} (основная)')
             elif key == STOCK_COLUMN:
                 titles.append(f'{COLUMN_LABELS[key]} (основной)')
+        if self.with_sets:
+            titles += SET_TITLES
         return titles
+
+    @staticmethod
+    def set_cells(totals) -> list:
+        """Себестоимость набора из комплектующих и сколько компонентов без цены
+        («2 из 20»). Сумма — числом, пометка — отдельной ячейкой: в одной ячейке
+        с текстом число перестало бы быть числом."""
+        if totals is None:
+            return [None, None]
+        missing = f'{totals.missing_cost} из {totals.count}' if totals.missing_cost else None
+        return [totals.cost, missing]
 
     def supplier_titles(self) -> list[str]:
         """Лист поставщика: артикул и название товара, затем все выбранные колонки."""
@@ -409,6 +401,7 @@ class ProductExporter:
             main_products = defaultdict(list)
             for main_product in self.main_products(chunk):
                 main_products[main_product.product_id].append(main_product)
+            set_totals = set_totals_for(chunk) if self.with_sets else {}
             # pk__in порядок не хранит — порядок страницы восстанавливается по chunk.
             for pk in chunk:
                 product = products.get(pk)
@@ -416,13 +409,15 @@ class ProductExporter:
                     continue
                 rows = main_products.get(pk, [])
                 values = self.supplier_values(rows) if self.supplier_columns else {}
-                yield (self.product_cells(product, rows),
-                       self.main_value_cells(values, self.supplier_costs(rows),
-                                             price_levels, stock_levels),
-                       values)
+                main_cells = self.main_value_cells(values, self.supplier_costs(rows),
+                                                   price_levels, stock_levels)
+                if self.with_sets:
+                    main_cells += self.set_cells(set_totals.get(pk))
+                yield self.product_cells(product, rows), main_cells, values
 
     def build(self) -> tuple[bytes, int]:
         pks = ordered_product_pks(self.params)
+        self.detect_sets(pks)
         price_suppliers, price_levels, stock_levels = self.suppliers(pks)
         price_order = [pk for pk, _ in price_suppliers]
 
@@ -482,6 +477,7 @@ class FullCsvExporter(ProductExporter):
 
     def write(self, stream) -> int:
         pks = ordered_product_pks(self.params)
+        self.detect_sets(pks)
         price_suppliers, price_levels, stock_levels = self.suppliers(pks)
         price_order = [pk for pk, _ in price_suppliers]
         labels = [COLUMN_LABELS[key] for key in self.supplier_columns]

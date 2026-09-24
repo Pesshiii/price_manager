@@ -44,9 +44,10 @@
             hx-get="{% url 'developers-feedback' %}?page={{ request.get_full_path|urlencode:'' }}"
             hx-target="#developersFeedbackModal .modal-content"
             hx-swap="innerHTML"
+            title="Обратная связь"
+            aria-label="Обратная связь"
           >
-            <i class="bi bi-chat-left-text"></i>
-            <span class="ms-1">Разработчикам</span>
+            <i class="bi bi-flag" aria-hidden="true"></i>
           </button>
           <button
             class="btn btn-outline-secondary position-relative"
@@ -54,9 +55,10 @@
             data-bs-toggle="offcanvas"
             data-bs-target="#persistentNotificationsOffcanvas"
             aria-controls="persistentNotificationsOffcanvas"
+            title="Оповещения"
+            aria-label="Оповещения"
           >
-            <i class="bi bi-bell"></i>
-            <span class="ms-1">Оповещения</span>
+            <i class="bi bi-bell" aria-hidden="true"></i>
             {% include "core/partials/notifications_badge.html" %}
           </button>
           <span class="navbar-text">{{ user.get_username }}</span>

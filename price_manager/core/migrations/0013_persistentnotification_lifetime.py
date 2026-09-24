@@ -24,7 +24,7 @@ def classify_existing(apps, schema_editor):
 class Migration(migrations.Migration):
 
     dependencies = [
-        ('core', '0011_bitrix24account'),
+        ('core', '0012_cartitem_source_set'),
     ]
 
     operations = [

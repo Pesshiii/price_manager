@@ -110,11 +110,11 @@ the tree.
   `quantity`. `confirmed_price`/`line_total` are properties (`:30`, `:37`).
 - `ShoppingTab:44` — named tab, `file`, M2M `items`, `open` flag.
 - `ShoppingTabExport:65` — generated export file + `rows_count`.
-- `PersistentNotification:144` — user-facing notification with `level`
-  (`LevelChoices:96`), optional `link`/`link_text`, `kind`
-  (`NotificationKind:102`), `ref`, `seen_at`, `expires_at`. Lifetimes, see
+- `PersistentNotification:154` — user-facing notification with `level`
+  (`LevelChoices:106`), optional `link`/`link_text`, `kind`
+  (`NotificationKind:112`), `ref`, `seen_at`, `expires_at`. Lifetimes, see
   below.
-- `TaskRunHistory:195` — written by `execute_locked_task`, never by hand.
+- `TaskRunHistory:205` — written by `execute_locked_task`, never by hand.
   `status` from `StatusChoices:126`.
 
 ## `PersistentNotification` lifetimes

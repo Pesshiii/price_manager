@@ -763,7 +763,7 @@ class PersistentNotificationLifetimeTests(TestCase):
 
         from django.apps import apps
 
-        migration = importlib.import_module('core.migrations.0012_persistentnotification_lifetime')
+        migration = importlib.import_module('core.migrations.0013_persistentnotification_lifetime')
         export = self._create(link='/shopping-tab/export/3/download/', link_text='Скачать файл')
         release = self._create(level='info', link='/releases/1.4.0/', link_text='Читать')
         confirmation = self._create(level='warning', link='/supplier/5/?import_run=42#settings', link_text='Проверить')
@@ -777,3 +777,117 @@ class PersistentNotificationLifetimeTests(TestCase):
             notification.refresh_from_db()
             self.assertEqual((notification.kind, notification.ref), (kind, ref))
             self.assertIsNone(notification.seen_at)
+
+
+class AddSetToCartTests(TestCase):
+    """Набор в заявку по комплектующим: add_set_to_cart и CartItemAddSetView.
+
+    Фикстура — из product.tests.test_set_costs: стеллаж из 4 стоек и 2 полок,
+    уровни поставщиков такие, что стойку подтверждают у «Первого» (он выше по
+    цене, хоть и дороже), а полку — у «Без уровня» (у «Первого» цена 0).
+    """
+
+    def setUp(self):
+        from product.tests.test_set_costs import SetFixture
+
+        from .models import ShoppingTab
+
+        self.fixture = SetFixture()
+        self.fixture.make_sets()
+        self.user = User.objects.create_user(username='buyer', password='pw')
+        self.client.force_login(self.user)
+        self.tab = ShoppingTab.objects.create(user=self.user, name='Заявка')
+
+    def add(self, quantity=1):
+        from .utils import add_set_to_cart
+
+        return add_set_to_cart(self.tab, self.fixture.kit, quantity, self.user)
+
+    def test_each_component_becomes_a_line_with_multiplied_quantity(self):
+        items = self.add(quantity=3)
+
+        self.assertEqual([(item.search_query, item.quantity) for item in items],
+                         [('Стойка', 12), ('Полка', 6)])
+        self.assertEqual(set(self.tab.items.all()), set(items))
+        self.assertTrue(all(item.source_set_id == self.fixture.kit.pk for item in items))
+
+    def test_line_is_confirmed_at_the_supplier_of_the_assembly_row(self):
+        stand, shelf = self.add()
+
+        self.assertEqual(stand.confirmed_product.supplier, self.fixture.first)
+        self.assertEqual(shelf.confirmed_product.supplier, self.fixture.unranked)
+        # Кандидаты — все строки поставщиков самого компонента, не текстовый поиск.
+        self.assertEqual(stand.products.count(), 2)
+
+    def test_component_without_price_stays_unconfirmed(self):
+        from main_product_manager.models import MainProduct
+
+        MainProduct.objects.filter(product=self.fixture.shelf).update(prime_cost=0)
+        _, shelf = self.add()
+
+        self.assertIsNone(shelf.confirmed_product)
+        self.assertEqual(shelf.products.count(), 2)
+
+    def test_missing_component_is_still_a_line(self):
+        self.fixture.add_missing_component()
+        items = self.add()
+
+        missing = items[-1]
+        self.assertEqual(missing.search_query, 'Блокнот')
+        self.assertIsNone(missing.confirmed_product)
+        self.assertEqual(missing.products.count(), 0)
+
+    def test_lines_are_never_merged(self):
+        self.add()
+        self.add()
+
+        self.assertEqual(self.tab.items.filter(search_query='Стойка').count(), 2)
+
+    def test_modal_and_post_through_the_view(self):
+        url = reverse('cart-item-add-set', kwargs={'product_pk': self.fixture.kit.pk})
+        response = self.client.get(url, HTTP_HX_REQUEST='true')
+        self.assertContains(response, 'Разложить в заявку')
+
+        response = self.client.post(url, {'tab': self.tab.pk, 'quantity': '2'}, HTTP_HX_REQUEST='true')
+        self.assertContains(response, 'Набор разложен в заявку')
+        self.assertEqual(sorted(self.tab.items.values_list('quantity', flat=True)), [4, 8])
+
+    def test_view_validates_tab_and_quantity(self):
+        url = reverse('cart-item-add-set', kwargs={'product_pk': self.fixture.kit.pk})
+        self.assertContains(self.client.post(url, {'quantity': '1'}, HTTP_HX_REQUEST='true'),
+                            'Выберите заявку.')
+        self.assertContains(self.client.post(url, {'tab': self.tab.pk, 'quantity': '0'},
+                                             HTTP_HX_REQUEST='true'),
+                            'не меньше 1')
+        self.assertFalse(self.tab.items.exists())
+
+    def test_view_is_only_for_sets_and_only_own_tabs(self):
+        from .models import ShoppingTab
+
+        url = reverse('cart-item-add-set', kwargs={'product_pk': self.fixture.stand.pk})
+        self.assertEqual(self.client.get(url, HTTP_HX_REQUEST='true').status_code, 404)
+
+        stranger = User.objects.create_user(username='other', password='pw')
+        foreign = ShoppingTab.objects.create(user=stranger, name='Чужая')
+        url = reverse('cart-item-add-set', kwargs={'product_pk': self.fixture.kit.pk})
+        self.client.post(url, {'tab': foreign.pk, 'quantity': '1'}, HTTP_HX_REQUEST='true')
+        self.assertFalse(foreign.items.exists())
+
+    def test_tab_page_shows_where_the_line_came_from(self):
+        self.add()
+        response = self.client.get(reverse('shopping-tab-detail', kwargs={'pk': self.tab.pk}))
+        self.assertContains(response, 'из набора KIT-1 — Стеллаж')
+
+    def test_export_has_the_set_column(self):
+        from io import BytesIO
+
+        import pandas as pd
+
+        from .utils import build_shopping_tab_export
+
+        self.add()
+        export = build_shopping_tab_export(self.tab.pk)
+        with export.file.open('rb') as fh:
+            frame = pd.read_excel(BytesIO(fh.read()))
+        self.assertEqual(list(frame.columns)[-1], 'Набор')
+        self.assertEqual(set(frame['Набор']), {'KIT-1 — Стеллаж'})

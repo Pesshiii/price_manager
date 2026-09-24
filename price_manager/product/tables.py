@@ -6,7 +6,7 @@ from django.db.models import (
 from django.template.loader import render_to_string
 from django.urls import reverse
 from django.utils.formats import number_format
-from django.utils.html import format_html
+from django.utils.html import format_html, format_html_join
 
 from main_product_manager.models import MainProduct
 
@@ -19,6 +19,29 @@ NO_STOCK_DATA = 'Нет данных'
 
 # Заголовок группы товаров, у которых нет ни одной категории из PIM.
 UNCATEGORIZED = 'Без категории'
+
+
+def in_sets_label(count):
+    """«в 1 наборе», «в 3 наборах» — после «в» у числительного всегда предложный."""
+    return f'в {count} наборе' if count % 10 == 1 and count % 100 != 11 else f'в {count} наборах'
+
+
+def set_cost_html(totals):
+    """Себестоимость набора из комплектующих — с пометкой, если она неполная.
+
+    Сумма показывается и у неполного набора: так видно, сколько уже набрано
+    и чего не хватает. Но без пометки она выдавала бы себя за полную.
+    """
+    if totals.cost is None:
+        value = format_html('<span class="text-body-tertiary">{}</span>', '—')
+    else:
+        value = format_html('<span class="text-nowrap">{}</span>', number_format(totals.cost, decimal_pos=2))
+    if not totals.missing_cost:
+        return value
+    return format_html(
+        '{} <span class="set-incomplete" title="Сумма без компонентов, у которых нет цены '
+        'или которых нет в Price Manager">нет цены у {} из {}</span>',
+        value, totals.missing_cost, totals.count)
 
 
 def _money(value):
@@ -253,10 +276,26 @@ class ProductTable(tables.Table):
         return format_html('<span class="text-body-tertiary">—</span>')
 
     def render_display_name(self, value, record):
-        """Название и под ним — бренд и категории из PIM, если они уже есть."""
+        """Название и под ним — бренд и категории из PIM, если они уже есть.
+
+        Там же метка «Набор» и у компонентов — «в N наборах» со ссылкой на
+        эти наборы. set_totals и in_sets_count навешивает на строки страницы
+        ProductPage.get_context_data (attach_set_info); без него — как у
+        обычного товара.
+        """
         meta = [record.brand.name] if record.brand else []
         meta += [category.name for category in record.categories.all()]
-        meta_html = format_html('<div class="product-meta">{}</div>', ' · '.join(meta)) if meta else ''
+        parts = [format_html('{}', ' · '.join(meta))] if meta else []
+        if getattr(record, 'set_totals', None):
+            parts.insert(0, format_html('<span class="badge product-set-badge">Набор</span>'))
+        in_sets = getattr(record, 'in_sets_count', 0)
+        if in_sets:
+            parts.append(format_html(
+                '<a class="product-in-sets" href="{}?contains={}">{}</a>',
+                reverse('products'), record.pk, in_sets_label(in_sets)))
+        meta_html = (format_html('<div class="product-meta">{}</div>',
+                                 format_html_join(' · ', '{}', ((part,) for part in parts)))
+                     if parts else '')
         return format_html('<div class="product-name" title="{}">{}</div>{}', value, value, meta_html)
 
     def render_prime_cost_range(self, record):
@@ -269,10 +308,15 @@ class ProductTable(tables.Table):
         low = getattr(record, 'min_prime_cost', None)
         high = getattr(record, 'max_prime_cost', None)
         if low is None and high is None:
-            return format_html('<span class="text-body-tertiary">{}</span>', '—')
-        if low == high:
-            return _money(low)
-        return format_html('<span class="text-nowrap">{} – {}</span>', _money(low), _money(high))
+            own = format_html('<span class="text-body-tertiary">{}</span>', '—')
+        elif low == high:
+            own = _money(low)
+        else:
+            own = format_html('<span class="text-nowrap">{} – {}</span>', _money(low), _money(high))
+        totals = getattr(record, 'set_totals', None)
+        if not totals:
+            return own
+        return format_html('{}<div class="set-cost-hint">из компл.: {}</div>', own, set_cost_html(totals))
 
     def render_total_stock(self, record):
         """NULL и 0 — разные вещи.
