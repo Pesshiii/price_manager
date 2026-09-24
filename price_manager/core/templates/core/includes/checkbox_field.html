@@ -50,6 +50,9 @@
                         >
                         <label class="form-check-label" for="{{ field.auto_id }}_{{ forloop.counter0 }}">
                             {{ choice.1 }}
+                            {% if field.field.facet_counts is not None %}
+                                <span class="facet-count">{{ field.field.facet_counts|get_item:choice.0.value|default:0 }}</span>
+                            {% endif %}
                         </label>
                     </div>
                 {% endfor %}

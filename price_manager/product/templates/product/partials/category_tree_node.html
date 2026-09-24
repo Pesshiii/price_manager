@@ -9,18 +9,18 @@
               <input class="form-check-input" type="checkbox" name="{{ field.html_name }}"
                      value="{{ node.pk }}" id="{{ input_id }}"
                      {% if selected_values and node.pk|slugify in selected_values %}checked{% endif %}>
-              <label class="form-check-label" for="{{ input_id }}">{{ node.name }}</label>
+              <label class="form-check-label" for="{{ input_id }}">{{ node.name }}{% if field.field.facet_counts is not None %} <span class="facet-count">{{ field.field.facet_counts|get_item:node.pk|default:0 }}</span>{% endif %}</label>
             </div>
             <button class="accordion-button collapsed py-2 ps-3 pe-2 flex-grow-1" type="button"
                     data-bs-toggle="collapse"
                     data-bs-target="#collapse-{{ field.auto_id }}-{{ pk_str }}"
-                    aria-expanded="{% if node.pk|slugify in selected_values or node.get_descendants|values_list:'pk'|intersection:selected_values %}true{% else %}false{% endif %}"
+                    aria-expanded="{% if node.pk in field.field.expanded_pks %}true{% else %}false{% endif %}"
                     aria-controls="collapse-{{ field.auto_id }}-{{ pk_str }}"
                     aria-label="Раскрыть «{{ node.name }}»"></button>
           </div>
         </span>
         <div id="collapse-{{ field.auto_id }}-{{ pk_str }}"
-             class="accordion-collapse{% if node.pk|slugify in selected_values or node.get_descendants|values_list:'pk'|intersection:selected_values %}{% else %} collapse{% endif %}"
+             class="accordion-collapse{% if node.pk in field.field.expanded_pks %}{% else %} collapse{% endif %}"
              aria-labelledby="heading-{{ field.auto_id }}-{{ pk_str }}">
           <div class="accordion-body py-2">
             <div class="accordion accordion-flush" id="accordion-{{ field.auto_id }}-{{ pk_str }}">
@@ -43,7 +43,7 @@
         <input class="form-check-input" type="checkbox" name="{{ field.html_name }}"
                value="{{ node.pk }}" id="{{ input_id }}"
                {% if selected_values and node.pk|slugify in selected_values %}checked{% endif %}>
-        <label class="form-check-label" for="{{ input_id }}">{{ node.name }}</label>
+        <label class="form-check-label" for="{{ input_id }}">{{ node.name }}{% if field.field.facet_counts is not None %} <span class="facet-count">{{ field.field.facet_counts|get_item:node.pk|default:0 }}</span>{% endif %}</label>
       </div>
     {% endif %}
   {% endwith %}

@@ -133,6 +133,23 @@ docker compose exec -T -e POSTGRES_DB=pricemanager_snapshot web \
   python manage.py migrate supplier_product_manager
 ```
 
+**Check before Mode D — newer dumps don't need it.** Dumps taken after production
+went through the product shift (the `pricemanager_20260923_*` dump is one) already
+carry the recreated `product` lineage, with real `product_category` / `product_brand`
+rows and `product_product_categories` links. Mode D's `DROP TABLE product_*` would
+throw that away, and `migrate product` then dies with `InconsistentMigrationHistory`
+(`main_product_manager.0011_mainproduct_product_fk` applied before
+`product.0006_alter_product_name`). Look first:
+
+```bash
+docker compose exec -T -e POSTGRES_DB=pricemanager_snapshot web python manage.py showmigrations product main_product_manager
+```
+
+If `main_product_manager.0011_mainproduct_product_fk` is `[X]`, skip Mode D entirely:
+just `migrate product`, `supplier_manager` and `supplier_product_manager` by label
+(the pending ones on such a dump are past the destructive `0008`). `/products/` then
+runs on real categories and brands with no PIM load.
+
 **Mode D — the product page (`/products/`) on real data.** Mode B plus the recreated
 `product` app. Needed because the product page reads `product.Product`, and the dump's
 `product` app is the dead API-first lineage (see Traps). Verified 2026-09-19; prices and

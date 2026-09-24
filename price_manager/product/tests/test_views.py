@@ -3,7 +3,9 @@ import textwrap
 from decimal import Decimal
 
 from django.contrib.auth.models import User
+from django.db import connection
 from django.test import TestCase
+from django.test.utils import CaptureQueriesContext
 from django.urls import reverse
 
 from main_product_manager.models import MainProduct
@@ -348,8 +350,11 @@ class ProductFragmentTests(TestCase):
         разработчика. Корневой лист и вложенный — обе ветки шаблона.
         """
         root = Category.objects.create(name='Сантехника')
-        Category.objects.create(name='Смесители', parent=root)
-        Category.objects.create(name='Свет')
+        # Пустые ветки панель скрывает — обоим листьям нужен товар.
+        self.product.categories.add(
+            Category.objects.create(name='Смесители', parent=root),
+            Category.objects.create(name='Свет'),
+        )
 
         response = self.client.get(reverse('product-filter'), HTTP_HX_REQUEST='true')
 
@@ -357,6 +362,97 @@ class ProductFragmentTests(TestCase):
         self.assertContains(response, 'Свет')
         self.assertNotContains(response, '{#')
         self.assertNotContains(response, 'Отступ только у вложенного листа')
+
+    def test_filter_panel_hides_empty_options_and_shows_counts(self):
+        used = Brand.objects.create(pim_id='br-1', name='Используемый')
+        Brand.objects.create(pim_id='br-2', name='Пустой')
+        self.product.brand = used
+        self.product.save()
+        MainProduct.objects.create(product=self.product, supplier=self.supplier, article='A1')
+        Supplier.objects.create(name='Без товаров')
+
+        response = self.client.get(reverse('product-filter'), HTTP_HX_REQUEST='true')
+
+        self.assertContains(response, 'Используемый')
+        self.assertNotContains(response, 'Пустой')
+        self.assertNotContains(response, 'Без товаров')
+        self.assertContains(response, '<span class="facet-count">1</span>', count=2)
+
+    def test_facets_fragment_redirects_a_non_htmx_request(self):
+        response = self.client.get(reverse('product-facets'))
+        self.assertEqual(response.status_code, 302)
+
+    def test_facets_fragment_is_only_oob_lists(self):
+        """Только списки и только OOB — панель целиком не перерисовывается.
+
+        Иначе обновление фасетов сбросило бы поля цены и быстрый поиск
+        посреди ввода, а обёртка без hx-swap-oob при hx-swap="none" просто
+        потерялась бы.
+        """
+        MainProduct.objects.create(product=self.product, supplier=self.supplier, article='A1')
+
+        response = self.client.get(reverse('product-facets'), HTTP_HX_REQUEST='true')
+        content = response.content.decode()
+
+        self.assertEqual(response.status_code, 200)
+        self.assertNotIn('<form', content)
+        self.assertNotIn('price_from', content)
+        self.assertIn('id="checkboxes_id_brand" hx-swap-oob="outerHTML"', content)
+        self.assertIn('id="checkboxes_id_supplier" hx-swap-oob="outerHTML"', content)
+        self.assertIn('id="div_id_categories" hx-swap-oob="true"', content)
+        self.assertContains(response, 'Поставщик')
+
+    def _facets_queries(self, branches, data=None):
+        for i in range(branches):
+            parent = Category.objects.create(name=f'Ветка {i}')
+            self.product.categories.add(Category.objects.create(name=f'Лист {i}', parent=parent))
+        with CaptureQueriesContext(connection) as queries:
+            self.client.get(reverse('product-facets'), data or {}, HTTP_HX_REQUEST='true')
+        return len(queries)
+
+    def test_facets_query_count_does_not_grow_with_the_tree(self):
+        """Дерево перерисовывается после каждого фильтра — запрос на узел недопустим.
+
+        Раскрытие ветки проверяло пересечение потомков с выбором запросом на
+        каждый узел, даже когда ничего не выбрано.
+        """
+        small = self._facets_queries(2)
+        large = self._facets_queries(20)
+        self.assertEqual(small, large)
+
+    def test_facets_query_count_with_a_selected_category(self):
+        selected = Category.objects.create(name='Выбранная')
+        self.product.categories.add(selected)
+        small = self._facets_queries(2, {'categories': [selected.pk]})
+        large = self._facets_queries(20, {'categories': [selected.pk]})
+        self.assertEqual(small, large)
+
+    def test_branch_with_a_selected_category_renders_expanded(self):
+        root = Category.objects.create(name='Корень')
+        other = Category.objects.create(name='Другая')
+        leaf = Category.objects.create(name='Лист', parent=root)
+        Category.objects.create(name='Лист другой', parent=other)
+        self.product.categories.add(leaf, other.children.get())
+
+        response = self.client.get(reverse('product-facets'), {'categories': [leaf.pk]},
+                                   HTTP_HX_REQUEST='true')
+
+        content = response.content.decode()
+        self.assertEqual(content.count('aria-expanded="true"'), 1)
+        self.assertIn(f'aria-controls="collapse-id_categories-{root.pk}', content)
+        expanded = content.index('aria-expanded="true"')
+        self.assertIn(f'collapse-id_categories-{root.pk}', content[expanded:expanded + 200])
+
+    def test_table_response_signals_the_facets_to_refresh(self):
+        response = self.client.get(reverse('products'), HTTP_HX_REQUEST='true')
+
+        self.assertIn('products-updated', response.headers.get('HX-Trigger', ''))
+
+    def test_page_listens_for_the_refresh_event(self):
+        response = self.client.get(reverse('products'))
+
+        self.assertContains(response, 'hx-get="%s"' % reverse('product-facets'))
+        self.assertContains(response, 'hx-trigger="products-updated from:body"')
 
     def test_htmx_request_returns_only_the_table_fragment(self):
         """Иначе в #products-table вставляется list.html целиком.
