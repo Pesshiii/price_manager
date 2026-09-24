@@ -9,6 +9,7 @@ from .services.pim_sync import (
     sync_product_from_pim,
     sync_products,
 )
+from .services.sets import sync_product_sets
 
 logger = logging.getLogger(__name__)
 
@@ -71,6 +72,24 @@ def sync_products_batch_task(pks: list[int], delay: float = 0.5) -> dict:
         atomic=False,
     )
 
+
+
+@shared_task(name='product.sync_product_sets')
+def sync_product_sets_task() -> dict:
+    """Наборы и их состав из PIM (services/sets.py). Ночью, после reindex_pim_ids:
+    компоненты находятся через PriceManagerProduct, который тот заводит."""
+    def _runner():
+        return sync_product_sets()['sets']
+
+    return execute_locked_task(
+        task_name='product.sync_product_sets',
+        lock_ttl=60 * 30,
+        runner=_runner,
+        # Запросы к PIM идут между записями, а каждый набор и так пишется в
+        # своей транзакции — общая держала бы соединение весь прогон.
+        # sync_product_sets идемпотентна.
+        atomic=False,
+    )
 
 # Весь каталог — ~158 тыс. товаров: общего лимита воркера (30 мин) на него
 # впритык, а lock_ttl должен пережить самый долгий прогон.

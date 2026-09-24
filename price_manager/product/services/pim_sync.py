@@ -140,6 +140,18 @@ def sync_product_from_pim(pim_id: str, data: dict | None = None) -> Product:
         product.save()
         return product
 
+    apply_pim_product(product, data)
+    return product
+
+
+def apply_pim_product(product: Product, data: dict) -> None:
+    """Записывает товар PIM `data` на `product` и сохраняет его.
+
+    name, raw_data, бренд, категории, затем поисковый вектор. number не
+    трогает — это локальный ключ сопоставления. Общая часть
+    sync_product_from_pim и синхронизации наборов (services/sets.py): набор
+    приходит в зеркало не через PriceManagerProduct, но пишется так же.
+    """
     product.name = data.get('name') or None
     product.raw_data = data
     product.brand = _ensure_pim_brand(data)
@@ -152,7 +164,6 @@ def sync_product_from_pim(pim_id: str, data: dict | None = None) -> Product:
     # первого сохранения у новой строки pk ещё нет. Вектор собирается из
     # raw_data, которые мы только что записали, — в PIM он не ходит.
     product.rebuild_search_vector()
-    return product
 
 
 def unsynced_products(refresh: bool = False):
