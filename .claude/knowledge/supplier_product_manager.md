@@ -421,12 +421,19 @@ decision, not a quick patch.
   «Matching by article» above); by default the import **warns** about
   `article_conflicts` instead.
 - **Stored articles and names carry leading/trailing whitespace** — common in
-  production. `get_df` collapses runs of whitespace but does not strip yet.
-  Whitespace matching (above) is what makes a parser `strip()` safe now: a
-  stored row with edge spaces is renamed in place on the next import instead of
-  being re-keyed. Left over: `MainProduct.sku` copied from such articles keeps
-  the space, and pairs of rows that already differ only by whitespace — both
-  linked to *different* `MainProduct`s — need a manual decision.
+  production. `get_df` now strips every cell (and a whitespace-only cell is
+  empty, so a column of blanks drops out like an empty one). Stored rows with
+  edge spaces are renamed in place by whitespace matching (above) on their next
+  import — the first import of a supplier that stored every article with a
+  trailing space renames all its rows, which is why `_rename_rows` is one
+  `bulk_update`, not an `UPDATE` per row. Left over, deliberately:
+  - `MainProduct.sku` copied from such articles keeps the space. It was **not**
+    trimmed: sku is what links a MainProduct to its local `Product.number` and
+    through it to the PIM record, so trimming sku alone would split them, and
+    stripping does not meaningfully raise PIM coverage (see [[product]]).
+    New copies get clean skus because the articles are clean now.
+  - pairs of rows that already differ only by whitespace, both linked to
+    *different* `MainProduct`s, need a manual decision.
 - **Numbers**: only `','→'.'` before `pd.to_numeric(errors='coerce')`
   (`get_sps`), so `1 234,50`, `1,234.50`, currency signs, `>10`, `10+` become
   NaN; a row whose every mapped value is NaN is dropped and then nulled as
