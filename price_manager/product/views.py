@@ -17,6 +17,7 @@ from supplier_product_manager.models import SupplierProduct
 from .columns import PRODUCT_COLUMN_GROUPS, load_columns, save_columns
 from .filters import CATEGORY_LABEL_DEPTH, ProductFilter, search_terms
 from .models import Category, Product, ProductExport
+from .set_costs import attach_set_info, set_totals_for
 from .tasks import export_products_task
 from .tables import (
     ProductTable, SupplierRowTable, annotate_product_rows, best_match_groups_first,
@@ -159,6 +160,9 @@ class ProductPage(SingleTableMixin, FilterView):
         rows = table.paginated_rows
         context['product_rows'] = (with_category_headers(rows) if grouped
                                    else [(None, row) for row in rows])
+        # Наборы и компоненты — только для показанных строк; ячейки таблицы
+        # отрисовываются в шаблоне позже и читают навешенное здесь.
+        attach_set_info(row.record for _, row in context['product_rows'])
         return context
 
 
@@ -195,6 +199,8 @@ class ProductSuppliersView(View):
             'product': product,
             'main_products': main_products,
             'table': table,
+            # Набор: под своими строками — строка «Из комплектующих» и состав.
+            'set_totals': set_totals_for([product.pk]).get(product.pk),
         })
 
 

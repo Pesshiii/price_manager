@@ -674,6 +674,91 @@
     border-bottom: 0;
   }
 
+  /* --- Наборы: метка, «из компл.», строка «Из комплектующих» ------------- */
+
+  .products-table .product-set-badge {
+    padding: 0.15em 0.45em;
+    font-size: 0.68rem;
+    font-weight: 600;
+    color: #3538cd;
+    background: #eef4ff;
+    border: 1px solid #c7d7fe;
+  }
+
+  .products-table .product-in-sets {
+    color: inherit;
+    text-decoration: underline dotted;
+  }
+
+  .products-table .set-cost-hint {
+    margin-top: 0.1rem;
+    font-size: 0.75rem;
+    color: var(--pm-muted);
+  }
+
+  .set-incomplete {
+    padding: 0 0.35em;
+    font-size: 0.7rem;
+    font-weight: 500;
+    white-space: nowrap;
+    color: #b54708;
+    background: #fffaeb;
+    border: 1px solid #fedf89;
+    border-radius: 0.25rem;
+  }
+
+  .product-suppliers-content {
+    width: max-content;
+    min-width: 100%;
+  }
+
+  .product-suppliers-panel .suppliers-table + .set-assembly,
+  .product-suppliers-panel .table-container + .set-assembly {
+    border-top: 1px solid var(--pm-line-soft);
+  }
+
+  .set-assembly-row {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.25rem 1rem;
+    padding: 0.5rem 0.6rem;
+    font-size: 0.8125rem;
+    cursor: pointer;
+    list-style: none;
+    background: #f5f8ff;
+  }
+
+  .set-assembly-row::-webkit-details-marker {
+    display: none;
+  }
+
+  .set-assembly-chevron {
+    font-size: 0.7rem;
+    transition: transform 0.12s ease;
+  }
+
+  .set-assembly[open] .set-assembly-chevron {
+    transform: rotate(90deg);
+  }
+
+  .set-assembly-title {
+    font-weight: 600;
+  }
+
+  .set-assembly-figure {
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+  }
+
+  .product-suppliers-panel .set-lines-table > tbody > tr.set-line-limiting > td {
+    background: #fffaeb;
+  }
+
+  .product-suppliers-panel .set-lines-table > tbody > tr.set-line-missing > td {
+    color: var(--pm-muted);
+  }
+
   /* --- Пагинация и пустое состояние ------------------------------------- */
 
   .products-pagination {
