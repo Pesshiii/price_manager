@@ -457,22 +457,37 @@ supplier; a user asked for supplier data split out, and the shape changed
   `NO_SUPPLIER` = «Без поставщика». `SheetNamesTests`
   (`test_export.py:66`) is the guard, including a supplier literally named
   «товары» colliding with «Товары».
-- **`main_value`** (`export.py:125-139`) is unchanged in rule (first value
-  that is neither `NULL` nor `0`, else `0` if any supplier has an explicit
-  `0`, else empty — keeps a `NULL` stock distinct from a confirmed `0`), but
-  is now applied twice: `supplier_values()` (`export.py:259-278`) applies it
-  **within one supplier's own `MainProduct` rows** (ordered by `pk`; there is
-  still no unique `(product, supplier)` constraint) for price/stock keys,
-  `_joined()` (`export.py:174-185`, «; »-separated distinct values) for every
-  other supplier-row key; `main_value_cells()` (`export.py:280-291`) then
-  applies it **across suppliers**, walking `price_order`/`stock_order` (the
-  two `ranked_suppliers` results built once in `build()`) over the
-  per-supplier dict `supplier_values` returned.
+- **Main values are by supplier *levels*** (`Supplier.price_priority` /
+  `stock_priority` may repeat; see [[supplier_manager]]). `supplier_levels()`
+  groups the exported suppliers top-down; all unranked suppliers are **one
+  shared bottom level** (they used to be ordered by name, a hidden
+  alphabetical priority), `supplier=NULL` rows a level of their own at the
+  very end. `main_value(levels, pick)` returns `pick(non-zero values)` of the
+  first level that has any, else `0` if any explicit `0`, else empty (a
+  `NULL` stock stays distinct from a confirmed `0`).
+  - **Prices — winner supplier, not per-column min.** `main_value_cells()`
+    orders each price level by `winner_order()`: lowest non-zero
+    `prime_cost` first (`supplier_costs()` computes it from the rows even
+    when the prime_cost column is not exported), no cost last, ties by name.
+    Every MP price then takes the first non-zero value in that flat order —
+    so all prices of a row come from the winner, and only a price the winner
+    lacks falls to the next by cost on the same level, then lower levels.
+    Per-column min was rejected by the owner: it mixed suppliers inside one
+    row (a basic price below the prime cost it came with).
+  - **Stock — max** on the first stock level that has a non-zero value.
+  - **Only MP prices (KZT) and stock get a main value** (`MAIN_PRICE_COLUMNS`).
+    `supplier_product_price/rrp/discount_price` are in the supplier's
+    currency and cannot be compared across suppliers; they appear only on
+    supplier sheets / supplier blocks of the csv.
+  - `supplier_values()` folds **one supplier's own `MainProduct` rows** (no
+    unique `(product, supplier)`) by the same rule: rows by `prime_cost`,
+    prices first non-zero, stock max; `_joined()` («; »-separated distinct
+    values) for every other supplier-row key.
 - **Supplier columns for the header set, per-sheet values via one collected
   `supplier_ids` set.** `build()` (`export.py:293-326`) makes one chunked
   pre-pass over `pks` collecting `MainProduct.supplier_id` distinct
   (`export.py:296-301`) *only if* any supplier-row column is selected, then
-  builds `price_order`/`stock_order` from it before opening any sheet — sheet
+  builds `ranked_suppliers` (sheet order) and the price/stock levels from it before opening any sheet — sheet
   creation needs the full ranked list up front to know how many sheets and in
   what order. A product-page supplier filter still produces sheets for every
   supplier that appears in the filtered rows — not narrowed further.

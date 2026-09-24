@@ -1,12 +1,12 @@
-<td class="supplier-priority-cell" id="priority-{{ field }}-{{ pk }}"{% if oob %} hx-swap-oob="true"{% endif %}>
+<td class="supplier-priority-cell" id="priority-{{ field }}-{{ pk }}">
   <input type="number"
          min="1"
          name="value"
          value="{{ value|default_if_none:'' }}"
          placeholder="—"
-         aria-label="{% if field == 'price_priority' %}Приоритет по ценам{% else %}Приоритет по остаткам{% endif %}"
-         title="{% if oob %}Номер пересчитан. {% endif %}Меньше — выше приоритет. Пусто — не проранжирован."
-         class="form-control form-control-sm text-center{% if errors %} is-invalid{% elif saved %} is-valid{% elif oob %} border-warning{% endif %}"
+         aria-label="{% if field == 'price_priority' %}Уровень по ценам{% else %}Уровень по остаткам{% endif %}"
+         title="Меньше — выше. Один уровень у нескольких поставщиков — {% if field == 'price_priority' %}цены берутся у того, чья себестоимость меньше{% else %}остаток максимальный{% endif %}. Пусто — общий нижний уровень."
+         class="form-control form-control-sm text-center{% if errors %} is-invalid{% elif saved %} is-valid{% endif %}"
          hx-post="{% url 'supplier-priority' pk field %}"
          hx-trigger="change"
          hx-target="closest td"

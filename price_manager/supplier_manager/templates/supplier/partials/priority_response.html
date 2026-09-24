@@ -1,4 +1,0 @@
-{% include "supplier/partials/priority_cell.html" %}
-{% for shifted_pk, shifted_value in shifted %}
-  {% include "supplier/partials/priority_cell.html" with pk=shifted_pk value=shifted_value errors=None saved=False oob=True %}
-{% endfor %}
