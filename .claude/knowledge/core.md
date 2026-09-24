@@ -108,6 +108,10 @@ the tree.
 
 - `CartItem:6` — `search_query`, M2M `products`, FK `confirmed_product`,
   `quantity`. `confirmed_price`/`line_total` are properties (`:30`, `:37`).
+  `source_set:28` — nullable FK to `product.Product`, `SET_NULL`,
+  `related_name='exploded_cart_items'` (migration `0012_cartitem_source_set`,
+  depends on `product.0011`). Set only by `add_set_to_cart` (see below); it is
+  purely a label — deleting the source set does not touch the cart item.
 - `ShoppingTab:44` — named tab, `file`, M2M `items`, `open` flag.
 - `ShoppingTabExport:65` — generated export file + `rows_count`.
 - `PersistentNotification:99` — user-facing notification with `level`
@@ -185,11 +189,11 @@ already-flagged search input keeps filtering detached nodes. So checkbox instead
 
 The shopping-tab / cart feature is the whole file. `ShoppingTab*` — list, delete,
 detail, export, export-download, import + preview + run (`:173`–`:471`).
-`CartItem*` — detail, quick-add, confirm, unconfirm, remove, product-select,
-add-products (`:472`–`:705`). Plus `PersistentNotification*` (`:65`, `:81`),
-auth views (`:94`, `:114`), Bitrix24 login (`:123`, `:141`, mechanism below),
-and `mainpage`. The user guide is not a page here any more — it is
-release 0.0 in `releases` (data migration `0002`).
+`CartItem*` — detail, quick-add, add-set, confirm, unconfirm, remove,
+product-select, add-products (`:472`–`:705`). Plus `PersistentNotification*`
+(`:65`, `:81`), auth views (`:94`, `:114`), Bitrix24 login (`:123`, `:141`,
+mechanism below), and `mainpage`. The user guide is not a page here any more
+— it is release 0.0 in `releases` (data migration `0002`).
 
 Templates in `core/templates/shopping_tab/` use the **`hx-swap-oob`** convention
 throughout, not the modal-CRUD one — one action refreshes a status chip, a
@@ -224,6 +228,65 @@ touched** — it still conflates `None` and `0` via the plain-truthy
 `{% if product.stock %}`. If the cart is ever revisited, it needs its own
 fix; it doesn't inherit one for free from what #155 already shipped
 elsewhere.
+
+## Sets in the cart — `add_set_to_cart` (PR #233, 2026-09-24)
+
+`add_set_to_cart(tab, set_product, quantity, user)` in `core/utils.py:212`
+(`@transaction.atomic`) explodes a `product.Product` set into one ordinary
+`CartItem` per `ProductSetItem` line — quantity = line amount × number of
+sets requested. Candidates (`item.products`) are the component's own
+`MainProduct` rows (`MainProduct.objects.filter(product=component)`), not a
+text search — the component is already known exactly. `confirmed_product` is
+set straight to `line.cost_row` when `line.has_cost` — the same supplier row
+the «Из комплектующих» total on `/products/` picked via
+`product.set_costs.set_totals_for` (see [[product]]) — so add-set both
+creates and confirms the line in one step; a component with no priced
+supplier row is left unconfirmed. A component **missing from Price Manager
+entirely** (no `MainProduct` match) still becomes a line — `search_query`
+falls back to the PIM component name/number off `line.item` — so nothing to
+buy silently disappears from the exploded set. It never merges with
+already-present cart items (consistent with the rest of the cart, which
+never merges); each new line is tagged `source_set=set_product` and shown as
+«из набора X» (`core/utils.py:205` `set_label`).
+
+`set_label()` also drives the **last** column, «Набор», of the shopping-tab
+xlsx export (`SHOPPING_TAB_EXPORT_COLUMNS`, `core/utils.py:146`) — appended at
+the end deliberately, per the comment at `:144-145`, so existing column order
+doesn't shift for whoever consumes the export downstream. `set_totals_for`
+returning `None` for the set (e.g. it has no set items after all) makes
+`add_set_to_cart` a no-op returning `[]`.
+
+**`CartItemAddSetView`** (`core/views.py:543`), route
+`cart-items/add-set/<int:product_pk>/` name `cart-item-add-set`
+(`price_manager/urls.py:106`). Keyed on `product.Product`, not `MainProduct`
+like `CartItemQuickAddView` — a set may have no supplier rows of its own.
+`get_set` 404s via `Product.objects.filter(set_items__isnull=False).distinct()`
+if the product isn't actually a set. `get_tabs` filters
+`ShoppingTab.objects.filter(user=self.request.user)` — posting a foreign
+tab's pk just fails the `tabs.filter(pk=selected_tab).first()` lookup, no
+leak. GET/POST both bail to `redirect('products')` for a non-htmx request.
+Templates `shopping_tab/partials/set_add_modal.html` /
+`set_add_result.html` — bootstrap-classes-only like `quick_add_*`, because
+`/products/` doesn't load `shopping_tab`'s own styles. `views.py` reaches
+`add_set_to_cart` through its existing `from .utils import *`.
+
+Two ways a set reaches a cart: an **assembled** set (has its own `MainProduct`
+rows) goes through the ordinary quick-add button on its supplier row; *any*
+set (assembled or not) can go through the new cart-plus button inside the
+«Из комплектующих» `<summary>` row
+(`product/templates/product/partials/set_assembly.html:15-25`) — a `<button>`
+nested inside a `<summary>` does not toggle the parent `<details>` on click
+(verified: the button's own click handler runs, `<details>` stays as it was).
+
+There is still no «delete a line from a tab» primitive anywhere in `core`
+(only `CartItemRemoveProductView`, which removes a *candidate* from a line's
+`products`, not the line itself) — «remove a whole exploded set in one go»
+was deliberately deferred for that reason; deleting the source set itself
+does nothing to the cart items either (`source_set` is `SET_NULL`).
+
+Tests: `core/tests.py` `AddSetToCartTests` (~line 655, 10 cases) — reuses
+`product.tests.test_set_costs.SetFixture` rather than building its own set
+fixture.
 
 ## Bitrix24 login — mechanism (CLAUDE.md's `core` bullet covers purpose/policy)
 
