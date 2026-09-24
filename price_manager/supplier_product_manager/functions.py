@@ -35,7 +35,8 @@ CACHE_TTL = 60 * 60 * 24 * 30  # 30 дней
 # 1.5: _rename_from — пара (артикул, название); совпадение с точностью до
 #      пробелов, possible_renames, whitespace_ambiguous.
 # 1.6: значения ячеек без пробелов по краям (get_df).
-SPS_JSON_SCHEMA_VERSION = "1.6"
+# 1.7: _parse_number вместо pd.to_numeric; missing_columns и unparsed_numbers в stats.
+SPS_JSON_SCHEMA_VERSION = "1.7"
 # Счётчики разбора, которые get_sps_result отдаёт вместе с payload, по этапам.
 SPS_STAT_FIELDS = (
     "rows_in_sheet",      # непустые строки листа
@@ -268,7 +269,12 @@ def get_df(pk, recache=False)->pd.DataFrame|None:
   # place on their next import, so the strip does not re-key them.
   for column in df.columns:
     df[column] = df[column].str.replace(r'\s+', ' ', regex=True).str.strip().replace('', np.nan)
-  df = df.dropna(axis=0, how='all').dropna(axis=1, how='all')
+  df = df.dropna(axis=0, how='all')
+  empty_columns = [str(column) for column in df.columns[df.isna().all()]]
+  df = df.dropna(axis=1, how='all')
+  # Headers present in the file whose column has no value at all. They are
+  # dropped like before, but the import must not report them as missing.
+  df.attrs['empty_columns'] = empty_columns
   if df.shape[0] == 0:
     return None
   if not settings.DEBUG:
@@ -471,6 +477,18 @@ def _parse_sps(setting: Setting, links, stats: dict) -> list[dict]:
     if not links.filter(Q(value__isnull=False) | Q(initial__isnull=False)).exists():
         raise SupplierImportError('Не сопоставлен ни один столбец файла')
     file_columns = list(df.columns)
+    # A column the setting maps by header that this file does not have: the
+    # supplier renamed or dropped it. Its field would silently stay at the last
+    # imported value — or take the setting's fallback for every row. A header
+    # that is there with an empty column is not missing. The article column has
+    # its own refusal below.
+    headers = [*file_columns, *df.attrs.get('empty_columns', [])]
+    stats['missing_columns'] = [
+        {'key': link.key, 'column': link.value}
+        for link in links
+        if link.value and link.key != 'article' and link.key in LINKS and link.value not in headers
+    ]
+    stats['file_columns'] = _format_columns(headers)
     for link in links:
         if link.value == '' or link.value is None:
             if link.initial == '' or link.initial is None:
@@ -492,6 +510,7 @@ def _parse_sps(setting: Setting, links, stats: dict) -> list[dict]:
                 f'В файле нет столбца артикула «{article_link.value}». '
                 f'Столбцы в файле: {_format_columns(file_columns)}')
         raise SupplierImportError('Не указан столбец артикула')
+    unparsed = {}
     for link in links:
         if not link.key in df.columns:
             continue
@@ -499,9 +518,17 @@ def _parse_sps(setting: Setting, links, stats: dict) -> list[dict]:
             df[link.key] = df[link.key].str.replace(dict.key, dict.value)
             df = df.loc[:, [link.key for link in links if not link.key == '' and link.key in df.columns]]
         if link.key in df.columns and link.key in SP_NUMBERS:
-            df[link.key] = df[link.key].str.replace(',', '.')
-            df[link.key] = pd.to_numeric(df[link.key], errors='coerce')
-            df[link.key] = df[link.key].apply(lambda val: val if val >= 0 else None)
+            raw = df[link.key]
+            parsed = raw.map(_parse_number)
+            # Counted only on rows that have an article: the rest are dropped anyway.
+            failed = raw[raw.notna() & ~raw.isin(_EMPTY_PLACEHOLDERS) & parsed.isna() & df['article'].notna()]
+            if len(failed):
+                unparsed[link.key] = {
+                    'count': int(len(failed)),
+                    'examples': [str(value)[:40] for value in failed.drop_duplicates()[:UNPARSED_EXAMPLES]],
+                }
+            df[link.key] = parsed.astype(float)
+    stats['unparsed_numbers'] = unparsed
 
     df = df.dropna(subset=['article'])
     rows_with_article = stats['rows_with_article'] = len(df)
@@ -573,6 +600,71 @@ def _parse_sps(setting: Setting, links, stats: dict) -> list[dict]:
 
 
 ARTICLE_CONFLICT_EXAMPLES = 5
+UNPARSED_EXAMPLES = 3
+
+# A cell that says "no value" rather than being empty.
+_EMPTY_PLACEHOLDERS = {'-', '–', '—', '--'}
+# What may surround the one number in a cell: currency, a unit and a lower bound.
+# "> 10", "10+", "более 10" mean at least ten — ten is the safe reading. Upper
+# bounds ("< 5", "до 5") and ranges are not guessed: they stay unparsed and are
+# reported, and the setting's replacements (DictItem) can map them.
+_NUMBER_AFFIX = re.compile(
+    r'^(?:>=?|≥|более|больше|свыше|от|руб\.?|р\.|тг\.?|тенге|kzt|usd|eur|rub|[$€₽₸]|шт\.?|pcs)?$',
+    re.IGNORECASE)
+_NUMBER_BODY = re.compile(r'^(?P<prefix>[^\d+\-]*?)\s*(?P<number>[+\-]?[\d][\d.,\' ]*)\s*(?P<suffix>[^\d]*)$')
+
+
+def _parse_number(value):
+    """Число из ячейки прайса или None, если ячейка пуста или числа в ней нет.
+
+    Понимает то, что поставщики пишут вместо чисел Excel: «1 234,56»,
+    «1.234,56», «1,234.56», «1'234», «12 руб.», «$12», «>10», «10+».
+    Отрицательное — не цена и не остаток: None. Ячейка «-» пуста, а не
+    нераспознана.
+    """
+    if value is None or (isinstance(value, float) and np.isnan(value)):
+        return None
+    text = str(value).strip()
+    if not text or text in _EMPTY_PLACEHOLDERS:
+        return None
+    try:
+        number = float(text)
+    except ValueError:
+        number = _parse_number_text(text)
+    else:
+        if not np.isfinite(number):
+            return None
+    if number is None or number < 0:
+        return None
+    return number
+
+
+def _parse_number_text(text: str):
+    match = _NUMBER_BODY.match(re.sub(r'\s+', ' ', text))
+    if not match:
+        return None
+    prefix, suffix = match['prefix'].strip(), match['suffix'].strip()
+    if suffix == '+' and not prefix:
+        suffix = ''
+    if not _NUMBER_AFFIX.match(prefix) or not _NUMBER_AFFIX.match(suffix):
+        return None
+    number = match['number'].replace(' ', '').replace("'", '')
+    sign = -1 if number.startswith('-') else 1
+    number = number.lstrip('+-')
+    if '.' in number and ',' in number:
+        # The later separator is the decimal one, the other groups thousands.
+        decimal, thousands = ('.', ',') if number.rfind('.') > number.rfind(',') else (',', '.')
+        number = number.replace(thousands, '').replace(decimal, '.')
+    elif number.count(',') > 1:
+        number = number.replace(',', '')
+    elif number.count('.') > 1:
+        number = number.replace('.', '')
+    else:
+        number = number.replace(',', '.')
+    try:
+        return sign * float(number)
+    except ValueError:
+        return None
 
 
 def _article_conflicts(df: pd.DataFrame) -> dict:
@@ -752,6 +844,14 @@ def duplicate_warning(stats: dict) -> str:
             + _examples(stats.get('article_conflict_examples'))
             + (' — взята первая строка, настройка сопоставляет по артикулу' if by_article
                else ' — загружены как разные товары'))
+    unparsed = stats.get('unparsed_numbers') or {}
+    if unparsed:
+        parts.append('не распознаны как числа: ' + ', '.join(
+            f'{LINKS.get(key, key)} — {info["count"]}'
+            + (' (например: ' + ', '.join(f'«{example}»' for example in info['examples']) + ')'
+               if info.get('examples') else '')
+            for key, info in unparsed.items())
+            + ' — эти значения не загружены; поправьте файл или добавьте замену в настройке')
     multi_db = stats.get('articles_multi_db') or 0
     if multi_db:
         parts.append(

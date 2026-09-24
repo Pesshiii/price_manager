@@ -335,6 +335,10 @@ class ImportRun(models.Model):
   # functions.price_changes: how the file changes the prices of existing rows,
   # per price field. Recorded only, the guard does not act on it yet.
   price_changes = models.JSONField(verbose_name="Изменения цен", default=dict, blank=True)
+  # [{key, column}]: columns the setting maps that the file does not have.
+  missing_columns = models.JSONField(verbose_name="Нет столбцов", default=list, blank=True)
+  # {key: {count, examples}}: non-empty numeric cells that are not a number.
+  unparsed_numbers = models.JSONField(verbose_name="Не распознаны как числа", default=dict, blank=True)
 
   COUNTER_FIELDS = (
     "rows_in_sheet", "rows_with_article", "rows_with_values", "rows_without_name",
@@ -368,6 +372,10 @@ class ImportRun(models.Model):
         label = self.GUARD_METRIC_LABELS.get(reason["metric"], reason["metric"])
         lines.append(f"{label}: {format_count(reason['value'])} {_rows_word(reason['value'])}, "
                      f"обычно ~{format_count(reason['baseline'])}")
+      elif reason.get("kind") == "missing_columns":
+        columns = ", ".join(f"«{c['column']}» ({LINKS.get(c['key'], c['key'])})" for c in reason["columns"])
+        lines.append(f"В файле нет столбцов из настройки: {columns} — эти поля не обновятся. "
+                     f"Столбцы в файле: {reason['file_columns']}")
       elif reason.get("kind") == "missing_linked":
         lines.append(f"Нет в файле {format_count(reason['value'])} {_rows_word(reason['value'])}, "
                      f"привязанных к ГП, из {format_count(reason['linked'])}: "
@@ -378,6 +386,11 @@ class ImportRun(models.Model):
     stock = "stock" in self.mapped_keys
     prices = any(key in self.mapped_keys for key in SP_PRICES)
     return "остаток и цены" if stock and prices else "остаток" if stock else "цены"
+
+  def unparsed_lines(self) -> list[tuple[str, str]]:
+    """«Разбор файла»: сколько непустых значений не распознано как число, по полю."""
+    return [(f"{LINKS.get(key, key)}: не число", format_count(info["count"]))
+            for key, info in self.unparsed_numbers.items()]
 
   def price_change_lines(self) -> list[tuple[str, str]]:
     """«Разбор файла»: как меняются цены строк, которые уже есть в базе."""
@@ -397,6 +410,10 @@ class ImportRun(models.Model):
       self.mapped_keys = list(stats["mapped_keys"])
     if "price_changes" in stats:
       self.price_changes = dict(stats["price_changes"])
+    if "missing_columns" in stats:
+      self.missing_columns = list(stats["missing_columns"])
+    if "unparsed_numbers" in stats:
+      self.unparsed_numbers = dict(stats["unparsed_numbers"])
 
 
 class CopySupplierProductsToMainRun(models.Model):
