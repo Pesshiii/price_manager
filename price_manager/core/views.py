@@ -286,7 +286,7 @@ def _get_shopping_tab_items(tab):
     return order_cart_items(
         tab.items
         .select_related('confirmed_product', 'confirmed_product__supplier',
-                        'confirmed_product__product__brand')
+                        'confirmed_product__product__brand', 'source_set')
         .prefetch_related('products__supplier', 'products__product__brand')
     )
 
@@ -538,6 +538,70 @@ class CartItemDetailView(LoginRequiredMixin, DetailView):
         if self.request.htmx:
             return ['shopping_tab/partials/item_products_modal.html']
         return [self.template_name]
+
+
+class CartItemAddSetView(LoginRequiredMixin, View):
+    """Набор в заявку, разложенный на комплектующие (add_set_to_cart).
+
+    Кнопка — в строке «Из комплектующих» под набором на /products/. Ключ —
+    product.Product, а не MainProduct, как у быстрого добавления: у набора
+    может не быть своих строк поставщиков вовсе. Собранный набор со склада
+    кладётся обычным быстрым добавлением из его собственной строки.
+    """
+    template_name = 'shopping_tab/partials/set_add_modal.html'
+    result_template_name = 'shopping_tab/partials/set_add_result.html'
+
+    def get_tabs(self):
+        return ShoppingTab.objects.filter(user=self.request.user).order_by('-open', 'name')
+
+    def get_set(self, product_pk):
+        from product.models import Product
+        return get_object_or_404(Product.objects.filter(set_items__isnull=False).distinct(),
+                                 pk=product_pk)
+
+    def get(self, request, product_pk):
+        if not request.htmx:
+            return redirect('products')
+        return render(request, self.template_name, {
+            'set_product': self.get_set(product_pk),
+            'tabs': self.get_tabs(),
+            'quantity': 1,
+        })
+
+    def post(self, request, product_pk):
+        if not request.htmx:
+            return redirect('products')
+        set_product = self.get_set(product_pk)
+        tabs = self.get_tabs()
+        quantity_raw = (request.POST.get('quantity') or '').strip()
+        selected_tab = request.POST.get('tab') or ''
+        context = {
+            'set_product': set_product,
+            'tabs': tabs,
+            'quantity': quantity_raw or 1,
+            'selected_tab': selected_tab,
+        }
+
+        tab = tabs.filter(pk=selected_tab).first() if selected_tab.isdigit() else None
+        if tab is None:
+            context['error'] = 'Выберите заявку.'
+            return render(request, self.template_name, context)
+        try:
+            quantity = int(quantity_raw) if quantity_raw else 1
+            if quantity < 1:
+                raise ValueError
+        except ValueError:
+            context['error'] = 'Количество наборов должно быть целым числом не меньше 1.'
+            return render(request, self.template_name, context)
+
+        items = add_set_to_cart(tab, set_product, quantity, request.user)
+        return render(request, self.result_template_name, {
+            'set_product': set_product,
+            'tab': tab,
+            'items': items,
+            'quantity': quantity,
+            'confirmed': sum(1 for item in items if item.confirmed_product_id),
+        })
 
 
 class CartItemQuickAddView(LoginRequiredMixin, View):

@@ -22,6 +22,16 @@ class CartItem(models.Model):
         blank=True,
         related_name='confirmed_cart_items')
     quantity = models.PositiveIntegerField(verbose_name='Количество', default=1)
+    # Позиция появилась из раскладки набора на комплектующие (add_set_to_cart).
+    # Только подпись «из набора X» и колонка выгрузки: позиция во всём остальном
+    # обычная, и удаление набора не должно уносить уже собранную заявку.
+    source_set = models.ForeignKey(
+        'product.Product',
+        verbose_name='Из набора',
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='exploded_cart_items')
 
     # Какая из цен MainProduct считается ценой позиции — решается здесь и только здесь.
     PRICE_FIELD = 'basic_price'

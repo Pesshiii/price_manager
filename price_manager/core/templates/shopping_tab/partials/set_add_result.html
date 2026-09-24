@@ -1,0 +1,34 @@
+{% comment %}Результат раскладки набора в заявку. Только bootstrap-классы — см. set_add_modal.html.{% endcomment %}
+<div class="modal-header">
+  <h5 class="modal-title">Набор разложен в заявку</h5>
+  <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Закрыть"></button>
+</div>
+<div class="modal-body">
+  <div class="alert alert-success">
+    «{{ set_product.name }}» × {{ quantity }} — {{ items|length }} поз. в заявке «{{ tab.name }}».
+    {% if confirmed < items|length %}
+      Подтверждено {{ confirmed }}, остальные ждут выбора поставщика.
+    {% else %}
+      Все подтверждены.
+    {% endif %}
+  </div>
+  <ul class="list-group list-group-flush small">
+    {% for item in items %}
+      <li class="list-group-item d-flex justify-content-between gap-3 px-0">
+        <span>{{ item.search_query }}</span>
+        <span class="text-nowrap">
+          {{ item.quantity }} шт.
+          {% if item.confirmed_product_id %}
+            <i class="bi bi-check-circle text-success ms-1" title="Поставщик подтверждён" aria-label="подтверждён"></i>
+          {% else %}
+            <i class="bi bi-question-circle text-warning ms-1" title="Нужно выбрать поставщика" aria-label="требует выбора"></i>
+          {% endif %}
+        </span>
+      </li>
+    {% endfor %}
+  </ul>
+</div>
+<div class="modal-footer">
+  <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Закрыть</button>
+  <a href="{% url 'shopping-tab-detail' tab.pk %}" class="btn btn-primary">Перейти к заявке</a>
+</div>

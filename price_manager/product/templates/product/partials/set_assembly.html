@@ -8,6 +8,21 @@
 <details class="set-assembly">
   <summary class="set-assembly-row">
     <i class="bi bi-chevron-right set-assembly-chevron" aria-hidden="true"></i>
+    {% comment %}
+      Кнопка внутри summary не раскрывает состав: цель клика — сама кнопка,
+      и действие по умолчанию у summary не срабатывает.
+    {% endcomment %}
+    <button type="button"
+            class="btn btn-sm btn-outline-primary"
+            title="Разложить набор на комплектующие в заявку"
+            aria-label="Разложить «{{ product.name }}» на комплектующие в заявку"
+            data-bs-toggle="modal"
+            data-bs-target="#modal-container"
+            hx-get="{% url 'cart-item-add-set' product.pk %}"
+            hx-target="#modal-container .modal-content"
+            hx-swap="innerHTML">
+      <i class="bi bi-cart-plus"></i>
+    </button>
     <span class="set-assembly-title">Из комплектующих</span>
     <span class="text-body-secondary">{{ set_totals.count }} поз.</span>
     <span class="set-assembly-figure">
