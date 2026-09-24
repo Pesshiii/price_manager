@@ -15,7 +15,7 @@ from django.views.generic import (View, TemplateView,
                                   DeleteView)
 from django.core.paginator import Paginator
 from django.db import IntegrityError, transaction
-from django.db.models import OuterRef, Subquery
+from django.db.models import Exists, OuterRef, Subquery
 from django.http import HttpResponseNotAllowed
 from django.utils import timezone
 from django.views.decorators.http import require_POST
@@ -490,10 +490,16 @@ class SettingList(SingleTableView):
     return super().get(request, *args, **kwargs)
   def get_queryset(self):
     last_run = ImportRun.objects.filter(setting=OuterRef('pk')).order_by('-started_at')
-    qs = super().get_queryset().annotate(
+    last_applied = last_run.filter(status=ImportRun.STATUS_APPLIED)
+    mapped = Link.objects.filter(setting=OuterRef('pk')).filter(
+      Q(value__isnull=False) & ~Q(value='') | Q(initial__isnull=False) & ~Q(initial=''))
+    qs = super().get_queryset().select_related('supplier').annotate(
       last_run_pk=Subquery(last_run.values('pk')[:1]),
       last_run_status=Subquery(last_run.values('status')[:1]),
       last_run_at=Subquery(last_run.values('started_at')[:1]),
+      last_applied_at=Subquery(last_applied.values('started_at')[:1]),
+      maps_stock=Exists(mapped.filter(key='stock')),
+      maps_prices=Exists(mapped.filter(key__in=SP_PRICES)),
     )
     pk = self.kwargs.get('pk', None)
     if pk:

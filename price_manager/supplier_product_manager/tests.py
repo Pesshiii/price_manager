@@ -2270,3 +2270,110 @@ class ParseQualityTests(TestCase):
         for _ in range(2):  # the second parse reads the cached DataFrame
             stats = get_sps_result(setting, recache=True)[1]
             self.assertEqual(stats["missing_columns"], [])
+
+
+@override_settings(SUPPLIER_IMPORT_GUARD_MIN_HISTORY=0)
+class CatalogRefreshTests(TestCase):
+    """Применённый импорт сразу ставит пересчёт каталога — один на серию импортов."""
+
+    setUp_base = BasicLoadTests.setUp
+    _create_supplier_file = BasicLoadTests._create_supplier_file
+    _setting = ImportRefusalReasonTests._setting
+
+    def setUp(self):
+        self.setUp_base()
+        cache.delete("supplier_import:catalog_refresh_pending")
+        self.addCleanup(cache.delete, "supplier_import:catalog_refresh_pending")
+        self.user = get_user_model().objects.create_user(username="refresh", password="x")
+        self.setting = self._setting(create_new=True, article="Артикул", name="Название", stock="Остаток")
+
+    def _import(self, rows=(("А-1", "3"),)):
+        self._create_supplier_file(self.setting, pd.DataFrame(
+            [{"Артикул": a, "Название": a, "Остаток": s} for a, s in rows]))
+        return process_supplier_file_import(self.setting.pk, self.user.pk)
+
+    def test_applied_imports_share_one_delayed_refresh(self):
+        with mock.patch("supplier_product_manager.tasks.refresh_catalog_after_import") as task:
+            with self.captureOnCommitCallbacks(execute=True):
+                result = self._import()
+            with self.captureOnCommitCallbacks(execute=True):
+                self._import((("А-2", "1"),))
+
+        task.apply_async.assert_called_once_with(countdown=60)
+        self.assertIn("обновятся в течение пары минут", result["message"])
+
+    def test_refused_import_schedules_nothing(self):
+        with mock.patch("supplier_product_manager.tasks.refresh_catalog_after_import") as task:
+            with self.captureOnCommitCallbacks(execute=True):
+                self._import((("", "3"),))
+
+        task.apply_async.assert_not_called()
+
+    def test_refresh_runs_stocks_then_prices_and_frees_the_next_schedule(self):
+        from supplier_product_manager.tasks import refresh_catalog_after_import
+        cache.add("supplier_import:catalog_refresh_pending", 1)
+        calls = []
+        with mock.patch("supplier_product_manager.tasks._CATALOG_STEPS", (
+            ("test.stocks", 60, lambda: calls.append("stocks")),
+            ("test.prices", 60, lambda: calls.append("prices")),
+        )):
+            result = refresh_catalog_after_import.apply().get()
+
+        self.assertEqual(calls, ["stocks", "prices"])
+        self.assertEqual(result, {"test.stocks": "success", "test.prices": "success"})
+        self.assertIsNone(cache.get("supplier_import:catalog_refresh_pending"))
+
+    def test_refresh_retries_when_a_scheduled_run_holds_the_lock(self):
+        from celery.exceptions import Retry
+        from supplier_product_manager.tasks import refresh_catalog_after_import
+        cache.add("task-lock:test.prices", "held", timeout=60)
+        self.addCleanup(cache.delete, "task-lock:test.prices")
+        with mock.patch("supplier_product_manager.tasks._CATALOG_STEPS", (
+            ("test.stocks", 60, lambda: 0),
+            ("test.prices", 60, lambda: 0),
+        )), mock.patch.object(refresh_catalog_after_import, "retry", side_effect=Retry()) as retry:
+            with self.assertRaises(Retry):
+                refresh_catalog_after_import.run()
+
+        retry.assert_called_once_with(countdown=60)
+
+
+class SettingFreshnessTests(TestCase):
+    """Таблица настроек: когда данные настройки обновлялись и не застыла ли она."""
+
+    setUp = BasicLoadTests.setUp
+    _setting = ImportRefusalReasonTests._setting
+
+    def _run(self, setting, status, days_ago):
+        run = ImportRun.objects.create(setting=setting, supplier=self.supplier, status=status)
+        ImportRun.objects.filter(pk=run.pk).update(started_at=timezone.now() - timezone.timedelta(days=days_ago))
+
+    def _html(self):
+        user = get_user_model().objects.create_user(username=f"fresh-{ImportRun.objects.count()}", password="x")
+        self.client.force_login(user)
+        return self.client.get(reverse("settings", kwargs={"pk": self.supplier.pk})).content.decode()
+
+    def test_failed_last_run_shows_when_the_data_last_changed(self):
+        setting = self._setting(article="Артикул", stock="Остаток")
+        self._run(setting, ImportRun.STATUS_APPLIED, 3)
+        self._run(setting, ImportRun.STATUS_REFUSED, 0)
+
+        html = self._html()
+
+        self.assertIn("данные от " + timezone.localtime(timezone.now() - timezone.timedelta(days=3)).strftime("%d.%m"), html)
+        self.assertNotIn("давно не обновлялась", html)
+
+    def test_setting_older_than_the_suppliers_interval_is_overdue(self):
+        Supplier.objects.filter(pk=self.supplier.pk).update(stock_update_days=2, price_update_days=10)
+        frozen = self._setting(article="Артикул", stock="Остаток")
+        self._run(frozen, ImportRun.STATUS_APPLIED, 3)
+        prices = self._setting(article="Артикул", supplier_price="Цена")
+        self._run(prices, ImportRun.STATUS_APPLIED, 3)
+
+        self.assertEqual(self._html().count("давно не обновлялась"), 1)
+
+    def test_no_interval_means_never_overdue(self):
+        setting = self._setting(article="Артикул", stock="Остаток")
+        self._run(setting, ImportRun.STATUS_APPLIED, 400)
+
+        self.assertNotIn("давно не обновлялась", self._html())

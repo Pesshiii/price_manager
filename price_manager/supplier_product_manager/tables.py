@@ -1,3 +1,4 @@
+from datetime import timedelta
 from django.utils.html import format_html
 from django.utils import timezone
 from django.template.loader import render_to_string
@@ -111,9 +112,40 @@ class SettingListTable(tables.Table):
       ImportRun.STATUS_FAILED: 'text-danger',
     }.get(status, 'text-muted')
     label = dict(ImportRun.STATUS_CHOICES).get(status, status)
-    return format_html('<span class="{}">{}</span> <span class="text-muted small">{}</span>',
+    html = format_html('<span class="{}">{}</span> <span class="text-muted small">{}</span>',
                        css, label, timezone.localtime(record.last_run_at).strftime('%d.%m %H:%M'))
+    applied_at = getattr(record, 'last_applied_at', None)
+    # After a failed or pending run the date above is not when the data last
+    # changed; say when it did.
+    if status != ImportRun.STATUS_APPLIED:
+      html += format_html(' <span class="text-muted small">· данные {}</span>',
+                          timezone.localtime(applied_at).strftime('от %d.%m') if applied_at else 'не загружались')
+    if setting_overdue(record):
+      html += format_html(' <span class="badge text-bg-danger" title="{}">давно не обновлялась</span>',
+                          'Последний применённый импорт старше интервала обновления, заданного у поставщика')
+    return html
   
+
+
+def setting_overdue(record, now=None) -> bool:
+  """Настройка не обновляла данные дольше интервала, заданного у поставщика.
+
+  Интервал — для того, что настройка грузит: остатка, цен или того и
+  другого (берётся меньший). Поставщик целиком этого не покажет: его даты
+  обновления двигает любая его настройка, и застывшая вторая настройка
+  прячется за работающей первой. Нужны аннотации SettingList.get_queryset.
+  """
+  supplier = record.supplier
+  intervals = [days for maps, days in (
+    (getattr(record, 'maps_stock', False), supplier.stock_update_days),
+    (getattr(record, 'maps_prices', False), supplier.price_update_days),
+  ) if maps and days]
+  if not intervals:
+    return False
+  applied_at = getattr(record, 'last_applied_at', None)
+  if applied_at is None:
+    return True
+  return (now or timezone.now()) - applied_at >= timedelta(days=min(intervals))
 
 
 class SupplierProductListTable(tables.Table):
