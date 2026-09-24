@@ -56,7 +56,7 @@ def _set_file_status(supplier_file: SupplierFile | None, status: int) -> None:
 
 
 _RUN_OUTCOME_FIELDS = ("status", "message", "finished_at", "guard_reasons", "mapped_keys",
-                       "price_changes", *ImportRun.COUNTER_FIELDS)
+                       "price_changes", "missing_columns", "unparsed_numbers", *ImportRun.COUNTER_FIELDS)
 
 
 def _finish_run(run: ImportRun, status: str, stats: dict, message: str = "") -> None:

@@ -248,6 +248,13 @@ whose link opens the dialog) when:
   supplier to all its settings, so the first import of each such setting may
   trip this — correctly: those rows really are cleared once.
 
+- **independent of history**, a column the setting maps by header is not in
+  the file (`stats['missing_columns']`, reason `missing_columns`, which lists
+  the file's headers). Its field would otherwise freeze at the last value — or
+  take the setting's fallback for every row. A header that is present over an
+  empty column is not missing: `get_df` drops all-empty columns but keeps their
+  headers in `df.attrs['empty_columns']` (it survives the cache pickle).
+
 `price_changes()` records, per mapped price field, how the file changes the
 prices of rows already in the base (`compared`, `changed`, `jumps` beyond ×2
 either way, `median_ratio`) into `ImportRun.price_changes` and the dialog's
@@ -434,10 +441,14 @@ decision, not a quick patch.
     New copies get clean skus because the articles are clean now.
   - pairs of rows that already differ only by whitespace, both linked to
     *different* `MainProduct`s, need a manual decision.
-- **Numbers**: only `','→'.'` before `pd.to_numeric(errors='coerce')`
-  (`get_sps`), so `1 234,50`, `1,234.50`, currency signs, `>10`, `10+` become
-  NaN; a row whose every mapped value is NaN is dropped and then nulled as
-  "missing". A non-integer `stock` value fails the whole import.
+- **Numbers** go through `_parse_number`: thousands separators (space, NBSP,
+  `.`/`,` — the later of the two is decimal, a lone `,` is decimal), currency,
+  `шт`, and lower bounds (`>10`, `10+`, `более 10` → 10). Upper bounds and
+  ranges (`<5`, `до 5`, `10-20`) and words are **not guessed**: they stay
+  empty and are counted per field in `unparsed_numbers` (with examples) —
+  in the notification's warning, `ImportRun.unparsed_numbers` and «Разбор
+  файла». A dash placeholder (`-`, `—`) is empty, not unparsed. A row whose
+  every mapped value is empty is still dropped and nulled as "missing".
 - **`DictItem` replacement is substring-based** (`str.replace`), so «в
   наличии → 10» also rewrites «нет в наличии».
 - **Parsing is read-only.** `resolve_conflicts` used to run inside `get_sps`:

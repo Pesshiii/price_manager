@@ -7,7 +7,8 @@
 
 Отдельно, без истории, проверяется, сколько строк, привязанных к ГП, импорт
 обнулит: покрытие этого не видит — поставщик, переименовавший товары, даёт
-столько же строк, а все привязанные уходят в «нет в файле».
+столько же строк, а все привязанные уходят в «нет в файле». И так же без
+истории — есть ли в файле все столбцы, сопоставленные в настройке.
 """
 from dataclasses import dataclass, field
 from statistics import median
@@ -29,6 +30,13 @@ class GuardVerdict:
 
 def evaluate(setting: Setting, stats: dict, exclude_pk: int | None = None) -> GuardVerdict:
     reasons = _coverage_reasons(setting, stats, exclude_pk)
+    # Independent of history too: a column the setting maps is gone from the
+    # file. Its field would freeze at the last value — or take the setting's
+    # fallback for every row — and coverage notices only when it is a price or
+    # stock column and there is history to compare with.
+    if stats.get("missing_columns"):
+        reasons.append({"kind": "missing_columns", "columns": stats["missing_columns"],
+                        "file_columns": stats.get("file_columns", "")})
     missing_linked = _missing_linked_reason(setting, stats)
     if missing_linked:
         reasons.append(missing_linked)

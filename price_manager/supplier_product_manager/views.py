@@ -262,6 +262,7 @@ def import_run_confirm(request, pk):
         if run.whitespace_ambiguous else []),
       ('С ценой', n(run.covered_price)),
       ('С остатком', n(run.covered_stock)),
+      *run.unparsed_lines(),
       *run.price_change_lines(),
     ],
   })

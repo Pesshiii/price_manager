@@ -2164,3 +2164,109 @@ class StripWhitespaceTests(TestCase):
                          [(s.pk, f"А-{i}", f"Товар {i}", 5, s.main_product_id) for i, s in enumerate(stored)])
         run = ImportRun.objects.get(setting=setting)
         self.assertEqual((run.renamed, run.created, run.missing), (3, 0, 0))
+
+
+class ParseNumberTests(TestCase):
+    """Числа, как их пишут поставщики, а не как их хранит Excel."""
+
+    def test_formats_suppliers_use(self):
+        from supplier_product_manager.functions import _parse_number
+        cases = {
+            "1234.5": 1234.5, "1 234,56": 1234.56, "1 234,56": 1234.56, "1.234,56": 1234.56,
+            "1,234.56": 1234.56, "1.234.567": 1234567.0, "1'234": 1234.0, "2,5": 2.5, "1e3": 1000.0,
+            "0": 0.0, "12 руб.": 12.0, "12руб": 12.0, "$12": 12.0, "12 ₸": 12.0, "12 тг": 12.0,
+            ">10": 10.0, ">= 10": 10.0, "10+": 10.0, "более 10": 10.0, "10 шт": 10.0, "10 шт.": 10.0,
+        }
+        for text, expected in cases.items():
+            with self.subTest(text=text):
+                self.assertEqual(_parse_number(text), expected)
+
+    def test_not_a_number_or_not_a_price(self):
+        from supplier_product_manager.functions import _parse_number
+        for text in (None, float("nan"), "", "-", "—", "-5", "<5", "до 5", "10-20", "по запросу",
+                     "есть", "nan", "inf", "5 кг"):
+            with self.subTest(text=text):
+                self.assertIsNone(_parse_number(text))
+
+
+@override_settings(SUPPLIER_IMPORT_GUARD_MIN_HISTORY=0)
+class ParseQualityTests(TestCase):
+    """Нераспознанные числа и пропавшие столбцы видны, а не теряются молча."""
+
+    setUp = BasicLoadTests.setUp
+    _create_supplier_file = BasicLoadTests._create_supplier_file
+    _setting = ImportRefusalReasonTests._setting
+
+    def test_unparsed_values_are_counted_with_examples_and_reported(self):
+        from supplier_product_manager.functions import duplicate_warning
+        setting = self._setting(create_new=True, article="Артикул", name="Название",
+                                supplier_price="Цена", stock="Остаток")
+        self._create_supplier_file(setting, pd.DataFrame([
+            {"Артикул": "А-1", "Название": "Товар 1", "Цена": "1 234,50", "Остаток": "есть"},
+            {"Артикул": "А-2", "Название": "Товар 2", "Цена": "по запросу", "Остаток": "5"},
+            {"Артикул": "А-3", "Название": "Товар 3", "Цена": "-", "Остаток": "есть"},
+            {"Артикул": "", "Название": "Итого", "Цена": "сумма", "Остаток": ""},
+        ]))
+
+        payload, stats = get_sps_result(setting, recache=True)
+
+        self.assertEqual([(r["article"], r["supplier_price"], r["stock"]) for r in payload],
+                         [("А-1", 1234.5, None), ("А-2", None, 5.0)])
+        self.assertEqual(stats["unparsed_numbers"], {
+            "supplier_price": {"count": 1, "examples": ["по запросу"]},
+            "stock": {"count": 2, "examples": ["есть"]},
+        })
+        self.assertIn("не распознаны как числа: Цена поставщика в валюте поставщика — 1 (например: «по запросу»), "
+                      "Остаток — 2 (например: «есть»)", duplicate_warning(stats))
+
+    def test_unparsed_values_are_recorded_on_the_run(self):
+        setting = self._setting(create_new=True, article="Артикул", name="Название", stock="Остаток")
+        self._create_supplier_file(setting, pd.DataFrame([
+            {"Артикул": "А-1", "Название": "Товар 1", "Остаток": "много"},
+            {"Артикул": "А-2", "Название": "Товар 2", "Остаток": "3"},
+        ]))
+        user = get_user_model().objects.create_user(username="parse", password="x")
+
+        result = process_supplier_file_import(setting.pk, user.pk)
+
+        self.assertEqual(result["status"], "ok")
+        self.assertIn("не распознаны как числа", result["message"])
+        run = ImportRun.objects.get(setting=setting)
+        self.assertEqual(run.unparsed_numbers, {"stock": {"count": 1, "examples": ["много"]}})
+        self.assertEqual(run.unparsed_lines(), [("Остаток: не число", "1")])
+
+    def test_mapped_column_missing_from_the_file_waits_even_with_history(self):
+        setting = self._setting(create_new=True, article="Артикул", name="Название",
+                                supplier_price="Цена", stock="Остаток")
+        for _ in range(3):
+            ImportRun.objects.create(setting=setting, supplier=self.supplier, status=ImportRun.STATUS_APPLIED,
+                                     covered_price=1, covered_stock=0)
+        self._create_supplier_file(setting, pd.DataFrame([
+            {"Артикул": "А-1", "Название": "Товар 1", "Цена": "10", "Кол-во": "5"},
+        ]))
+        user = get_user_model().objects.create_user(username="columns", password="x")
+
+        with self.settings(SUPPLIER_IMPORT_GUARD_MIN_HISTORY=3):
+            result = process_supplier_file_import(setting.pk, user.pk)
+
+        self.assertEqual(result["status"], "needs_confirmation")
+        run = ImportRun.objects.get(pk=result["run_id"])
+        self.assertEqual(run.missing_columns, [{"key": "stock", "column": "Остаток"}])
+        self.assertEqual(run.reason_lines(), [
+            "В файле нет столбцов из настройки: «Остаток» (Остаток) — эти поля не обновятся. "
+            "Столбцы в файле: «Артикул», «Название», «Цена», «Кол-во»",
+        ])
+
+    @override_settings(DEBUG=False)
+    def test_header_with_an_empty_column_is_not_missing_even_from_the_cache(self):
+        cache.clear()
+        self.addCleanup(cache.clear)
+        setting = self._setting(create_new=True, article="Артикул", name="Название",
+                                supplier_price="Цена", stock="Остаток")
+        self._create_supplier_file(setting, pd.DataFrame([
+            {"Артикул": "А-1", "Название": "Товар 1", "Цена": "10", "Остаток": None},
+        ]))
+
+        for _ in range(2):  # the second parse reads the cached DataFrame
+            stats = get_sps_result(setting, recache=True)[1]
+            self.assertEqual(stats["missing_columns"], [])
