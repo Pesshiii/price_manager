@@ -1,0 +1,70 @@
+{% comment %}
+  Набор: строка «Из комплектующих» под собственными строками поставщиков и
+  раскрывающийся под ней состав. Цифры — product/set_costs.py: у каждого
+  компонента основная себестоимость и остаток по уровням поставщиков, как в
+  выгрузке. <details>, а не collapse Bootstrap: панель приходит HTMX-ом, и
+  разметке без скрипта нечего инициализировать.
+{% endcomment %}
+<details class="set-assembly">
+  <summary class="set-assembly-row">
+    <i class="bi bi-chevron-right set-assembly-chevron" aria-hidden="true"></i>
+    <span class="set-assembly-title">Из комплектующих</span>
+    <span class="text-body-secondary">{{ set_totals.count }} поз.</span>
+    <span class="set-assembly-figure">
+      Себестоимость:
+      <strong>{% if set_totals.cost is None %}—{% else %}{{ set_totals.cost|floatformat:2 }}{% endif %}</strong>
+      {% if set_totals.missing_cost %}
+        <span class="set-incomplete" title="Сумма без компонентов, у которых нет цены или которых нет в Price Manager">нет цены у {{ set_totals.missing_cost }} из {{ set_totals.count }}</span>
+      {% endif %}
+    </span>
+    <span class="set-assembly-figure">
+      Можно собрать:
+      <strong>{% if set_totals.buildable is None %}—{% else %}{{ set_totals.buildable }}{% endif %}</strong>
+      {% if set_totals.missing_stock %}
+        <span class="set-incomplete" title="Без компонентов, по которым нет данных об остатке или которых нет в Price Manager">нет данных у {{ set_totals.missing_stock }} из {{ set_totals.count }}</span>
+      {% endif %}
+    </span>
+  </summary>
+  <table class="table table-sm align-middle mb-0 suppliers-table set-lines-table">
+    <thead>
+      <tr>
+        <th>Компонент</th>
+        <th>Артикул</th>
+        <th class="text-end">Кол-во</th>
+        <th>Поставщик</th>
+        <th class="text-end">Себестоимость</th>
+        <th class="text-end">Сумма</th>
+        <th class="text-end">Остаток</th>
+        <th class="text-end">Хватит на</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for line in set_totals.lines %}
+        <tr class="{% if line.limiting %}set-line-limiting{% endif %}{% if not line.component %} set-line-missing{% endif %}">
+          <td class="col-wrap">
+            {% if line.component %}
+              {{ line.component.display_name }}
+            {% else %}
+              {{ line.item.component_name|default:line.item.component_number }}
+              <div class="small text-body-secondary">нет в Price Manager</div>
+            {% endif %}
+          </td>
+          <td>{% if line.component %}{{ line.component.number|default:line.item.component_number }}{% else %}{{ line.item.component_number }}{% endif %}</td>
+          <td class="text-end">{{ line.amount }}</td>
+          <td>
+            {% if line.cost_row %}
+              <a href="{% url 'mainproduct-info' line.cost_row.pk %}">{{ line.cost_row.supplier|default:"Без поставщика" }}</a>
+            {% else %}—{% endif %}
+          </td>
+          <td class="text-end">{% if line.has_cost %}{{ line.cost|floatformat:2 }}{% else %}<span class="text-body-tertiary">нет цены</span>{% endif %}</td>
+          <td class="text-end">{% if line.has_cost %}{{ line.line_cost|floatformat:2 }}{% else %}—{% endif %}</td>
+          <td class="text-end">{% if line.stock is None %}<span class="text-body-tertiary">Нет данных</span>{% else %}{{ line.stock }}{% endif %}</td>
+          <td class="text-end">
+            {% if line.buildable is None %}—{% else %}{{ line.buildable }}{% endif %}
+            {% if line.limiting %}<i class="bi bi-exclamation-circle ms-1" title="Этот компонент ограничивает число наборов" aria-label="ограничивает число наборов"></i>{% endif %}
+          </td>
+        </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</details>

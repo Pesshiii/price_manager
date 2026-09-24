@@ -3,8 +3,21 @@
   Строки поставщиков под товаром. MainProduct здесь — то, чем он и остаётся
   после переноса: остатки и цены конкретного поставщика. Колонки выбирает
   пользователь (product/columns.py), таблица — SupplierRowTable.
+
+  У набора под ними — строка «Из комплектующих» (set_assembly.html). Своих
+  строк у набора может и не быть: тогда только она.
 {% endcomment %}
-{% if main_products %}
+{% if set_totals %}
+  {% comment %}
+    Общая обёртка шириной с самый широкий из двух блоков: таблица поставщиков
+    обычно шире панели и прокручивается, и без обёртки строка «Из
+    комплектующих» обрывалась бы на видимой ширине.
+  {% endcomment %}
+  <div class="product-suppliers-content">
+    {% if main_products %}{% render_table table %}{% endif %}
+    {% include 'product/partials/set_assembly.html' %}
+  </div>
+{% elif main_products %}
   {% render_table table %}
 {% else %}
   <p class="text-muted small mb-0 p-3">Ни один поставщик не привязан к этому товару.</p>

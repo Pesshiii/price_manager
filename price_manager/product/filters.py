@@ -8,7 +8,7 @@ from django_filters import FilterSet, filters
 from main_product_manager.models import MainProduct
 from supplier_manager.models import Supplier
 
-from .models import Brand, Category, Product
+from .models import Brand, Category, Product, ProductSetItem
 
 
 # --- общие части поиска и фасетов --------------------------------------------
@@ -153,7 +153,7 @@ class ProductFilter(FilterSet):
 
     class Meta:
         model = Product
-        fields = ['search', 'categories', 'brand', 'supplier', 'available']
+        fields = ['search', 'categories', 'brand', 'supplier', 'available', 'is_set', 'contains']
 
     search = filters.CharFilter(
         method='search_method',
@@ -196,6 +196,20 @@ class ProductFilter(FilterSet):
         method='available_method',
         label='Товары в наличии',
         widget=forms.CheckboxInput(attrs={'class': 'form-check-input'}),
+    )
+
+    is_set = filters.BooleanFilter(
+        method='is_set_method',
+        label='Только наборы',
+        widget=forms.CheckboxInput(attrs={'class': 'form-check-input'}),
+    )
+
+    # «Наборы, в которые входит товар» — ссылка «в N наборах» под названием
+    # компонента (ProductTable.render_display_name). В панели фильтров поля нет,
+    # только скрытое: иначе смена любого другого фильтра его бы сбросила.
+    contains = filters.NumberFilter(
+        method='contains_method',
+        widget=forms.HiddenInput(),
     )
 
     price_from = filters.NumberFilter(
@@ -284,6 +298,19 @@ class ProductFilter(FilterSet):
             return queryset
         return self._with_main_product(queryset, Q(stock__gt=0))
 
+    # --- наборы (ProductSetItem) -------------------------------------------
+
+    def is_set_method(self, queryset, name, value):
+        if not value:
+            return queryset
+        return queryset.filter(Exists(ProductSetItem.objects.filter(set_product=OuterRef('pk'))))
+
+    def contains_method(self, queryset, name, value):
+        if value is None:
+            return queryset
+        return queryset.filter(Exists(ProductSetItem.objects.filter(
+            set_product=OuterRef('pk'), component_id=value)))
+
     def price_from_method(self, queryset, name, value):
         if value is None:
             return queryset
@@ -327,7 +354,9 @@ class ProductFilter(FilterSet):
                 <h5 class="mb-0">Фильтры товаров</h5>
               </div>
             '''),
+            Field('contains'),
             Div(Field('available', template='core/includes/switch_field.html'),
+                Field('is_set', template='core/includes/switch_field.html'),
                 css_class='filter-section'),
             Div(HTML('<div class="filter-section-title">Себестоимость</div>'),
                 Div(Field('price_from'), Field('price_to'), css_class='d-flex gap-2 price-range'),
