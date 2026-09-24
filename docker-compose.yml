@@ -110,7 +110,59 @@ services:
       # admin only. Worker only: the web process never calls the webhook.
       BITRIX24_FEEDBACK_WEBHOOK: ${BITRIX24_FEEDBACK_WEBHOOK:-}
       BITRIX24_FEEDBACK_RESPONSIBLE_ID: ${BITRIX24_FEEDBACK_RESPONSIBLE_ID:-}
+      # Price import guard (supplier_product_manager/guard.py), run by the
+      # import task only. Defaults must match settings/project.py — an empty
+      # value would fail float()/int() at startup. SHARE is a fraction, 0.05 = 5%.
+      SUPPLIER_IMPORT_GUARD_RATIO: ${SUPPLIER_IMPORT_GUARD_RATIO:-0.7}
+      SUPPLIER_IMPORT_GUARD_WINDOW: ${SUPPLIER_IMPORT_GUARD_WINDOW:-5}
+      SUPPLIER_IMPORT_GUARD_MIN_HISTORY: ${SUPPLIER_IMPORT_GUARD_MIN_HISTORY:-3}
+      SUPPLIER_IMPORT_GUARD_MISSING_LINKED_SHARE: ${SUPPLIER_IMPORT_GUARD_MISSING_LINKED_SHARE:-0.05}
+      SUPPLIER_IMPORT_GUARD_MISSING_LINKED_MIN: ${SUPPLIER_IMPORT_GUARD_MISSING_LINKED_MIN:-10}
+      # Cleanup tasks (settings/celery.py).
+      SUPPLIER_FILES_KEEP_LAST: ${SUPPLIER_FILES_KEEP_LAST:-1}
+      PERSISTENT_NOTIFICATION_TTL_HOURS: ${PERSISTENT_NOTIFICATION_TTL_HOURS:-72}
     command: celery -A price_manager worker -l info
+
+  # Sends CELERY_BEAT_SCHEDULE (settings/celery.py) to the worker; runs nothing
+  # itself. Exactly one per stack — two beats send every periodic task twice.
+  celery_beat:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    user: "1011:1011"
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    volumes:
+      - ./price_manager:/app
+    environment:
+      # Beat loads Django and autodiscovers tasks, so it needs the same boot
+      # env as the worker (PIM_* included: pim_client validates them on import).
+      SECRET_KEY: ${SECRET_KEY:-django-insecure-dev-only-set-SECRET_KEY-in-.env}
+      DEBUG: ${DEBUG:-true}
+      ALLOWED_HOSTS: localhost,127.0.0.1
+      POSTGRES_DB: ${POSTGRES_DB:-price_manager_db}
+      POSTGRES_USER: ${POSTGRES_USER:-priceuser}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
+      DB_HOST: db
+      DB_PORT: 5432
+      REDIS_URL: ${REDIS_URL:-redis://redis:6379/1}
+      CELERY_BROKER_URL: ${CELERY_BROKER_URL:-redis://redis:6379/0}
+      CELERY_RESULT_BACKEND: ${CELERY_RESULT_BACKEND:-redis://redis:6379/0}
+      PIM_TOKEN: ${PIM_TOKEN:-dummy-token}
+      PIM_HOST: ${PIM_HOST:-http://pim.invalid}
+      # Schedule intervals, beat only (settings/celery.py).
+      CELERY_PRICE_UPDATE_MINUTES: ${CELERY_PRICE_UPDATE_MINUTES:-30}
+      CELERY_STOCK_UPDATE_MINUTES: ${CELERY_STOCK_UPDATE_MINUTES:-15}
+      CELERY_LOG_UPDATE_MINUTES: ${CELERY_LOG_UPDATE_MINUTES:-60}
+      CELERY_SUPPLIER_FILES_CLEANUP_MINUTES: ${CELERY_SUPPLIER_FILES_CLEANUP_MINUTES:-30}
+      CELERY_NOTIFICATION_CLEANUP_MINUTES: ${CELERY_NOTIFICATION_CLEANUP_MINUTES:-60}
+    # Schedule state in /tmp, not the bind-mounted /app: it is disposable, and
+    # uid 1011 may not be able to write the host tree.
+    command: celery -A price_manager beat -l info -s /tmp/celerybeat-schedule
 
 volumes:
   postgres_data:
