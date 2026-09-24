@@ -1,9 +1,9 @@
-# supplier_manager
-
-The reference-data app: who supplies, in what currency, with which discount
-groups. Small, but nearly everything else imports `Supplier`. Three models
-remain (`Currency`, `Supplier`, `Discount`) — see Phase 2b-3 below for what
-was removed.
+---
+title: Models and the /supplier/ list
+summary: Currency, Supplier (sku, delivery days, stock messages, priorities), Discount; SupplierList.
+code: price_manager/supplier_manager/models.py, price_manager/supplier_manager/views.py
+---
+# Models and the /supplier/ list
 
 ## Models (`supplier_manager/models.py`)
 
@@ -62,31 +62,3 @@ different orders. Sorting by a priority always puts unranked suppliers last.
 - **`Discount:121`** — a named discount group belonging to a supplier
   (unique per `name`+`supplier`). [[product_price_manager]] matches rules
   against these.
-
-## Retired in Phase 2b-3: `Category`, `Manufacturer`, `ManufacturerDict`
-
-The supplier-side catalog is gone (migration `0011`). Categories are
-[[product]]'s `Category` (a PIM mirror, D2), brands [[product]]'s `Brand` (PIM
-only, D1/D3). `views.py`/`tables.py`/`admin.py` have no trace of them any
-more — only `Supplier`/`Currency`/`Discount` screens remain. Things worth
-knowing if you meet the old models in history or data:
-
-- **Migration `0011` declares its dependencies on the three 2b-2 migrations
-  that removed every FK/M2M into these models** (`main_product_manager.0012`,
-  `supplier_product_manager.0010`, `product_price_manager.0004`). The
-  autodetector can't see that link, and an empty database migrates in any
-  order — only a populated one fails. Keep that pattern for any future model
-  deletion.
-- **`0011` exported `ManufacturerDict` to `media/exports/manufacturer_aliases.csv`
-  before dropping it, but only if the table had rows** — on production it was
-  empty, so the export function prints a message and returns without writing
-  anything; there is no file there.
-- **PIM brands do have duplicate spellings** (R5, 2026-09-21: 14 case-only
-  groups like STAYER/Stayer of 321). They are separate PIM entities, merged in
-  PIM — deliberately not normalised here (D3).
-
-## Note
-
-There is a *separate, retiring* `supplier` app — similarly named, not this
-one. This app is the live one for suppliers; categories and brands are
-[[product]]'s. See [[retiring_stack]].

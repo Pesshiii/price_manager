@@ -1,7 +1,7 @@
 """Stop hook: nudge to record app insights after a session touched an app.
 
 Consulting a keeper agent self-triggers off its description; recording does not.
-Without a prompt, every `.claude/knowledge/*.md` file stays frozen at whatever it
+Without a prompt, every `.claude/knowledge/<app>/` topic stays frozen at whatever it
 was seeded with. This closes that loop.
 
 Emits a `systemMessage` only — it never blocks the stop, so there is no risk of a
@@ -33,7 +33,8 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parents[2]
 STATE = REPO_ROOT / ".claude" / ".record_nudge"
 
-# Django app dir -> the keeper agent that owns its knowledge file.
+# Django app dir -> the keeper agent that owns its knowledge directory. The
+# knowledge-directory side of this mapping is KEEPERS in .claude/tools/knowledge_index.py.
 KEEPERS = {
     "main_product_manager": "main-product-keeper",
     "core": "core-keeper",
