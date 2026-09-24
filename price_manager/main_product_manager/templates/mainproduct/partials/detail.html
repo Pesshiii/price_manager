@@ -9,22 +9,28 @@
       </div>
 
       <div class="row g-3 mb-3">
-        <div class="col-md-4">
+        <div class="col-6 col-md-3">
           <div class="border rounded-3 p-3 h-100 bg-body-tertiary">
             <div class="text-muted small">Базовая цена</div>
             <div class="fw-semibold fs-5">{% if mainproduct.basic_price %}{{mainproduct.basic_price}} тг{% else %}—{% endif %}</div>
           </div>
         </div>
-        <div class="col-md-4">
+        <div class="col-6 col-md-3">
           <div class="border rounded-3 p-3 h-100 bg-body-tertiary">
             <div class="text-muted small">Себестоимость</div>
             <div class="fw-semibold fs-5">{% if mainproduct.prime_cost %}{{mainproduct.prime_cost}} тг{% else %}—{% endif %}</div>
           </div>
         </div>
-        <div class="col-md-4">
+        <div class="col-6 col-md-3">
           <div class="border rounded-3 p-3 h-100 bg-body-tertiary">
             <div class="text-muted small">Цена ИМ</div>
             <div class="fw-semibold fs-5">{% if mainproduct.m_price %}{{mainproduct.m_price}} тг{% else %}—{% endif %}</div>
+          </div>
+        </div>
+        <div class="col-6 col-md-3">
+          <div class="border rounded-3 p-3 h-100 bg-body-tertiary">
+            <div class="text-muted small">Остаток</div>
+            <div class="fw-semibold fs-5">{% if mainproduct.stock is not None %}{{mainproduct.stock}} шт.{% else %}—{% endif %}</div>
           </div>
         </div>
       </div>
@@ -32,6 +38,9 @@
       <p class="small text-muted mb-3">
         Последнее обновление цены:
         {% if mainproduct.price_updated_at %}{{mainproduct.price_updated_at}}{% else %}Отсутствует{% endif %}
+        <br>
+        Последнее обновление остатка:
+        {% if mainproduct.stock_updated_at %}{{mainproduct.stock_updated_at}}{% else %}Отсутствует{% endif %}
       </p>
 
       <div class="d-flex flex-wrap gap-2">
@@ -45,17 +54,6 @@
                 hx-swap="innerHTML">
           <i class="bi bi-plus"></i>
           <span>Изменить</span>
-        </button>
-        <button type="button"
-                class="btn btn-primary"
-                title="Привязать из ГП"
-                data-bs-toggle="modal"
-                data-bs-target="#modal-container"
-                hx-get="{% url 'mainproduct-resolve' pk=mainproduct.pk %}"
-                hx-target="#modal-container .modal-content"
-                hx-swap="innerHTML">
-          <i class="bi bi-plus"></i>
-          <span>Привязать из ГП</span>
         </button>
       </div>
     </div>

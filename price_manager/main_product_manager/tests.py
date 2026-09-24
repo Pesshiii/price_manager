@@ -1138,3 +1138,38 @@ class MainProductExportTests(_PimSearchTestCase):
 
         self.assertNotIn('Производитель', imported)
         self.assertNotIn('Название_группы', imported)
+
+
+class MainProductDetailCardTests(TestCase):
+    """Карточка ГП: остаток виден, «Привязать из ГП» убрана вместе с маршрутом."""
+
+    def setUp(self):
+        from django.contrib.auth.models import User
+        currency, _ = Currency.objects.get_or_create(name='KZT', defaults={'value': 1})
+        supplier = Supplier.objects.create(name='Card supplier', currency=currency,
+                                           delivery_days_available=1, delivery_days_navailable=2)
+        self.mp = MainProduct.objects.create(supplier=supplier, article='C-1', name='Card row', stock=17)
+        self.client.force_login(User.objects.create_user(username='card', password='pw'))
+
+    def get_card(self):
+        from unittest.mock import patch
+        from django.urls import reverse
+        with patch('main_product_manager.views.get_pim_data_for_product', return_value=None):
+            return self.client.get(reverse('mainproduct-detail', kwargs={'pk': self.mp.pk}),
+                                   HTTP_HX_REQUEST='true')
+
+    def test_card_shows_stock(self):
+        response = self.get_card()
+        self.assertContains(response, 'Остаток')
+        self.assertContains(response, '17 шт.')
+
+    def test_card_shows_zero_stock_as_zero(self):
+        self.mp.stock = 0
+        self.mp.save()
+        self.assertContains(self.get_card(), '0 шт.')
+
+    def test_resolve_button_and_route_are_gone(self):
+        from django.urls import NoReverseMatch, reverse
+        self.assertNotContains(self.get_card(), 'Привязать из ГП')
+        with self.assertRaises(NoReverseMatch):
+            reverse('mainproduct-resolve', kwargs={'pk': self.mp.pk})

@@ -4,7 +4,6 @@ from django.db.models import Exists, OuterRef, Q, Case, When, Value, IntegerFiel
 
 from crispy_forms.helper import FormHelper
 from crispy_forms.layout import Submit, Layout, Field, Div, HTML, Hidden
-from core.crispy_fields import OobField
 
 from product.filters import (
   CATEGORY_LABEL_DEPTH,
@@ -21,8 +20,8 @@ from .models import MainProduct
 
 
 class MainProductFilter(FilterSet):
-  """Выбор строк поставщиков: корзина (товары к элементу корзины, автоподбор
-  при импорте) и «Привязать из ГП» в карточке товара.
+  """Выбор строк поставщиков для корзины: товары к элементу корзины и
+  автоподбор при импорте.
 
   Корень выборки — MainProduct, а не Product, и это правильно именно здесь:
   покупают у конкретного поставщика, так что строка = предложение поставщика.
@@ -86,17 +85,12 @@ class MainProductFilter(FilterSet):
     super().__init__(*args, **kwargs)
     self.config_filters(self.search_method(self.queryset, '', value=self.data.get('search', '')))
 
-  def build_helper(self, url, hx_target: str | None = '#mainproducts-table', stripped=False):
+  def build_helper(self, url, hx_target: str | None = '#mainproducts-table'):
     """Builds the crispy FormHelper/Layout for rendering the filter form.
 
     Only needed by a view that actually renders mainproduct/partials/filter.html
-    (CartItemProductSelectView, ResolveMainproduct) — other callers only need
-    `.qs`, so this is kept out of __init__ to avoid paying for it on every
-    filterset instantiation.
-
-    `stripped=True` renders just the filter fields with no <form> tag, header, or
-    submit button — used by ResolveMainproduct when re-embedding the form inside an
-    htmx-swapped table fragment that must stay bound to the same GET params.
+    (CartItemProductSelectView) — other callers only need `.qs`, so this is kept
+    out of __init__ to avoid paying for it on every filterset instantiation.
     """
     helper = FormHelper(self.form)
     helper.form_id = 'mainproduct-filter'
@@ -111,44 +105,37 @@ class MainProductFilter(FilterSet):
     }
     if hx_target:
       helper.attrs['hx-target']=hx_target
-    if stripped:
-      helper.form_tag = False
-      helper.layout = Layout(
-          OobField('categories', template='product/partials/category_tree_field.html'),
-          OobField('supplier', template='core/includes/checkbox_field.html#checkboxes'),
-          OobField('brand', template='core/includes/checkbox_field.html#checkboxes'),)
-    else:
-      helper.layout = Layout(
-          Hidden('bound', 'true'),
-          HTML('''
-            <div class="filter-header d-flex align-items-center gap-2 mb-3">
-              <i class="bi bi-sliders text-primary"></i>
-              <h5 class="mb-0">Фильтры товаров</h5>
-            </div>
-          '''),
-          Div(
-            Field('available', template='core/includes/switch_field.html'),
-            css_class='filter-section'
-          ),
-          Div(
-            Field('categories', template='product/partials/category_tree_field.html'),
-            css_class='filter-section'
-          ),
-          Div(
-            Field('supplier', template='core/includes/checkbox_field.html'),
-            css_class='filter-section'
-          ),
-          Div(
-            Field('brand', template='core/includes/checkbox_field.html'),
-            css_class='filter-section filter-section-last'
-          ),
-          Div(
-            Submit('action', 'Применить', title="Применить", css_class='btn btn-primary flex-grow-1'),
-            HTML(f"""<a href=\"{url}\" class=\"btn btn-outline-secondary\" title=\"Сбросить\"><i class="bi bi-arrow-counterclockwise"></i></a>"""),
-            HTML('''<button type="button" class="btn btn-outline-secondary" id="filter-scroll-top-btn" title="Наверх" data-ignore-auto-update="true"><i class="bi bi-arrow-up"></i></button>'''),
-            css_class='d-flex gap-2 filter-actions'
-          )
-      )
+    helper.layout = Layout(
+        Hidden('bound', 'true'),
+        HTML('''
+          <div class="filter-header d-flex align-items-center gap-2 mb-3">
+            <i class="bi bi-sliders text-primary"></i>
+            <h5 class="mb-0">Фильтры товаров</h5>
+          </div>
+        '''),
+        Div(
+          Field('available', template='core/includes/switch_field.html'),
+          css_class='filter-section'
+        ),
+        Div(
+          Field('categories', template='product/partials/category_tree_field.html'),
+          css_class='filter-section'
+        ),
+        Div(
+          Field('supplier', template='core/includes/checkbox_field.html'),
+          css_class='filter-section'
+        ),
+        Div(
+          Field('brand', template='core/includes/checkbox_field.html'),
+          css_class='filter-section filter-section-last'
+        ),
+        Div(
+          Submit('action', 'Применить', title="Применить", css_class='btn btn-primary flex-grow-1'),
+          HTML(f"""<a href=\"{url}\" class=\"btn btn-outline-secondary\" title=\"Сбросить\"><i class="bi bi-arrow-counterclockwise"></i></a>"""),
+          HTML('''<button type="button" class="btn btn-outline-secondary" id="filter-scroll-top-btn" title="Наверх" data-ignore-auto-update="true"><i class="bi bi-arrow-up"></i></button>'''),
+          css_class='d-flex gap-2 filter-actions'
+        )
+    )
     self.form.helper = helper
     return helper
 
