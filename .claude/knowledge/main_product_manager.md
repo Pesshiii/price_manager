@@ -241,8 +241,9 @@ brand) — never raw supplier data.
 
 Since Phase 2a it serves the cart's «Добавить товары» modal
 (`core/views.py` `CartItemProductSelectView`), shopping-tab import
-auto-match (`core/utils.py` `find_main_products`), «Привязать из ГП»
-(`ResolveMainproduct`). Rows are MainProduct, but search/brand/categories go
+auto-match (`core/utils.py` `find_main_products`). «Привязать из ГП»
+(`ResolveMainproduct`, `/resolve`) was removed from the card on 2026-09-24.
+Rows are MainProduct, but search/brand/categories go
 **through `MainProduct.product`** via [[product]]'s shared
 `matching_product_pks`. Must not touch `MainProduct.search_vector`/
 `.categories`/`.manufacturer` (removed from the model, confirmed absent from
@@ -255,9 +256,12 @@ The old main page — `MainPageFilter`, `MainProductTable`, `grouping.py`,
 `columns.py`, the column-preference cache — was deleted in Phase 2b
 (confirmed gone repo-wide); `/mainproduct/` permanently redirects to
 `/products/` (`urls.py:13`, no query params carried over). This app's own
-`urls.py` still owns the per-row routes: create/update/info/detail/resolve/
-logs and the pricetag-list proxy (`urls.py:15-24`). This app's `tables.py` is
-tiny now too — `MainProductResolveTable`/`MainProductLogTable` only.
+`urls.py` still owns the per-row routes: create/update/info/detail/
+logs and the pricetag-list proxy (`urls.py:15-23`). This app's `tables.py` is
+tiny now too — `MainProductLogTable` only. The card's «Наценки» column
+(`product_price_manager` `PriceTagList`) splits PriceTags into «Фиксированные»
+(`p_manager IS NULL`, editable in place) and «Из менеджеров наценок» (opens the
+rule's modal — a rule's apply overwrites its tags, so they are not edited here).
 
 ## Three columns that look like fields but aren't
 

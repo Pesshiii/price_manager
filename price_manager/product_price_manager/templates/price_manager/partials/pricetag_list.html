@@ -21,7 +21,9 @@
       </div>
   </div>
 </div>
-{% for pricetag in pricetags %}
+
+<h5 class="text-muted mb-2">Фиксированные</h5>
+{% for pricetag in fixed_pricetags %}
 <div class="border border-dark rounded p-2 row gap-2 mb-2">
   <button type="button"
           class="btn btn-sm col-1"
@@ -35,6 +37,29 @@
   </button>
   <div class="col-10">
     {{pricetag}}
+    {% if pricetag.deprecated %}<span class="badge text-bg-secondary ms-1">Устарела</span>{% endif %}
   </div>
 </div>
+{% empty %}
+<p class="small text-muted">Нет наценок, заданных для этого товара.</p>
+{% endfor %}
+
+<h5 class="text-muted mt-3 mb-2">Из менеджеров наценок</h5>
+{% for pricetag in manager_pricetags %}
+<div class="border rounded p-2 mb-2">
+  <div>{{pricetag}}</div>
+  <div class="small text-muted">
+    Менеджер:
+    <a href="#"
+       title="Открыть менеджер наценок"
+       data-bs-toggle="modal"
+       data-bs-target="#modal-container"
+       hx-get="{% url 'pricemanager-update' pricetag.p_manager.pk %}"
+       hx-target="#modal-container .modal-content"
+       hx-swap="innerHTML">{{ pricetag.p_manager.name }}</a>
+    {% if pricetag.p_manager.deprecated %}<span class="badge text-bg-secondary ms-1">Устарел</span>{% endif %}
+  </div>
+</div>
+{% empty %}
+<p class="small text-muted">Ни один менеджер наценок не применяется к этому товару.</p>
 {% endfor %}
