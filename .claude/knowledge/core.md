@@ -170,16 +170,13 @@ page needs the same guard. Regression test:
 `test_filter_panel_scripts_declare_nothing_at_top_level`.
 
 **`checkbox_field.html` can't copy `radio_field.html`'s bind-once pattern.**
-Checkbox's `{% partialdef checkboxes %}` (`:37-71`, `#checkboxes_<auto_id>`)
-is OOB-swapped on its own via `OobField` (`core/crispy_fields.py:14`) at
-[[main_product_manager]]'s `MainProductFilter.build_helper`
-(`main_product_manager/filters.py:118-119`, supplier + brand), reached
-when `ResolveMainproduct` renders stripped —
-`main_product_manager/views.py:238`
-(`stripped=bool(self.request.GET.get('bound'))`, not a bare `True`). Radio
-binds once per input and captures `items` at bind time; safe there (no
-partial), stale here — after an OOB swap the already-flagged search input
-keeps filtering detached nodes. So checkbox instead uses one delegated
+Checkbox has a `{% partialdef checkboxes %}` (`:37-71`, `#checkboxes_<auto_id>`)
+with an `oob` branch. Its first OOB caller — `OobField` via the stripped
+`MainProductFilter.build_helper` of «Привязать из ГП» (`ResolveMainproduct`) —
+was removed with that feature on 2026-09-24; the path is live again as the
+facet refresh on `/products/` (below). Radio binds once per input and
+captures `items` at bind time; that goes stale after an OOB swap — the
+already-flagged search input keeps filtering detached nodes. So checkbox instead uses one delegated
 `input` listener on `document` (`:90`) that re-queries
 `[data-checkbox-filter-item]` on every keystroke, re-applied on `htmx:load`
 (`:96`) since the script itself lives outside the partial.
@@ -192,11 +189,10 @@ It's a dict (choice pk → count) [[product]]'s `ProductFilter.narrow_facets`
 (`fields['brand']`/`['supplier']`/`['categories']`), not the filter's own
 declared field, since django-filter's form is a deep copy. The count sits in
 its own `<span>`, not folded into `choice.1`, so `data-checkbox-filter-text`
-(quick search) stays the bare name. `#checkboxes_<auto_id>` is therefore also
-an OOB target for `ProductFilter.build_facets_helper`
-(`product/filters.py:467-482`), not only `MainProductFilter`'s — the same
-partial now serves both live-count refresh on `/products/` and the
-stripped-render swap above.
+(quick search) stays the bare name. `#checkboxes_<auto_id>` is the OOB target
+of `ProductFilter.build_facets_helper` (`product/filters.py:466-482`), which
+re-renders the lists with fresh counts after every filter change on
+`/products/`; the quick-search input sits outside the partial and survives.
 
 ## Views (`core/views.py`, ~711 lines)
 
@@ -285,8 +281,7 @@ elsewhere.
 
 ## `core/templates/core/includes/table_htmx.html` — shared by four tables
 
-Not `core`-only: `core/tables.py` (cart picker), `main_product_manager/tables.py`
-(`MainProductResolveTable`), `product_price_manager/tables.py` and
+Not `core`-only: `core/tables.py` (cart picker), `product_price_manager/tables.py` and
 `supplier_product_manager/tables.py` all set
 `template_name = 'core/includes/table_htmx.html'` (`django-tables2==2.7.5`).
 A change here touches all four. (Five until Phase 2b deleted the old main

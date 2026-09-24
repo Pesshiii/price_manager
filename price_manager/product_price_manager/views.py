@@ -233,7 +233,12 @@ class PriceTagList(TemplateView):
   def get_context_data(self, **kwargs):
     context = super().get_context_data(**kwargs)
     context['mainproduct'] = MainProduct.objects.get(pk=self.kwargs.get('pk',None))
-    context['pricetags'] = PriceTag.objects.filter(mp=self.kwargs.get('pk',None))
+    pricetags = PriceTag.objects.filter(mp=self.kwargs.get('pk',None))
+    # Заданные на самом товаре и пришедшие из менеджеров наценок показываются
+    # раздельно: вторые перезаписывает правило, править их надо в менеджере.
+    context['fixed_pricetags'] = pricetags.filter(p_manager__isnull=True).order_by('dest')
+    context['manager_pricetags'] = (pricetags.filter(p_manager__isnull=False)
+                                    .select_related('p_manager').order_by('p_manager__name', 'dest'))
     return context
 
 class PriceTagCreate(CreateView):

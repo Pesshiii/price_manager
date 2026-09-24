@@ -400,27 +400,27 @@ kept off the table's own response because it costs real time.
 
 - **The filter partials are shared: an edit lands on every screen that
   renders them.** `category_tree_field.html`/`category_tree_node.html`:
-  `product/filters.py:450` and `main_product_manager/filters.py:118,135`
-  ([[main_product_manager]]'s cart picker and «Привязать из ГП»).
-  `core/includes/checkbox_field.html`: `product/filters.py:452,454,481-482`,
-  `main_product_manager/filters.py:119-120,139,143` (`:119-120` render its
-  `#checkboxes` partialdef on the OOB path — see [[core]]) and
+  `product/filters.py:449,479` and `main_product_manager/filters.py:122`
+  ([[main_product_manager]]'s cart picker).
+  `core/includes/checkbox_field.html`: `product/filters.py:451,453,480-481`
+  (`:480-481` render its `#checkboxes` partialdef on the OOB path — see
+  [[core]]), `main_product_manager/filters.py:126,130` and
   `supplier_product_manager/filters.py:108`. `radio_field.html` emits the
   same classes via `CustomRadio('supplier')` in the «Добавить
   товар» form (`main_product_manager/forms.py:43`). The tree needs an
   ancestor-closed queryset — `recursetree` on an orphaned node raises, a 500
   in the cart modal — so `MainProductFilter` adds
-  `get_ancestors(include_self=True)` (`main_product_manager/filters.py:204`);
+  `get_ancestors(include_self=True)` (`main_product_manager/filters.py:191`);
   `ProductFilter.narrow_facets` does the equivalent by unioning
   `category_subtree_counts` (ancestor-closed by construction) with
   `expanded_category_pks` of the selection (`filters.py:352-357`) — **not**
   "the whole tree" any more (an earlier revision of this file said it was;
   the dynamic-facets branch narrows it to categories with products, plus any
   selected-but-empty branch's ancestors). The tree's root id `div_<auto_id>`
-  is the OOB-swap target both for the stripped first-paint render
-  (`main_product_manager/filters.py:118`) **and** for `ProductFacetsView`'s
-  refresh on `/products/` (`filters.py:480`) — it is not only a
-  main_product_manager mechanism. Rename it and the refresh silently stops.
+  is the OOB-swap target for `ProductFacetsView`'s refresh on `/products/`
+  (`filters.py:479`) — since «Привязать из ГП» and its stripped render left
+  `MainProductFilter` (#231), the only one. Rename it and the refresh
+  silently stops.
 - **Checkbox/radio-facet `<script>` blocks must not declare at top level —
   they run once per facet.** `core/includes/checkbox_field.html` and
   `radio_field.html` are included once per facet (brand, supplier), so a

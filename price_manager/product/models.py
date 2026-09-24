@@ -162,6 +162,53 @@ class Product(models.Model):
         Product.objects.filter(pk=self.pk).update(search_vector=self._build_searchvector())
 
 
+class ProductSetItem(models.Model):
+    """Одна позиция состава набора — зеркало ассоциации PIM «Состав набора».
+
+    Набор — это Product, у которого есть такие строки; отдельного флага нет.
+    Свои поставщики у набора могут быть (собранный на складе, со своей ценой),
+    а могут и не быть; себестоимость «из комплектующих» считается по составу
+    в любом случае, рядом с собственной.
+    Заполняет только sync_product_sets (services/sets.py), руками не правится.
+
+    Компонент хранится дважды: ссылкой на наш Product и снимком из PIM (id,
+    артикул, название). Снимок нужен потому, что компонента у нас может не
+    быть вовсе — товар PIM, который ни один поставщик не продаёт, — а состав
+    всё равно должен показать его, иначе неполный набор выглядел бы полным и
+    его себестоимость — правдой. По той же причине component — SET_NULL, а не
+    CASCADE: удаление Product-компонента не должно тихо укорачивать набор,
+    строка остаётся «не найден», а следующая синхронизация найдёт его заново.
+    """
+
+    set_product = models.ForeignKey(
+        Product, on_delete=models.CASCADE, related_name='set_items', verbose_name='Набор',
+    )
+    component = models.ForeignKey(
+        Product, on_delete=models.SET_NULL, null=True, blank=True,
+        related_name='in_sets', verbose_name='Компонент',
+    )
+    # Ключ позиции внутри набора: id товара PIM, а не наш Product — его может не быть.
+    component_pim_product_id = models.CharField('Id компонента в PIM (Product)', max_length=64)
+    component_number = models.CharField('Артикул компонента в PIM', max_length=128, blank=True, default='')
+    component_name = models.CharField('Название компонента в PIM', max_length=512, blank=True, default='')
+    amount = models.PositiveIntegerField('Количество', default=1)
+    sorting = models.IntegerField('Порядок', default=0)
+
+    class Meta:
+        verbose_name = 'Позиция набора'
+        verbose_name_plural = 'Состав наборов'
+        ordering = ['sorting', 'pk']
+        constraints = [
+            models.UniqueConstraint(
+                fields=['set_product', 'component_pim_product_id'],
+                name='product_setitem_set_component_uniq',
+            ),
+        ]
+
+    def __str__(self) -> str:
+        return f'{self.set_product_id}: {self.component_number or self.component_pim_product_id} × {self.amount}'
+
+
 class ProductExport(models.Model):
     """Готовый файл экспорта товарной страницы; ссылка приходит в уведомлении."""
 
