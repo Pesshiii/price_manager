@@ -22,8 +22,12 @@
   <div class="accordion accordion-flush filter-scroll-list"
        id="categoryAccordion_{{ field.auto_id }}"
        style="max-height: 320px; overflow: auto;">
-    {% recursetree field.field.queryset %}
-      {% include "product/partials/category_tree_node.html" with node=node children=children field=field %}
-    {% endrecursetree %}
+    {% if field.field.queryset %}
+      {% recursetree field.field.queryset %}
+        {% include "product/partials/category_tree_node.html" with node=node children=children field=field %}
+      {% endrecursetree %}
+    {% else %}
+      <div>{{ field.label }} не найдены</div>
+    {% endif %}
   </div>
 </div>
