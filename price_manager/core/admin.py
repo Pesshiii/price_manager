@@ -10,8 +10,8 @@ from core.resources import *
 
 @admin.register(PersistentNotification)
 class PersistentNotificationAdmin(admin.ModelAdmin):
-    list_display = ("id", "user", "level", "created_at")
-    list_filter = ("level", "created_at")
+    list_display = ("id", "user", "level", "kind", "created_at", "seen_at", "expires_at")
+    list_filter = ("level", "kind", "created_at")
     search_fields = ("user__username", "message")
     ordering = ("-created_at",)
 

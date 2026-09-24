@@ -1386,6 +1386,78 @@ class ImportGuardTests(TestCase):
 
         self.assertTrue(SupplierFile.objects.filter(pk=run.supplier_file_id).exists())
 
+    # --- the confirmation notification --------------------------------------
+
+    def _confirmations(self, run):
+        return PersistentNotification.objects.filter(kind="confirmation", ref=f"import_run:{run.pk}")
+
+    def test_confirmation_notification_does_not_expire(self):
+        run = self._pending_run()
+        notification = self._confirmations(run).get()
+
+        PersistentNotification.objects.mark_seen([notification.pk])
+
+        notification.refresh_from_db()
+        self.assertIsNone(notification.expires_at)
+
+    def test_apply_dismisses_the_confirmation_for_everyone(self):
+        run = self._pending_run()
+        other = get_user_model().objects.create_user(username="colleague", password="x")
+        self.client.force_login(other)
+
+        with mock.patch("supplier_product_manager.views.process_supplier_file_import"):
+            self.client.post(reverse("import-run-apply", kwargs={"pk": run.pk}))
+
+        self.assertFalse(self._confirmations(run).exists())
+
+    def test_cancel_dismisses_the_confirmation(self):
+        run = self._pending_run()
+
+        self.client.post(reverse("import-run-cancel", kwargs={"pk": run.pk}))
+
+        self.assertFalse(self._confirmations(run).exists())
+
+    def test_new_import_dismisses_the_superseded_confirmation(self):
+        run = self._pending_run()
+
+        self._import()
+
+        self.assertFalse(self._confirmations(run).exists())
+
+    def test_new_upload_dismisses_the_superseded_confirmation(self):
+        run = self._pending_run()
+        excel = BytesIO()
+        pd.DataFrame([{"Артикул": "А-1", "Название": "Товар"}]).to_excel(excel, index=False)
+
+        self.client.post(reverse("supplier-upload", kwargs={"pk": self.supplier.pk}),
+                         {"file": SimpleUploadedFile("new.xlsx", excel.getvalue()), "setting": self.setting.pk})
+
+        self.assertFalse(self._confirmations(run).exists())
+
+    def test_refused_confirmation_dismisses_the_notification(self):
+        run = self._pending_run()
+        ImportRun.objects.filter(pk=run.pk).update(status=ImportRun.STATUS_RUNNING)
+        Link.objects.filter(setting=self.setting, key="stock").update(value="Склад")
+
+        process_supplier_file_import(self.setting.pk, self.user.pk, confirmed_run_id=run.pk)
+
+        self.assertFalse(self._confirmations(run).exists())
+
+    def test_cleanup_drops_confirmations_of_runs_no_longer_pending(self):
+        run = self._pending_run()
+        ImportRun.objects.filter(pk=run.pk).update(status=ImportRun.STATUS_APPLIED)
+
+        cleanup_supplier_files_task()
+
+        self.assertFalse(self._confirmations(run).exists())
+
+    def test_cleanup_keeps_a_pending_confirmation(self):
+        run = self._pending_run()
+
+        cleanup_supplier_files_task()
+
+        self.assertTrue(self._confirmations(run).exists())
+
     # --- screens -----------------------------------------------------------
 
     def test_confirm_modal_shows_reasons_figures_and_actions(self):
@@ -1778,6 +1850,11 @@ class ImportRobustnessTests(TestCase):
         run.refresh_from_db()
         self.assertEqual((run.status, run.confirmed_by_id, run.confirmed_at),
                          (ImportRun.STATUS_NEEDS_CONFIRMATION, None, None))
+        # Applying dismissed the confirmation; waiting again, the run gets it back.
+        notification = PersistentNotification.objects.get(user=self.user)
+        self.assertEqual((notification.kind, notification.ref, notification.link_text),
+                         ("confirmation", f"import_run:{run.pk}", "Проверить"))
+        self.assertIn("уже импортируется", notification.message)
 
     def test_lock_is_released_after_a_failed_import(self):
         with mock.patch("supplier_product_manager.tasks.load_setting", side_effect=RuntimeError("boom")):

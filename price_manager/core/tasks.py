@@ -14,6 +14,7 @@ def _notify(
     message: str,
     link: str | None = None,
     link_text: str | None = None,
+    kind: str = 'regular',
 ) -> None:
     """Постоянное уведомление пользователю, при необходимости с кнопкой-ссылкой."""
     from django.contrib.auth import get_user_model
@@ -27,6 +28,7 @@ def _notify(
         message=message,
         link=link,
         link_text=link_text,
+        kind=kind,
     )
 
 
@@ -102,18 +104,27 @@ def export_shopping_tab_task(shopping_tab_id: int, user_id: int | None = None) -
             f'Экспорт заявки «{tab_name}» готов. Строк: {export.rows_count}.',
             link=reverse('shopping-tab-export-download', kwargs={'pk': export.pk}),
             link_text='Скачать файл',
+            kind='export',
         )
     return payload
 
 
 @shared_task(name="core.cleanup_persistent_notifications")
 def cleanup_persistent_notifications_task() -> dict:
-    from core.models import PersistentNotification
+    from core.models import NotificationKind, PersistentNotification
 
     def runner():
-        cutoff = timezone.now() - timedelta(hours=settings.PERSISTENT_NOTIFICATION_TTL_HOURS)
-        deleted_count, _ = PersistentNotification.objects.filter(created_at__lt=cutoff).delete()
-        return deleted_count
+        now = timezone.now()
+        expired, _ = PersistentNotification.objects.filter(expires_at__lte=now).delete()
+        # A regular notification starts its countdown only once shown; one the
+        # user never opened the panel for is dropped after the TTL. Exports,
+        # releases and confirmations are not: they go by hand or by decision.
+        never_seen, _ = PersistentNotification.objects.filter(
+            kind=NotificationKind.REGULAR,
+            seen_at__isnull=True,
+            created_at__lt=now - timedelta(hours=settings.PERSISTENT_NOTIFICATION_TTL_HOURS),
+        ).delete()
+        return expired + never_seen
 
     return execute_locked_task(
         task_name="core.cleanup_persistent_notifications",

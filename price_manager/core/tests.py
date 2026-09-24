@@ -1,4 +1,5 @@
 import ast
+from datetime import timedelta
 from pathlib import Path
 from unittest import mock
 from urllib.parse import parse_qs, urlencode, urlparse
@@ -649,3 +650,110 @@ class PersistentNotificationDeleteAllTests(TestCase):
 
         PersistentNotification.objects.filter(user=self.user).delete()
         self.assertNotContains(self.client.get(panel), url)
+
+
+class PersistentNotificationLifetimeTests(TestCase):
+    """Сроки жизни: обычные — от первого показа, выгрузки и обновления — вручную."""
+
+    def setUp(self):
+        self.user = User.objects.create_user('reader', password='x')
+        self.client.force_login(self.user)
+        self.panel = reverse('persistent-notifications-panel')
+
+    def _create(self, level='success', kind='regular', **kwargs):
+        return PersistentNotification.objects.create(
+            user=self.user, level=level, kind=kind, message=f'{level} {kind}', **kwargs)
+
+    def test_closed_panel_poll_does_not_start_the_countdown(self):
+        notification = self._create()
+
+        self.client.get(self.panel, {'seen': 'false'})
+
+        notification.refresh_from_db()
+        self.assertIsNone(notification.seen_at)
+        self.assertIsNone(notification.expires_at)
+
+    def test_ttl_after_first_show_by_level(self):
+        expected = {
+            'success': timedelta(seconds=10),
+            'info': timedelta(seconds=10),
+            'warning': timedelta(minutes=10),
+            'danger': timedelta(minutes=10),
+        }
+        notifications = {level: self._create(level=level) for level in expected}
+
+        response = self.client.get(self.panel, {'seen': 'true'})
+
+        self.assertContains(response, 'data-expires-in-ms=', count=4)
+        for level, ttl in expected.items():
+            notification = notifications[level]
+            notification.refresh_from_db()
+            self.assertEqual(notification.expires_at - notification.seen_at, ttl, level)
+
+    def test_second_show_does_not_extend_the_lifetime(self):
+        notification = self._create()
+        self.client.get(self.panel, {'seen': 'true'})
+        notification.refresh_from_db()
+        first_expiry = notification.expires_at
+
+        self.client.get(self.panel, {'seen': 'true'})
+
+        notification.refresh_from_db()
+        self.assertEqual(notification.expires_at, first_expiry)
+
+    def test_manual_kinds_never_expire(self):
+        notifications = [self._create(kind=kind) for kind in ('export', 'release', 'confirmation')]
+
+        response = self.client.get(self.panel, {'seen': 'true'})
+
+        self.assertNotContains(response, 'data-expires-in-ms=')
+        for notification in notifications:
+            notification.refresh_from_db()
+            self.assertIsNotNone(notification.seen_at)
+            self.assertIsNone(notification.expires_at)
+
+    def test_expired_notifications_are_hidden(self):
+        now = timezone.now()
+        self._create(seen_at=now - timedelta(seconds=11), expires_at=now - timedelta(seconds=1))
+        alive = self._create(level='warning', seen_at=now, expires_at=now + timedelta(minutes=10))
+
+        self.assertEqual(list(PersistentNotification.objects.visible()), [alive])
+        response = self.client.get(self.panel)
+        self.assertContains(response, 'warning regular')
+        self.assertNotContains(response, 'success regular')
+
+    def test_cleanup_deletes_expired_and_long_unseen_regular_only(self):
+        from .tasks import cleanup_persistent_notifications_task
+
+        now = timezone.now()
+        self._create(seen_at=now - timedelta(minutes=1), expires_at=now - timedelta(seconds=1))
+        fresh = self._create()
+        stale_unseen = self._create()
+        stale_export = self._create(kind='export')
+        PersistentNotification.objects.filter(pk__in=[stale_unseen.pk, stale_export.pk]).update(
+            created_at=now - timedelta(hours=settings.PERSISTENT_NOTIFICATION_TTL_HOURS + 1))
+
+        cleanup_persistent_notifications_task()
+
+        self.assertEqual(
+            set(PersistentNotification.objects.values_list('pk', flat=True)),
+            {fresh.pk, stale_export.pk},
+        )
+
+    def test_toast_message_counts_as_shown(self):
+        from django.contrib import messages
+        from django.contrib.messages.storage.fallback import FallbackStorage
+        from django.template import Context, Template
+        from django.test import RequestFactory
+
+        request = RequestFactory().get('/')
+        request.user = self.user
+        request.session = self.client.session
+        storage = FallbackStorage(request)
+        request._messages = storage
+        messages.success(request, 'Сохранено')
+        Template('{% load toast_tags %}{% for m in msgs %}{% persist_notification m %}{% endfor %}').render(
+            Context({'request': request, 'msgs': list(storage)}))
+
+        notification = PersistentNotification.objects.get(user=self.user)
+        self.assertEqual(notification.expires_at - notification.seen_at, timedelta(seconds=10))

@@ -136,6 +136,7 @@ def _run_export(task_name: str, title: str, user_id: int, build) -> dict:
             f'{title} готов. Строк: {export.rows_count}.',
             link=reverse('product-export-download', kwargs={'pk': export.pk}),
             link_text='Скачать файл',
+            kind='export',
         )
     return payload
 

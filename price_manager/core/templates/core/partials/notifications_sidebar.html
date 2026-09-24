@@ -12,10 +12,51 @@
     <div
       id="persistent-notifications-panel"
       hx-get="{% url 'persistent-notifications-panel' %}"
-      hx-trigger="every 15s"
+      hx-trigger="every 15s, notifications:refresh"
+      hx-vals='js:{seen: persistentNotificationsInView()}'
       hx-swap="innerHTML"
     >
       {% include "core/partials/notifications_panel_content.html" %}
     </div>
   </div>
 </div>
+<script>
+  // Shown means the panel is open in a visible tab: only then does a
+  // notification's lifetime start (core.models.NOTIFICATION_TTL_AFTER_SEEN).
+  function persistentNotificationsInView() {
+    const offcanvas = document.getElementById("persistentNotificationsOffcanvas");
+    return Boolean(offcanvas && offcanvas.classList.contains("show") && document.visibilityState === "visible");
+  }
+
+  (function () {
+    const refreshPanel = () => {
+      const panel = document.getElementById("persistent-notifications-panel");
+      if (panel && window.htmx) window.htmx.trigger(panel, "notifications:refresh");
+    };
+
+    // Remove each notification when its lifetime runs out, then refresh so the
+    // badge and the counter follow.
+    const scheduleExpiry = (root) => {
+      root.querySelectorAll("[data-expires-in-ms]").forEach((el) => {
+        if (el.dataset.expiryScheduled) return;
+        el.dataset.expiryScheduled = "1";
+        setTimeout(() => {
+          if (!el.isConnected) return;
+          el.remove();
+          refreshPanel();
+        }, Number(el.dataset.expiresInMs));
+      });
+    };
+
+    document.addEventListener("DOMContentLoaded", () => {
+      const offcanvas = document.getElementById("persistentNotificationsOffcanvas");
+      if (!offcanvas) return;
+      offcanvas.addEventListener("shown.bs.offcanvas", refreshPanel);
+      document.addEventListener("visibilitychange", () => {
+        if (persistentNotificationsInView()) refreshPanel();
+      });
+      document.body.addEventListener("htmx:afterSettle", (event) => scheduleExpiry(event.target));
+      scheduleExpiry(offcanvas);
+    });
+  })();
+</script>

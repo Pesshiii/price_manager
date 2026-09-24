@@ -8,6 +8,6 @@ def persistent_notifications(request):
     notifications = (
         PersistentNotification.objects
         .filter(user=request.user)
-        .order_by('-created_at')[:30]
+        .visible()[:30]
     )
     return {"persistent_notifications": notifications}

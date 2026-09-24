@@ -62,6 +62,7 @@ class NotifyReleaseTests(TestCase):
         for notification in notifications:
             self.assertEqual(notification.link, '/releases/1.4.0/')
             self.assertEqual(notification.link_text, LINK_TEXT)
+            self.assertEqual(notification.kind, 'release')  # удаляется только вручную
             self.assertIn('Вышла версия 1.4.0: Приоритеты', notification.message)
             self.assertIn('нумеруются 1…N', notification.message)
         release.refresh_from_db()
