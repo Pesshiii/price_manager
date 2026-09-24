@@ -34,6 +34,7 @@ urlpatterns = [
     # шаблонах привязаны именно к ним, а не к 'mainproducts'.
     path('products/', product_views.ProductPage.as_view(), name='products'),
     path('products/filter/', product_views.ProductFilterView.as_view(), name='product-filter'),
+    path('products/facets/', product_views.ProductFacetsView.as_view(), name='product-facets'),
     path('products/export/', product_views.ProductExportView.as_view(), name='product-export'),
     path('products/export/<int:pk>/download/', product_views.ProductExportDownloadView.as_view(),
          name='product-export-download'),

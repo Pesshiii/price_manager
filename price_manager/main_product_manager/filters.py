@@ -9,6 +9,7 @@ from core.crispy_fields import OobField
 from product.filters import (
   CATEGORY_LABEL_DEPTH,
   category_with_descendants,
+  expanded_category_pks,
   matching_product_pks,
   ranked,
   search_terms,
@@ -203,6 +204,9 @@ class MainProductFilter(FilterSet):
     ).get_ancestors(include_self=True)
     # select_related — см. CATEGORY_LABEL_DEPTH.
     self.filters['categories'].field.queryset = category_queryset.select_related(CATEGORY_LABEL_DEPTH)
+    # Раскрытые ветки — см. expanded_category_pks: шаблон дерева их не считает.
+    self.filters['categories'].field.expanded_pks = expanded_category_pks(
+      self._selected_ids('categories'))
 
   def search_method(self, queryset, name, value):
     """Поиск по товару (Product) ИЛИ по собственным полям строки.

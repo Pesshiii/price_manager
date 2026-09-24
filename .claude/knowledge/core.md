@@ -184,6 +184,20 @@ keeps filtering detached nodes. So checkbox instead uses one delegated
 `[data-checkbox-filter-item]` on every keystroke, re-applied on `htmx:load`
 (`:96`) since the script itself lives outside the partial.
 
+**Per-choice facet counts are opt-in via `field.field.facet_counts`**
+(`checkbox_field.html:53-54`, guarded `is not None` not truthy — screens that
+never set it, e.g. cart pickers and `MainProductFilter`, must still render).
+It's a dict (choice pk → count) [[product]]'s `ProductFilter.narrow_facets`
+(`product/filters.py:305-358`) sets on the **bound form's** fields
+(`fields['brand']`/`['supplier']`/`['categories']`), not the filter's own
+declared field, since django-filter's form is a deep copy. The count sits in
+its own `<span>`, not folded into `choice.1`, so `data-checkbox-filter-text`
+(quick search) stays the bare name. `#checkboxes_<auto_id>` is therefore also
+an OOB target for `ProductFilter.build_facets_helper`
+(`product/filters.py:467-482`), not only `MainProductFilter`'s — the same
+partial now serves both live-count refresh on `/products/` and the
+stripped-render swap above.
+
 ## Views (`core/views.py`, ~711 lines)
 
 The shopping-tab / cart feature is the whole file. `ShoppingTab*` — list, delete,

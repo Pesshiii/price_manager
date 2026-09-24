@@ -176,6 +176,14 @@
     font-weight: 600;
   }
 
+  .products-sidebar .facet-count {
+    margin-left: 0.25rem;
+    color: var(--pm-muted);
+    font-size: 0.75rem;
+    font-weight: 400;
+    font-variant-numeric: tabular-nums;
+  }
+
   .products-sidebar .accordion {
     --bs-accordion-bg: transparent;
     --bs-accordion-active-bg: transparent;
@@ -736,6 +744,23 @@
             </div>
           </div>
         </div>
+        {% comment %}
+          Обновление фасетов под выдачу: после каждого ответа таблицы
+          (событие products-updated из ProductPage) — списки категорий,
+          брендов и поставщиков приходят OOB-фрагментами, остальная панель
+          не трогается.
+
+          Снаружи #product-filter и #product-filters-card намеренно: внутри
+          он унаследовал бы от формы hx-push-url и hx-target, и адрес
+          фрагмента попал бы в адресную строку, откуда его читает «Экспорт».
+          hx-sync="this:replace" — новый запрос отменяет устаревший.
+        {% endcomment %}
+        <div id="product-facets-refresh" hidden
+             hx-get="{% url 'product-facets' %}"
+             hx-trigger="products-updated from:body"
+             hx-include="#product-filter, #products-search"
+             hx-swap="none"
+             hx-sync="this:replace"></div>
       </div>
     </aside>
 
@@ -999,6 +1024,67 @@
       window.addEventListener('scroll', hideZoom, { capture: true, passive: true });
       document.body.addEventListener('htmx:beforeSwap', hideZoom);
     }
+
+    // Обновление фасетов (#product-facets-refresh). Замена списков
+    // переписывает галочки, поэтому ответ, пришедший после того, как
+    // пользователь успел что-то изменить, выбрасывается: его запрос считал
+    // старый выбор, а изменение само вызовет новую выдачу и новое обновление.
+    // Раскрытые руками ветки дерева и прокрутка списков переносятся через
+    // замену — иначе каждый клик сворачивал бы дерево и прыгал в начало списка.
+    const facetsState = function () {
+      const form = document.getElementById('product-filter');
+      const search = document.getElementById('products-search');
+      return (form ? new URLSearchParams(new FormData(form)).toString() : '')
+        + '|' + (search ? search.value : '');
+    };
+    let facetsView = null;
+    document.body.addEventListener('htmx:beforeRequest', function (event) {
+      if (event.detail.elt.id === 'product-facets-refresh') {
+        event.detail.elt.dataset.requestedState = facetsState();
+      }
+    });
+    document.body.addEventListener('htmx:beforeSwap', function (event) {
+      const elt = event.detail.elt;
+      if (elt.id !== 'product-facets-refresh') return;
+      if (elt.dataset.requestedState !== facetsState()) {
+        event.detail.shouldSwap = false;
+        return;
+      }
+      const form = document.getElementById('product-filter');
+      if (!form) return;
+      facetsView = { open: [], scroll: {} };
+      form.querySelectorAll('.accordion-collapse').forEach(function (panel) {
+        if (!panel.classList.contains('collapse') || panel.classList.contains('show')) {
+          facetsView.open.push(panel.id);
+        }
+      });
+      form.querySelectorAll('.filter-scroll-list').forEach(function (list) {
+        const owner = list.id ? list : list.closest('[id]');
+        if (owner) facetsView.scroll[owner.id] = list.scrollTop;
+      });
+    });
+    document.body.addEventListener('htmx:afterSettle', function (event) {
+      if (event.detail.elt.id !== 'product-facets-refresh' || !facetsView) return;
+      const view = facetsView;
+      facetsView = null;
+      view.open.forEach(function (id) {
+        const panel = document.getElementById(id);
+        if (!panel || !panel.classList.contains('collapse')) return;
+        panel.classList.add('show');
+        const toggle = document.querySelector('[data-bs-target="#' + id + '"]');
+        if (toggle) {
+          toggle.classList.remove('collapsed');
+          toggle.setAttribute('aria-expanded', 'true');
+        }
+      });
+      Object.keys(view.scroll).forEach(function (id) {
+        const owner = document.getElementById(id);
+        if (!owner) return;
+        const list = owner.classList.contains('filter-scroll-list')
+          ? owner : owner.querySelector('.filter-scroll-list');
+        if (list) list.scrollTop = view.scroll[id];
+      });
+    });
 
     // «Применить» на телефоне закрывает панель — иначе результат остаётся под ней.
     document.body.addEventListener('submit', function (event) {

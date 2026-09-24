@@ -8,6 +8,7 @@ from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse_lazy
 from django.views.generic import View
 from django_filters.views import FilterView
+from django_htmx.http import trigger_client_event
 from django_tables2 import SingleTableMixin
 
 from main_product_manager.models import MainProduct
@@ -24,6 +25,10 @@ from .tables import (
 )
 
 logger = logging.getLogger(__name__)
+
+# Событие «выдача товаров сменилась»; его слушает #product-facets-refresh
+# в product/list.html.
+PRODUCTS_UPDATED_EVENT = 'products-updated'
 
 
 def _base_queryset(by_category=False):
@@ -72,6 +77,19 @@ class ProductPage(SingleTableMixin, FilterView):
     table_class = ProductTable
     template_name = 'product/list.html'
     table_pagination = {'per_page': 25}
+
+    def render_to_response(self, context, **response_kwargs):
+        """HTMX-ответ таблицы сообщает странице, что выдача сменилась.
+
+        На это событие панель перезапрашивает фасеты (ProductFacetsView). Шлём
+        его на любой HTMX-ответ, а не только на фильтр и поиск: пагинация и
+        сортировка здесь — обычные ссылки, а лишнее обновление фасетов после
+        выбора колонок безвредно.
+        """
+        response = super().render_to_response(context, **response_kwargs)
+        if self.request.htmx:
+            trigger_client_event(response, PRODUCTS_UPDATED_EVENT)
+        return response
 
     def get_template_names(self):
         """HTMX-запрос получает только таблицу, обычный — страницу целиком.
@@ -169,8 +187,26 @@ class ProductFilterView(View):
         if not request.htmx:
             return redirect(reverse_lazy('products'))
         filterset = ProductFilter(request.GET, queryset=_base_queryset())
+        filterset.narrow_facets()
         filterset.build_helper(url=reverse_lazy('products'))
         return render(request, 'product/partials/filter.html', {'filter': filterset})
+
+
+class ProductFacetsView(View):
+    """Списки фасетов под текущую выдачу — OOB-фрагментами, без панели.
+
+    Зовётся событием PRODUCTS_UPDATED_EVENT после каждого ответа таблицы, а не
+    встроен в сам ответ: три агрегата по всем товарам не должны задерживать
+    выдачу — таблица приходит сразу, фасеты догоняют.
+    """
+
+    def get(self, request, *args, **kwargs):
+        if not request.htmx:
+            return redirect(reverse_lazy('products'))
+        filterset = ProductFilter(request.GET, queryset=Product.objects.all())
+        filterset.narrow_facets()
+        filterset.build_facets_helper()
+        return render(request, 'product/partials/facets.html', {'filter': filterset})
 
 
 class ProductSuppliersView(View):

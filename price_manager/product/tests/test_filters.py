@@ -1,5 +1,6 @@
 from decimal import Decimal
 
+from django.http import QueryDict
 from django.test import TestCase
 
 from main_product_manager.models import MainProduct
@@ -141,9 +142,137 @@ class ProductBrandFilterTests(TestCase):
     def test_facet_lists_only_brands_that_are_used(self):
         Brand.objects.create(pim_id='br-3', name='Неиспользуемый')
         filterset = ProductFilter({}, queryset=Product.objects.all())
+        filterset.narrow_facets()
 
-        names = list(filterset.filters['brand'].field.queryset.values_list('name', flat=True))
+        names = list(filterset.form.fields['brand'].queryset.values_list('name', flat=True))
         self.assertEqual(names, ['Bosch', 'Grohe'])
+
+    def test_any_existing_brand_validates_without_narrowing(self):
+        """Бренд без товаров в адресе — не ошибка формы, а пустая выдача.
+
+        Проверка значений идёт по всему справочнику: сужает только
+        narrow_facets(), которого .qs не вызывает.
+        """
+        unused = Brand.objects.create(pim_id='br-3', name='Неиспользуемый')
+        filterset = ProductFilter({'brand': [str(unused.pk)]}, queryset=Product.objects.all())
+
+        self.assertTrue(filterset.form.is_valid())
+        self.assertEqual(list(filterset.qs), [])
+
+
+class ProductFacetNarrowingTests(TestCase):
+    """Фасеты сужаются под выдачу: «все условия, кроме своего».
+
+    Главный инвариант: число рядом с вариантом равно тому, что покажет выбор
+    этого варианта вместе с остальными текущими условиями.
+    """
+
+    def setUp(self):
+        self.bosch = Brand.objects.create(pim_id='br-1', name='Bosch')
+        self.makita = Brand.objects.create(pim_id='br-2', name='Makita')
+        self.grohe = Brand.objects.create(pim_id='br-3', name='Grohe')
+
+        self.tools = Category.objects.create(pim_id='c-1', name='Инструмент')
+        self.drills = Category.objects.create(pim_id='c-2', name='Дрели', parent=self.tools)
+        self.saws = Category.objects.create(pim_id='c-3', name='Пилы', parent=self.tools)
+        self.plumbing = Category.objects.create(pim_id='c-4', name='Сантехника')
+
+        self.alpha = Supplier.objects.create(name='Альфа')
+        self.beta = Supplier.objects.create(name='Бета')
+
+        self.drill = make_product('p-1', 'D-1', brand=self.bosch,
+                                  raw_data={'name': 'Дрель ударная'})
+        self.drill.categories.add(self.drills)
+        # Один товар в двух подкатегориях одной ветки: у «Инструмента» он
+        # обязан считаться один раз.
+        self.combo = make_product('p-2', 'C-1', brand=self.makita,
+                                  raw_data={'name': 'Набор дрель и пила'})
+        self.combo.categories.add(self.drills, self.saws)
+        self.mixer = make_product('p-3', 'M-1', brand=self.grohe,
+                                  raw_data={'name': 'Смеситель'})
+        self.mixer.categories.add(self.plumbing)
+
+        MainProduct.objects.create(product=self.drill, supplier=self.alpha, article='a1',
+                                   stock=3)
+        MainProduct.objects.create(product=self.combo, supplier=self.alpha, article='a2',
+                                   stock=0)
+        MainProduct.objects.create(product=self.combo, supplier=self.beta, article='b2',
+                                   stock=0)
+        MainProduct.objects.create(product=self.mixer, supplier=self.beta, article='b3',
+                                   stock=1)
+
+    def _facets(self, data):
+        filterset = ProductFilter(QueryDict(data), queryset=Product.objects.all())
+        filterset.narrow_facets()
+        return filterset
+
+    @staticmethod
+    def _visible(filterset, name):
+        field = filterset.form.fields[name]
+        return {obj.pk: field.facet_counts.get(obj.pk, 0) for obj in field.queryset}
+
+    def test_unfiltered_counts(self):
+        facets = self._facets('')
+
+        self.assertEqual(self._visible(facets, 'brand'),
+                         {self.bosch.pk: 1, self.makita.pk: 1, self.grohe.pk: 1})
+        self.assertEqual(self._visible(facets, 'supplier'),
+                         {self.alpha.pk: 2, self.beta.pk: 2})
+        self.assertEqual(self._visible(facets, 'categories'), {
+            self.tools.pk: 2, self.drills.pk: 2, self.saws.pk: 1, self.plumbing.pk: 1,
+        })
+
+    def test_selecting_a_brand_keeps_the_other_brands(self):
+        facets = self._facets(f'brand={self.bosch.pk}')
+
+        self.assertEqual(set(self._visible(facets, 'brand')),
+                         {self.bosch.pk, self.makita.pk, self.grohe.pk})
+
+    def test_selecting_a_brand_narrows_suppliers_and_categories(self):
+        facets = self._facets(f'brand={self.grohe.pk}')
+
+        self.assertEqual(self._visible(facets, 'supplier'), {self.beta.pk: 1})
+        self.assertEqual(self._visible(facets, 'categories'), {self.plumbing.pk: 1})
+
+    def test_selecting_a_supplier_narrows_brands(self):
+        facets = self._facets(f'supplier={self.alpha.pk}')
+
+        self.assertEqual(self._visible(facets, 'brand'),
+                         {self.bosch.pk: 1, self.makita.pk: 1})
+
+    def test_search_and_stock_narrow_the_facets(self):
+        facets = self._facets('search=дрель&available=on')
+
+        self.assertEqual(self._visible(facets, 'brand'), {self.bosch.pk: 1})
+        self.assertEqual(self._visible(facets, 'supplier'), {self.alpha.pk: 1})
+        self.assertEqual(self._visible(facets, 'categories'),
+                         {self.tools.pk: 1, self.drills.pk: 1})
+
+    def test_selected_option_with_no_products_stays_with_its_ancestors(self):
+        """Иначе снять такую галочку нечем, а дерево без предка — это 500."""
+        facets = self._facets(f'brand={self.grohe.pk}&categories={self.saws.pk}')
+
+        self.assertEqual(self._visible(facets, 'categories'), {
+            self.plumbing.pk: 1, self.tools.pk: 0, self.saws.pk: 0,
+        })
+        self.assertIn(self.grohe.pk, self._visible(facets, 'brand'))
+
+    def test_every_count_matches_selecting_that_option(self):
+        base = f'available=on&supplier={self.beta.pk}'
+        facets = self._facets(base)
+        # Ноль у видимого варианта бывает только у выбранного — проверяем все.
+        for name in ProductFilter.FACETS:
+            for pk, count in self._visible(facets, name).items():
+                with self.subTest(facet=name, pk=pk):
+                    data = QueryDict(base, mutable=True)
+                    data.setlist(name, [str(pk)])
+                    actual = ProductFilter(data, queryset=Product.objects.all()).qs.count()
+                    self.assertEqual(count, actual)
+
+    def test_junk_in_the_address_does_not_break_narrowing(self):
+        facets = self._facets('brand=abc&categories=999999&supplier=')
+
+        self.assertEqual(len(self._visible(facets, 'brand')), 3)
 
 
 class ProductStockAndPriceFilterTests(TestCase):
