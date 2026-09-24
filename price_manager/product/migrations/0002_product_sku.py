@@ -6,6 +6,13 @@ class Migration(migrations.Migration):
 
     dependencies = [
         ('product', '0001_initial'),
+        # Поле brand ниже — FK на supplier_manager.Manufacturer, который удаляет
+        # supplier_manager.0011. Без этой зависимости порядок на чистой базе
+        # держался на везении и сломался, как только core.0012 потянул за собой
+        # цепочку product раньше: Manufacturer уже удалён, и состояние не
+        # собирается («Related model 'supplier_manager.manufacturer' cannot be
+        # resolved»). Обратная сторона — в supplier_manager.0011.
+        ('supplier_manager', '0001_initial'),
     ]
 
     operations = [

@@ -103,6 +103,7 @@ urlpatterns = [
     path('shopping-tabs/<int:pk>/import/run/', views.ShoppingTabImportRunView.as_view(), name='shopping-tab-import-run'),
     path('cart-items/<int:pk>/', views.CartItemDetailView.as_view(), name='cart-item-detail'),
     path('cart-items/add-from-product/<int:product_pk>/', views.CartItemQuickAddView.as_view(), name='cart-item-quick-add'),
+    path('cart-items/add-set/<int:product_pk>/', views.CartItemAddSetView.as_view(), name='cart-item-add-set'),
     path('cart-items/<int:pk>/products/select/', views.CartItemProductSelectView.as_view(), name='cart-item-products-select'),
     path('cart-items/<int:pk>/products/add/', views.CartItemAddProductsView.as_view(), name='cart-item-products-add'),
     path('cart-items/<int:pk>/confirm/<int:product_pk>/', views.CartItemConfirmProductView.as_view(), name='cart-item-confirm'),

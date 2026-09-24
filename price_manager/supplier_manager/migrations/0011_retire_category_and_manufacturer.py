@@ -54,6 +54,9 @@ class Migration(migrations.Migration):
         ('main_product_manager', '0012_drop_catalog_fields'),
         ('supplier_product_manager', '0010_drop_category_and_manufacturer'),
         ('product_price_manager', '0004_categories_to_product_category'),
+        # product.0002 заводил product.brand -> Manufacturer, product.0003 его
+        # убрал; удалять Manufacturer можно только после этого.
+        ('product', '0003_alter_product_number_alter_product_pim_id'),
     ]
 
     operations = [

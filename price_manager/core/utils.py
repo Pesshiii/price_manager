@@ -141,6 +141,9 @@ SHOPPING_TAB_EXPORT_COLUMNS = [
     'Производитель',
     'Цена',
     'Сумма',
+    # В конце, а не рядом с «Запросом»: порядок прежних колонок не меняется
+    # для тех, кто обрабатывает выгрузку дальше.
+    'Набор',
 ]
 
 
@@ -160,6 +163,7 @@ def build_shopping_tab_export(shopping_tab_id: int, user_id: int | None = None) 
             'confirmed_product',
             'confirmed_product__supplier',
             'confirmed_product__product__brand',
+            'source_set',
         )
     )
 
@@ -179,6 +183,7 @@ def build_shopping_tab_export(shopping_tab_id: int, user_id: int | None = None) 
             'Производитель': _brand_name(product),
             'Цена': item.confirmed_price,
             'Сумма': item.line_total,
+            'Набор': set_label(item.source_set),
         })
 
     df = pd.DataFrame(rows, columns=SHOPPING_TAB_EXPORT_COLUMNS)
@@ -195,6 +200,55 @@ def build_shopping_tab_export(shopping_tab_id: int, user_id: int | None = None) 
     filename = f'shopping-tab-{shopping_tab.pk}-{timezone.now():%Y%m%d-%H%M%S}.xlsx'
     export.file.save(filename, ContentFile(buffer.read()), save=True)
     return export
+
+
+def set_label(set_product) -> str:
+    """Набор, из которого пришла позиция: «артикул — название», или пусто."""
+    if set_product is None:
+        return ''
+    return ' — '.join(part for part in (set_product.number, set_product.name) if part)
+
+
+@transaction.atomic
+def add_set_to_cart(tab: ShoppingTab, set_product, quantity: int, user) -> list[CartItem]:
+    """Раскладывает набор на комплектующие: по позиции на каждый компонент,
+    количество — «количество в наборе × число наборов».
+
+    Кандидаты позиции — строки поставщиков самого компонента, а не поиск по
+    тексту: компонент известен точно. Подтверждён сразу тот поставщик, чья
+    цена стоит в строке «Из комплектующих» (product.set_costs, уровни
+    поставщиков) — так же быстрое добавление сразу подтверждает выбранный
+    товар. Без цены — позиция остаётся на выбор. Компонент, которого нет в
+    Price Manager, всё равно становится позицией — с его названием из PIM и
+    без кандидатов: из заявки не должно тихо пропасть то, что надо купить.
+
+    С уже лежащими в заявке позициями не объединяет — каждая помечена
+    source_set и видна как «из набора X».
+    """
+    from product.set_costs import set_totals_for
+
+    totals = set_totals_for([set_product.pk]).get(set_product.pk)
+    if totals is None:
+        return []
+    items = []
+    for line in totals.lines:
+        component = line.component
+        if component is not None:
+            search_query = component.name or component.number or line.item.component_name
+        else:
+            search_query = line.item.component_name or line.item.component_number
+        item = CartItem.objects.create(
+            user=user,
+            search_query=search_query,
+            quantity=line.amount * quantity,
+            source_set=set_product,
+            confirmed_product=line.cost_row if line.has_cost else None,
+        )
+        if component is not None:
+            item.products.set(MainProduct.objects.filter(product=component))
+        tab.items.add(item)
+        items.append(item)
+    return items
 
 
 def find_main_products(search_query: str|None) -> list[MainProduct]:
