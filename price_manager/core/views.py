@@ -733,10 +733,9 @@ class CartItemRemoveProductView(LoginRequiredMixin, View):
 class CartItemProductSelectView(LoginRequiredMixin, SingleTableMixin, FilterView):
     """Модалка выбора товаров Главного прайса для элемента корзины.
 
-    Построена по образцу ResolveMainproduct: тот же MainProductFilter и та же
-    htmx-таблица с догрузкой страниц, но одной плоской таблицей вместо разбивки
-    по категориям — иначе отметки чекбоксов разъехались бы по независимо
-    подгружаемым фрагментам.
+    MainProductFilter и htmx-таблица с догрузкой страниц, одной плоской
+    таблицей вместо разбивки по категориям — иначе отметки чекбоксов
+    разъехались бы по независимо подгружаемым фрагментам.
     """
     model = MainProduct
     filterset_class = MainProductFilter

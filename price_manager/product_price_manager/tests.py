@@ -643,3 +643,45 @@ class ClearUnsourcedPricesTests(TestCase):
         self.assertEqual(clear_unsourced_prices(), 0)
         update_prices()
         self.assertEqual(MainProductLog.objects.filter(main_product=mp).count(), logs)
+
+
+class PriceTagListTests(TestCase):
+    """Наценки в карточке ГП: заданные на товаре отдельно от пришедших из менеджеров."""
+
+    def setUp(self):
+        from django.contrib.auth.models import User
+        currency, _ = Currency.objects.get_or_create(name='KZT', defaults={'value': Decimal('1')})
+        self.supplier = Supplier.objects.create(name='Tags supplier', currency=currency,
+                                                delivery_days_available=1, delivery_days_navailable=2)
+        self.mp = MainProduct.objects.create(supplier=self.supplier, article='T-1', name='Tags row')
+        self.client.force_login(User.objects.create_user(username='tags', password='pw'))
+
+    def get_list(self):
+        from django.urls import reverse
+        return self.client.get(reverse('pricetag-list', kwargs={'pk': self.mp.pk}), HTTP_HX_REQUEST='true')
+
+    def test_manual_and_manager_pricetags_are_split(self):
+        from django.urls import reverse
+        manual = PriceTag.objects.create(mp=self.mp, source='fixed_price', dest='m_price',
+                                         fixed_price=Decimal('100'))
+        pm = PriceManager.objects.create(name='Правило карточки', supplier=self.supplier,
+                                         source='basic_price', dest='prime_cost',
+                                         markup=Decimal('0'), increase=Decimal('0'))
+        from_rule = PriceTag.objects.create(mp=self.mp, p_manager=pm, source='basic_price', dest='prime_cost')
+
+        response = self.get_list()
+
+        self.assertEqual(list(response.context['fixed_pricetags']), [manual])
+        self.assertEqual(list(response.context['manager_pricetags']), [from_rule])
+        content = response.content.decode()
+        self.assertLess(content.index('Фиксированные'), content.index('Из менеджеров наценок'))
+        self.assertLess(content.index('Из менеджеров наценок'), content.index('Правило карточки'))
+        # Тег правила правится в менеджере: его перезапишет следующее применение.
+        self.assertIn(reverse('pricetag-update', args=[manual.pk]), content)
+        self.assertNotIn(reverse('pricetag-update', args=[from_rule.pk]), content)
+        self.assertIn(reverse('pricemanager-update', args=[pm.pk]), content)
+
+    def test_empty_sections_say_so(self):
+        response = self.get_list()
+        self.assertContains(response, 'Нет наценок, заданных для этого товара.')
+        self.assertContains(response, 'Ни один менеджер наценок не применяется к этому товару.')

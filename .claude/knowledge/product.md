@@ -288,8 +288,8 @@ measuring on the prod snapshot or driving the page in a browser.
 
 - **The filter partials are shared: an edit lands on every screen that
   renders them.** `category_tree_field.html`/`category_tree_node.html`:
-  `product/filters.py:175` and `main_product_manager/filters.py:117,134`
-  ([[main_product_manager]]'s cart picker and «Привязать из ГП»).
+  `product/filters.py:175` and `main_product_manager/filters.py:121`
+  ([[main_product_manager]]'s cart picker).
   `core/includes/checkbox_field.html`: `product/filters.py:337,339`,
   `main_product_manager/filters.py:118-119,138,142` (`:118-119` render its
   `#checkboxes` partialdef on the OOB path — see [[core]]) and
