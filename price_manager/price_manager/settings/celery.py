@@ -32,6 +32,10 @@ CELERY_BEAT_SCHEDULE = {
         'task': 'main_product_manager.update_prices',
         'schedule': CELERY_PRICE_UPDATE_MINUTES * 60,
     },
+    'update-product-prices': {
+        'task': 'product_pricing.update_product_prices',
+        'schedule': CELERY_PRICE_UPDATE_MINUTES * 60,
+    },
     'update-stocks': {
         'task': 'main_product_manager.update_stocks',
         'schedule': CELERY_STOCK_UPDATE_MINUTES * 60,

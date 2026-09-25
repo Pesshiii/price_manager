@@ -1,0 +1,79 @@
+{% extends "base.html" %}
+{% load django_tables2 %}
+
+{% block title %}Цены товаров{% endblock %}
+
+{% block body %}
+<div class="container-fluid py-3">
+  <div class="d-flex flex-wrap align-items-center gap-2 mb-3">
+    <h1 class="h4 mb-0 me-auto">Цены товаров</h1>
+    {% if last_run %}
+      <span class="small text-body-secondary">
+        Последний пересчёт: {{ last_run.finished_at|date:"d.m.Y H:i" }}
+        {% if last_run.status != 'success' %}— <span class="text-danger">{{ last_run.get_status_display }}</span>{% endif %}
+      </span>
+    {% endif %}
+    <form method="post" action="{% url 'product-prices-recalculate' %}">
+      {% csrf_token %}
+      <button type="submit" class="btn btn-outline-primary btn-sm">
+        <i class="bi bi-arrow-repeat me-1" aria-hidden="true"></i>Пересчитать сейчас
+      </button>
+    </form>
+  </div>
+
+  <p class="text-body-secondary small mb-4">
+    Основная цена товара берётся из цен его поставщиков: верхний уровень по цене, внутри него — минимальная.
+    Наценки считают из неё расчётные цены, которые показываются на странице «Товары».
+    Если товару подходят несколько наценок одного типа цены, действует одна — с меньшим приоритетом.
+    Цены пересчитываются по расписанию.
+  </p>
+
+  <section class="mb-4">
+    <div class="d-flex align-items-center gap-2 mb-2">
+      <h2 class="h6 mb-0 me-auto">Типы цен</h2>
+      <button type="button" class="btn btn-primary btn-sm"
+              data-bs-toggle="modal" data-bs-target="#modal-container"
+              hx-get="{% url 'product-price-type-create' %}"
+              hx-target="#modal-container .modal-content" hx-swap="innerHTML">
+        <i class="bi bi-plus-lg me-1" aria-hidden="true"></i>Добавить тип цены
+      </button>
+    </div>
+    {% if has_types %}
+      {% render_table types_table %}
+    {% else %}
+      <div class="alert alert-light mb-0">Типов цен пока нет. Добавьте, например, «Розничная».</div>
+    {% endif %}
+  </section>
+
+  <section>
+    <div class="d-flex align-items-center gap-2 mb-2">
+      <h2 class="h6 mb-0 me-auto">Наценки на товар</h2>
+      {% if has_types %}
+        <button type="button" class="btn btn-primary btn-sm"
+                data-bs-toggle="modal" data-bs-target="#modal-container"
+                hx-get="{% url 'product-price-rule-create' %}"
+                hx-target="#modal-container .modal-content" hx-swap="innerHTML">
+          <i class="bi bi-plus-lg me-1" aria-hidden="true"></i>Добавить наценку
+        </button>
+      {% endif %}
+    </div>
+    {% if rules_table.data|length %}
+      {% render_table rules_table %}
+    {% else %}
+      <div class="alert alert-light mb-0">
+        {% if has_types %}Наценок пока нет.{% else %}Сначала добавьте тип цены.{% endif %}
+      </div>
+    {% endif %}
+  </section>
+</div>
+
+<div id="modal-container" class="modal modal-xl fade" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <div class="container d-flex justify-content-center mb-4 mt-4">
+        <div class="spinner-grow" role="status"></div>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}

@@ -99,6 +99,23 @@ class Product(models.Model):
         verbose_name='Бренд',
     )
     raw_data = models.JSONField('Сырые данные PIM', default=dict, blank=True)
+    # Основные цены товара — те же семь, что у MainProduct (MP_PRICES), сведённые
+    # по строкам поставщиков правилом main_values.main_row: верхний уровень
+    # Supplier.price_priority, внутри него минимальная ненулевая. Пишет только
+    # services/prices.recalculate_base_prices, руками не правятся. Это исходные
+    # цены для наценок product_pricing; расчётные цены лежат там, в ProductPrice.
+    prime_cost = models.DecimalField('Себестоимость', max_digits=20, decimal_places=2, null=True, blank=True)
+    wholesale_price = models.DecimalField('Оптовая цена', max_digits=20, decimal_places=2, null=True, blank=True)
+    basic_price = models.DecimalField('Базовая цена', max_digits=20, decimal_places=2, null=True, blank=True)
+    m_price = models.DecimalField('Цена ИМ', max_digits=20, decimal_places=2, null=True, blank=True)
+    wholesale_price_extra = models.DecimalField(
+        'Оптовая цена доп.', max_digits=20, decimal_places=2, null=True, blank=True)
+    discount_price = models.DecimalField('Цена со скидкой', max_digits=20, decimal_places=2, null=True, blank=True)
+    kaspi_price = models.DecimalField('Цена Каспи', max_digits=20, decimal_places=2, null=True, blank=True)
+    prices_updated_at = models.DateTimeField('Цены пересчитаны', null=True, blank=True)
+    # Что последним ушло в PIM: {поле PriceManagerProduct: значение}. Отправка
+    # сравнивает с этим снимком и шлёт только изменившиеся товары.
+    pim_pushed_prices = models.JSONField('Цены, отправленные в PIM', default=dict, blank=True, editable=False)
     search_vector = SearchVectorField('Вектор поиска', null=True, editable=False)
     created_at = models.DateTimeField('Создан', auto_now_add=True)
     updated_at = models.DateTimeField('Обновлён', auto_now=True)
