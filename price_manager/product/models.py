@@ -72,6 +72,14 @@ class Brand(models.Model):
         return self.name
 
 
+# Основные цены Product из прайса поставщика: поле Product -> поле SupplierProduct.
+SUPPLIER_PRICE_FIELDS = {
+    'supplier_price': 'supplier_price',
+    'rrp': 'rrp',
+    'supplier_discount_price': 'discount_price',
+}
+
+
 class Product(models.Model):
     # Id of this Product's PriceManagerProduct in PIM — the through record whose
     # platformID is our pk and whose productId points at the PIM Product. NULL
@@ -100,8 +108,9 @@ class Product(models.Model):
     )
     raw_data = models.JSONField('Сырые данные PIM', default=dict, blank=True)
     # Основные цены товара — те же семь, что у MainProduct (MP_PRICES), сведённые
-    # по строкам поставщиков правилом main_values.main_row: верхний уровень
-    # Supplier.price_priority, внутри него минимальная ненулевая. Пишет только
+    # по строкам поставщиков так же, как в экспорте: верхний уровень
+    # Supplier.price_priority, на уровне — поставщик с минимальной
+    # себестоимостью, у него первая ненулевая (services/prices.py). Пишет только
     # services/prices.recalculate_base_prices, руками не правятся. Это исходные
     # цены для наценок product_pricing; расчётные цены лежат там, в ProductPrice.
     prime_cost = models.DecimalField('Себестоимость', max_digits=20, decimal_places=2, null=True, blank=True)
@@ -112,6 +121,14 @@ class Product(models.Model):
         'Оптовая цена доп.', max_digits=20, decimal_places=2, null=True, blank=True)
     discount_price = models.DecimalField('Цена со скидкой', max_digits=20, decimal_places=2, null=True, blank=True)
     kaspi_price = models.DecimalField('Цена Каспи', max_digits=20, decimal_places=2, null=True, blank=True)
+    # Цены из прайса поставщика (SupplierProduct, SP_PRICES), переведённые в
+    # тенге по курсу валюты поставщика — тем же выбором поставщика, что и цены
+    # выше. Ключ: SUPPLIER_PRICE_FIELDS.
+    supplier_price = models.DecimalField(
+        'Цена поставщика, тг', max_digits=20, decimal_places=2, null=True, blank=True)
+    rrp = models.DecimalField('РРЦ, тг', max_digits=20, decimal_places=2, null=True, blank=True)
+    supplier_discount_price = models.DecimalField(
+        'Цена поставщика со скидкой, тг', max_digits=20, decimal_places=2, null=True, blank=True)
     prices_updated_at = models.DateTimeField('Цены пересчитаны', null=True, blank=True)
     # Что последним ушло в PIM: {поле PriceManagerProduct: значение}. Отправка
     # сравнивает с этим снимком и шлёт только изменившиеся товары.

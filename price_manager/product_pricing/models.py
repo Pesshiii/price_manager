@@ -18,23 +18,52 @@ from django.core.exceptions import ValidationError
 from django.core.validators import MinValueValidator
 from django.db import models
 from django.utils import timezone
+from django.utils.formats import number_format
 
 from main_product_manager.models import MP_PRICES
+from product.models import SUPPLIER_PRICE_FIELDS
 
-# Цены Product, от которых может считать правило. Подписи — как у полей Product.
+# Основные цены Product, от которых может считать правило, — сгруппированы так,
+# как их знают менеджеры: из главного прайса (ГП) и из прайса поставщика (ПП).
 SOURCE_FIXED = 'fixed_price'
-SOURCE_CHOICES = [
+GP_SOURCES = [
     ('prime_cost', 'Себестоимость'),
     ('wholesale_price', 'Оптовая цена'),
+    ('wholesale_price_extra', 'Оптовая цена доп.'),
     ('basic_price', 'Базовая цена'),
     ('m_price', 'Цена ИМ'),
-    ('wholesale_price_extra', 'Оптовая цена доп.'),
-    ('discount_price', 'Цена со скидкой'),
     ('kaspi_price', 'Цена Каспи'),
-    (SOURCE_FIXED, 'Фиксированная цена'),
+    ('discount_price', 'Цена со скидкой'),
 ]
-SOURCE_PRICES = [key for key, _ in SOURCE_CHOICES if key != SOURCE_FIXED]
-assert set(SOURCE_PRICES) == set(MP_PRICES), 'источники наценок должны совпадать с ценами Product (MP_PRICES)'
+PP_SOURCES = [
+    ('supplier_price', 'Цена поставщика'),
+    ('rrp', 'РРЦ'),
+    ('supplier_discount_price', 'Цена поставщика со скидкой'),
+]
+SOURCE_CHOICES = [
+    ('Главный прайс (ГП)', GP_SOURCES),
+    ('Прайс поставщика (ПП), в тенге', PP_SOURCES),
+    ('Без источника', [(SOURCE_FIXED, 'Фиксированная цена')]),
+]
+SOURCE_LABELS = dict(GP_SOURCES + PP_SOURCES + [(SOURCE_FIXED, 'Фиксированная цена')])
+SOURCE_PRICES = [key for key, _ in GP_SOURCES + PP_SOURCES]
+assert set(SOURCE_PRICES) == set(MP_PRICES) | set(SUPPLIER_PRICE_FIELDS), \
+    'источники наценок должны совпадать с основными ценами Product'
+
+
+def money(value) -> str:
+    """«1 250», «12,50» — без лишних нулей после запятой, с разрядами."""
+    if value is None:
+        return '—'
+    value = Decimal(value)
+    decimals = 0 if value == value.to_integral_value() else 2
+    return number_format(value, decimal_pos=decimals, force_grouping=True)
+
+
+def _listed(what, names, limit=3):
+    shown = ', '.join(names[:limit])
+    rest = len(names) - limit
+    return f'{what}: {shown}' + (f' и ещё {rest}' if rest > 0 else '')
 
 
 class ProductPriceType(models.Model):
@@ -71,7 +100,8 @@ class ProductPriceRule(models.Model):
     """Наценка на товар: цена-источник Product → расчётная цена типа price_type.
 
     Отбор товаров — все условия вместе (И): категории (с подкатегориями),
-    бренды, диапазон цены-источника. Пустое условие — не ограничивает.
+    бренды, «только наборы», диапазон цены-источника. Пустое условие — не
+    ограничивает.
 
     Если товару подходят несколько правил одного типа цены, действует одно —
     с меньшим «Приоритетом», при равном — созданное раньше. Правила не
@@ -90,6 +120,9 @@ class ProductPriceRule(models.Model):
     brands = models.ManyToManyField(
         'product.Brand', related_name='price_rules', blank=True, verbose_name='Бренды',
         help_text='Пусто — все бренды, включая товары без бренда.')
+    only_sets = models.BooleanField(
+        'Только наборы', default=False,
+        help_text='Только товары с составом набора из PIM (product.ProductSetItem).')
     price_from = models.DecimalField('Цена от', max_digits=20, decimal_places=2, null=True, blank=True,
                                      validators=[MinValueValidator(0)],
                                      help_text='Диапазон цены-источника, включительно.')
@@ -139,15 +172,45 @@ class ProductPriceRule(models.Model):
         if errors:
             raise ValidationError(errors)
 
+    def get_source_display(self) -> str:
+        return SOURCE_LABELS.get(self.source, self.source)
+
     def formula_label(self) -> str:
+        """«Себестоимость + 35 % + 100 тг, вверх до 10» — как правило считает."""
         if self.is_fixed:
-            return f'{self.fixed_price} тг'
-        label = f'{self.get_source_display()} + {self.markup}%'
+            return f'{money(self.fixed_price)} тг'
+        label = self.get_source_display()
+        if self.markup:
+            label += f' {"+" if self.markup > 0 else "−"} {money(abs(self.markup))} %'
         if self.increase:
-            label += f' + {self.increase} тг'
+            label += f' {"+" if self.increase > 0 else "−"} {money(abs(self.increase))} тг'
         if self.rounding:
-            label += f', вверх до {self.rounding}'
+            label += f', вверх до {money(self.rounding)}'
         return label
+
+    def scope_label(self, categories=None, brands=None) -> str:
+        """Какие товары правило берёт — одной строкой, для таблицы и предпросмотра.
+
+        Связи — через .all(), чтобы работать с предзагрузкой списка;
+        categories/brands — для несохранённого правила из формы.
+        """
+        parts = []
+        categories = [c.name for c in (self.categories.all() if categories is None else categories)]
+        brands = [b.name for b in (self.brands.all() if brands is None else brands)]
+        if categories:
+            parts.append(_listed('категории', categories))
+        if brands:
+            parts.append(_listed('бренды', brands))
+        if self.only_sets:
+            parts.append('только наборы')
+        if not self.is_fixed and (self.price_from is not None or self.price_to is not None):
+            if self.price_from is not None and self.price_to is not None:
+                parts.append(f'{self.get_source_display().lower()} {money(self.price_from)}–{money(self.price_to)} тг')
+            elif self.price_from is not None:
+                parts.append(f'{self.get_source_display().lower()} от {money(self.price_from)} тг')
+            else:
+                parts.append(f'{self.get_source_display().lower()} до {money(self.price_to)} тг')
+        return '; '.join(parts) if parts else 'все товары'
 
     def compute(self, source_value):
         """Расчётная цена из цены-источника; None — считать не из чего.

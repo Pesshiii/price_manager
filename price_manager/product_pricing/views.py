@@ -1,15 +1,17 @@
 from django.contrib import messages
 from django.db.models import Count, ProtectedError
-from django.shortcuts import redirect
+from django.shortcuts import redirect, render
 from django.urls import reverse
 from django.views.generic import CreateView, TemplateView, UpdateView, View
 from django_htmx.http import HttpResponseClientRefresh
 
 from core.models import TaskRunHistory
+from core.task_runner import dispatch_after_commit
 
 from .forms import ProductPriceRuleForm, ProductPriceTypeForm
 from .models import ProductPriceRule, ProductPriceType
 from .tables import ProductPriceRuleTable, ProductPriceTypeTable
+from .services import preview_rule
 from .tasks import update_product_prices_task
 
 UPDATE_TASK_NAME = 'product_pricing.update_product_prices'
@@ -66,10 +68,14 @@ class _ModalDeleteMixin:
             try:
                 self.get_object().delete()
                 messages.success(request, self.delete_message)
+                self.after_delete()
             except ProtectedError:
                 messages.error(request, self.protected_message)
             return HttpResponseClientRefresh()
         return super().post(request, *args, **kwargs)
+
+    def after_delete(self):
+        pass
 
 
 class ProductPriceTypeCreate(_ModalFormMixin, CreateView):
@@ -90,19 +96,70 @@ class ProductPriceTypeUpdate(_ModalDeleteMixin, _ModalFormMixin, UpdateView):
     protected_message = 'У этого типа цены есть наценки — сначала удалите их'
 
 
-class ProductPriceRuleCreate(_ModalFormMixin, CreateView):
+class _RuleFormMixin:
+    """Модалка наценки: своя разметка и пересчёт сразу после сохранения —
+    чтобы результат был виден на «Товарах», а не «после следующего пересчёта»."""
+
     model = ProductPriceRule
     form_class = ProductPriceRuleForm
-    template_name = 'product_pricing/partials/modal_form.html'
-    extra_context = {'title': 'Новая наценка на товар'}
-    success_message = 'Наценка добавлена — цены пересчитаются при следующем пересчёте'
+    template_name = 'product_pricing/partials/rule_form.html'
+
+    def form_valid(self, form):
+        response = super().form_valid(form)
+        dispatch_after_commit(update_product_prices_task)
+        return response
+
+    def after_delete(self):
+        dispatch_after_commit(update_product_prices_task)
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        pk = self.object.pk if getattr(self, 'object', None) else ''
+        context['preview_url'] = f"{reverse('product-price-rule-preview')}?pk={pk}" if pk else \
+            reverse('product-price-rule-preview')
+        return context
 
 
-class ProductPriceRuleUpdate(_ModalDeleteMixin, _ModalFormMixin, UpdateView):
-    model = ProductPriceRule
-    form_class = ProductPriceRuleForm
-    template_name = 'product_pricing/partials/modal_form.html'
-    extra_context = {'title': 'Наценка на товар', 'can_delete': True,
-                     'delete_confirm': 'Удалить наценку? Её цены исчезнут при следующем пересчёте.'}
-    success_message = 'Наценка сохранена — цены пересчитаются при следующем пересчёте'
+class ProductPriceRuleCreate(_RuleFormMixin, _ModalFormMixin, CreateView):
+    extra_context = {'title': 'Новая наценка'}
+    success_message = 'Наценка добавлена, цены пересчитываются'
+
+    def get_initial(self):
+        initial = super().get_initial()
+        first_type = ProductPriceType.objects.first()
+        if first_type:
+            initial['price_type'] = first_type.pk
+        return initial
+
+
+class ProductPriceRuleUpdate(_RuleFormMixin, _ModalDeleteMixin, _ModalFormMixin, UpdateView):
+    extra_context = {'title': 'Наценка', 'can_delete': True,
+                     'delete_confirm': 'Удалить наценку? Её цены исчезнут после пересчёта.'}
+    success_message = 'Наценка сохранена, цены пересчитываются'
     delete_message = 'Наценка удалена'
+
+
+class ProductPriceRulePreview(View):
+    """Предпросмотр наценки по текущему состоянию формы — ещё до сохранения.
+
+    Форма может быть недозаполнена или с ошибками: берём то, что уже
+    разобралось (form.instance собирается из валидных полей даже у
+    невалидной формы), и показываем, что получилось бы.
+    """
+
+    def post(self, request, *args, **kwargs):
+        instance = None
+        if request.GET.get('pk'):
+            instance = ProductPriceRule.objects.filter(pk=request.GET['pk']).first()
+        form = ProductPriceRuleForm(request.POST, instance=instance)
+        form.is_valid()
+        rule = form.instance
+        context = {'rule': rule, 'errors': form.errors}
+        if rule.price_type_id:
+            cleaned = getattr(form, 'cleaned_data', {})
+            categories = list(cleaned.get('categories') or [])
+            brands = list(cleaned.get('brands') or [])
+            context['preview'] = preview_rule(rule, categories=categories,
+                                              brand_ids=[brand.pk for brand in brands])
+            context['scope_label'] = rule.scope_label(categories=categories, brands=brands)
+        return render(request, 'product_pricing/partials/rule_preview.html', context)

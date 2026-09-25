@@ -55,18 +55,7 @@ class ProductPriceRuleTable(tables.Table):
         return record.formula_label()
 
     def render_scope(self, record):
-        parts = []
-        categories = [category.name for category in record.categories.all()]
-        brands = [brand.name for brand in record.brands.all()]
-        if categories:
-            parts.append('Категории: ' + ', '.join(categories))
-        if brands:
-            parts.append('Бренды: ' + ', '.join(brands))
-        if not record.is_fixed and (record.price_from is not None or record.price_to is not None):
-            low = record.price_from if record.price_from is not None else '…'
-            high = record.price_to if record.price_to is not None else '…'
-            parts.append(f'Цена: {low} – {high}')
-        return '; '.join(parts) or 'Все товары'
+        return record.scope_label()
 
     def render_period(self, record):
         if not record.date_from and not record.date_to:

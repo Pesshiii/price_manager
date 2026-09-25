@@ -29,7 +29,8 @@ that explains it rather than explaining it here.
 | Уровень по цене, уровень по остаткам | `Supplier.price_priority`, `Supplier.stock_priority` | Smaller is higher; empty is the shared bottom level. |
 | Основная цена / основной остаток | `product.main_values` | The value by supplier levels, used by the export and by set cost. [[product/export]] |
 | Наценка, менеджер наценок | `PriceManager` (rule), `PriceTag` (verbose name «Наценка») | Applying a rule rewrites prices catalog-wide. [[product_price_manager/overview]] |
-| Основные цены товара | `Product.prime_cost` … `kaspi_price` | The seven `MP_PRICES` consolidated over suppliers by price level; `product/services/prices.py`. |
+| Основные цены товара | `Product.prime_cost` … `kaspi_price`, `supplier_price`, `rrp`, `supplier_discount_price` | ГП prices plus ПП prices in tenge, taken from the top price-level supplier with the lowest prime cost; `product/services/prices.py`. |
+| ПП, прайс поставщика (в наценках) | `SupplierProduct.supplier_price` / `rrp` / `discount_price` → `Product.supplier_price` / `rrp` / `supplier_discount_price` | Source group «Прайс поставщика (ПП)» in the rule form. |
 | Цены товаров, наценка на товар, тип цены, расчётная цена | `product_pricing`: `ProductPriceRule`, `ProductPriceType`, `ProductPrice` | Second pricing level, on `Product`; shown as columns on «Товары». See CLAUDE.md. |
 
 ## Suppliers and import
