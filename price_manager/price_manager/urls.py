@@ -43,6 +43,14 @@ urlpatterns = [
          name='pim-image'),
     path('products/<int:pk>/suppliers/', product_views.ProductSuppliersView.as_view(),
          name='product-suppliers'),
+    # Карточка товара: правка, удаление, строки ГП.
+    path('products/<int:pk>/', product_views.ProductDetailView.as_view(), name='product-detail'),
+    path('products/<int:pk>/edit/', product_views.ProductUpdateView.as_view(), name='product-update'),
+    path('products/<int:pk>/delete/', product_views.ProductDeleteView.as_view(), name='product-delete'),
+    path('products/<int:pk>/attach-main-product/', product_views.MainProductAttachView.as_view(),
+         name='product-attach-main-product'),
+    path('products/main-product/<int:pk>/move/', product_views.MainProductMoveView.as_view(),
+         name='main-product-move'),
 
     # SUPPLIER WORKFRAME
 

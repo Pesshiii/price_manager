@@ -2,29 +2,34 @@ import logging
 import os
 
 from django.contrib import messages
-from django.db.models import OuterRef, Prefetch, Subquery
+from django.db import transaction
+from django.db.models import OuterRef, Prefetch, Q, Subquery
 from django.http import FileResponse, Http404, HttpResponse, QueryDict
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse_lazy
-from django.views.generic import View
+from django.views.generic import DetailView, UpdateView, View
 from django_filters.views import FilterView
-from django_htmx.http import trigger_client_event
+from django_htmx.http import HttpResponseClientRedirect, HttpResponseClientRefresh, trigger_client_event
 from django_tables2 import SingleTableMixin
 
-from main_product_manager.models import MainProduct
+from core.task_runner import dispatch_after_commit
+from main_product_manager.models import MP_PRICES, MainProduct
+from main_product_manager.utils import fetch_pim_image, pim_image_url
 from product_pricing.models import ProductPrice
-from main_product_manager.utils import fetch_pim_image
+from product_pricing.services import product_price_rows
+from product_pricing.tasks import update_product_prices_task
 from supplier_product_manager.models import SupplierProduct
 
 from .columns import PRODUCT_COLUMN_GROUPS, load_columns, save_columns
-from .filters import CATEGORY_LABEL_DEPTH, ProductFilter, search_terms
-from .models import Category, Product, ProductExport
-from .services.prices import BASE_PRICE_FIELDS
+from .filters import CATEGORY_LABEL_DEPTH, ProductFilter, matching_product_pks, ranked, search_terms
+from .forms import ProductForm
+from .models import SUPPLIER_PRICE_FIELDS, Category, Product, ProductExport
+from .services.prices import BASE_PRICE_FIELDS, recalculate_base_prices
 from .set_costs import attach_set_info, set_totals_for
 from .tasks import export_products_task
 from .tables import (
     ProductTable, SupplierRowTable, annotate_product_rows, best_match_groups_first,
-    with_category_headers,
+    category_path, primary_category, with_category_headers,
 )
 
 logger = logging.getLogger(__name__)
@@ -327,3 +332,166 @@ class PimImageView(View):
         response = HttpResponse(content, content_type=content_type)
         response['Cache-Control'] = 'private, max-age=86400'
         return response
+
+
+# --- карточка товара ---------------------------------------------------------
+
+def _price_list(product, fields):
+    return [(Product._meta.get_field(field).verbose_name, getattr(product, field))
+            for field in fields if getattr(product, field)]
+
+
+class ProductDetailView(DetailView):
+    """Карточка товара: цены (расчётные и основные), строки ГП, состав набора.
+
+    Отсюда же правка и удаление товара, перенос строк ГП и наценка на этот
+    товар — всё модалками в #modal-container, успех перезагружает карточку.
+    """
+
+    model = Product
+    template_name = 'product/detail.html'
+    context_object_name = 'product'
+
+    def get_queryset(self):
+        categories = Category.objects.select_related(CATEGORY_LABEL_DEPTH)
+        return Product.objects.select_related('brand').prefetch_related(
+            Prefetch('categories', queryset=categories))
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        product = self.object
+        main_products = list(
+            MainProduct.objects.filter(product=product)
+            .select_related('supplier', 'supplier__currency')
+            .annotate(**_latest_supplier_prices())
+            .order_by('supplier__name', 'article'))
+        category = primary_category(product)
+        data = product.raw_data or {}
+        context.update({
+            'main_products': main_products,
+            'category_path': category_path(category) if category else [],
+            'price_rows': product_price_rows(product),
+            'gp_prices': _price_list(product, MP_PRICES),
+            'pp_prices': _price_list(product, SUPPLIER_PRICE_FIELDS),
+            'set_totals': set_totals_for([product.pk]).get(product.pk),
+            'in_sets': Product.objects.filter(set_items__component=product).distinct().order_by('name'),
+            'photo_url': pim_image_url(data.get('mainImageId') or data.get('imageId')),
+        })
+        return context
+
+
+class ProductUpdateView(UpdateView):
+    model = Product
+    form_class = ProductForm
+    template_name = 'product/partials/product_form.html'
+
+    def form_valid(self, form):
+        form.save()
+        messages.success(self.request, 'Товар сохранён')
+        return HttpResponseClientRefresh()
+
+
+class ProductDeleteView(View):
+    """Удаление товара — только без строк ГП.
+
+    Строка ГП без товара ночью снова привязывается к товару с артикулом = её
+    sku (link_unlinked_main_products), и если его нет, он создаётся заново:
+    удалённый вместе со строками товар вернулся бы сам. Поэтому сначала
+    строки переносят в другие товары, потом удаляют.
+    """
+
+    template_name = 'product/partials/product_delete.html'
+
+    def get(self, request, pk):
+        product = get_object_or_404(Product, pk=pk)
+        return render(request, self.template_name, {
+            'product': product,
+            'main_products_count': product.main_products.count(),
+            'prices_count': product.prices.count(),
+            'set_items_count': product.set_items.count(),
+        })
+
+    def post(self, request, pk):
+        product = get_object_or_404(Product, pk=pk)
+        if product.main_products.exists():
+            messages.error(request, 'У товара есть строки ГП — перенесите их в другие товары')
+            return HttpResponseClientRefresh()
+        name = product.display_name
+        product.delete()
+        messages.success(request, f'Товар «{name}» удалён')
+        return HttpResponseClientRedirect(reverse_lazy('products'))
+
+
+def _relinked(request, main_product, target, message):
+    """Перенос строки ГП в другой товар и пересчёт цен обоих.
+
+    Основные цены двух товаров пересчитываются сразу — это дёшево, и карточка
+    после перезагрузки уже верна; расчётные — общим пересчётом после коммита.
+    Связь, поставленная руками, ночью не трогается: link_unlinked_main_products
+    привязывает только строки без товара.
+    """
+    source_pk = main_product.product_id
+    with transaction.atomic():
+        main_product.product = target
+        main_product.save(update_fields=['product'])
+        recalculate_base_prices(pks=[pk for pk in (source_pk, target.pk) if pk])
+        dispatch_after_commit(update_product_prices_task)
+    messages.success(request, message)
+    return HttpResponseClientRefresh()
+
+
+SEARCH_LIMIT = 12
+
+
+class MainProductAttachView(View):
+    """«Привязать строку ГП»: поиск строк ГП и перенос выбранной в этот товар.
+
+    Строка забирается из товара, где она была, — у строки ГП товар один.
+    """
+
+    template_name = 'product/partials/attach_main_product.html'
+
+    def get(self, request, pk):
+        product = get_object_or_404(Product, pk=pk)
+        query = request.GET.get('q', '').strip()
+        results = []
+        if query:
+            condition = Q()
+            for term in search_terms(query):
+                condition &= Q(sku__icontains=term) | Q(article__icontains=term) | Q(name__icontains=term)
+            results = list(MainProduct.objects.filter(condition).exclude(product=product)
+                           .select_related('supplier', 'product').order_by('sku', 'pk')[:SEARCH_LIMIT])
+        template = self.template_name + '#results' if 'q' in request.GET else self.template_name
+        return render(request, template, {'product': product, 'query': query, 'results': results,
+                                          'limit': SEARCH_LIMIT})
+
+    def post(self, request, pk):
+        product = get_object_or_404(Product, pk=pk)
+        main_product = get_object_or_404(MainProduct, pk=request.POST.get('main_product'))
+        return _relinked(request, main_product, product,
+                         f'Строка ГП «{main_product.name}» привязана к товару')
+
+
+class MainProductMoveView(View):
+    """«Перенести в другой товар»: поиск товара и перенос строки ГП в него."""
+
+    template_name = 'product/partials/move_main_product.html'
+
+    def get(self, request, pk):
+        main_product = get_object_or_404(MainProduct.objects.select_related('supplier', 'product'), pk=pk)
+        query = request.GET.get('q', '').strip()
+        results = []
+        if query:
+            results = list(ranked(
+                Product.objects.filter(pk__in=matching_product_pks(query))
+                .exclude(pk=main_product.product_id).select_related('brand'),
+                query)[:SEARCH_LIMIT])
+        template = self.template_name + '#results' if 'q' in request.GET else self.template_name
+        return render(request, template, {'main_product': main_product, 'query': query,
+                                          'results': results, 'limit': SEARCH_LIMIT})
+
+    def post(self, request, pk):
+        main_product = get_object_or_404(MainProduct, pk=pk)
+        target = get_object_or_404(Product, pk=request.POST.get('product'))
+        return _relinked(request, main_product, target,
+                         f'Строка ГП перенесена в товар «{target.display_name}»')

@@ -333,7 +333,9 @@ class ProductTable(tables.Table):
         meta_html = (format_html('<div class="product-meta">{}</div>',
                                  format_html_join(' · ', '{}', ((part,) for part in parts)))
                      if parts else '')
-        return format_html('<div class="product-name" title="{}">{}</div>{}', value, value, meta_html)
+        return format_html(
+            '<div class="product-name" title="{}"><a class="product-name-link" href="{}">{}</a></div>{}',
+            value, reverse('product-detail', kwargs={'pk': record.pk}), value, meta_html)
 
     def render_prime_cost_range(self, record):
         """Диапазон себестоимости по поставщикам товара.

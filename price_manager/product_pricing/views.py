@@ -15,6 +15,8 @@ from .services import preview_rule
 from .tasks import update_product_prices_task
 
 UPDATE_TASK_NAME = 'product_pricing.update_product_prices'
+# Приоритет наценки, заведённой с карточки товара: важнее общих (100).
+PRODUCT_RULE_PRIORITY = 10
 
 
 class ProductPricingPage(TemplateView):
@@ -28,7 +30,7 @@ class ProductPricingPage(TemplateView):
         types = (ProductPriceType.objects.annotate(prices_count=Count('prices'))
                  .order_by(*ProductPriceType._meta.ordering))
         rules = (ProductPriceRule.objects.select_related('price_type')
-                 .prefetch_related('categories', 'brands')
+                 .prefetch_related('categories', 'brands', 'products')
                  .annotate(prices_count=Count('prices'))
                  .order_by(*ProductPriceRule._meta.ordering))
         context['types_table'] = ProductPriceTypeTable(types)
@@ -125,10 +127,17 @@ class ProductPriceRuleCreate(_RuleFormMixin, _ModalFormMixin, CreateView):
     success_message = 'Наценка добавлена, цены пересчитываются'
 
     def get_initial(self):
+        """?product=<pk> — «Наценка на этот товар» с карточки товара: товар уже
+        выбран, а приоритет выше общих наценок (по умолчанию у них 100), иначе
+        такая наценка почти всегда проигрывала бы им."""
         initial = super().get_initial()
         first_type = ProductPriceType.objects.first()
         if first_type:
             initial['price_type'] = first_type.pk
+        product_pk = self.request.GET.get('product')
+        if product_pk and product_pk.isdigit():
+            initial['products'] = [product_pk]
+            initial['priority'] = PRODUCT_RULE_PRIORITY
         return initial
 
 
@@ -159,7 +168,9 @@ class ProductPriceRulePreview(View):
             cleaned = getattr(form, 'cleaned_data', {})
             categories = list(cleaned.get('categories') or [])
             brands = list(cleaned.get('brands') or [])
+            products = list(cleaned.get('products') or [])
             context['preview'] = preview_rule(rule, categories=categories,
-                                              brand_ids=[brand.pk for brand in brands])
-            context['scope_label'] = rule.scope_label(categories=categories, brands=brands)
+                                              brand_ids=[brand.pk for brand in brands],
+                                              product_ids=[product.pk for product in products])
+            context['scope_label'] = rule.scope_label(categories=categories, brands=brands, products=products)
         return render(request, 'product_pricing/partials/rule_preview.html', context)

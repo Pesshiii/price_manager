@@ -1,0 +1,48 @@
+{% comment %}
+  «Перенести в другой товар»: поиск товара тем же поиском, что на «Товарах»
+  (filters.matching_product_pks), и перенос строки ГП в выбранный.
+  Ответ на поиск — только #results (hx-get с ?q=).
+{% endcomment %}
+<div class="modal-header">
+  <h5 class="modal-title fw-semibold">Перенести строку ГП в другой товар</h5>
+  <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Закрыть"></button>
+</div>
+<div class="modal-body">
+  <p class="small text-body-secondary">
+    {{ main_product.supplier.name|default:"Без поставщика" }} · {{ main_product.article }} · {{ main_product.name }}
+  </p>
+  <div class="input-group mb-3">
+    <span class="input-group-text"><i class="bi bi-search" aria-hidden="true"></i></span>
+    <input type="search" name="q" class="form-control" autofocus autocomplete="off"
+           placeholder="Артикул или название товара" aria-label="Поиск товара"
+           hx-get="{% url 'main-product-move' main_product.pk %}"
+           hx-trigger="input changed delay:300ms, search"
+           hx-target="#move-results" hx-swap="innerHTML">
+  </div>
+  <div id="move-results">
+    {% partialdef results inline %}
+      {% if not query %}
+        <p class="small text-body-secondary mb-0">Найдите товар, в который перенести строку.</p>
+      {% elif not results %}
+        <p class="small text-body-secondary mb-0">Ничего не найдено.</p>
+      {% else %}
+        <div class="list-group list-group-flush">
+          {% for product in results %}
+            <form method="post" class="list-group-item d-flex align-items-center gap-3 px-0"
+                  hx-post="{% url 'main-product-move' main_product.pk %}"
+                  hx-target="#modal-container .modal-content" hx-swap="innerHTML">
+              {% csrf_token %}
+              <input type="hidden" name="product" value="{{ product.pk }}">
+              <div class="flex-grow-1 min-w-0">
+                <div class="text-truncate">{{ product.display_name }}</div>
+                <div class="small text-body-secondary">{{ product.number|default:"без артикула" }}{% if product.brand %} · {{ product.brand.name }}{% endif %}</div>
+              </div>
+              <button type="submit" class="btn btn-sm btn-outline-primary flex-none">Перенести сюда</button>
+            </form>
+          {% endfor %}
+        </div>
+        {% if results|length == limit %}<p class="small text-body-secondary mt-2 mb-0">Показаны первые {{ limit }} — уточните запрос.</p>{% endif %}
+      {% endif %}
+    {% endpartialdef %}
+  </div>
+</div>

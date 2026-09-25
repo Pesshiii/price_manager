@@ -1,0 +1,266 @@
+{% extends "base.html" %}
+{% comment %}
+  Карточка товара. Три блока — цены, строки ГП, набор — и действия в шапке.
+  Всё, что меняет данные, открывается модалкой в #modal-container и по успеху
+  перезагружает карточку (htmx-modal-crud).
+{% endcomment %}
+
+{% block title %}{{ product.display_name }}{% endblock %}
+
+{% block style %}
+<style>
+  .pd { max-width: 1200px; }
+  .pd-crumbs { font-size: .8125rem; color: var(--bs-secondary-color); margin-bottom: .75rem; }
+  .pd-crumbs a { color: inherit; text-decoration: none; }
+  .pd-crumbs a:hover { color: var(--bs-body-color); }
+  .pd-crumbs .bi { font-size: .625rem; margin: 0 .25rem; }
+  .pd-head { display: flex; gap: 1rem; align-items: flex-start; margin-bottom: 1.5rem; }
+  .pd-photo { width: 72px; height: 72px; object-fit: contain; border-radius: .5rem; background: var(--bs-tertiary-bg); flex: none; }
+  .pd-title { font-size: 1.375rem; font-weight: 600; margin: 0 0 .25rem; }
+  .pd-meta { font-size: .875rem; color: var(--bs-secondary-color); display: flex; flex-wrap: wrap; gap: .25rem .75rem; align-items: center; }
+  .pd-meta code { color: var(--bs-body-color); font-size: .875rem; }
+  .pd-tag { font-size: .75rem; border: 1px solid var(--bs-border-color); border-radius: 1rem; padding: 0 .5rem; }
+  .pd-tag.is-set { border-color: var(--bs-primary-border-subtle); color: var(--bs-primary-text-emphasis); }
+  .pd-actions { margin-left: auto; display: flex; gap: .5rem; flex: none; }
+  .pd-section { margin-bottom: 2rem; }
+  .pd-section-head { display: flex; align-items: baseline; gap: .75rem; margin-bottom: .5rem; }
+  .pd-section-head h2 { font-size: 1rem; font-weight: 600; margin: 0; }
+  .pd-section-head .pd-count { color: var(--bs-secondary-color); font-size: .875rem; }
+  .pd-section-head .btn { margin-left: auto; }
+  .pd-table { font-size: .875rem; margin: 0; }
+  .pd-table th { font-weight: 500; color: var(--bs-secondary-color); font-size: .8125rem; white-space: nowrap; }
+  .pd-table td, .pd-table th { padding: .45rem .5rem; }
+  .pd-num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+  .pd-muted { color: var(--bs-secondary-color); }
+  .pd-price { font-size: 1rem; font-weight: 600; }
+  .pd-rule a { text-decoration: none; }
+  .pd-overridden { font-size: .75rem; color: var(--bs-secondary-color); }
+  .pd-base { display: grid; grid-template-columns: auto 1fr; gap: .25rem 1rem; font-size: .8125rem; margin-top: .75rem; }
+  .pd-base dt { font-weight: 400; color: var(--bs-secondary-color); }
+  .pd-base dd { margin: 0; }
+  .pd-base dd span { margin-right: 1rem; white-space: nowrap; }
+  .pd-empty { font-size: .875rem; color: var(--bs-secondary-color); padding: .75rem 0; }
+  .pd-row-actions { white-space: nowrap; text-align: right; }
+  .pd-row-actions .btn { --bs-btn-padding-y: .1rem; --bs-btn-padding-x: .4rem; }
+  @media (max-width: 767.98px) {
+    .pd-head { flex-wrap: wrap; }
+    .pd-actions { margin-left: 0; width: 100%; }
+  }
+</style>
+{% endblock %}
+
+{% block body %}
+<div class="container-fluid pd py-3">
+  <nav class="pd-crumbs" aria-label="Путь">
+    <a href="{% url 'products' %}">Товары</a>
+    {% for name in category_path %}<i class="bi bi-chevron-right" aria-hidden="true"></i>{{ name }}{% endfor %}
+  </nav>
+
+  <header class="pd-head">
+    {% if photo_url %}<img class="pd-photo" src="{{ photo_url }}" alt="">{% endif %}
+    <div class="min-w-0">
+      <h1 class="pd-title">{{ product.display_name }}</h1>
+      <div class="pd-meta">
+        <span>Артикул <code>{{ product.number|default:"—" }}</code></span>
+        {% if product.brand %}<span>{{ product.brand.name }}</span>{% endif %}
+        {% for category in product.categories.all %}<span>{{ category.name }}</span>{% endfor %}
+        {% if set_totals %}<span class="pd-tag is-set">Набор</span>{% endif %}
+        {% if product.raw_data %}
+          <span class="pd-tag" title="Название, бренд и категории приходят из PIM">из PIM</span>
+        {% elif product.pim_id %}
+          <span class="pd-tag" title="Связь с PIM есть, данные ещё не загружены">PIM: нет данных</span>
+        {% else %}
+          <span class="pd-tag" title="Связь с PIM появится после ночной синхронизации">нет в PIM</span>
+        {% endif %}
+      </div>
+    </div>
+    <div class="pd-actions">
+      <button type="button" class="btn btn-sm btn-outline-secondary"
+              data-bs-toggle="modal" data-bs-target="#modal-container"
+              hx-get="{% url 'product-update' product.pk %}"
+              hx-target="#modal-container .modal-content" hx-swap="innerHTML">
+        <i class="bi bi-pencil me-1" aria-hidden="true"></i>Изменить
+      </button>
+      <button type="button" class="btn btn-sm btn-outline-danger"
+              data-bs-toggle="modal" data-bs-target="#modal-container"
+              hx-get="{% url 'product-delete' product.pk %}"
+              hx-target="#modal-container .modal-content" hx-swap="innerHTML"
+              aria-label="Удалить товар" title="Удалить товар">
+        <i class="bi bi-trash3" aria-hidden="true"></i>
+      </button>
+    </div>
+  </header>
+
+  <section class="pd-section">
+    <div class="pd-section-head">
+      <h2>Цены</h2>
+      <button type="button" class="btn btn-sm btn-outline-primary"
+              data-bs-toggle="modal" data-bs-target="#modal-container"
+              hx-get="{% url 'product-price-rule-create' %}?product={{ product.pk }}"
+              hx-target="#modal-container .modal-content" hx-swap="innerHTML">
+        <i class="bi bi-plus-lg me-1" aria-hidden="true"></i>Наценка на этот товар
+      </button>
+    </div>
+    {% if price_rows %}
+      <table class="table pd-table align-middle">
+        <thead>
+          <tr><th>Тип цены</th><th class="pd-num">Цена</th><th>Наценка</th></tr>
+        </thead>
+        <tbody>
+          {% for row in price_rows %}
+            <tr>
+              <td>{{ row.type.name }}</td>
+              <td class="pd-num">
+                {% if row.price %}<span class="pd-price">{{ row.price.value|floatformat:"2g" }}</span>
+                {% else %}<span class="pd-muted">—</span>{% endif %}
+              </td>
+              <td class="pd-rule">
+                {% for rule in row.rules %}
+                  {% if forloop.first %}
+                    <a href="#" data-bs-toggle="modal" data-bs-target="#modal-container"
+                       hx-get="{% url 'product-price-rule-update' rule.pk %}"
+                       hx-target="#modal-container .modal-content" hx-swap="innerHTML">{{ rule.name }}</a>
+                    <span class="pd-muted small">· {{ rule.formula_label }}</span>
+                    {% if row.price and row.price.rule_id != rule.pk %}
+                      <div class="pd-overridden">Пересчёт ещё не прошёл — сейчас цена от другой наценки</div>
+                    {% endif %}
+                  {% else %}
+                    {% if forloop.counter == 2 %}<div class="pd-overridden">Перекрыты: {% endif %}{{ rule.name }}{% if not forloop.last %}, {% else %}</div>{% endif %}
+                  {% endif %}
+                {% empty %}
+                  <span class="pd-muted">Ни одна наценка не подходит</span>
+                {% endfor %}
+              </td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    {% else %}
+      <p class="pd-empty">Типов цен пока нет — их заводят на странице <a href="{% url 'product-pricing' %}">«Цены товаров»</a>.</p>
+    {% endif %}
+    {% if gp_prices or pp_prices %}
+      <dl class="pd-base">
+        {% if gp_prices %}
+          <dt title="Основные цены из ГП: поставщик верхнего уровня по цене, при нескольких — с меньшей себестоимостью">Основные, ГП</dt>
+          <dd>{% for label, value in gp_prices %}<span>{{ label }} {{ value|floatformat:"2g" }}</span>{% endfor %}</dd>
+        {% endif %}
+        {% if pp_prices %}
+          <dt title="Цены прайса поставщика в тенге">Основные, ПП</dt>
+          <dd>{% for label, value in pp_prices %}<span>{{ label }} {{ value|floatformat:"2g" }}</span>{% endfor %}</dd>
+        {% endif %}
+      </dl>
+    {% endif %}
+  </section>
+
+  <section class="pd-section">
+    <div class="pd-section-head">
+      <h2>Строки ГП</h2>
+      <span class="pd-count">{{ main_products|length }}</span>
+      <button type="button" class="btn btn-sm btn-outline-primary"
+              data-bs-toggle="modal" data-bs-target="#modal-container"
+              hx-get="{% url 'product-attach-main-product' product.pk %}"
+              hx-target="#modal-container .modal-content" hx-swap="innerHTML">
+        <i class="bi bi-link-45deg me-1" aria-hidden="true"></i>Привязать строку ГП
+      </button>
+    </div>
+    {% if main_products %}
+      <div class="table-responsive">
+        <table class="table pd-table align-middle">
+          <thead>
+            <tr>
+              <th>Поставщик</th><th>Артикул поставщика</th><th>Артикул</th><th>Название у поставщика</th>
+              <th class="pd-num">Остаток</th><th class="pd-num">Себестоимость</th>
+              <th class="pd-num">Базовая</th><th class="pd-num">Цена ИМ</th><th></th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for row in main_products %}
+              <tr>
+                <td>{{ row.supplier.name|default:"—" }}</td>
+                <td>{{ row.article }}</td>
+                <td>{{ row.sku|default:"—" }}</td>
+                <td>{{ row.name }}</td>
+                <td class="pd-num">{% if row.stock is None %}<span class="pd-muted">нет данных</span>{% else %}{{ row.stock }}{% endif %}</td>
+                <td class="pd-num">{{ row.prime_cost|floatformat:"2g"|default:"—" }}</td>
+                <td class="pd-num">{{ row.basic_price|floatformat:"2g"|default:"—" }}</td>
+                <td class="pd-num">{{ row.m_price|floatformat:"2g"|default:"—" }}</td>
+                <td class="pd-row-actions">
+                  <a class="btn btn-sm btn-outline-secondary" href="{% url 'mainproduct-info' row.pk %}"
+                     title="Карточка строки ГП" aria-label="Карточка строки «{{ row.name }}»"><i class="bi bi-card-text"></i></a>
+                  <button type="button" class="btn btn-sm btn-outline-secondary"
+                          data-bs-toggle="modal" data-bs-target="#modal-container"
+                          hx-get="{% url 'main-product-move' row.pk %}"
+                          hx-target="#modal-container .modal-content" hx-swap="innerHTML"
+                          title="Перенести в другой товар" aria-label="Перенести «{{ row.name }}» в другой товар">
+                    <i class="bi bi-box-arrow-right"></i>
+                  </button>
+                </td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    {% else %}
+      <p class="pd-empty">К товару не привязана ни одна строка ГП.</p>
+    {% endif %}
+  </section>
+
+  {% if set_totals %}
+    <section class="pd-section">
+      <div class="pd-section-head">
+        <h2>Состав набора</h2>
+        <span class="pd-count">{{ set_totals.count }} поз.</span>
+      </div>
+      <table class="table pd-table align-middle">
+        <thead>
+          <tr><th>Компонент</th><th class="pd-num">Кол-во</th><th class="pd-num">Себестоимость</th><th class="pd-num">Остаток</th></tr>
+        </thead>
+        <tbody>
+          {% for line in set_totals.lines %}
+            <tr>
+              <td>
+                {% if line.component %}
+                  <a href="{% url 'product-detail' line.component.pk %}">{{ line.component.display_name }}</a>
+                {% else %}
+                  {{ line.item.component_name|default:line.item.component_number }} <span class="pd-muted small">— нет в Price Manager</span>
+                {% endif %}
+              </td>
+              <td class="pd-num">{{ line.amount }}</td>
+              <td class="pd-num">{% if line.has_cost %}{{ line.cost|floatformat:"2g" }}{% else %}<span class="pd-muted">—</span>{% endif %}</td>
+              <td class="pd-num">{{ line.stock|default_if_none:"—" }}</td>
+            </tr>
+          {% endfor %}
+        </tbody>
+        <tfoot>
+          <tr>
+            <th>Из комплектующих</th><th></th>
+            <th class="pd-num">{% if set_totals.cost is None %}—{% else %}{{ set_totals.cost|floatformat:"2g" }}{% endif %}</th>
+            <th class="pd-num">{% if set_totals.buildable is None %}—{% else %}{{ set_totals.buildable }} шт.{% endif %}</th>
+          </tr>
+        </tfoot>
+      </table>
+    </section>
+  {% endif %}
+
+  {% if in_sets %}
+    <section class="pd-section">
+      <div class="pd-section-head"><h2>Входит в наборы</h2><span class="pd-count">{{ in_sets|length }}</span></div>
+      <div class="d-flex flex-wrap gap-2">
+        {% for set_product in in_sets %}
+          <a class="pd-tag text-decoration-none" href="{% url 'product-detail' set_product.pk %}">{{ set_product.display_name }}</a>
+        {% endfor %}
+      </div>
+    </section>
+  {% endif %}
+</div>
+
+<div id="modal-container" class="modal modal-xl fade" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <div class="container d-flex justify-content-center mb-4 mt-4">
+        <div class="spinner-grow" role="status"></div>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}

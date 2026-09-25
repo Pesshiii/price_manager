@@ -1,0 +1,37 @@
+{% comment %}
+  Удаление товара. Со строками ГП — нельзя: они ночью снова привязались бы к
+  товару с артикулом = их sku и вернули бы его (ProductDeleteView).
+{% endcomment %}
+<div class="modal-header">
+  <h5 class="modal-title fw-semibold">Удалить товар?</h5>
+  <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Закрыть"></button>
+</div>
+{% if main_products_count %}
+  <div class="modal-body">
+    <p class="mb-2">К товару «{{ product.display_name }}» привязано строк ГП: <strong>{{ main_products_count }}</strong>.</p>
+    <p class="text-body-secondary small mb-0">
+      Сначала перенесите их в другие товары. Строка ГП без товара ночью снова привязывается
+      к товару с артикулом {{ product.number|default:"её sku" }} — и товар появился бы заново.
+    </p>
+  </div>
+  <div class="modal-footer">
+    <button type="button" class="btn btn-primary" data-bs-dismiss="modal">Понятно</button>
+  </div>
+{% else %}
+  <form method="post" hx-post="{% url 'product-delete' product.pk %}"
+        hx-target="#modal-container .modal-content" hx-swap="innerHTML">
+    {% csrf_token %}
+    <div class="modal-body">
+      <p class="mb-2">«{{ product.display_name }}» ({{ product.number|default:"без артикула" }}) будет удалён.</p>
+      <ul class="small text-body-secondary mb-0 ps-3">
+        {% if prices_count %}<li>вместе с расчётными ценами: {{ prices_count }}</li>{% endif %}
+        {% if set_items_count %}<li>вместе с составом набора: {{ set_items_count }} поз.</li>{% endif %}
+        {% if product.pim_id %}<li>запись связи в PIM останется — её удаляют в PIM</li>{% endif %}
+      </ul>
+    </div>
+    <div class="modal-footer">
+      <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Отмена</button>
+      <button type="submit" class="btn btn-danger">Удалить</button>
+    </div>
+  </form>
+{% endif %}
