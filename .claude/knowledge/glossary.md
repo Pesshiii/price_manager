@@ -11,6 +11,7 @@ that explains it rather than explaining it here.
 | Term (UI) | Code | Notes |
 |---|---|---|
 | Товар, «Товары» (`/products/`) | `product.Product` | The root of search and filtering since the product shift. Mirrors a PIM product. [[product/overview]] |
+| Карточка товара | `product.views.ProductDetailView`, `/products/<pk>/` | Prices with their rules, ГП rows (attach/move), set composition; edit and delete. See CLAUDE.md on why ГП rows are moved, never unlinked. |
 | ГП, главный прайс, «Главный продукт», строка поставщика | `main_product_manager.MainProduct` | One supplier's stock and prices for one `Product`. `/mainproduct/` redirects to `/products/`. [[main_product_manager/overview]] |
 | Артикул | `Product.number` = `MainProduct.sku` | Local match key; unique case-insensitively. [[product/pim-link]] |
 | Артикул поставщика | `MainProduct.article`, `SupplierProduct.article` | The supplier's own code; `sku` is built from it (`compute_supplier_sku`). [[main_product_manager/sku-and-linking]] |

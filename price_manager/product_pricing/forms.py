@@ -1,6 +1,7 @@
 from django import forms
 
-from product.models import Brand, Category
+from product.forms import brand_picker_options, category_picker_options
+from product.models import Brand, Category, Product
 
 from .models import ProductPriceRule, ProductPriceType
 
@@ -25,10 +26,13 @@ class ProductPriceRuleForm(forms.ModelForm):
         fields = [
             'price_type', 'source',
             'markup', 'increase', 'fixed_price', 'rounding',
-            'categories', 'brands', 'only_sets', 'price_from', 'price_to',
+            'products', 'categories', 'brands', 'only_sets', 'price_from', 'price_to',
             'name', 'date_from', 'date_to', 'priority', 'is_active',
         ]
         widgets = {
+            # Товаров ~150 тыс.: в разметку попадают только выбранные, скрытыми
+            # полями; показываются чипами (selected_products).
+            'products': forms.MultipleHiddenInput,
             'date_from': forms.DateTimeInput(attrs={'type': 'datetime-local'}, format='%Y-%m-%dT%H:%M'),
             'date_to': forms.DateTimeInput(attrs={'type': 'datetime-local'}, format='%Y-%m-%dT%H:%M'),
         }
@@ -42,38 +46,21 @@ class ProductPriceRuleForm(forms.ModelForm):
         self.fields['price_type'].empty_label = None
         self.fields['categories'].queryset = Category.objects.all()
         self.fields['brands'].queryset = Brand.objects.all()
+        self.fields['products'].queryset = Product.objects.all()
 
     def selected_pks(self, name) -> set[str]:
         value = self[name].value() or []
         return {str(getattr(item, 'pk', item)) for item in value}
 
     def category_options(self) -> list[dict]:
-        """Дерево категорий плоским списком в порядке обхода, с путём для поиска.
+        return category_picker_options(self.selected_pks('categories'))
 
-        Путь собирается в памяти по parent_id: Category.__str__ ходил бы в базу
-        за каждым предком.
-        """
-        selected = self.selected_pks('categories')
-        nodes = list(Category.objects.order_by('tree_id', 'lft').values('pk', 'name', 'parent_id', 'level'))
-        by_pk = {node['pk']: node for node in nodes}
-        options = []
-        for node in nodes:
-            path, parent = [], by_pk.get(node['parent_id'])
-            while parent is not None:
-                path.append(parent['name'])
-                parent = by_pk.get(parent['parent_id'])
-            options.append({
-                'pk': node['pk'], 'name': node['name'], 'level': node['level'],
-                'path': ' › '.join(reversed(path)), 'selected': str(node['pk']) in selected,
-            })
-        return options
+    def selected_products(self) -> list:
+        pks = [pk for pk in self.selected_pks('products') if pk.isdigit()]
+        return list(Product.objects.filter(pk__in=pks).order_by('number', 'pk'))
 
     def brand_options(self) -> list[dict]:
-        selected = self.selected_pks('brands')
-        return [
-            {'pk': pk, 'name': name, 'level': 0, 'path': '', 'selected': str(pk) in selected}
-            for pk, name in Brand.objects.order_by('name').values_list('pk', 'name')
-        ]
+        return brand_picker_options(self.selected_pks('brands'))
 
     def advanced_open(self) -> bool:
         if any(self[name].errors for name in self.ADVANCED):
@@ -91,14 +78,16 @@ class ProductPriceRuleForm(forms.ModelForm):
                 field: cleaned.get(field) for field in (
                     'price_type', 'source', 'markup', 'increase', 'fixed_price', 'rounding', 'only_sets')
             })
-            cleaned['name'] = auto_name(draft, cleaned.get('categories'), cleaned.get('brands'))
+            cleaned['name'] = auto_name(draft, cleaned.get('categories'), cleaned.get('brands'),
+                                        cleaned.get('products'))
         return cleaned
 
 
-def auto_name(rule, categories=None, brands=None) -> str:
+def auto_name(rule, categories=None, brands=None, products=None) -> str:
     """«Розничная: Себестоимость + 35 % · Смесители» — чтобы в списке было видно суть."""
     name = f'{rule.price_type.name}: {rule.formula_label()}'
-    scope = [c.name for c in (categories or [])][:2] + [b.name for b in (brands or [])][:2]
+    scope = [p.number or p.display_name for p in (products or [])][:2]
+    scope += [c.name for c in (categories or [])][:2] + [b.name for b in (brands or [])][:2]
     if rule.only_sets:
         scope.append('наборы')
     if scope:

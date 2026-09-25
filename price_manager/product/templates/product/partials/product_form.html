@@ -1,0 +1,52 @@
+{% load widget_tweaks %}
+{% comment %}
+  Правка товара. У товара с данными из PIM название, бренд и категории только
+  показываются (ProductForm.from_pim): синхронизация их перезапишет.
+{% endcomment %}
+<div class="modal-header">
+  <h5 class="modal-title fw-semibold">Товар</h5>
+  <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Закрыть"></button>
+</div>
+<form method="post" hx-post="{% url 'product-update' product.pk %}"
+      hx-target="#modal-container .modal-content" hx-swap="innerHTML">
+  {% csrf_token %}
+  <div class="modal-body">
+    {% if form.non_field_errors %}<div class="alert alert-danger py-2">{{ form.non_field_errors|join:" " }}</div>{% endif %}
+    <div class="row g-3">
+      <div class="col-md-4">
+        <label class="form-label small fw-medium" for="{{ form.number.id_for_label }}">Артикул</label>
+        {% render_field form.number class="form-control" %}
+        <div class="form-text">{{ form.number.help_text }}</div>
+        {% for error in form.number.errors %}<div class="invalid-feedback d-block">{{ error }}</div>{% endfor %}
+      </div>
+      <div class="col-md-8">
+        <label class="form-label small fw-medium" for="{{ form.name.id_for_label }}">Название</label>
+        {% render_field form.name class="form-control" placeholder=product.display_name %}
+        {% for error in form.name.errors %}<div class="invalid-feedback d-block">{{ error }}</div>{% endfor %}
+      </div>
+    </div>
+
+    {% if form.from_pim %}
+      <p class="small text-body-secondary mt-3 mb-2">
+        <i class="bi bi-lock me-1" aria-hidden="true"></i>Название, бренд и категории приходят из PIM — править их нужно там.
+      </p>
+    {% endif %}
+
+    <div class="row g-3 mt-0">
+      <div class="col-md-5">
+        <label class="form-label small fw-medium">Бренд</label>
+        {% include 'product_pricing/partials/picker.html' with name='brand' options=form.brand_options single=True disabled=form.from_pim placeholder='Найти бренд' all_label='Без бренда' %}
+        {% for error in form.brand.errors %}<div class="invalid-feedback d-block">{{ error }}</div>{% endfor %}
+      </div>
+      <div class="col-md-7">
+        <label class="form-label small fw-medium">Категории</label>
+        {% include 'product_pricing/partials/picker.html' with name='categories' options=form.category_options tree=True disabled=form.from_pim placeholder='Найти категорию' all_label='Без категории' %}
+        {% for error in form.categories.errors %}<div class="invalid-feedback d-block">{{ error }}</div>{% endfor %}
+      </div>
+    </div>
+  </div>
+  <div class="modal-footer">
+    <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Отмена</button>
+    <button type="submit" class="btn btn-primary px-4">Сохранить</button>
+  </div>
+</form>

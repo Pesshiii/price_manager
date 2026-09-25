@@ -28,20 +28,28 @@ PIM_LINK_ENTITY = 'PriceManagerProduct'
 
 # --- наценки ---------------------------------------------------------------
 
-def scope_queryset(rule, categories=None, brand_ids=None):
+def scope_queryset(rule, categories=None, brand_ids=None, product_ids=None):
     """Товары, подходящие под условия правила, — без учёта цены-источника.
 
-    categories/brand_ids — для несохранённого правила из формы (предпросмотр):
-    у него ещё нет M2M. None — взять у самого правила.
+    categories/brand_ids/product_ids — для несохранённого правила из формы
+    (предпросмотр). None — взять у самого правила; у несохранённого M2M нет,
+    и не переданное условие для него просто пустое.
     """
+    def own(relation):
+        return list(getattr(rule, relation).all()) if rule.pk else []
+
     queryset = Product.objects.all()
-    categories = list(rule.categories.all()) if categories is None else list(categories)
+    if product_ids is None:
+        product_ids = [product.pk for product in own('products')]
+    if product_ids:
+        queryset = queryset.filter(pk__in=product_ids)
+    categories = own('categories') if categories is None else list(categories)
     if categories:
         queryset = queryset.filter(
             pk__in=Product.categories.through.objects
             .filter(category_id__in=category_with_descendants(categories)).values('product_id'))
     if brand_ids is None:
-        brand_ids = [brand.pk for brand in rule.brands.all()]
+        brand_ids = [brand.pk for brand in own('brands')]
     if brand_ids:
         queryset = queryset.filter(brand_id__in=brand_ids)
     if rule.only_sets:
@@ -68,12 +76,33 @@ def priced_queryset(rule, scope):
     return queryset
 
 
-def rule_products(rule, categories=None, brand_ids=None):
+def rule_products(rule, categories=None, brand_ids=None, product_ids=None):
     """Товары, которые правило считает, — [(pk, цена-источник), …]."""
-    queryset = priced_queryset(rule, scope_queryset(rule, categories, brand_ids))
+    queryset = priced_queryset(rule, scope_queryset(rule, categories, brand_ids, product_ids))
     if rule.is_fixed:
         return [(pk, None) for pk in queryset.values_list('pk', flat=True)]
     return list(queryset.values_list('pk', rule.source))
+
+
+def product_price_rows(product) -> list[dict]:
+    """Цены одного товара для карточки: по каждому типу цены — расчётная цена
+    и наценки, которые подходят товару сейчас, в порядке приоритета. Первая из
+    них — действующая (та, что дала цену при пересчёте), остальные перекрыты.
+
+    Отбор проверяется запросом на правило — правил десятки, а товар один.
+    """
+    prices = {price.price_type_id: price
+              for price in ProductPrice.objects.filter(product=product).select_related('rule')}
+    rules = list(ProductPriceRule.objects.in_effect().select_related('price_type')
+                 .prefetch_related('categories', 'brands', 'products').order_by('priority', 'pk'))
+    matching = {}
+    for rule in rules:
+        if priced_queryset(rule, scope_queryset(rule)).filter(pk=product.pk).exists():
+            matching.setdefault(rule.price_type_id, []).append(rule)
+    return [
+        {'type': price_type, 'price': prices.get(price_type.pk), 'rules': matching.get(price_type.pk, [])}
+        for price_type in ProductPriceType.objects.all()
+    ]
 
 
 def outranks(other, rule) -> bool:
@@ -84,7 +113,7 @@ def outranks(other, rule) -> bool:
     return rule.pk is None or other.pk < rule.pk
 
 
-def preview_rule(rule, categories=None, brand_ids=None, examples=8) -> dict:
+def preview_rule(rule, categories=None, brand_ids=None, product_ids=None, examples=8) -> dict:
     """Что сделает правило, если его сохранить и пересчитать цены.
 
     Ответ на «на что оно влияет»: сколько товаров подходит под условия, у
@@ -92,9 +121,9 @@ def preview_rule(rule, categories=None, brand_ids=None, examples=8) -> dict:
     правила того же типа, у скольких цена появится или изменится и у каких
     правил правило заберёт товары, — и несколько примеров «было → станет».
     """
-    scope = scope_queryset(rule, categories, brand_ids)
+    scope = scope_queryset(rule, categories, brand_ids, product_ids)
     in_scope = scope.count()
-    matched = dict(rule_products(rule, categories, brand_ids))
+    matched = dict(rule_products(rule, categories, brand_ids, product_ids))
 
     taken_by = []
     effective = set(matched)

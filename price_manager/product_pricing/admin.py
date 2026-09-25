@@ -14,6 +14,8 @@ class ProductPriceRuleAdmin(admin.ModelAdmin):
                     'priority', 'is_active']
     list_filter = ['price_type', 'is_active']
     filter_horizontal = ['categories', 'brands']
+    # Товаров ~150 тыс.: виджет со списком их всех не открылся бы.
+    raw_id_fields = ['products']
 
 
 @admin.register(ProductPrice)

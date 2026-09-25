@@ -99,9 +99,9 @@ class ProductPriceRuleQuerySet(models.QuerySet):
 class ProductPriceRule(models.Model):
     """Наценка на товар: цена-источник Product → расчётная цена типа price_type.
 
-    Отбор товаров — все условия вместе (И): категории (с подкатегориями),
-    бренды, «только наборы», диапазон цены-источника. Пустое условие — не
-    ограничивает.
+    Отбор товаров — все условия вместе (И): конкретные товары, категории (с
+    подкатегориями), бренды, «только наборы», диапазон цены-источника.
+    Пустое условие — не ограничивает.
 
     Если товару подходят несколько правил одного типа цены, действует одно —
     с меньшим «Приоритетом», при равном — созданное раньше. Правила не
@@ -120,6 +120,11 @@ class ProductPriceRule(models.Model):
     brands = models.ManyToManyField(
         'product.Brand', related_name='price_rules', blank=True, verbose_name='Бренды',
         help_text='Пусто — все бренды, включая товары без бренда.')
+    # Наценка на конкретные товары — заводится с карточки товара. Обычное
+    # условие, как категории: складывается с остальными по И.
+    products = models.ManyToManyField(
+        'product.Product', related_name='price_rules', blank=True, verbose_name='Товары',
+        help_text='Только эти товары. Пусто — любые.')
     only_sets = models.BooleanField(
         'Только наборы', default=False,
         help_text='Только товары с составом набора из PIM (product.ProductSetItem).')
@@ -188,13 +193,16 @@ class ProductPriceRule(models.Model):
             label += f', вверх до {money(self.rounding)}'
         return label
 
-    def scope_label(self, categories=None, brands=None) -> str:
+    def scope_label(self, categories=None, brands=None, products=None) -> str:
         """Какие товары правило берёт — одной строкой, для таблицы и предпросмотра.
 
         Связи — через .all(), чтобы работать с предзагрузкой списка;
-        categories/brands — для несохранённого правила из формы.
+        categories/brands/products — для несохранённого правила из формы.
         """
         parts = []
+        products = [p.number or p.display_name for p in (self.products.all() if products is None else products)]
+        if products:
+            parts.append(_listed('товары', products))
         categories = [c.name for c in (self.categories.all() if categories is None else categories)]
         brands = [b.name for b in (self.brands.all() if brands is None else brands)]
         if categories:

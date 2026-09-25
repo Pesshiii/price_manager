@@ -179,14 +179,20 @@ class Product(models.Model):
         «Душ» + «Кабины») и по отдельному слову категория не находилась.
         """
         data = self.raw_data or {}
+        # Без данных PIM — локальные название, бренд и категории: их правят
+        # руками на карточке товара (product/forms.ProductForm), и такой товар
+        # должен находиться по тому, что ему вписали.
         categories = ' '.join((data.get('categoriesNames') or {}).values())
+        if not data and self.pk:
+            categories = ' '.join(self.categories.values_list('name', flat=True))
+        brand_name = data.get('brandName') or (self.brand.name if self.brand_id else '')
         tags = ' '.join(data.get('tag') or [])
         return (
             SearchVector(Value(categories), weight='A', config='russian') +
             SearchVector(Value(tags), weight='A', config='russian') +
-            SearchVector(Value(data.get('name') or ''), weight='A', config='russian') +
+            SearchVector(Value(data.get('name') or self.name or ''), weight='A', config='russian') +
             SearchVector(Value(self.number or ''), weight='B', config='russian') +
-            SearchVector(Value(data.get('brandName') or ''), weight='B', config='russian') +
+            SearchVector(Value(brand_name), weight='B', config='russian') +
             SearchVector(Value(data.get('description') or ''), weight='C', config='russian') +
             SearchVector(Value(data.get('longDescription') or ''), weight='C', config='russian')
         )

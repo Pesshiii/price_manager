@@ -1,0 +1,54 @@
+{% comment %}
+  «Привязать строку ГП»: поиск строки по артикулу, артикулу поставщика или
+  названию; «Привязать» забирает её из прежнего товара в этот.
+  Ответ на поиск — только #results (hx-get с ?q=).
+{% endcomment %}
+<div class="modal-header">
+  <h5 class="modal-title fw-semibold">Привязать строку ГП</h5>
+  <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Закрыть"></button>
+</div>
+<div class="modal-body">
+  <div class="input-group mb-3">
+    <span class="input-group-text"><i class="bi bi-search" aria-hidden="true"></i></span>
+    <input type="search" name="q" class="form-control" autofocus autocomplete="off"
+           placeholder="Артикул, артикул поставщика или название"
+           aria-label="Поиск строки ГП"
+           hx-get="{% url 'product-attach-main-product' product.pk %}"
+           hx-trigger="input changed delay:300ms, search"
+           hx-target="#attach-results" hx-swap="innerHTML">
+  </div>
+  <div id="attach-results">
+    {% partialdef results inline %}
+      {% if not query %}
+        <p class="small text-body-secondary mb-0">Строка перейдёт в этот товар из того, к которому привязана сейчас.</p>
+      {% elif not results %}
+        <p class="small text-body-secondary mb-0">Ничего не найдено.</p>
+      {% else %}
+        <table class="table table-sm align-middle mb-0 small">
+          <thead>
+            <tr><th>Поставщик</th><th>Артикул</th><th>Название</th><th>Сейчас в товаре</th><th></th></tr>
+          </thead>
+          <tbody>
+            {% for row in results %}
+              <tr>
+                <td>{{ row.supplier.name|default:"—" }}<div class="text-body-secondary">{{ row.article }}</div></td>
+                <td>{{ row.sku|default:"—" }}</td>
+                <td>{{ row.name }}</td>
+                <td>{% if row.product %}{{ row.product.number|default:row.product.display_name }}{% else %}<span class="text-body-secondary">не привязана</span>{% endif %}</td>
+                <td class="text-end">
+                  <form method="post" hx-post="{% url 'product-attach-main-product' product.pk %}"
+                        hx-target="#modal-container .modal-content" hx-swap="innerHTML">
+                    {% csrf_token %}
+                    <input type="hidden" name="main_product" value="{{ row.pk }}">
+                    <button type="submit" class="btn btn-sm btn-outline-primary">Привязать</button>
+                  </form>
+                </td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+        {% if results|length == limit %}<p class="small text-body-secondary mt-2 mb-0">Показаны первые {{ limit }} — уточните запрос.</p>{% endif %}
+      {% endif %}
+    {% endpartialdef %}
+  </div>
+</div>
