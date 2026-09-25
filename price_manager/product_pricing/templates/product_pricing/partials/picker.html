@@ -1,0 +1,42 @@
+{% comment %}
+  Выбор из длинного списка: выбранное — «чипами» сверху, ниже поиск и
+  список. Сотни категорий и брендов не пролистывают, а находят.
+
+  Настоящие поля формы — чекбоксы в списке (name={{ name }}), поэтому форма
+  отправляется как обычно. Поведение — скрипт в rule_form.html по
+  data-picker; поле поиска без name, в форму не уходит.
+
+  options — [{pk, name, path, level, selected}]; tree — отступ по level, пока
+  нет поиска, а при поиске — плоский список с путём под названием.
+{% endcomment %}
+<div class="rule-picker" data-picker{% if tree %} data-tree{% endif %}>
+  <div class="rule-picker-chips" data-chips>
+    {% for option in options %}{% if option.selected %}
+      <span class="rule-chip" data-chip="{{ option.pk }}">
+        {{ option.name }}
+        <button type="button" class="rule-chip-remove" data-remove="{{ option.pk }}" aria-label="Убрать «{{ option.name }}»">×</button>
+      </span>
+    {% endif %}{% endfor %}
+    <span class="rule-picker-all" data-all>{{ all_label }}</span>
+  </div>
+  <div class="input-group input-group-sm">
+    <span class="input-group-text"><i class="bi bi-search" aria-hidden="true"></i></span>
+    <input type="search" class="form-control" data-search placeholder="{{ placeholder }}" autocomplete="off"
+           aria-label="{{ placeholder }}">
+  </div>
+  <div class="rule-picker-list" data-list>
+    {% for option in options %}
+      <label class="rule-picker-option" data-option="{{ option.pk }}"
+             data-text="{{ option.name|lower }} {{ option.path|lower }}"
+             style="--level: {{ option.level }}">
+        <input class="form-check-input" type="checkbox" name="{{ name }}" value="{{ option.pk }}"
+               data-label="{{ option.name }}"{% if option.selected %} checked{% endif %}>
+        <span class="rule-picker-name">{{ option.name }}</span>
+        {% if option.path %}<span class="rule-picker-path">{{ option.path }}</span>{% endif %}
+      </label>
+    {% empty %}
+      <div class="rule-picker-empty">Список пуст</div>
+    {% endfor %}
+    <div class="rule-picker-empty d-none" data-nothing>Ничего не найдено</div>
+  </div>
+</div>

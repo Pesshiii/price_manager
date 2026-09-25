@@ -1,0 +1,88 @@
+{% comment %}
+  Предпросмотр наценки: что будет после сохранения и пересчёта.
+  Данные — services.preview_rule. Без запросов из шаблона.
+{% endcomment %}
+{% if not preview %}
+  <p class="text-body-secondary small mb-0">Выберите, какую цену считать.</p>
+{% else %}
+  <div class="rule-formula">
+    <div class="small text-body-secondary">{{ rule.price_type.name }} =</div>
+    <div class="fs-5 fw-semibold">{{ rule.formula_label }}</div>
+    <div class="small text-body-secondary">для: {{ scope_label|default:"все товары" }}</div>
+  </div>
+
+  {% if not preview.is_active %}
+    <div class="alert alert-warning small py-2 mt-3 mb-0">Наценка выключена — цены по ней не считаются.</div>
+  {% elif not preview.in_window %}
+    <div class="alert alert-warning small py-2 mt-3 mb-0">Сейчас не действует — вне срока действия.</div>
+  {% endif %}
+  {% if errors %}
+    <div class="alert alert-danger small py-2 mt-3 mb-0">
+      {% for field, messages in errors.items %}{% for message in messages %}<div>{{ message }}</div>{% endfor %}{% endfor %}
+    </div>
+  {% endif %}
+
+  <dl class="rule-funnel">
+    <div><dt>Подходят под условия</dt><dd>{{ preview.in_scope|floatformat:"g" }}</dd></div>
+    {% if preview.no_source %}
+      <div class="is-minus"><dt>без цены «{{ rule.get_source_display }}»{% if rule.price_from is not None or rule.price_to is not None %} или вне диапазона{% endif %}</dt><dd>−{{ preview.no_source|floatformat:"g" }}</dd></div>
+    {% endif %}
+    {% for other, count in preview.taken_by %}
+      <div class="is-minus"><dt>считает более важная «{{ other.name }}»</dt><dd>−{{ count|floatformat:"g" }}</dd></div>
+    {% endfor %}
+    <div class="is-total"><dt>Получат цену от этой наценки</dt><dd>{{ preview.effective|floatformat:"g" }}</dd></div>
+  </dl>
+
+  {% if preview.effective %}
+    <div class="rule-changes">
+      {% if preview.appear %}<span class="badge text-bg-success-subtle text-success-emphasis">новая цена у {{ preview.appear|floatformat:"g" }}</span>{% endif %}
+      {% if preview.change %}<span class="badge text-bg-warning-subtle text-warning-emphasis">изменится у {{ preview.change|floatformat:"g" }}</span>{% endif %}
+      {% if preview.same %}<span class="badge text-bg-light">без изменений {{ preview.same|floatformat:"g" }}</span>{% endif %}
+    </div>
+    {% for other, count in preview.displaced %}
+      <div class="small text-body-secondary mt-1">
+        Заберёт {{ count|floatformat:"g" }} у «{% if other %}{{ other.name }}{% else %}удалённой наценки{% endif %}»
+      </div>
+    {% endfor %}
+
+    <table class="table table-sm rule-examples mt-3 mb-0">
+      <thead>
+        <tr>
+          <th>Например</th>
+          <th class="text-end">{% if rule.is_fixed %}{% else %}Источник{% endif %}</th>
+          <th class="text-end">Сейчас</th>
+          <th class="text-end">Станет</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for example in preview.examples %}
+          <tr>
+            <td>
+              <div class="rule-example-name" title="{{ example.product.display_name }}">{{ example.product.display_name }}</div>
+              <div class="small text-body-secondary">{{ example.product.number|default:"" }}</div>
+            </td>
+            <td class="text-end text-nowrap">{% if example.source is not None %}{{ example.source|floatformat:"2g" }}{% endif %}</td>
+            <td class="text-end text-nowrap text-body-secondary">{% if example.current is not None %}{{ example.current|floatformat:"2g" }}{% else %}—{% endif %}</td>
+            <td class="text-end text-nowrap fw-semibold">{{ example.value|floatformat:"2g" }}</td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  {% else %}
+    <p class="small text-body-secondary mt-3 mb-0">Ни один товар не получит цену — ослабьте условия или выберите другую цену-источник.</p>
+  {% endif %}
+{% endif %}
+
+<style>
+  .rule-modal .rule-funnel { margin: 1rem 0 0; font-size: .875rem; }
+  .rule-modal .rule-funnel > div { display: flex; justify-content: space-between; gap: 1rem; padding: .3rem 0; }
+  .rule-modal .rule-funnel dt { font-weight: 400; }
+  .rule-modal .rule-funnel dd { margin: 0; font-variant-numeric: tabular-nums; white-space: nowrap; }
+  .rule-modal .rule-funnel .is-minus { color: var(--bs-secondary-color); padding-left: .75rem; }
+  .rule-modal .rule-funnel .is-total { border-top: 1px solid var(--bs-border-color); margin-top: .25rem; padding-top: .5rem; font-weight: 600; }
+  .rule-modal .rule-changes { display: flex; flex-wrap: wrap; gap: .25rem; margin-top: .5rem; }
+  .rule-modal .rule-examples { font-size: .8125rem; background: transparent; }
+  .rule-modal .rule-examples th { font-weight: 500; color: var(--bs-secondary-color); background: transparent; }
+  .rule-modal .rule-examples td { background: transparent; }
+  .rule-modal .rule-example-name { max-width: 14rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+</style>

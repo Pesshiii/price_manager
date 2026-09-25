@@ -3,6 +3,14 @@
 
 {% block title %}Цены товаров{% endblock %}
 
+{% block style %}
+<style>
+  .pricing-explainer { display: grid; grid-template-columns: repeat(auto-fit, minmax(16rem, 1fr)); gap: .75rem; font-size: .8125rem; }
+  .pricing-explainer-step { background: var(--bs-tertiary-bg); border-radius: .5rem; padding: .75rem 1rem; color: var(--bs-secondary-color); }
+  .pricing-explainer-step .fw-semibold { color: var(--bs-body-color); margin-bottom: .25rem; }
+</style>
+{% endblock %}
+
 {% block body %}
 <div class="container-fluid py-3">
   <div class="d-flex flex-wrap align-items-center gap-2 mb-3">
@@ -21,12 +29,20 @@
     </form>
   </div>
 
-  <p class="text-body-secondary small mb-4">
-    Основная цена товара берётся из цен его поставщиков: верхний уровень по цене, внутри него — минимальная.
-    Наценки считают из неё расчётные цены, которые показываются на странице «Товары».
-    Если товару подходят несколько наценок одного типа цены, действует одна — с меньшим приоритетом.
-    Цены пересчитываются по расписанию.
-  </p>
+  <div class="pricing-explainer mb-4">
+    <div class="pricing-explainer-step">
+      <div class="fw-semibold">1. Основная цена товара</div>
+      <div>Из цен поставщиков товара: берётся поставщик верхнего уровня по цене, при нескольких на уровне — с меньшей себестоимостью. Цены ГП и ПП (в тенге).</div>
+    </div>
+    <div class="pricing-explainer-step">
+      <div class="fw-semibold">2. Наценка</div>
+      <div>Считает из основной цены цену своего типа — для выбранных категорий, брендов, наборов. Если подходят несколько наценок одного типа, действует одна — с меньшим приоритетом.</div>
+    </div>
+    <div class="pricing-explainer-step">
+      <div class="fw-semibold">3. Где видно</div>
+      <div>Колонкой на странице «Товары» и в PIM, если у типа цены указано поле. Цены поставщиков и ГП наценки не меняют.</div>
+    </div>
+  </div>
 
   <section class="mb-4">
     <div class="d-flex align-items-center gap-2 mb-2">

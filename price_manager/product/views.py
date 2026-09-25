@@ -11,7 +11,7 @@ from django_filters.views import FilterView
 from django_htmx.http import trigger_client_event
 from django_tables2 import SingleTableMixin
 
-from main_product_manager.models import MP_PRICES, MainProduct
+from main_product_manager.models import MainProduct
 from product_pricing.models import ProductPrice
 from main_product_manager.utils import fetch_pim_image
 from supplier_product_manager.models import SupplierProduct
@@ -19,6 +19,7 @@ from supplier_product_manager.models import SupplierProduct
 from .columns import PRODUCT_COLUMN_GROUPS, load_columns, save_columns
 from .filters import CATEGORY_LABEL_DEPTH, ProductFilter, search_terms
 from .models import Category, Product, ProductExport
+from .services.prices import BASE_PRICE_FIELDS
 from .set_costs import attach_set_info, set_totals_for
 from .tasks import export_products_task
 from .tables import (
@@ -245,7 +246,7 @@ class ProductSuppliersView(View):
             # Цены самого товара: основные и расчётные по наценкам.
             'base_prices': [
                 (Product._meta.get_field(field).verbose_name, getattr(product, field))
-                for field in MP_PRICES if getattr(product, field)
+                for field in BASE_PRICE_FIELDS if getattr(product, field)
             ],
             'calculated_prices': ProductPrice.objects.filter(product=product)
             .select_related('price_type', 'rule').order_by('price_type__sorting', 'price_type__name'),

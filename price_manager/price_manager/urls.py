@@ -98,6 +98,8 @@ urlpatterns = [
          name='product-price-rule-create'),
     path('product-pricing/rule/<int:pk>/', pricing_views.ProductPriceRuleUpdate.as_view(),
          name='product-price-rule-update'),
+    path('product-pricing/rule/preview/', pricing_views.ProductPriceRulePreview.as_view(),
+         name='product-price-rule-preview'),
     
     path('pricetag/create-for/<int:pk>', ppm_views.PriceTagCreate.as_view(), name='pricetag-create'),
     path('pricetag/<int:pk>/update', ppm_views.PriceTagUpdate.as_view(), name='pricetag-update'),
