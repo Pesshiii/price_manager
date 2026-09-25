@@ -2,7 +2,7 @@
 
 Handoff spec for an implementing agent. Every decision below was made by the user
 across four rounds of questions; the "Rationale / hazard" lines are findings from the
-code, not preferences. Read `CLAUDE.md` and `.claude/knowledge/product.md` first.
+code, not preferences. Read `CLAUDE.md` and `.claude/knowledge/product/` first.
 
 **Ships in two phases. Phase 1 is additive and reversible. Phase 2 is destructive.**
 
@@ -682,7 +682,7 @@ powers the probe:
   `max_items` cap and PIM returning fewer rows than its own `total` claims.
 - **Phantom field fixed in passing:** `EntityList.ordering` was declared on the model and
   **never emitted into the request**. Assigning it did nothing. Same class as the
-  `category_path` trap in `.claude/knowledge/product.md`. No existing caller passes it.
+  `category_path` trap in `.claude/knowledge/product/pim-sync.md`. No existing caller passes it.
 
 ### 5a. Probe — RUN 2026-09-16 against the live PIM. **The named exit fired.**
 

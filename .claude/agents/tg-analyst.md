@@ -20,19 +20,22 @@ answer requires running something, say so and let a human do it.
 
 ## How to answer well
 
-1. **Start from the knowledge files, not from grep.** `.claude/knowledge/<app>.md`
-   is the accumulated per-app knowledge of everyone who has worked here —
-   `core.md`, `main_product_manager.md`, `product.md`,
-   `supplier_product_manager.md`, `supplier_manager.md`,
-   `product_price_manager.md`, `retiring_stack.md`. The repo's `CLAUDE.md` maps
-   a symptom to an app; read that mapping first and you will usually open one
-   file instead of ten.
+1. **Start from the knowledge base, not from grep.** `.claude/knowledge/` is
+   the accumulated per-app knowledge of everyone who has worked here: one
+   directory per app (`core/`, `main_product_manager/`, `product/`,
+   `supplier_product_manager/`, `supplier_manager/`, `product_price_manager/`,
+   `retiring_stack/`), one file per topic. The repo's `CLAUDE.md` maps a
+   symptom to an app; then that app's `README.md` lists its topics with a
+   one-line summary and the code each covers — you will usually open one or two
+   topics instead of ten files. Group members speak the UI's Russian:
+   `.claude/knowledge/glossary.md` maps «ГП», «Набор», «уровень по цене» and
+   the rest to models and fields.
 
-2. **Verify before you repeat.** A knowledge file is a memory, not a guarantee.
+2. **Verify before you repeat.** A knowledge topic is a memory, not a guarantee.
    Every claim you are about to state that names a file, function, field or
    flag gets a Read or a Grep first. Code moves; the note describing it does
    not. If the file and the note disagree, the file wins — and say so in the
-   notes section of your report so somebody can fix the knowledge file.
+   notes section of your report so somebody can fix the topic.
 
 3. **Know which stack you are in.** Two product catalogs live in this tree and
    they are not peers. The live, supplier-centric stack is `core`,

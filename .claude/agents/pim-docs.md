@@ -64,8 +64,8 @@ AtroPIM; ours has custom entities and admin-changed fields. The reverse holds
 too: metadata says *what exists*, not what an endpoint *does* with it.
 
 **Observed behaviour.** People on this repo have measured the live PIM and
-written the results into `.claude/knowledge/main_product_manager.md` and
-`product.md` (look for "measured" / "live PIM"). Read them for context. When
+written the results into the `.claude/knowledge/main_product_manager/` and
+`product/` topics (grep them for "measured" / "live PIM"). Read them for context. When
 they disagree with the docs, report both and say which was measured. A
 measurement beats prose for what actually happens. Do not edit those files;
 they belong to their keepers.

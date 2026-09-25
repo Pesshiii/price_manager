@@ -25,7 +25,7 @@ Issue #142 (`product_price_manager: docstring get_fitting_mps…`) carries, in
 order: where it came from · what is wrong, with `file:line` and quoted code ·
 *why* it went wrong · why it is not cosmetic · an adjacent finding **split out so
 triage can sever it** · a checklist of what to do · what **not** to do · the exact
-verification command **and its expected result** · which knowledge file and which
+verification command **and its expected result** · which knowledge topic and which
 keeper to consult.
 
 Read it before briefing anything: `gh issue view 142`.
@@ -67,17 +67,17 @@ definition, good enough to hand over.
 
 Route by the app the issue names:
 
-| App | Agent | Knowledge file |
+| App | Agent | Knowledge directory |
 |---|---|---|
-| `main_product_manager` | `main-product-keeper` | `.claude/knowledge/main_product_manager.md` |
-| `core` | `core-keeper` | `.claude/knowledge/core.md` |
-| `product` | `product-keeper` | `.claude/knowledge/product.md` |
-| `supplier_product_manager` | `supplier-product-keeper` | `.claude/knowledge/supplier_product_manager.md` |
-| `supplier_manager` | `supplier-manager-keeper` | `.claude/knowledge/supplier_manager.md` |
-| `product_price_manager` | `price-rules-keeper` | `.claude/knowledge/product_price_manager.md` |
-| `pricing`, `supplier`, `supplier_feed`, `dataframe` | `retiring-stack-keeper` | `.claude/knowledge/retiring_stack.md` |
+| `main_product_manager` | `main-product-keeper` | `.claude/knowledge/main_product_manager/` |
+| `core` | `core-keeper` | `.claude/knowledge/core/` |
+| `product` | `product-keeper` | `.claude/knowledge/product/` |
+| `supplier_product_manager` | `supplier-product-keeper` | `.claude/knowledge/supplier_product_manager/` |
+| `supplier_manager` | `supplier-manager-keeper` | `.claude/knowledge/supplier_manager/` |
+| `product_price_manager` | `price-rules-keeper` | `.claude/knowledge/product_price_manager/` |
+| `pricing`, `supplier`, `supplier_feed`, `dataframe` | `retiring-stack-keeper` | `.claude/knowledge/retiring_stack/` |
 
-**Ask, do not record.** Keepers can write their knowledge file and will if told
+**Ask, do not record.** Keepers can write their knowledge topics and will if told
 to. Briefing is a read: say *"answer with `file:line`; do not record anything"*
 in the prompt. Recording is `/record-insight`'s job — afterwards, when there is
 something learned to record.
@@ -87,7 +87,8 @@ Ask for exactly what the reporter could not supply:
 - Where the behaviour actually lives — `file:line`.
 - Why it behaves that way — the migration, the cache key, the convention.
 - What else touches it, and what breaks if it changes.
-- Anything in the knowledge file that contradicts the report.
+- Anything in the keeper's topics that contradicts the report.
+- Which topic the brief should point to (`.claude/knowledge/<app>/<topic>.md`).
 
 If the issue spans two apps, ask both. If it names no app, work out which from
 the symptom before asking anyone.
@@ -184,7 +185,7 @@ Template — the sections are #142's:
 
     ## Контекст
 
-    Разбор в `.claude/knowledge/<app>.md`. Консультироваться с агентом `<keeper>`.
+    Разбор в `.claude/knowledge/<app>/<topic>.md`. Консультироваться с агентом `<keeper>`.
 
     ---
     *<сохранённый футер «Источник: Telegram, @user (id …), сообщение …», если был>*

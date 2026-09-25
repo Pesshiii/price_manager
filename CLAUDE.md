@@ -143,7 +143,7 @@ A `PreToolUse` hook (`.claude/hooks/guard_retiring_stack.py`) turns an edit unde
 - **81 of the repo's 123 templates** are under `core/templates/`, including templates owned by other apps' views (`supplier/`, `currency/`, `main/`, `upload/`, `registration/`).
 - `core/views.py` (~710 lines) owns the **shopping-tab / cart** feature — `ShoppingTab*` (list, detail, delete, export, import + preview/run) and `CartItem*` (detail, quick-add, product select, add, confirm/unconfirm, remove). Templates in `core/templates/shopping_tab/`.
 - `core/models.py` → `CartItem`, `ShoppingTab`, `ShoppingTabExport`, `PersistentNotification`, `TaskRunHistory`.
-- **`PersistentNotification` has lifetimes by `kind`** — read through `.visible()`. A supplier-import confirmation never expires on its own: anything that moves an `ImportRun` out of `STATUS_NEEDS_CONFIRMATION` must call `supplier_product_manager.tasks.dismiss_confirmations`. Details in `.claude/knowledge/core.md`.
+- **`PersistentNotification` has lifetimes by `kind`** — read through `.visible()`. A supplier-import confirmation never expires on its own: anything that moves an `ImportRun` out of `STATUS_NEEDS_CONFIRMATION` must call `supplier_product_manager.tasks.dismiss_confirmations`. Details in `.claude/knowledge/core/models-and-notifications.md`.
 - `core/middleware.py` → `LoginRequiredMiddleware` (global login gate; anonymous requests under `/api/` get 401 JSON instead of a redirect) and `toaster_middleware`.
 - `core/utils.py` → shopping-tab spreadsheet reading (pandas) and export helpers.
 - `core/viewmixins.py` → `HtmxMixin` is **dead code**; don't use it.
@@ -174,33 +174,46 @@ There are **two HTMX response conventions**, both documented as skills under `.c
 
 ## Per-app knowledge keepers
 
-Each significant app has a **keeper agent** and a knowledge file it owns:
+Each significant app has a **keeper agent** and a knowledge directory it owns —
+one markdown file per topic:
 
-| App | Agent | File |
+| App | Agent | Directory |
 |---|---|---|
-| `main_product_manager` | `main-product-keeper` | `.claude/knowledge/main_product_manager.md` |
-| `core` | `core-keeper` | `.claude/knowledge/core.md` |
-| `product` | `product-keeper` | `.claude/knowledge/product.md` |
-| `supplier_product_manager` | `supplier-product-keeper` | `.claude/knowledge/supplier_product_manager.md` |
-| `supplier_manager` | `supplier-manager-keeper` | `.claude/knowledge/supplier_manager.md` |
-| `product_price_manager` | `price-rules-keeper` | `.claude/knowledge/product_price_manager.md` |
-| `pricing` `supplier` `supplier_feed` `dataframe` | `retiring-stack-keeper` | `.claude/knowledge/retiring_stack.md` |
+| `main_product_manager` | `main-product-keeper` | `.claude/knowledge/main_product_manager/` |
+| `core` | `core-keeper` | `.claude/knowledge/core/` |
+| `product` | `product-keeper` | `.claude/knowledge/product/` |
+| `supplier_product_manager` | `supplier-product-keeper` | `.claude/knowledge/supplier_product_manager/` |
+| `supplier_manager` | `supplier-manager-keeper` | `.claude/knowledge/supplier_manager/` |
+| `product_price_manager` | `price-rules-keeper` | `.claude/knowledge/product_price_manager/` |
+| `pricing` `supplier` `supplier_feed` `dataframe` | `retiring-stack-keeper` | `.claude/knowledge/retiring_stack/` |
 
-**Consult the keeper before working in its app.** It reads its knowledge file,
-verifies the claims against current code, and answers with `file:line` refs.
+**Consult the keeper before working in its app.** It reads its directory's
+index and the topics the question touches, verifies the claims against current
+code, and answers with `file:line` refs.
+
+**Layout.** Every topic starts with front matter — `title`, `summary`, `code`
+(the repo paths it covers). `.claude/knowledge/README.md` and each
+`<app>/README.md` are **generated** from that front matter by
+`.claude/tools/knowledge_index.py`; never edit them by hand. CI runs it with
+`--check`, which fails on a stale index, a topic without front matter, a
+flat `.claude/knowledge/<app>.md`, or a `[[app/topic]]` link that points
+nowhere. `.claude/knowledge/glossary.md` is hand-written: Russian UI terms
+(«ГП», «Набор», «уровень по цене») mapped to models, fields and PIM entities.
 
 **Record back afterwards** with `/record-insight <app>` — a `Stop` hook
 (`.claude/hooks/suggest_record.py`) nudges when a session touched an app dir.
-Without that step the files freeze and rot; recording is what makes the system
-worth having.
+The keeper picks or starts the topic; keepers have no shell, so the caller
+regenerates the index afterwards (the skill says how). Without that step the
+topics freeze and rot; recording is what makes the system worth having.
 
 **The boundary — keep these three from drifting into each other:**
 
 - `CLAUDE.md` / `AGENTS.md` — repo-wide invariants, architecture, direction of
   travel. The source of truth. **Keepers must not restate this.**
-- `.claude/knowledge/<app>.md` — app-local mechanism and traps found by working
-  in that app: surprising side effects, cache keys that don't cover what you'd
-  assume, deliberate convention exceptions. Cross-linked with `[[app_name]]`.
+- `.claude/knowledge/<app>/<topic>.md` — app-local mechanism and traps found by
+  working in that app: surprising side effects, cache keys that don't cover what
+  you'd assume, deliberate convention exceptions. Cross-linked with `[[app]]`
+  (the directory) and `[[app/topic]]`.
 - The user's memory dir — workflow preferences, not code facts.
 
 Apps with no keeper (`file_manager`, `api_auth`, `pim_api`, `blogapp`) are too
@@ -210,7 +223,7 @@ small to justify one; anything important about them belongs in this file.
 AtroCore/AtroPIM *documents* and what *our instance's* schema says: it reads
 help.atrocore.com as markdown from the public GitHub mirror, pinned to
 `DOCS_REF` in `.claude/tools/pim_docs.py`, and makes read-only GETs of the
-instance's `/api/metadata` and `/openapi.json`. It keeps no knowledge file.
+instance's `/api/metadata` and `/openapi.json`. It keeps no knowledge directory.
 What we learn about *our* integration still goes to `main-product-keeper` /
 `product-keeper`. **When the PIM is upgraded, bump `DOCS_REF`.**
 `pim_docs.py instance version` reports a mismatch.
