@@ -10,6 +10,7 @@ from supplier_product_manager import views as spm_views
 from main_product_manager import views as mp_views
 from supplier_manager import views as sm_views
 from product_price_manager import views as ppm_views
+from product_pricing import views as pricing_views
 from product import views as product_views
 from developers import views as developers_views
 from releases import views as releases_views
@@ -84,6 +85,19 @@ urlpatterns = [
     path('price-manager/', ppm_views.PriceManagerList.as_view(), name='price-manager'),
     path('price-manager/create-for/<int:pk>', ppm_views.PriceManagerCreate.as_view(), name='pricemanager-create'),
     path('price-manager/<int:id>/delete', ppm_views.PriceManagerDelete.as_view(), name='price-manager-delete'),
+
+    # Наценки на уровне товара (product_pricing)
+    path('product-pricing/', pricing_views.ProductPricingPage.as_view(), name='product-pricing'),
+    path('product-pricing/recalculate/', pricing_views.ProductPricesRecalculate.as_view(),
+         name='product-prices-recalculate'),
+    path('product-pricing/type/create/', pricing_views.ProductPriceTypeCreate.as_view(),
+         name='product-price-type-create'),
+    path('product-pricing/type/<int:pk>/', pricing_views.ProductPriceTypeUpdate.as_view(),
+         name='product-price-type-update'),
+    path('product-pricing/rule/create/', pricing_views.ProductPriceRuleCreate.as_view(),
+         name='product-price-rule-create'),
+    path('product-pricing/rule/<int:pk>/', pricing_views.ProductPriceRuleUpdate.as_view(),
+         name='product-price-rule-update'),
     
     path('pricetag/create-for/<int:pk>', ppm_views.PriceTagCreate.as_view(), name='pricetag-create'),
     path('pricetag/<int:pk>/update', ppm_views.PriceTagUpdate.as_view(), name='pricetag-update'),

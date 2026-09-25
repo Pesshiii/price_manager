@@ -1,0 +1,27 @@
+{% comment %}
+  Цены самого товара над строками поставщиков: основные (сведены по
+  поставщикам, product/services/prices.py) и расчётные по наценкам
+  (product_pricing). Видно, из чего получилась цена в колонке таблицы.
+{% endcomment %}
+{% if base_prices or calculated_prices %}
+  <div class="product-prices small px-3 py-2">
+    {% if calculated_prices %}
+      <div class="mb-1">
+        <span class="text-body-secondary me-1">Расчётные:</span>
+        {% for price in calculated_prices %}
+          <span class="me-3 text-nowrap" title="{% if price.rule %}Наценка: {{ price.rule.name }}{% else %}Наценка удалена{% endif %}">
+            {{ price.price_type.name }}: <strong>{{ price.value|floatformat:2 }}</strong>
+          </span>
+        {% endfor %}
+      </div>
+    {% endif %}
+    {% if base_prices %}
+      <div>
+        <span class="text-body-secondary me-1" title="Верхний уровень поставщиков по цене, внутри него — минимальная">Основные:</span>
+        {% for label, value in base_prices %}
+          <span class="me-3 text-nowrap">{{ label }}: {{ value|floatformat:2 }}</span>
+        {% endfor %}
+      </div>
+    {% endif %}
+  </div>
+{% endif %}

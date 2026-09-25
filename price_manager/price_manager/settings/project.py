@@ -1,3 +1,4 @@
+import json
 import os
 
 PROJECT_INSTALLED_APPS = [    
@@ -6,6 +7,7 @@ PROJECT_INSTALLED_APPS = [
     'file_manager',
     'supplier_product_manager',
     'product_price_manager',
+    'product_pricing',
     'main_product_manager',
     'supplier_manager',
     'blogapp',
@@ -26,6 +28,12 @@ PROJECT_MIDDLEWARE = [
 
 PIM_TOKEN = os.environ.get('PIM_TOKEN')
 PIM_HOST = os.environ.get('PIM_HOST')
+
+# Основные цены товара (product.Product, те же ключи, что MP_PRICES) -> поле
+# PriceManagerProduct в PIM, JSON: {"prime_cost": "pmPrimeCost", ...}. Поля в
+# PIM заводит PIM-администратор; пусто — основные цены в PIM не отправляются.
+# Расчётные цены сопоставляются в интерфейсе, у типа цены (ProductPriceType.pim_field).
+PIM_PRODUCT_PRICE_FIELDS = json.loads(os.environ.get('PIM_PRODUCT_PRICE_FIELDS') or '{}')
 
 # Import guard (supplier_product_manager/guard.py): a price file whose price or
 # stock coverage falls below RATIO x the median of the setting's last WINDOW

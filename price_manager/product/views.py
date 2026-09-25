@@ -11,7 +11,8 @@ from django_filters.views import FilterView
 from django_htmx.http import trigger_client_event
 from django_tables2 import SingleTableMixin
 
-from main_product_manager.models import MainProduct
+from main_product_manager.models import MP_PRICES, MainProduct
+from product_pricing.models import ProductPrice
 from main_product_manager.utils import fetch_pim_image
 from supplier_product_manager.models import SupplierProduct
 
@@ -40,12 +41,16 @@ def _base_queryset(by_category=False):
     без этого страница даёт N+1 на обеих связях. Категории предзагружаются
     вместе с предками: из них строится путь в заголовке группы
     (tables.category_path), и без select_related каждый шаг к корню был бы
-    запросом.
+    запросом. Расчётные цены (product_pricing) — тоже предзагрузкой, с
+    правилом: колонки цен (tables.ProductPriceColumn) и подсказка с именем
+    наценки читают их на каждой строке.
     """
     categories = Category.objects.select_related(CATEGORY_LABEL_DEPTH)
+    prices = ProductPrice.objects.select_related('rule')
     return annotate_product_rows(
         Product.objects.select_related('brand')
-        .prefetch_related(Prefetch('categories', queryset=categories)),
+        .prefetch_related(Prefetch('categories', queryset=categories),
+                          Prefetch('prices', queryset=prices)),
         by_category=by_category,
     )
 
@@ -237,6 +242,13 @@ class ProductSuppliersView(View):
             'table': table,
             # Набор: под своими строками — строка «Из комплектующих» и состав.
             'set_totals': set_totals_for([product.pk]).get(product.pk),
+            # Цены самого товара: основные и расчётные по наценкам.
+            'base_prices': [
+                (Product._meta.get_field(field).verbose_name, getattr(product, field))
+                for field in MP_PRICES if getattr(product, field)
+            ],
+            'calculated_prices': ProductPrice.objects.filter(product=product)
+            .select_related('price_type', 'rule').order_by('price_type__sorting', 'price_type__name'),
         })
 
 

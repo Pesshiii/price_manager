@@ -9,6 +9,7 @@ from django.utils.formats import number_format
 from django.utils.html import format_html, format_html_join
 
 from main_product_manager.models import MainProduct
+from product_pricing.models import ProductPriceType
 
 from .columns import COLUMN_LABELS, DEFAULT_COLUMNS, PRODUCT_ROW_COLUMNS, SUPPLIER_ROW_COLUMNS
 from .models import Product
@@ -189,6 +190,31 @@ def with_category_headers(rows):
     return result
 
 
+def product_price_html(price):
+    """Расчётная цена в ячейке; в подсказке — из чего и каким правилом она получена."""
+    if price is None:
+        return format_html('<span class="text-body-tertiary">{}</span>', '—')
+    hint = f'Наценка: {price.rule.name}' if price.rule_id and price.rule else 'Наценка удалена'
+    if price.source_value is not None:
+        hint += f'\nЦена-источник: {number_format(price.source_value, decimal_pos=2)}'
+    return format_html('<span class="text-nowrap" title="{}">{}</span>', hint, _money(price.value))
+
+
+class ProductPriceColumn(tables.Column):
+    """Расчётная цена одного типа. Цены берутся из предзагрузки prices
+    (_base_queryset) — без неё это запрос на ячейку."""
+
+    def __init__(self, price_type, **kwargs):
+        self.price_type = price_type
+        super().__init__(
+            verbose_name=price_type.name, accessor='pk', orderable=False, empty_values=(),
+            attrs={'th': {'class': 'text-end'}, 'td': {'class': 'col-num'}}, **kwargs)
+
+    def render(self, record):
+        price = next((p for p in record.prices.all() if p.price_type_id == self.price_type.pk), None)
+        return product_price_html(price)
+
+
 class ProductTable(tables.Table):
     """Товарная таблица: строка — Product, поставщики раскрываются под ней."""
 
@@ -234,7 +260,18 @@ class ProductTable(tables.Table):
     def __init__(self, *args, **kwargs):
         self.request = kwargs.pop('request', None)
         selected = kwargs.pop('selected_columns', None) or DEFAULT_COLUMNS
-        super().__init__(*args, **kwargs)
+        # Расчётные цены (product_pricing) — колонка на каждый тип цены с
+        # show_on_page. Типы заводят менеджеры, поэтому колонки собираются
+        # здесь, а не объявлены в классе; включает их флажок у типа, а не
+        # выбор колонок.
+        price_columns = [
+            (f'price_{price_type.pk}', ProductPriceColumn(price_type))
+            for price_type in ProductPriceType.objects.filter(show_on_page=True)
+        ]
+        sequence = list(self._meta.sequence)
+        at = sequence.index('total_stock')
+        kwargs['sequence'] = sequence[:at] + [key for key, _ in price_columns] + sequence[at:]
+        super().__init__(*args, extra_columns=price_columns, **kwargs)
         for key in PRODUCT_ROW_COLUMNS:
             if key not in selected:
                 self.columns.hide(key)
