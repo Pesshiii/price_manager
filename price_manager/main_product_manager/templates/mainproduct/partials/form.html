@@ -1,0 +1,215 @@
+{% load widget_tweaks %}
+{% comment %}
+  Строка ГП — создание и правка (MainProductForm). Три блока: откуда строка
+  (поставщик или без поставщика), к какому товару она встаёт, остаток и цены.
+  Разметка руками, а не crispy: пакет crispy — bootstrap4 поверх BS5, и его
+  form-row / custom-select здесь развалили бы сетку цен (см. CLAUDE.md).
+
+  «От поставщика / Без поставщика» — только переключатель вида: настоящее
+  поле — select поставщика, «без поставщика» его очищает.
+{% endcomment %}
+{% with editing=form.instance.pk %}
+<div class="modal-header mp-form-header">
+  <div class="min-w-0">
+    <h5 class="modal-title fw-semibold">
+      {% if editing %}Строка ГП{% else %}Новая строка ГП{% endif %}
+      {% if form.is_set_row %}<span class="mp-chip mp-chip-set ms-1">Строка набора</span>{% endif %}
+    </h5>
+    {% if preset_product %}
+      <div class="small text-body-secondary text-truncate">в товар «{{ preset_product.display_name }}»</div>
+    {% elif editing and form.instance.product %}
+      <div class="small text-body-secondary text-truncate">товар «{{ form.instance.product.display_name }}»</div>
+    {% endif %}
+  </div>
+  <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Закрыть"></button>
+</div>
+
+<form method="post"
+      {% if editing %}hx-post="{% url 'mainproduct-update' form.instance.pk %}"{% else %}hx-post="{% url 'mainproduct-create' %}"{% endif %}
+      hx-target="#modal-container .modal-content" hx-swap="innerHTML"
+      class="mp-form" data-mp-form>
+  {% csrf_token %}
+  {% if preset_product %}<input type="hidden" name="product" value="{{ preset_product.pk }}">{% endif %}
+
+  <div class="modal-body">
+    {% if form.non_field_errors %}
+      <div class="alert alert-danger py-2 small">{{ form.non_field_errors|join:" " }}</div>
+    {% endif %}
+
+    {# --- 1. Откуда строка ------------------------------------------------ #}
+    <section class="mp-section">
+      <h6 class="mp-section-title">Откуда строка</h6>
+      {% if form.from_price_list or form.is_set_row %}
+        <div class="mp-locked">
+          <i class="bi bi-lock" aria-hidden="true"></i>
+          {% if form.is_set_row %}
+            <span><strong>Без поставщика</strong> — строка набора. Себестоимость — сумма себестоимостей комплектующих, считается сама.</span>
+          {% else %}
+            <span><strong>{{ form.instance.supplier.name }}</strong>, артикул поставщика <code>{{ form.instance.article }}</code> — из прайса поставщика. Их держит загрузка прайса, поэтому здесь не меняются.</span>
+          {% endif %}
+        </div>
+      {% else %}
+        <div class="mp-source" role="radiogroup" aria-label="Откуда строка">
+          <input type="radio" class="btn-check" name="mp-source-view" id="mp-source-none" value="none" autocomplete="off"
+                 {% if not form.supplier.value %}checked{% endif %}>
+          <label class="mp-source-option" for="mp-source-none">
+            <i class="bi bi-box-seam" aria-hidden="true"></i>
+            <span>
+              <span class="mp-source-title">Без поставщика</span>
+              <span class="mp-source-text">Остаток на складе, возврат, бонус — без выгрузки прайса</span>
+            </span>
+          </label>
+          <input type="radio" class="btn-check" name="mp-source-view" id="mp-source-supplier" value="supplier" autocomplete="off"
+                 {% if form.supplier.value %}checked{% endif %}>
+          <label class="mp-source-option" for="mp-source-supplier">
+            <i class="bi bi-truck" aria-hidden="true"></i>
+            <span>
+              <span class="mp-source-title">От поставщика</span>
+              <span class="mp-source-text">Строка поставщика, заведённая руками</span>
+            </span>
+          </label>
+        </div>
+
+        <div class="row g-3 mt-0" data-mp-supplier-fields {% if not form.supplier.value %}hidden{% endif %}>
+          <div class="col-md-6">
+            <label class="form-label small fw-medium" for="{{ form.supplier.id_for_label }}">Поставщик</label>
+            {% render_field form.supplier class="form-select" %}
+            {% for error in form.supplier.errors %}<div class="invalid-feedback d-block">{{ error }}</div>{% endfor %}
+          </div>
+          <div class="col-md-6">
+            <label class="form-label small fw-medium" for="{{ form.article.id_for_label }}">Артикул поставщика</label>
+            {% render_field form.article class="form-control" %}
+            {% for error in form.article.errors %}<div class="invalid-feedback d-block">{{ error }}</div>{% endfor %}
+          </div>
+        </div>
+      {% endif %}
+    </section>
+
+    {# --- 2. Товар ---------------------------------------------------------- #}
+    <section class="mp-section">
+      <h6 class="mp-section-title">Товар</h6>
+      <div class="row g-3">
+        <div class="col-md-4">
+          <label class="form-label small fw-medium" for="{{ form.sku.id_for_label }}">Артикул товара</label>
+          {% if form.sku.field.disabled %}
+            <div class="form-control mp-readonly"><i class="bi bi-lock me-1" aria-hidden="true"></i>{{ form.sku.value }}</div>
+          {% elif preset_product %}
+            {% render_field form.sku class="form-control" autocomplete="off" autofocus="autofocus" %}
+          {% else %}
+            {% if editing %}
+              {% render_field form.sku class="form-control" autocomplete="off" hx-get=sku_check_url hx-trigger="input changed delay:400ms" hx-target="#mp-sku-hint" hx-vals=sku_check_vals %}
+            {% else %}
+              {% render_field form.sku class="form-control" autocomplete="off" autofocus="autofocus" hx-get=sku_check_url hx-trigger="input changed delay:400ms, load" hx-target="#mp-sku-hint" %}
+            {% endif %}
+          {% endif %}
+          {% for error in form.sku.errors %}<div class="invalid-feedback d-block">{{ error }}</div>{% endfor %}
+        </div>
+        <div class="col-md-8">
+          <label class="form-label small fw-medium" for="{{ form.name.id_for_label }}">Название</label>
+          {% render_field form.name class="form-control" %}
+          {% for error in form.name.errors %}<div class="invalid-feedback d-block">{{ error }}</div>{% endfor %}
+        </div>
+      </div>
+      <div id="mp-sku-hint" class="mp-hint" aria-live="polite">
+        {% if preset_product %}
+          <i class="bi bi-link-45deg" aria-hidden="true"></i>Строка встанет в этот товар{% if not preset_product.number %} — у товара ещё нет артикула, он станет им{% endif %}.
+        {% elif form.is_set_row %}
+          <i class="bi bi-link-45deg" aria-hidden="true"></i>Строка набора стоит на своём наборе.
+        {% endif %}
+      </div>
+      <div class="mt-3">
+        <label class="form-label small fw-medium" for="{{ form.note.id_for_label }}">Комментарий <span class="text-body-secondary fw-normal">— необязательно</span></label>
+        {% render_field form.note class="form-control" placeholder=form.note.help_text %}
+        {% for error in form.note.errors %}<div class="invalid-feedback d-block">{{ error }}</div>{% endfor %}
+      </div>
+    </section>
+
+    {# --- 3. Остаток и цены ------------------------------------------------ #}
+    <section class="mp-section mb-0">
+      <h6 class="mp-section-title">Остаток и цены</h6>
+      <p class="small text-body-secondary mb-3">
+        Пустое поле — «нет данных», не ноль. Цену с пометкой <i class="bi bi-arrow-repeat" aria-hidden="true"></i> пересчитывает наценка: введённое руками она заменит при ближайшем обновлении цен.
+      </p>
+      <div class="mp-prices">
+        <div class="mp-price">
+          <label class="form-label small fw-medium" for="{{ form.stock.id_for_label }}">Остаток</label>
+          <div class="input-group">
+            {% render_field form.stock class="form-control text-end" placeholder="—" %}
+            <span class="input-group-text">шт.</span>
+          </div>
+          {% if form.from_price_list %}<div class="mp-price-note"><i class="bi bi-arrow-repeat" aria-hidden="true"></i>Обновит загрузка прайса</div>{% endif %}
+          {% for error in form.stock.errors %}<div class="invalid-feedback d-block">{{ error }}</div>{% endfor %}
+        </div>
+        {% for field, rules in price_rows %}
+          <div class="mp-price{% if field.field.disabled %} is-computed{% elif rules %} is-ruled{% endif %}">
+            <label class="form-label small fw-medium" for="{{ field.id_for_label }}">{{ field.label }}</label>
+            <div class="input-group">
+              {% render_field field class="form-control text-end" placeholder="—" %}
+              <span class="input-group-text">тг</span>
+            </div>
+            {% if field.field.disabled %}
+              <div class="mp-price-note"><i class="bi bi-diagram-3" aria-hidden="true"></i>Сумма комплектующих</div>
+            {% elif rules %}
+              <div class="mp-price-note" title="{{ rules|join:', ' }}"><i class="bi bi-arrow-repeat" aria-hidden="true"></i>{{ rules|first }}{% if rules|length > 1 %} и ещё {{ rules|length|add:"-1" }}{% endif %}</div>
+            {% endif %}
+            {% for error in field.errors %}<div class="invalid-feedback d-block">{{ error }}</div>{% endfor %}
+          </div>
+        {% endfor %}
+      </div>
+    </section>
+  </div>
+
+  <div class="modal-footer">
+    <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Отмена</button>
+    <button type="submit" class="btn btn-primary px-4">{% if editing %}Сохранить{% else %}Добавить строку{% endif %}</button>
+  </div>
+</form>
+{% endwith %}
+
+<style>
+  .mp-section { margin-bottom: 1.5rem; }
+  .mp-section-title { font-size: .75rem; font-weight: 600; letter-spacing: .04em; text-transform: uppercase; color: var(--bs-secondary-color); margin-bottom: .75rem; }
+  .mp-chip { font-size: .75rem; font-weight: 500; border: 1px solid var(--bs-border-color); border-radius: 1rem; padding: .05rem .5rem; vertical-align: middle; }
+  .mp-chip-set { border-color: var(--bs-primary-border-subtle); color: var(--bs-primary-text-emphasis); }
+  .mp-source { display: grid; grid-template-columns: repeat(auto-fit, minmax(15rem, 1fr)); gap: .5rem; }
+  .mp-source-option { display: flex; gap: .75rem; align-items: flex-start; padding: .75rem 1rem; border: 1px solid var(--bs-border-color); border-radius: .5rem; cursor: pointer; margin: 0; }
+  .mp-source-option > .bi { font-size: 1.25rem; color: var(--bs-secondary-color); line-height: 1.2; }
+  .mp-source-title { display: block; font-weight: 600; font-size: .875rem; }
+  .mp-source-text { display: block; font-size: .8125rem; color: var(--bs-secondary-color); }
+  .btn-check:checked + .mp-source-option { border-color: var(--bs-primary); background: var(--bs-primary-bg-subtle); }
+  .btn-check:checked + .mp-source-option > .bi { color: var(--bs-primary); }
+  .btn-check:focus-visible + .mp-source-option { outline: 2px solid var(--bs-primary); outline-offset: 2px; }
+  .mp-locked { display: flex; gap: .5rem; align-items: baseline; font-size: .875rem; padding: .6rem .8rem; border-radius: .5rem; background: var(--bs-tertiary-bg); }
+  .mp-locked > .bi { color: var(--bs-secondary-color); }
+  .mp-readonly { background: var(--bs-tertiary-bg); color: var(--bs-body-color); }
+  .mp-hint { font-size: .8125rem; color: var(--bs-secondary-color); margin-top: .5rem; min-height: 1.25rem; }
+  .mp-hint .bi { margin-right: .25rem; }
+  .mp-hint.is-new, .mp-hint .is-new { color: var(--bs-primary-text-emphasis); }
+  .mp-prices { display: grid; grid-template-columns: repeat(auto-fill, minmax(11rem, 1fr)); gap: .75rem 1rem; }
+  .mp-price .form-control { font-variant-numeric: tabular-nums; }
+  .mp-price-note { font-size: .75rem; color: var(--bs-secondary-color); margin-top: .25rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .mp-price-note .bi { margin-right: .25rem; }
+  .mp-price.is-ruled .mp-price-note { color: var(--bs-warning-text-emphasis); }
+  .mp-price.is-computed .mp-price-note { color: var(--bs-primary-text-emphasis); }
+</style>
+
+<script>
+  (function () {
+    // Переключатель «Без поставщика / От поставщика»: поле одно — select
+    // поставщика; «без поставщика» очищает его и прячет вместе с артикулом.
+    const forms = document.querySelectorAll('[data-mp-form]');
+    const form = forms[forms.length - 1];
+    if (!form) return;
+    const fields = form.querySelector('[data-mp-supplier-fields]');
+    if (!fields) return;
+    const select = fields.querySelector('select');
+    form.querySelectorAll('input[name="mp-source-view"]').forEach(function (radio) {
+      radio.addEventListener('change', function () {
+        const withSupplier = radio.value === 'supplier' && radio.checked;
+        fields.hidden = !withSupplier;
+        if (!withSupplier && select) select.value = '';
+        if (withSupplier && select) select.focus();
+      });
+    });
+  })();
+</script>

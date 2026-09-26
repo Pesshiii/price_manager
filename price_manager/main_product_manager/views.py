@@ -44,7 +44,7 @@ from .forms import *
 from .tables import *
 from .filters import *
 from .utils import *
-from .utils import _link_to_local_product, get_pim_data_for_product, pim_image_url, maybe_notify_pim_error
+from .utils import ensure_product, get_pim_data_for_product, pim_image_url, maybe_notify_pim_error, product_for_sku
 from .tasks import sync_main_products_task
 from supplier_product_manager.views import UploadSupplierFile
 
@@ -54,6 +54,7 @@ import pandas as pd
 import re
 import math
 import json
+from urllib.parse import urlsplit
 import logging
 
 logger = logging.getLogger(__name__)
@@ -73,6 +74,12 @@ def sync_main_products(request, **kwargs):
 
 
 
+def _price_cards(main_product):
+  """Все цены строки, пустые тоже — [(поле, подпись, значение)] в порядке MP_PRICES."""
+  return [(name, MainProduct._meta.get_field(name).verbose_name, getattr(main_product, name))
+          for name in MP_PRICES]
+
+
 class MainProductInfo(DetailView):
   template_name='mainproduct/partials/info.html'
   model=MainProduct
@@ -87,6 +94,7 @@ class MainProductInfo(DetailView):
     context['pim_data'] = pim_data
     if pim_data:
       context['pim_image_url'] = pim_image_url(pim_data.get('mainImageId') or pim_data.get('imageId'))
+    context['price_cards'] = _price_cards(self.object)
     return context
 
 
@@ -104,44 +112,161 @@ class MainProductDetail(DetailView):
     context['pim_data'] = pim_data
     if pim_data:
       context['pim_image_url'] = pim_image_url(pim_data.get('mainImageId') or pim_data.get('imageId'))
+    context['price_cards'] = _price_cards(self.object)
     return context
 
 
-class MainProductCreate(CreateView):
+def _price_rules_by_field(main_product) -> dict:
+  """{поле цены: [названия наценок]} — действующие наценки, которые его пишут.
+
+  Подсказка у поля формы: цену, введённую руками, наценка перезапишет при
+  следующем пересчёте, и человек должен знать об этом до сохранения.
+  """
+  from product_price_manager.models import _active_pricetags
+  if not main_product.pk:
+    return {}
+  rules = {}
+  tags = (_active_pricetags(timezone.now()).filter(mp=main_product)
+          .select_related('p_manager').order_by('dest', 'p_manager__name'))
+  for tag in tags:
+    rules.setdefault(tag.dest, []).append(tag.p_manager.name if tag.p_manager_id else 'наценка на эту строку')
+  return rules
+
+
+def _after_main_product_saved(product_pks):
+  """Основные цены затронутых товаров — сразу, расчётные — общим пересчётом.
+
+  Как у переноса строки ГП в карточке товара (product.views._relinked):
+  карточка после перезагрузки уже показывает новые цены.
+  """
+  from product.services.prices import recalculate_base_prices
+  from product_pricing.tasks import update_product_prices_task
+  from core.task_runner import dispatch_after_commit
+  pks = [pk for pk in set(product_pks) if pk]
+  if pks:
+    recalculate_base_prices(pks=pks)
+  dispatch_after_commit(update_product_prices_task)
+
+
+class _MainProductFormMixin:
   model = MainProduct
-  form_class = MainProductCreateForm
-  template_name = 'mainproduct/partials/create.html'
+  form_class = MainProductForm
+  template_name = 'mainproduct/partials/form.html'
+
+  def get_form_kwargs(self):
+    kwargs = super().get_form_kwargs()
+    kwargs['product'] = self.get_preset_product()
+    return kwargs
+
+  def get_preset_product(self):
+    return None
+
+  def get_context_data(self, **kwargs):
+    context = super().get_context_data(**kwargs)
+    form = context['form']
+    rules = _price_rules_by_field(form.instance)
+    context['price_rows'] = [(field, rules.get(field.name, [])) for field in form.price_fields]
+    context['preset_product'] = self.get_preset_product()
+    context['sku_check_url'] = reverse('mainproduct-sku-check')
+    context['sku_check_vals'] = json.dumps({'current': form.instance.sku or ''} if form.instance.pk else {})
+    return context
+
+  def save_form(self, form):
+    form.stamp_updates()
+    with transaction.atomic():
+      main_product = form.save()
+      MainProductLog.objects.bulk_create(form.price_log_entries())
+    return main_product
+
+
+class MainProductCreate(_MainProductFormMixin, CreateView):
+  """«Добавить строку ГП»: с «Товаров» (артикул вводится) или из карточки товара.
+
+  Из карточки (?product=<pk>) строка сразу стоит на этом товаре и артикул
+  заполнен им. С «Товаров» — строка встаёт на товар со своим артикулом, а
+  если такого нет, он создаётся: строки ГП без товара не бывает.
+  """
+
   def get(self, request, *args, **kwargs):
     if not self.request.htmx:
       return redirect(reverse('products'))
     return super().get(request, *args, **kwargs)
+
+  def get_preset_product(self):
+    if not hasattr(self, '_preset_product'):
+      from product.models import Product
+      pk = self.request.GET.get('product') or self.request.POST.get('product')
+      self._preset_product = get_object_or_404(Product, pk=pk) if pk else None
+    return self._preset_product
+
   def form_valid(self, form):
-    self.object = form.save()
-    # Явная привязка к Product по sku. Раньше она была побочным эффектом
-    # пересборки search_vector, который Phase 2b удалил; без неё новая строка
-    # не видна на /products/ до ночного reindex.
-    _link_to_local_product(self.object)
-    return HttpResponseClientRedirect(reverse('mainproduct-detail', kwargs={'pk': self.object.pk}))
+    product = self.get_preset_product()
+    with transaction.atomic():
+      self.object = main_product = self.save_form(form)
+      if product is not None:
+        if not product.number:
+          product.number = main_product.sku
+          product.save(update_fields=['number'])
+        MainProduct.objects.filter(pk=main_product.pk).update(product=product)
+        main_product.product = product
+      else:
+        ensure_product(main_product)
+      _after_main_product_saved([main_product.product_id])
+    label = main_product.supplier.name if main_product.supplier else 'без поставщика'
+    messages.success(self.request, f'Строка ГП «{main_product.name}» ({label}) добавлена')
+    # Открыта карточка этого товара — перезагрузить её; иначе (с «Товаров»)
+    # — перейти в карточку: там видно новую строку, а на списке она спрятана
+    # в свёрнутой панели.
+    card_url = reverse('product-detail', kwargs={'pk': main_product.product_id})
+    current = urlsplit(self.request.htmx.current_url or '').path
+    if current == card_url:
+      return HttpResponseClientRefresh()
+    return HttpResponseClientRedirect(card_url)
 
 
-class MainProductUpdate(UpdateView):
-  model = MainProduct
-  form_class = MainProductForm
-  template_name = 'mainproduct/partials/update.html'
-  def get_success_url(self):
-    return reverse('mainproduct-info', kwargs=self.kwargs)
+class MainProductUpdate(_MainProductFormMixin, UpdateView):
+  """Правка строки ГП — все поля, включая цены.
+
+  Смена артикула переносит строку в товар с новым артикулом (создавая его,
+  если нужно): артикул строки и номер товара — одно и то же.
+  """
+
   def get(self, request, *args, **kwargs):
     if not self.request.htmx:
       return redirect(reverse('mainproduct-info', kwargs=self.kwargs))
     return super().get(request, *args, **kwargs)
+
   def form_valid(self, form):
-    if self.request.POST.get('cancel-btn'):
-       return HttpResponseClientRedirect(reverse('mainproduct-detail', kwargs=self.kwargs))
-    if form.is_valid():
-      form.save()
-      return HttpResponseClientRedirect(reverse('mainproduct-detail', kwargs=self.kwargs))
-    else:
-      return redirect(reverse('mainproduct-update', kwargs=self.kwargs))
+    old_product_pk = form.instance.product_id
+    sku_changed = 'sku' in form.changed_data
+    with transaction.atomic():
+      self.object = main_product = self.save_form(form)
+      if sku_changed or not main_product.product_id:
+        target = product_for_sku(main_product.sku, main_product.name)
+        if target.pk != main_product.product_id:
+          MainProduct.objects.filter(pk=main_product.pk).update(product=target)
+          main_product.product = target
+      _after_main_product_saved([old_product_pk, main_product.product_id])
+    messages.success(self.request, 'Строка ГП сохранена')
+    return HttpResponseClientRefresh()
+
+
+class MainProductSkuCheck(View):
+  """Подсказка под артикулом в форме: к какому товару встанет строка."""
+
+  def get(self, request, *args, **kwargs):
+    from product.models import Product
+    sku = (request.GET.get('mp-sku') or '').strip()
+    current = request.GET.get('current') or ''
+    product = Product.objects.filter(number__iexact=sku).first() if sku else None
+    return render(request, 'mainproduct/partials/sku_hint.html', {
+      'sku': sku,
+      'current': current,
+      'product': product,
+      'unchanged': bool(current) and sku.lower() == current.strip().lower(),
+      'rows_count': product.main_products.count() if product else 0,
+    })
+
 
 class MainProductLogList(SingleTableView):
   model = MainProductLog

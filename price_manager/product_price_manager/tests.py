@@ -685,3 +685,106 @@ class PriceTagListTests(TestCase):
         response = self.get_list()
         self.assertContains(response, 'Нет наценок, заданных для этого товара.')
         self.assertContains(response, 'Ни один менеджер наценок не применяется к этому товару.')
+
+
+
+class UnsuppliedRuleTests(TestCase):
+    """Наценка без поставщика — на строки ГП без поставщика, и только на них."""
+
+    def setUp(self):
+        currency, _ = Currency.objects.get_or_create(name='KZT', defaults={'value': Decimal('1')})
+        self.supplier = Supplier.objects.create(name='Есть поставщик', currency=currency,
+                                                delivery_days_available=1, delivery_days_navailable=2)
+        self.loose = MainProduct.objects.create(article='R-1', name='Возврат', prime_cost=Decimal('100'))
+        self.supplied = MainProduct.objects.create(supplier=self.supplier, article='S-1', name='Строка',
+                                                   prime_cost=Decimal('100'))
+        SupplierProduct.objects.create(supplier=self.supplier, main_product=self.supplied, article='S-1',
+                                       name='Строка', supplier_price=Decimal('50'))
+
+    def rule(self, **kwargs):
+        defaults = dict(name='Без поставщика', supplier=None, source='prime_cost', dest='basic_price',
+                        markup=Decimal('20'))
+        defaults.update(kwargs)
+        return PriceManager.objects.create(**defaults)
+
+    def test_applies_to_rows_without_supplier_only(self):
+        self.rule().apply(logs=False)
+
+        self.loose.refresh_from_db()
+        self.supplied.refresh_from_db()
+        self.assertEqual(self.loose.basic_price, Decimal('120'))
+        self.assertIsNone(self.supplied.basic_price)
+        self.assertTrue(PriceTag.objects.filter(mp=self.loose, p_manager__name='Без поставщика').exists())
+
+    def test_a_supplier_price_list_source_fits_nothing(self):
+        rule = self.rule(source='supplier_price')
+
+        self.assertEqual(rule.get_fitting_mps().count(), 0)
+
+    def test_price_range_and_deletion_behave_like_a_supplier_rule(self):
+        rule = self.rule(price_from=Decimal('150'))
+        self.assertEqual(rule.get_fitting_mps().count(), 0)
+        rule.price_from = None
+        rule.save()
+        rule.apply(logs=False)
+
+        rule.delete()
+
+        self.loose.refresh_from_db()
+        self.assertIsNone(self.loose.basic_price)
+
+
+class PriceManagerPageTests(TestCase):
+    """«Наценки ГП»: все правила, фильтр по поставщику, создание без поставщика."""
+
+    def setUp(self):
+        from django.contrib.auth.models import User
+        currency, _ = Currency.objects.get_or_create(name='KZT', defaults={'value': Decimal('1')})
+        self.supplier = Supplier.objects.create(name='Поставщик страницы', currency=currency,
+                                                delivery_days_available=1, delivery_days_navailable=2)
+        PriceManager.objects.create(name='Правило поставщика', supplier=self.supplier, source='prime_cost',
+                                    dest='basic_price')
+        PriceManager.objects.create(name='Правило без поставщика', supplier=None, source='prime_cost',
+                                    dest='m_price')
+        self.client.force_login(User.objects.create_user(username='rules', password='pw'))
+
+    def test_lists_rules_of_suppliers_and_without_supplier(self):
+        from django.urls import reverse
+        response = self.client.get(reverse('price-manager'))
+
+        self.assertEqual(len(response.context['rules']), 2)
+        self.assertContains(response, 'Без поставщика')
+        self.assertContains(response, 'Поставщик страницы')
+
+    def test_filters_to_rules_without_supplier(self):
+        from django.urls import reverse
+        response = self.client.get(reverse('price-manager'), {'supplier': 'none'})
+
+        self.assertEqual([rule.name for rule in response.context['rules']], ['Правило без поставщика'])
+
+    def test_creates_a_rule_without_supplier_and_refuses_price_list_sources(self):
+        from django.urls import reverse
+        url = reverse('price-manager-create')
+        form = {'dest': 'wholesale_price', 'source': 'prime_cost', 'markup': '10', 'increase': '0',
+                'fixed_price': '0'}
+
+        form_page = self.client.get(url, HTTP_HX_REQUEST='true')
+        self.assertNotContains(form_page, 'value="supplier_price"')
+
+        bad = self.client.post(url, {**form, 'source': 'supplier_price'}, HTTP_HX_REQUEST='true')
+        self.assertContains(bad, 'нет прайса поставщика')
+
+        self.client.post(url, form, HTTP_HX_REQUEST='true')
+        rule = PriceManager.objects.get(dest='wholesale_price')
+        self.assertIsNone(rule.supplier_id)
+        self.assertTrue(rule.name.startswith('Без поставщика'))
+
+    def test_manual_tag_on_a_row_without_supplier_cannot_use_the_price_list(self):
+        from django.urls import reverse
+        row = MainProduct.objects.create(article='L-1', name='Остаток')
+
+        response = self.client.post(reverse('pricetag-create', kwargs={'pk': row.pk}), {
+            'source': 'rrp', 'dest': 'basic_price', 'markup': '0', 'increase': '0'}, HTTP_HX_REQUEST='true')
+
+        self.assertContains(response, 'нет прайса поставщика')
+        self.assertFalse(PriceTag.objects.filter(mp=row).exists())

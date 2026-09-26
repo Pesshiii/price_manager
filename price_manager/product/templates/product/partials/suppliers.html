@@ -21,5 +21,13 @@
 {% elif main_products %}
   {% render_table table %}
 {% else %}
-  <p class="text-muted small mb-0 p-3">Ни один поставщик не привязан к этому товару.</p>
+  <div class="d-flex flex-wrap align-items-center gap-2 p-3">
+    <span class="text-muted small me-auto">У товара нет строк ГП — ни цен, ни остатка.</span>
+    <button type="button" class="btn btn-sm btn-outline-primary"
+            data-bs-toggle="modal" data-bs-target="#modal-container"
+            hx-get="{% url 'mainproduct-create' %}?product={{ product.pk }}"
+            hx-target="#modal-container .modal-content" hx-swap="innerHTML">
+      <i class="bi bi-plus-lg me-1" aria-hidden="true"></i>Добавить строку ГП
+    </button>
+  </div>
 {% endif %}

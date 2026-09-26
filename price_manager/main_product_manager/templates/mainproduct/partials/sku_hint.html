@@ -1,0 +1,15 @@
+{% comment %}
+  Подсказка под артикулом в форме строки ГП (MainProductSkuCheck): к какому
+  товару встанет строка. Строка ГП без товара не бывает — нет товара с таким
+  артикулом, он будет создан.
+{% endcomment %}
+{% if not sku %}
+  <i class="bi bi-info-circle" aria-hidden="true"></i>Строка встанет в товар с этим артикулом; если такого нет — он будет создан.
+{% elif unchanged %}
+{% elif product %}
+  <i class="bi bi-link-45deg" aria-hidden="true"></i>{% if current %}Строка перейдёт в товар{% else %}Встанет в товар{% endif %}
+  <a href="{% url 'product-detail' product.pk %}" target="_blank" rel="noopener">«{{ product.display_name }}»</a>
+  <span class="text-body-secondary">· строк ГП: {{ rows_count }}</span>
+{% else %}
+  <span class="is-new"><i class="bi bi-plus-circle" aria-hidden="true"></i>Товара с артикулом <code>{{ sku }}</code> нет — он будет создан{% if current %}, и строка перейдёт в него{% endif %}.</span>
+{% endif %}

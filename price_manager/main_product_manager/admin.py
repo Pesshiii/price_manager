@@ -40,7 +40,13 @@ class MainProductAdmin(ImportExportModelAdmin):
     list_display = [field.name for field in MainProduct._meta.fields]
     list_display_links = ['id', 'name']
     search_fields = ['article', 'name', 'sku', 'stock']
-    list_filter = ['supplier']
+    list_filter = ['supplier', 'is_set']
+
+    def save_model(self, request, obj, form, change):
+        # Строка ГП без товара не бывает (как и в модалках): товар — по sku.
+        from .utils import ensure_product
+        super().save_model(request, obj, form, change)
+        ensure_product(obj)
 
 @admin.register(MainProductLog)
 class MainProductLogAdmin(admin.ModelAdmin):

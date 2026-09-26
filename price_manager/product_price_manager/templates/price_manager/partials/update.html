@@ -2,6 +2,7 @@
 <div class="modal-header">
   <h5 class="modal-title fw-semibold">
     <i class="bi bi-pencil-square me-2 text-primary"></i>Редактирование наценки
+    <span class="small fw-normal text-body-secondary ms-1">· {% if supplier %}{{ supplier.name }}{% else %}без поставщика{% endif %}</span>
   </h5>
   <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Закрыть"></button>
 </div>

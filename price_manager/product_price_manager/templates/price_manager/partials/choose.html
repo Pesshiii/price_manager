@@ -1,0 +1,46 @@
+{% comment %}
+  «Добавить наценку» со страницы всех наценок — шаг 1: для каких строк ГП.
+  Дальше — обычная форма правила (PriceManagerCreate) для выбранного.
+{% endcomment %}
+<div class="modal-header">
+  <h5 class="modal-title fw-semibold">Новая наценка</h5>
+  <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Закрыть"></button>
+</div>
+<div class="modal-body">
+  <p class="small text-body-secondary mb-3">Для каких строк ГП?</p>
+  <div class="d-grid gap-2">
+    <button type="button" class="pm-choice"
+            hx-get="{% url 'price-manager-create' %}"
+            hx-target="#modal-container .modal-content" hx-swap="innerHTML">
+      <i class="bi bi-box-seam" aria-hidden="true"></i>
+      <span>
+        <span class="pm-choice-title">Без поставщика</span>
+        <span class="pm-choice-text">Строки наборов, остатки на складе, возвраты, бонусы. Считает от цен ГП — у этих строк нет прайса поставщика.</span>
+      </span>
+      <i class="bi bi-chevron-right ms-auto" aria-hidden="true"></i>
+    </button>
+    <form class="pm-choice pm-choice-form"
+          hx-get="{% url 'price-manager-create' %}"
+          hx-target="#modal-container .modal-content" hx-swap="innerHTML">
+      <i class="bi bi-truck" aria-hidden="true"></i>
+      <span class="flex-grow-1">
+        <label class="pm-choice-title" for="pm-choose-supplier">Поставщик</label>
+        <span class="pm-choice-text">Строки из прайса поставщика: от его цены, РРЦ, групп скидок.</span>
+        <span class="d-flex gap-2 mt-2">
+          <select id="pm-choose-supplier" name="supplier" class="form-select form-select-sm" required>
+            <option value="">Выберите поставщика</option>
+            {% for supplier in suppliers %}<option value="{{ supplier.pk }}">{{ supplier.name }}</option>{% endfor %}
+          </select>
+          <button type="submit" class="btn btn-sm btn-primary">Далее</button>
+        </span>
+      </span>
+    </form>
+  </div>
+</div>
+<style>
+  .pm-choice { display: flex; gap: .75rem; align-items: flex-start; text-align: left; width: 100%; padding: .9rem 1rem; border: 1px solid var(--bs-border-color); border-radius: .5rem; background: var(--bs-body-bg); color: var(--bs-body-color); }
+  button.pm-choice:hover, button.pm-choice:focus-visible { border-color: var(--bs-primary); background: var(--bs-primary-bg-subtle); }
+  .pm-choice > .bi { font-size: 1.25rem; color: var(--bs-secondary-color); line-height: 1.2; }
+  .pm-choice-title { display: block; font-weight: 600; font-size: .9375rem; }
+  .pm-choice-text { display: block; font-size: .8125rem; color: var(--bs-secondary-color); }
+</style>

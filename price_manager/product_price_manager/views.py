@@ -33,6 +33,7 @@ from django_htmx.http import HttpResponseClientRefresh
 
 # Импорты моделей, функций, форм, таблиц
 from .models import PriceManager
+from supplier_manager.models import Discount, Supplier
 from file_manager.models import FileModel
 from core.utils import *
 from main_product_manager.models import MainProduct, MainProductLog, MP_PRICES, PRICE_TYPES
@@ -57,11 +58,54 @@ def _supplier_categories(supplier):
   """
   # select_related обязателен: метка варианта — Category.__str__, а он
   # поднимается по parent запросом на уровень (см. CATEGORY_LABEL_DEPTH).
+  if supplier is None:
+    rows = MainProduct.objects.filter(supplier__isnull=True)
+  else:
+    rows = MainProduct.objects.filter(supplierproducts__in=supplier.supplierproducts.all())
   return ProductCategory.objects.filter(
-    pk__in=MainProduct.objects
-      .filter(supplierproducts__in=supplier.supplierproducts.all())
-      .values('product__categories')
+    pk__in=rows.values('product__categories')
   ).select_related(CATEGORY_LABEL_DEPTH)
+
+
+# Источники из прайса поставщика: у строки без поставщика их нет.
+UNSUPPLIED_SOURCE_EXCLUDE = set(SP_PRICES)
+
+
+def _prepare_form(form, supplier):
+  """Выбор групп скидок, категорий и источников — под поставщика правила.
+
+  Правило без поставщика (supplier=None) — на строки ГП без поставщика:
+  у них нет ни прайса поставщика, ни групп скидок, ни РРЦ.
+  """
+  form.fields['discounts'].queryset = supplier.discounts.all() if supplier else Discount.objects.none()
+  form.fields['categories'].queryset = _supplier_categories(supplier)
+  if supplier is None:
+    form.fields['source'].widget.choices = [
+      (value, label) for value, label in form.fields['source'].widget.choices
+      if value not in UNSUPPLIED_SOURCE_EXCLUDE]
+
+
+def _rule_error(cd, supplier):
+  """Общая проверка формы правила; текст ошибки или None."""
+  if cd['price_fixed'] and cd['fixed_price'] == 0:
+    return 'Не указана фиксированная цена'
+  if not cd['price_fixed']:
+    if not cd['source']:
+      return 'Поле от какой цены считать должно быть указано'
+    if cd['source'] == cd['dest']:
+      return 'Поля от какой цены считать и какую цену считать совпадают'
+    if supplier is None and cd['source'] in SP_PRICES:
+      return 'У строк без поставщика нет прайса поставщика — считайте от цены ГП'
+    if (cd['price_from'] and cd['price_to']
+      and cd['price_from'] >= cd['price_to']):
+      return 'Неверный диапозон цены'
+  return None
+
+
+def _supplier_param(request, kwargs):
+  """Поставщик правила: из адреса, из ?supplier= или None — «без поставщика»."""
+  pk = kwargs.get('pk') or request.GET.get('supplier') or request.POST.get('supplier')
+  return get_object_or_404(Supplier, pk=pk) if pk else None
 
 class PriceManagerList(SingleTableView):
   '''Отображение наценок << /supplier/pricemanagers/<int:pk> >>'''
@@ -87,7 +131,12 @@ class PriceManagerCreate(CreateView):
   form_class = PriceManagerForm
   template_name = 'price_manager/partials/create.html'
   def get_success_url(self):
-    return resolve_url('pricemanager-create', self.kwargs.get('pk', None))
+    return resolve_url('price-manager')
+  @property
+  def supplier(self):
+    if not hasattr(self, '_supplier'):
+      self._supplier = _supplier_param(self.request, self.kwargs)
+    return self._supplier
   def _format_value(self, value):
     return str(value) if not value is None else '—'
   def _build_generated_name(self, supplier, cleaned_data):
@@ -104,7 +153,7 @@ class PriceManagerCreate(CreateView):
     else:
       formula_label = f'+{self._format_value(cleaned_data.get("markup"))}% + {self._format_value(cleaned_data.get("increase"))} тг'
     base_name = ' | '.join([
-      f'{supplier.name}',
+      f'{supplier.name if supplier else "Без поставщика"}',
       f'{dest_label} ← {source_label}',
       f'РРЦ: {has_rrp_map.get(has_rrp_value)}',
       f'Скидки: {discount_value}',
@@ -119,11 +168,8 @@ class PriceManagerCreate(CreateView):
     return generated_name
   def get_context_data(self, **kwargs) -> dict[str, Any]:
     context = super().get_context_data(**kwargs)
-    supplier = Supplier.objects.get(pk=self.kwargs.get('pk'))
-    form = context['form']
-    context['supplier'] = supplier
-    form.fields['discounts'].queryset = supplier.discounts.all()
-    form.fields['categories'].queryset = _supplier_categories(supplier)
+    context['supplier'] = self.supplier
+    _prepare_form(context['form'], self.supplier)
     context['selected_discount_ids'] = []
     return context
   def form_invalid(self, form):
@@ -132,22 +178,12 @@ class PriceManagerCreate(CreateView):
     return response
   def form_valid(self, form):
     cd = form.cleaned_data
-    if cd['price_fixed'] and cd['fixed_price'] == 0:
-      form.add_error(field=None, error='Не указана фиксированная цена')
+    supplier = self.supplier
+    error = _rule_error(cd, supplier)
+    if error:
+      form.add_error(field=None, error=error)
       return self.form_invalid(form)
-    if not cd['price_fixed']:
-      if not cd['source']:
-        form.add_error(field='source', error='Поле от какой цены считать должно быть указано')
-        return self.form_invalid(form)
-      if cd['source'] == cd['dest']:
-        form.add_error(field=None, error='Поля от какой цены считать и какую цену считать совпадают')
-        return self.form_invalid(form)
-      if (cd['price_from'] and cd['price_to']
-        and cd['price_from'] >= cd['price_to']):
-        form.add_error(field=None, error='Неверный диапозон цены')
-        return self.form_invalid(form)
     instance = form.save(commit=False)
-    supplier = Supplier.objects.get(pk=self.kwargs.get('pk'))
     instance.supplier = supplier
     if cd['price_fixed']:
       instance.source = 'fixed_price'
@@ -183,26 +219,16 @@ class PriceManagerUpdate(SingleTableMixin, UpdateView):
     supplier = self.instance.supplier
     form = context['form']
     form.initial['price_fixed'] = self.instance.source == 'fixed_price'
-    form.fields['discounts'].queryset = supplier.discounts.all()
-    form.fields['categories'].queryset = _supplier_categories(supplier)
+    _prepare_form(form, supplier)
+    context['supplier'] = supplier
     context['selected_discount_ids'] = list(self.instance.discounts.values_list('pk', flat=True))
     return context
   def form_valid(self, form):
     cd = form.cleaned_data
-    if cd['price_fixed'] and cd['fixed_price'] == 0:
-      form.add_error(field=None, error='Не указана фиксированная цена')
+    error = _rule_error(cd, self.instance.supplier)
+    if error:
+      form.add_error(field=None, error=error)
       return self.form_invalid(form)
-    if not cd['price_fixed']:
-      if not cd['source']:
-        form.add_error(field='source', error='Поле от какой цены считать должно быть указано')
-        return self.form_invalid(form)
-      if cd['source'] == cd['dest']:
-        form.add_error(field=None, error='Поля от какой цены считать и какую цену считать совпадают')
-        return self.form_invalid(form)
-      if (cd['price_from'] and cd['price_to']
-        and cd['price_from'] >= cd['price_to']):
-        form.add_error(field=None, error='Неверный диапозон цены')
-        return self.form_invalid(form)
     instance = form.save(commit=False)
     if cd['price_fixed']:
       instance.source = 'fixed_price'
@@ -212,6 +238,61 @@ class PriceManagerUpdate(SingleTableMixin, UpdateView):
     messages.success(self.request, 'Обновления менеджера сохранены')
     return HttpResponseClientRefresh()
   
+
+
+class PriceManagerPage(TemplateView):
+  """«Наценки ГП»: все правила наценок строк ГП — поставщиков и без поставщика.
+
+  Правила поставщика по-прежнему видны и на его странице; здесь — общий
+  список, и единственное место, где заводят правила без поставщика (на
+  наборы, возвраты, бонусы, остатки). ?supplier=none|<pk> — фильтр,
+  ?deprecated=1 — показать устаревшие.
+  """
+  template_name = 'price_manager/page.html'
+
+  def get_context_data(self, **kwargs):
+    from django.db.models import Count
+    context = super().get_context_data(**kwargs)
+    rules = (PriceManager.objects.select_related('supplier')
+             .prefetch_related('discounts', 'categories')
+             .annotate(rows_count=Count('pricetags', distinct=True)))
+    show_deprecated = self.request.GET.get('deprecated') == '1'
+    if not show_deprecated:
+      rules = rules.filter(deprecated=False)
+    counts = {
+      'all': rules.count(),
+      'none': rules.filter(supplier__isnull=True).count(),
+    }
+    selected = self.request.GET.get('supplier', '')
+    selected_supplier = None
+    if selected == 'none':
+      rules = rules.filter(supplier__isnull=True)
+    elif selected.isdigit():
+      selected_supplier = Supplier.objects.filter(pk=selected).first()
+      rules = rules.filter(supplier=selected_supplier)
+    context.update({
+      'rules': rules.order_by('supplier__name', 'dest', 'source', 'name'),
+      'counts': counts,
+      'selected': selected,
+      'selected_supplier': selected_supplier,
+      'show_deprecated': show_deprecated,
+      'suppliers': (Supplier.objects.annotate(rules_count=Count('pricemanagers'))
+                    .filter(rules_count__gt=0).order_by('name')),
+      'price_types': PRICE_TYPES,
+      'unsupplied_rows': MainProduct.objects.filter(supplier__isnull=True).count(),
+      'set_rows': MainProduct.objects.filter(is_set=True).count(),
+    })
+    return context
+
+
+class PriceManagerChoose(TemplateView):
+  """Первый шаг «Добавить наценку» со страницы всех наценок: для каких строк ГП."""
+  template_name = 'price_manager/partials/choose.html'
+
+  def get_context_data(self, **kwargs):
+    context = super().get_context_data(**kwargs)
+    context['suppliers'] = Supplier.objects.order_by('name')
+    return context
 
 
 class PriceManagerDetail(DetailView):
@@ -241,6 +322,21 @@ class PriceTagList(TemplateView):
                                     .select_related('p_manager').order_by('p_manager__name', 'dest'))
     return context
 
+def _pricetag_error(mp, cd):
+  """Почему наценка не подходит строке ГП — или None.
+
+  У строки без поставщика нет прайса поставщика: наценка от его цены считала
+  бы от пустого, и clear_unsourced_prices очищал бы её цену при каждом
+  пересчёте. Себестоимость строки набора — сумма комплектующих, её наценка не
+  пишет (product.services.set_rows).
+  """
+  if mp.supplier_id is None and not cd['price_fixed'] and cd['source'] in SP_PRICES:
+    return 'У строки без поставщика нет прайса поставщика — считайте от цены ГП или задайте фиксированную'
+  if mp.is_set and cd['dest'] == 'prime_cost':
+    return 'Себестоимость строки набора — сумма себестоимостей комплектующих, наценка её не меняет'
+  return None
+
+
 class PriceTagCreate(CreateView):
   model = PriceTag
   form_class = PriceTagForm
@@ -267,8 +363,13 @@ class PriceTagCreate(CreateView):
       if cd['source'] == cd['dest']:
         form.add_error(field=None, error='Поля от какой цены считать и какую цену считать совпадают')
         return self.form_invalid(form)
+    mp = MainProduct.objects.get(pk=self.kwargs.get('pk'))
+    error = _pricetag_error(mp, cd)
+    if error:
+      form.add_error(field=None, error=error)
+      return self.form_invalid(form)
     instance = form.save(commit=False)
-    instance.mp = MainProduct.objects.get(pk=self.kwargs.get('pk'))
+    instance.mp = mp
     if cd['price_fixed']:
       instance.source = 'fixed_price'
     instance.save()
@@ -307,6 +408,10 @@ class PriceTagUpdate(UpdateView):
       if cd['source'] == cd['dest']:
         form.add_error(field=None, error='Поля от какой цены считать и какую цену считать совпадают')
         return self.form_invalid(form)
+    error = _pricetag_error(form.instance.mp, cd)
+    if error:
+      form.add_error(field=None, error=error)
+      return self.form_invalid(form)
     instance = form.save(commit=False)
     if cd['price_fixed']:
       instance.source = 'fixed_price'

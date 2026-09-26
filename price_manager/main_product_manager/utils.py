@@ -63,6 +63,46 @@ def _link_to_local_product(product) -> bool:
     return True
 
 
+def product_for_sku(sku: str, name: str | None = None):
+    """The local Product numbered `sku` — found case-insensitively, else created.
+
+    number is unique on Lower(number), so the lookup has to be iexact: an
+    exact match would miss "abc" against "ABC" and the create would then hit
+    the constraint. A concurrent create of the same number is the Product we
+    wanted, hence the re-read on IntegrityError. DB only, no PIM — pushing is
+    reindex's job.
+    """
+    from django.db import IntegrityError, transaction
+
+    sku = sku.strip()
+    product = PimProduct.objects.filter(number__iexact=sku).order_by('pk').first()
+    if product is not None:
+        return product
+    try:
+        with transaction.atomic():
+            return PimProduct.objects.create(number=sku, name=(name or '')[:PRODUCT_NAME_MAX_LENGTH] or None)
+    except IntegrityError:
+        return PimProduct.objects.get(number__iexact=sku)
+
+
+def ensure_product(main_product) -> bool:
+    """Put a MainProduct on the Product of its sku, creating the Product if needed.
+
+    Every path that writes a MainProduct by hand (the create and edit modals,
+    the admin) goes through here, so a row never waits for the nightly reindex
+    to become visible on /products/. An existing link is kept — moving a row
+    is MainProductMoveView's job. Returns whether the row is linked afterwards.
+    """
+    if main_product.product_id:
+        return True
+    if not main_product.sku or len(main_product.sku.strip()) > PRODUCT_NUMBER_MAX_LENGTH:
+        return False
+    product = product_for_sku(main_product.sku, main_product.name)
+    MainProduct.objects.filter(pk=main_product.pk).update(product=product)
+    main_product.product = product
+    return True
+
+
 def link_to_local_products(main_product_ids) -> int:
     """_link_to_local_product for many rows at once: one lookup, one bulk update.
 
@@ -563,7 +603,7 @@ def backfill_product_numbers() -> int:
     return len(numbered)
 
 
-def link_unlinked_main_products(batch_size: int = 1000) -> int:
+def link_unlinked_main_products(batch_size: int = 1000, main_product_ids=None) -> int:
     """Link every unlinked MainProduct that has a sku to the local Product with number = sku.
 
     A sku with no Product yet gets one (number = sku, name = the lowest-pk
@@ -571,13 +611,21 @@ def link_unlinked_main_products(batch_size: int = 1000) -> int:
     linked. Existing links are never touched: a MainProduct already on a
     Product keeps it even if its sku now says otherwise.
 
+    main_product_ids limits the pass to those rows — the copy-to-main import
+    passes the rows it just touched, so a new supplier row lands on a Product
+    at once instead of waiting for the nightly reindex. None is the whole
+    table, as reindex runs it.
+
     Pure DB work, safe inside execute_locked_task's transaction. A sku longer
     than number's max_length can never be a number, so it stays unlinked and
     is counted in the log rather than failing the bulk_create. Returns how
     many MainProducts were linked.
     """
+    scope = None if main_product_ids is None else list(main_product_ids)
+
     def unlinked():
-        return MainProduct.objects.filter(product__isnull=True).exclude(sku__isnull=True).exclude(sku='')
+        rows = MainProduct.objects.filter(product__isnull=True).exclude(sku__isnull=True).exclude(sku='')
+        return rows if scope is None else rows.filter(pk__in=scope)
 
     before = unlinked().count()
     if not before:

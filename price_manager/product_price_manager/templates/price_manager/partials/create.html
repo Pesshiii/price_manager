@@ -2,11 +2,12 @@
 <div class="modal-header">
   <h5 class="modal-title fw-semibold">
     <i class="bi bi-plus-circle me-2 text-primary"></i>Новая наценка
+    <span class="small fw-normal text-body-secondary ms-1">· {% if supplier %}{{ supplier.name }}{% else %}без поставщика{% endif %}</span>
   </h5>
   <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Закрыть"></button>
 </div>
 <form method="post"
-      hx-post="{% url "pricemanager-create" supplier.pk %}"
+      {% if supplier %}hx-post="{% url "pricemanager-create" supplier.pk %}"{% else %}hx-post="{% url "price-manager-create" %}"{% endif %}
       hx-target="#modal-container .modal-content"
       hx-swap="innerHTML"
       enctype="multipart/form-data">

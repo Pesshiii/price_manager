@@ -41,6 +41,13 @@
   .pd-base dd span { margin-right: 1rem; white-space: nowrap; }
   .pd-empty { font-size: .875rem; color: var(--bs-secondary-color); padding: .75rem 0; }
   .pd-row-actions { white-space: nowrap; text-align: right; }
+  .pd-section-actions { margin-left: auto; display: flex; flex-wrap: wrap; gap: .5rem; }
+  .pd-section-head .pd-section-actions .btn { margin-left: 0; }
+  .pd-no-supplier { color: var(--bs-secondary-color); white-space: nowrap; }
+  .pd-no-supplier .bi { margin-right: .25rem; }
+  .pd-note { max-width: 16rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .pd-empty-cta { display: flex; flex-wrap: wrap; gap: 1rem; align-items: center; justify-content: space-between; padding: 1rem 1.25rem; border: 1px dashed var(--bs-border-color); border-radius: .5rem; }
+  .pd-empty-cta > div { max-width: 40rem; }
   .pd-row-actions .btn { --bs-btn-padding-y: .1rem; --bs-btn-padding-x: .4rem; }
   @media (max-width: 767.98px) {
     .pd-head { flex-wrap: wrap; }
@@ -156,12 +163,21 @@
     <div class="pd-section-head">
       <h2>Строки ГП</h2>
       <span class="pd-count">{{ main_products|length }}</span>
-      <button type="button" class="btn btn-sm btn-outline-primary"
-              data-bs-toggle="modal" data-bs-target="#modal-container"
-              hx-get="{% url 'product-attach-main-product' product.pk %}"
-              hx-target="#modal-container .modal-content" hx-swap="innerHTML">
-        <i class="bi bi-link-45deg me-1" aria-hidden="true"></i>Привязать строку ГП
-      </button>
+      <div class="pd-section-actions">
+        <button type="button" class="btn btn-sm btn-outline-secondary"
+                data-bs-toggle="modal" data-bs-target="#modal-container"
+                hx-get="{% url 'product-attach-main-product' product.pk %}"
+                hx-target="#modal-container .modal-content" hx-swap="innerHTML">
+          <i class="bi bi-link-45deg me-1" aria-hidden="true"></i>Привязать строку ГП
+        </button>
+        <button type="button" class="btn btn-sm btn-outline-primary"
+                data-bs-toggle="modal" data-bs-target="#modal-container"
+                hx-get="{% url 'mainproduct-create' %}?product={{ product.pk }}"
+                hx-target="#modal-container .modal-content" hx-swap="innerHTML"
+                title="Строка без поставщика или от поставщика — с артикулом этого товара">
+          <i class="bi bi-plus-lg me-1" aria-hidden="true"></i>Добавить строку ГП
+        </button>
+      </div>
     </div>
     {% if main_products %}
       <div class="table-responsive">
@@ -176,15 +192,27 @@
           <tbody>
             {% for row in main_products %}
               <tr>
-                <td>{{ row.supplier.name|default:"—" }}</td>
+                <td>
+                  {% if row.supplier %}{{ row.supplier.name }}
+                  {% else %}<span class="pd-no-supplier"><i class="bi bi-box-seam" aria-hidden="true"></i>Без поставщика</span>{% endif %}
+                  {% if row.is_set %}<span class="pd-tag is-set ms-1" title="Себестоимость — сумма себестоимостей комплектующих">набор</span>{% endif %}
+                  {% if row.note %}<div class="pd-muted small pd-note" title="{{ row.note }}">{{ row.note }}</div>{% endif %}
+                </td>
                 <td>{{ row.article }}</td>
                 <td>{{ row.sku|default:"—" }}</td>
                 <td>{{ row.name }}</td>
                 <td class="pd-num">{% if row.stock is None %}<span class="pd-muted">нет данных</span>{% else %}{{ row.stock }}{% endif %}</td>
-                <td class="pd-num">{{ row.prime_cost|floatformat:"2g"|default:"—" }}</td>
+                <td class="pd-num">{{ row.prime_cost|floatformat:"2g"|default:"—" }}{% if row.is_set %}<div class="pd-muted small">из компл.</div>{% endif %}</td>
                 <td class="pd-num">{{ row.basic_price|floatformat:"2g"|default:"—" }}</td>
                 <td class="pd-num">{{ row.m_price|floatformat:"2g"|default:"—" }}</td>
                 <td class="pd-row-actions">
+                  <button type="button" class="btn btn-sm btn-outline-secondary"
+                          data-bs-toggle="modal" data-bs-target="#modal-container"
+                          hx-get="{% url 'mainproduct-update' row.pk %}"
+                          hx-target="#modal-container .modal-content" hx-swap="innerHTML"
+                          title="Изменить строку ГП" aria-label="Изменить строку «{{ row.name }}»">
+                    <i class="bi bi-pencil"></i>
+                  </button>
                   <a class="btn btn-sm btn-outline-secondary" href="{% url 'mainproduct-info' row.pk %}"
                      title="Карточка строки ГП" aria-label="Карточка строки «{{ row.name }}»"><i class="bi bi-card-text"></i></a>
                   <button type="button" class="btn btn-sm btn-outline-secondary"
@@ -201,7 +229,18 @@
         </table>
       </div>
     {% else %}
-      <p class="pd-empty">К товару не привязана ни одна строка ГП.</p>
+      <div class="pd-empty-cta">
+        <div>
+          <div class="fw-medium">Строк ГП нет</div>
+          <div class="pd-muted small">Без строки ГП у товара нет ни цен, ни остатка. Добавьте строку без поставщика — для остатка на складе, возврата или бонуса — или привяжите существующую.</div>
+        </div>
+        <button type="button" class="btn btn-sm btn-primary"
+                data-bs-toggle="modal" data-bs-target="#modal-container"
+                hx-get="{% url 'mainproduct-create' %}?product={{ product.pk }}"
+                hx-target="#modal-container .modal-content" hx-swap="innerHTML">
+          <i class="bi bi-plus-lg me-1" aria-hidden="true"></i>Добавить строку ГП
+        </button>
+      </div>
     {% endif %}
   </section>
 

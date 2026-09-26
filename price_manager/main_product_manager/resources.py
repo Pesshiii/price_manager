@@ -114,6 +114,13 @@ class MainProductResource(resources.ModelResource):
         skip_unchanged = True
         report_skipped = True
 
+    def after_save_instance(self, instance, *args, **kwargs):
+        # Импорт из админки заводит строки ГП — и они, как и все остальные,
+        # сразу встают на товар своего sku.
+        from .utils import ensure_product
+        super().after_save_instance(instance, *args, **kwargs)
+        ensure_product(instance)
+
     def export(self, queryset=None, **kwargs):
         # Колонки ходят в product, его категории и в строки прайса —
         # без предзагрузки это несколько запросов на каждую из ~160 тыс. строк.

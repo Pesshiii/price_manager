@@ -13,6 +13,8 @@ that explains it rather than explaining it here.
 | Товар, «Товары» (`/products/`) | `product.Product` | The root of search and filtering since the product shift. Mirrors a PIM product. [[product/overview]] |
 | Карточка товара | `product.views.ProductDetailView`, `/products/<pk>/` | Prices with their rules, ГП rows (attach/move), set composition; edit and delete. See CLAUDE.md on why ГП rows are moved, never unlinked. |
 | ГП, главный прайс, «Главный продукт», строка поставщика | `main_product_manager.MainProduct` | One supplier's stock and prices for one `Product`. `/mainproduct/` redirects to `/products/`. [[main_product_manager/overview]] |
+| ГП без поставщика, строка без поставщика | `MainProduct` with `supplier` NULL | Sets, leftover stock, returns, bonuses; `note` says why. See CLAUDE.md. |
+| Строка набора | `MainProduct.is_set` | One per set; `prime_cost` from components, `product/services/set_rows.py`. |
 | Артикул | `Product.number` = `MainProduct.sku` | Local match key; unique case-insensitively. [[product/pim-link]] |
 | Артикул поставщика | `MainProduct.article`, `SupplierProduct.article` | The supplier's own code; `sku` is built from it (`compute_supplier_sku`). [[main_product_manager/sku-and-linking]] |
 | Категория, Бренд | `product.Category` (MPTT), `product.Brand` | Both come from PIM; supplier-side categories and manufacturers were retired. [[supplier_manager/retired-models]] |
@@ -29,6 +31,7 @@ that explains it rather than explaining it here.
 | Цена поставщика, РРЦ, цена со скидкой (в валюте поставщика) | `SupplierProduct.supplier_price`, `rrp`, `discount_price` | `SP_PRICES`; not comparable across suppliers. |
 | Уровень по цене, уровень по остаткам | `Supplier.price_priority`, `Supplier.stock_priority` | Smaller is higher; empty is the shared bottom level. |
 | Основная цена / основной остаток | `product.main_values` | The value by supplier levels, used by the export and by set cost. [[product/export]] |
+| «Наценки ГП» (`/price-manager/`) | `PriceManagerPage` | All `PriceManager`s; «Без поставщика» = `supplier` NULL. |
 | Наценка, менеджер наценок | `PriceManager` (rule), `PriceTag` (verbose name «Наценка») | Applying a rule rewrites prices catalog-wide. [[product_price_manager/overview]] |
 | Основные цены товара | `Product.prime_cost` … `kaspi_price`, `supplier_price`, `rrp`, `supplier_discount_price` | ГП prices plus ПП prices in tenge, taken from the top price-level supplier with the lowest prime cost; `product/services/prices.py`. |
 | ПП, прайс поставщика (в наценках) | `SupplierProduct.supplier_price` / `rrp` / `discount_price` → `Product.supplier_price` / `rrp` / `supplier_discount_price` | Source group «Прайс поставщика (ПП)» in the rule form. |

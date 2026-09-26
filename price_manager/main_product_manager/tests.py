@@ -1,3 +1,4 @@
+from decimal import Decimal
 from django.test import TestCase
 
 
@@ -990,24 +991,196 @@ class LinkToLocalProductsTests(_PimSearchTestCase):
             link_to_local_products([row.pk for row in rows])
 
 
-class CreateLinksToProductTests(_PimSearchTestCase):
-    """«Добавить товар»: the new row is linked explicitly, not as a vector side effect."""
+class MainProductFormTests(_PimSearchTestCase):
+    """Строка ГП руками: с поставщиком и без, все поля, товар — всегда.
 
-    def test_created_row_is_linked_to_the_product_with_its_sku(self):
+    Строка ГП без товара не бывает (product_for_sku): с «Товаров» строка
+    встаёт на товар своего артикула, создавая его; из карточки товара — на
+    этот товар. Цены вводятся и логируются как любая другая смена цены.
+    """
+
+    def setUp(self):
+        super().setUp()
         from django.contrib.auth.models import User
-        from django.urls import reverse
-
-        product = PimProduct.objects.create(number='NEW-1')
         self.client.force_login(User.objects.create_user(username='creator', password='pw'))
+        patcher = patch.object(mp_utils, 'site')
+        patcher.start()
+        self.addCleanup(patcher.stop)
 
-        with patch.object(mp_utils, 'site'):
-            response = self.client.post(reverse('mainproduct-create'), {
-                'mpcreate-supplier': self.supplier.pk, 'mpcreate-article': 'A-NEW',
-                'mpcreate-name': 'Новый', 'mpcreate-sku': 'NEW-1', 'mpcreate-stock': 3,
-            }, HTTP_HX_REQUEST='true')
+    def post(self, url, data, current_url='http://testserver/products/'):
+        payload = {f'mp-{key}': value for key, value in data.items() if key != 'product'}
+        if 'product' in data:
+            payload['product'] = data['product']
+        return self.client.post(url, payload, HTTP_HX_REQUEST='true', HTTP_HX_CURRENT_URL=current_url)
+
+    def create(self, **data):
+        from django.urls import reverse
+        return self.post(reverse('mainproduct-create'), data)
+
+    def update(self, row, current_url='http://testserver/products/', **data):
+        from django.forms.models import model_to_dict
+        from django.urls import reverse
+        from .forms import MainProductForm
+        fields = model_to_dict(row, fields=MainProductForm._meta.fields)
+        fields = {key: ('' if value is None else value) for key, value in fields.items()}
+        fields.update(data)
+        return self.post(reverse('mainproduct-update', kwargs={'pk': row.pk}), fields, current_url)
+
+    def test_created_row_is_linked_to_the_product_with_its_sku_case_insensitively(self):
+        product = PimProduct.objects.create(number='NEW-1')
+
+        response = self.create(supplier=self.supplier.pk, article='A-NEW', name='Новый', sku='new-1', stock=3)
 
         self.assertEqual(response.status_code, 200, response.content[:300])
         self.assertEqual(MainProduct.objects.get(article='A-NEW').product_id, product.pk)
+        self.assertEqual(PimProduct.objects.count(), 1)
+
+    def test_a_new_sku_gets_its_product_at_once(self):
+        response = self.create(name='Возврат', sku='RET-1', stock=1)
+
+        row = MainProduct.objects.get(sku='RET-1')
+        self.assertIsNotNone(row.product_id)
+        self.assertEqual((row.product.number, row.product.name), ('RET-1', 'Возврат'))
+        # С «Товаров» — в карточку товара, где новая строка видна.
+        self.assertEqual(response['HX-Redirect'], f'/products/{row.product_id}/')
+
+    def test_row_without_supplier_takes_the_sku_as_its_article_and_keeps_prices(self):
+        self.create(name='Бонус', sku='BON-1', stock=2, note='бонус от поставщика',
+                    prime_cost='100.50', basic_price='150')
+
+        row = MainProduct.objects.get(sku='BON-1')
+        self.assertIsNone(row.supplier_id)
+        self.assertEqual(row.article, 'BON-1')
+        self.assertEqual((row.prime_cost, row.basic_price, row.stock), (Decimal('100.50'), Decimal('150'), 2))
+        self.assertEqual(row.note, 'бонус от поставщика')
+        self.assertIsNotNone(row.price_updated_at)
+        logged = set(MainProductLog.objects.filter(main_product=row).values_list('price_type', 'price', 'stock'))
+        self.assertEqual(logged, {('prime_cost', Decimal('100.50'), None), ('basic_price', Decimal('150'), None),
+                                  (None, None, 2)})
+
+    def test_supplier_row_needs_its_article(self):
+        response = self.create(supplier=self.supplier.pk, name='Без кода', sku='NC-1')
+
+        self.assertContains(response, 'У строки поставщика нужен его артикул')
+        self.assertFalse(MainProduct.objects.filter(sku='NC-1').exists())
+
+    def test_row_from_the_product_card_lands_on_that_product_with_its_number(self):
+        product = PimProduct.objects.create(number='CARD-1', name='Из карточки')
+        from django.urls import reverse
+        card = f'http://testserver{reverse("product-detail", kwargs={"pk": product.pk})}'
+
+        response = self.post(reverse('mainproduct-create'),
+                             {'product': product.pk, 'name': 'Остаток', 'sku': 'IGNORED', 'stock': 4}, card)
+
+        row = MainProduct.objects.get(name='Остаток')
+        self.assertEqual((row.product_id, row.sku), (product.pk, 'CARD-1'))
+        self.assertEqual(response['HX-Refresh'], 'true')
+
+    def test_card_of_a_product_without_number_gives_it_the_sku(self):
+        product = PimProduct.objects.create(number=None, name='Без артикула')
+        from django.urls import reverse
+
+        self.post(reverse('mainproduct-create'), {'product': product.pk, 'name': 'Остаток', 'sku': 'NUM-9'})
+
+        product.refresh_from_db()
+        self.assertEqual(product.number, 'NUM-9')
+        self.assertEqual(MainProduct.objects.get(name='Остаток').product_id, product.pk)
+
+    def test_card_refuses_a_number_another_product_holds(self):
+        PimProduct.objects.create(number='TAKEN')
+        product = PimProduct.objects.create(number=None)
+        from django.urls import reverse
+
+        response = self.post(reverse('mainproduct-create'), {'product': product.pk, 'name': 'X', 'sku': 'taken'})
+
+        self.assertContains(response, 'Этот артикул уже у другого товара')
+
+    def test_editing_prices_logs_them_and_moves_nothing(self):
+        row = self.product(sku='ED-1', prime_cost=Decimal('10'))
+        ensure = PimProduct.objects.create(number='ED-1')
+        MainProduct.objects.filter(pk=row.pk).update(product=ensure)
+        row.refresh_from_db()
+
+        response = self.update(row, m_price='99', stock=7)
+
+        self.assertEqual(response.status_code, 200, response.content[:300])
+        row.refresh_from_db()
+        self.assertEqual((row.m_price, row.stock, row.prime_cost), (Decimal('99'), 7, Decimal('10')))
+        self.assertEqual(row.product_id, ensure.pk)
+        self.assertIsNotNone(row.stock_updated_at)
+        self.assertEqual(set(MainProductLog.objects.filter(main_product=row).values_list('price_type', flat=True)),
+                         {'m_price', None})
+
+    def test_changing_the_sku_moves_the_row_to_the_product_of_the_new_sku(self):
+        old = PimProduct.objects.create(number='OLD-1')
+        row = self.product(sku='OLD-1', product=old)
+
+        self.update(row, sku='BRAND-NEW')
+
+        row.refresh_from_db()
+        self.assertEqual(row.product.number, 'BRAND-NEW')
+
+    def test_price_list_row_keeps_supplier_and_article(self):
+        other = Supplier.objects.create(name='Другой', currency=self.currency,
+                                        delivery_days_available=1, delivery_days_navailable=1)
+        row = self.product(sku='PL-1')
+        SupplierProduct.objects.create(supplier=self.supplier, main_product=row, article=row.article, name=row.name)
+
+        self.update(row, supplier=other.pk, article='HACKED', name='Новое имя')
+
+        row.refresh_from_db()
+        self.assertEqual((row.supplier_id, row.article, row.name), (self.supplier.pk, 'ART-PL-1', 'Новое имя'))
+
+    def test_set_row_prime_cost_is_not_editable(self):
+        product = PimProduct.objects.create(number='KIT-9')
+        row = MainProduct.objects.create(product=product, is_set=True, sku='KIT-9', article='KIT-9',
+                                         name='Набор', prime_cost=Decimal('500'))
+
+        self.update(row, prime_cost='1', basic_price='800')
+
+        row.refresh_from_db()
+        self.assertEqual((row.prime_cost, row.basic_price), (Decimal('500'), Decimal('800')))
+
+    def test_form_shows_the_markup_that_rewrites_a_price(self):
+        from django.urls import reverse
+        from product_price_manager.models import PriceTag
+        row = self.product(sku='TAG-1')
+        PriceTag.objects.create(mp=row, source='prime_cost', dest='basic_price', markup=Decimal('10'))
+
+        response = self.client.get(reverse('mainproduct-update', kwargs={'pk': row.pk}), HTTP_HX_REQUEST='true')
+
+        self.assertContains(response, 'наценка на эту строку')
+
+    def test_sku_hint_says_which_product_the_row_joins(self):
+        from django.urls import reverse
+        PimProduct.objects.create(number='HINT-1', name='Есть такой')
+        url = reverse('mainproduct-sku-check')
+
+        self.assertContains(self.client.get(url, {'mp-sku': 'hint-1'}), 'Есть такой')
+        self.assertContains(self.client.get(url, {'mp-sku': 'NOPE'}), 'он будет создан')
+
+
+class ProductForSkuTests(_PimSearchTestCase):
+    def test_finds_case_insensitively_and_creates_once(self):
+        from .utils import product_for_sku
+        existing = PimProduct.objects.create(number='Abc')
+
+        self.assertEqual(product_for_sku(' aBC ').pk, existing.pk)
+        created = product_for_sku('NEW', 'Имя')
+        self.assertEqual((created.number, created.name), ('NEW', 'Имя'))
+        self.assertEqual(product_for_sku('new').pk, created.pk)
+
+    def test_scoped_link_touches_only_the_given_rows(self):
+        from .utils import link_unlinked_main_products
+        mine = self.product(sku='S-1')
+        other = self.product(sku='S-2')
+
+        self.assertEqual(link_unlinked_main_products(main_product_ids=[mine.pk]), 1)
+
+        mine.refresh_from_db()
+        other.refresh_from_db()
+        self.assertEqual(mine.product.number, 'S-1')
+        self.assertIsNone(other.product_id)
 
 
 from django.contrib.auth.models import User

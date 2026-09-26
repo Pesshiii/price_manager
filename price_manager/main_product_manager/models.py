@@ -40,6 +40,12 @@ class MainProduct(models.Model):
     class Meta:
         verbose_name = 'Главный продукт'
         ordering = ['id']
+        constraints = [
+            # Строка набора — одна на товар: её себестоимость пишет
+            # product.services.set_rows, и двум таким строкам нечем различаться.
+            models.UniqueConstraint(fields=['product'], condition=models.Q(is_set=True),
+                                    name='mainproduct_one_set_row_per_product'),
+        ]
     product = models.ForeignKey('product.Product',
                               verbose_name='Товар PIM',
                               related_name='main_products',
@@ -103,6 +109,12 @@ class MainProduct(models.Model):
                                       null=True)
     stock_updated_at = models.DateTimeField(verbose_name='Последнее обновление остатка',
                                       null=True)
+    # Строка ГП набора: без поставщика, себестоимость — сумма себестоимостей
+    # комплектующих (product.services.set_rows), руками не правится; остальные
+    # цены — как у любой строки ГП, наценками. Создаётся сама для каждого набора.
+    is_set = models.BooleanField(verbose_name='Строка набора', default=False)
+    # Зачем строка без поставщика: возврат, бонус, остаток на складе.
+    note = models.CharField(verbose_name='Комментарий', max_length=255, blank=True, default='')
     def __str__(self)->str:
         return f'{self.sku}' if self.sku is not None else 'Не указан'
     def price_list(self) -> list[tuple[str, str, Decimal]]:
@@ -112,6 +124,10 @@ class MainProduct(models.Model):
             for name in MP_PRICES
             if getattr(self, name) is not None
         ]
+    @property
+    def has_supplier_price_list(self) -> bool:
+        """Строка пришла из прайса поставщика: её поставщика и артикул держит импорт."""
+        return self.supplier_id is not None and self.supplierproducts.exists()
     def save(self, *args, **kwargs):
         super().save(*args, **kwargs)
   
