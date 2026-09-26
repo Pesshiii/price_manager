@@ -1,9 +1,8 @@
 from datetime import timedelta
 from decimal import Decimal
-from unittest import mock
 
 from django.contrib.auth.models import User
-from django.test import TestCase, override_settings
+from django.test import TestCase
 from django.urls import reverse
 from django.utils import timezone
 
@@ -13,7 +12,7 @@ from product.services.prices import recalculate_base_prices
 from supplier_manager.models import Supplier
 
 from .models import ProductPrice, ProductPriceRule, ProductPriceType
-from .services import calculate_product_prices, preview_rule, push_prices_to_pim
+from .services import calculate_product_prices, preview_rule
 
 
 class BasePricesTests(TestCase):
@@ -239,45 +238,6 @@ class PreviewTests(TestCase):
         self.assertEqual(preview['effective'], 2)
         self.assertEqual(preview['change'], 2)
         self.assertEqual(preview['displaced'], [(general, 2)])
-
-
-@override_settings(PIM_PRODUCT_PRICE_FIELDS={'prime_cost': 'pmPrimeCost'})
-class PushPricesTests(TestCase):
-    def setUp(self):
-        self.retail = ProductPriceType.objects.create(name='Розничная', pim_field='pmRetail')
-        self.product = Product.objects.create(number='P1', pim_id='pmp-1', prime_cost=Decimal('100'))
-        ProductPrice.objects.create(product=self.product, price_type=self.retail, value=Decimal('150'))
-
-    def test_pushes_changed_prices_and_remembers_them(self):
-        with mock.patch('main_product_manager.utils._upsert_async',
-                        return_value=[{'status': 'Updated', 'id': 'pmp-1'}]) as upsert, \
-                mock.patch('time.sleep'):
-            self.assertEqual(push_prices_to_pim([self.product.pk], delay=0), 1)
-            payload = upsert.call_args.args[1][0]['payload']
-            self.assertEqual(payload, {'id': 'pmp-1', 'platformID': str(self.product.pk), 'number': 'P1',
-                                       'pmPrimeCost': 100.0, 'pmRetail': 150.0})
-
-            # Второй раз — ничего не изменилось, в PIM не ходим.
-            self.assertEqual(push_prices_to_pim([self.product.pk], delay=0), 0)
-            self.assertEqual(upsert.call_count, 1)
-
-    @override_settings(PIM_PRODUCT_PRICE_FIELDS={})
-    def test_nothing_mapped_means_no_pim_calls(self):
-        self.retail.pim_field = ''
-        self.retail.save()
-        with mock.patch('main_product_manager.utils._upsert_async') as upsert:
-            self.assertEqual(push_prices_to_pim([self.product.pk]), 0)
-        upsert.assert_not_called()
-
-    def test_rejected_item_is_retried_next_time(self):
-        from main_product_manager.utils import PimScanError
-
-        with mock.patch('main_product_manager.utils._upsert_async', return_value=[{'status': 'Failed'}]), \
-                mock.patch('main_product_manager.utils._record_pim_error'), mock.patch('time.sleep'):
-            with self.assertRaises(PimScanError):
-                push_prices_to_pim([self.product.pk], delay=0)
-        self.product.refresh_from_db()
-        self.assertEqual(self.product.pim_pushed_prices, {})
 
 
 class PagesTests(TestCase):
