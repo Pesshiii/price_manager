@@ -1,7 +1,7 @@
 {% extends "base.html" %}
 {% comment %}
   «Наценки ГП» (PriceManagerPage): все правила наценок строк ГП — поставщиков
-  и без поставщика. Правила без поставщика заводятся только здесь.
+  и без поставщика. Поставщик правила выбирается в самой форме.
   Второй уровень цен — на товаре — живёт на «Ценах товаров», не здесь.
 {% endcomment %}
 
@@ -42,9 +42,7 @@
     </div>
     <button type="button" class="btn btn-primary btn-sm"
             data-bs-toggle="modal" data-bs-target="#modal-container"
-            {% if selected == 'none' %}hx-get="{% url 'price-manager-create' %}"
-            {% elif selected_supplier %}hx-get="{% url 'pricemanager-create' selected_supplier.pk %}"
-            {% else %}hx-get="{% url 'price-manager-choose' %}"{% endif %}
+            hx-get="{% url 'price-manager-create' %}{% if selected_supplier %}?supplier={{ selected_supplier.pk }}{% endif %}"
             hx-target="#modal-container .modal-content" hx-swap="innerHTML">
       <i class="bi bi-plus-lg me-1" aria-hidden="true"></i>Добавить наценку
     </button>
@@ -107,7 +105,6 @@
                 <div class="pm-cond">
                   {% if rule.has_rrp is True %}<span>есть РРЦ</span>{% elif rule.has_rrp is False %}<span>нет РРЦ</span>{% endif %}
                   {% for discount in rule.discounts.all %}<span>{{ discount.name }}</span>{% endfor %}
-                  {% for category in rule.categories.all %}<span>{{ category.name }}</span>{% endfor %}
                   {% if rule.source != 'fixed_price' and rule.price_from or rule.source != 'fixed_price' and rule.price_to %}
                     <span>{% if rule.price_from %}от {{ rule.price_from|floatformat:"g" }}{% endif %}{% if rule.price_to %} до {{ rule.price_to|floatformat:"g" }}{% endif %} тг</span>
                   {% endif %}
