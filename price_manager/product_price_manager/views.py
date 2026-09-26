@@ -85,7 +85,7 @@ def _prepare_form(form, supplier):
       if value not in UNSUPPLIED_SOURCE_EXCLUDE]
 
 
-def _rule_error(cd, supplier):
+def _rule_error(cd):
   """Общая проверка формы правила; текст ошибки или None."""
   if cd['price_fixed'] and cd['fixed_price'] == 0:
     return 'Не указана фиксированная цена'
@@ -94,8 +94,6 @@ def _rule_error(cd, supplier):
       return 'Поле от какой цены считать должно быть указано'
     if cd['source'] == cd['dest']:
       return 'Поля от какой цены считать и какую цену считать совпадают'
-    if supplier is None and cd['source'] in SP_PRICES:
-      return 'У строк без поставщика нет прайса поставщика — считайте от цены ГП'
     if (cd['price_from'] and cd['price_to']
       and cd['price_from'] >= cd['price_to']):
       return 'Неверный диапозон цены'
@@ -137,6 +135,12 @@ class PriceManagerCreate(CreateView):
     if not hasattr(self, '_supplier'):
       self._supplier = _supplier_param(self.request, self.kwargs)
     return self._supplier
+  def get_form_kwargs(self):
+    # Поставщик — до валидации: PriceManager.clean() судит по нему, а без
+    # него всякое новое правило выглядело бы правилом без поставщика.
+    kwargs = super().get_form_kwargs()
+    kwargs['instance'] = PriceManager(supplier=self.supplier)
+    return kwargs
   def _format_value(self, value):
     return str(value) if not value is None else '—'
   def _build_generated_name(self, supplier, cleaned_data):
@@ -179,14 +183,11 @@ class PriceManagerCreate(CreateView):
   def form_valid(self, form):
     cd = form.cleaned_data
     supplier = self.supplier
-    error = _rule_error(cd, supplier)
+    error = _rule_error(cd)
     if error:
       form.add_error(field=None, error=error)
       return self.form_invalid(form)
     instance = form.save(commit=False)
-    instance.supplier = supplier
-    if cd['price_fixed']:
-      instance.source = 'fixed_price'
     instance.name = self._build_generated_name(supplier, cd)
     instance.save()
     instance.discounts.set(cd['discounts'])
@@ -225,13 +226,11 @@ class PriceManagerUpdate(SingleTableMixin, UpdateView):
     return context
   def form_valid(self, form):
     cd = form.cleaned_data
-    error = _rule_error(cd, self.instance.supplier)
+    error = _rule_error(cd)
     if error:
       form.add_error(field=None, error=error)
       return self.form_invalid(form)
     instance = form.save(commit=False)
-    if cd['price_fixed']:
-      instance.source = 'fixed_price'
     instance.save()
     instance.discounts.set(cd['discounts'])
     instance.categories.set(cd['categories'])
