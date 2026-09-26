@@ -9,7 +9,7 @@ from .models import ProductPriceRule, ProductPriceType
 class ProductPriceTypeForm(forms.ModelForm):
     class Meta:
         model = ProductPriceType
-        fields = ['name', 'pim_field', 'show_on_page', 'sorting']
+        fields = ['name','show_on_page', 'sorting']
 
 
 class ProductPriceRuleForm(forms.ModelForm):

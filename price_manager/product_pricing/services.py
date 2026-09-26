@@ -1,29 +1,17 @@
-"""Расчёт цен товаров по наценкам и отправка их в PIM.
+"""Расчёт цен товаров по наценкам.
 
-Конвейер (tasks.update_product_prices):
+Конвейер (tasks.update_product_prices), одна транзакция:
 
     recalculate_base_prices   основные цены Product из строк поставщиков
     calculate_product_prices  наценки -> ProductPrice
-    push_prices_to_pim        изменившиеся цены -> PriceManagerProduct в PIM
-
-Первые два шага локальные и идут в одной транзакции; третий ходит в сеть и
-рассылается после коммита отдельной задачей.
 """
-import logging
-import time
-
-from django.conf import settings
 from django.db.models import Exists, OuterRef
 from django.utils import timezone
 
 from product.filters import category_with_descendants
 from product.models import Product, ProductSetItem
 
-from .models import SOURCE_PRICES, ProductPrice, ProductPriceRule, ProductPriceType
-
-logger = logging.getLogger(__name__)
-
-PIM_LINK_ENTITY = 'PriceManagerProduct'
+from .models import ProductPrice, ProductPriceRule, ProductPriceType
 
 
 # --- наценки ---------------------------------------------------------------
@@ -238,104 +226,3 @@ def _store(price_type, claimed, now) -> int:
     if stale:
         ProductPrice.objects.filter(pk__in=stale).delete()
     return len(create) + len(update) + len(stale)
-
-
-# --- PIM -------------------------------------------------------------------
-
-def base_price_pim_fields() -> dict:
-    """{поле Product: поле PriceManagerProduct} для основных цен — из настроек.
-
-    PIM_PRODUCT_PRICE_FIELDS (settings/project.py). Поля в PIM заводит
-    PIM-администратор; пока сопоставление пустое, основные цены не уходят.
-    """
-    mapping = getattr(settings, 'PIM_PRODUCT_PRICE_FIELDS', None) or {}
-    return {field: pim_field for field, pim_field in mapping.items() if field in SOURCE_PRICES and pim_field}
-
-
-def pim_price_payloads(products) -> dict:
-    """{pk: {поле PIM: значение}} — что должно лежать в PIM у каждого товара.
-
-    Пустая цена уходит как null: цена, которой больше нет, должна исчезнуть и
-    в PIM, а не остаться последним отправленным значением.
-    """
-    base_fields = base_price_pim_fields()
-    types = {pt.pk: pt.pim_field for pt in ProductPriceType.objects.exclude(pim_field='')}
-    payloads = {}
-    for product in products:
-        payload = {pim_field: _json_number(getattr(product, field)) for field, pim_field in base_fields.items()}
-        for pim_field in types.values():
-            payload[pim_field] = None
-        for price in product.prices.all():
-            if price.price_type_id in types:
-                payload[types[price.price_type_id]] = _json_number(price.value)
-        payloads[product.pk] = payload
-    return payloads
-
-
-def _json_number(value):
-    return None if value is None else float(value)
-
-
-def pim_push_enabled() -> bool:
-    return bool(base_price_pim_fields()) or ProductPriceType.objects.exclude(pim_field='').exists()
-
-
-def iter_pim_push_batches(batch_size: int = 500):
-    """pk товаров со связью в PIM, партиями. Сравнение со снимком — уже в партии."""
-    pks = list(Product.objects.filter(pim_id__isnull=False).order_by('pk').values_list('pk', flat=True))
-    for start in range(0, len(pks), batch_size):
-        yield pks[start:start + batch_size]
-
-
-def push_prices_to_pim(pks, delay: float = 0.5) -> int:
-    """Отправляет изменившиеся цены товаров pks в их PriceManagerProduct.
-
-    Только товары, у которых то, что должно лежать в PIM, отличается от
-    снимка pim_pushed_prices. Запись — upsertAsync по id связи, тем же путём,
-    что reindex_pim_ids; снимок обновляется только у принятых PIM записей, так
-    что отклонённые уйдут снова в следующий раз. Возвращает число отправленных.
-    Идемпотентно — задача идёт с atomic=False.
-    """
-    from main_product_manager.utils import PimScanError, _record_pim_error, _upsert_async, site
-
-    if not pim_push_enabled():
-        return 0
-    products = list(
-        Product.objects.filter(pk__in=pks, pim_id__isnull=False).prefetch_related('prices').order_by('pk'))
-    payloads = pim_price_payloads(products)
-    targets = [p for p in products if payloads[p.pk] and payloads[p.pk] != p.pim_pushed_prices]
-    if not targets:
-        return 0
-    # id + оба уникальных поля связи: по ним PIM сопоставляет upsert (см.
-    # main_product_manager.utils._push_pim_links), и запись обновляется, а не
-    # создаётся новая.
-    items = [
-        {'entity': PIM_LINK_ENTITY,
-         'payload': {'id': p.pim_id, 'platformID': str(p.pk),
-                     **({'number': p.number} if p.number else {}), **payloads[p.pk]}}
-        for p in targets
-    ]
-    t0 = time.monotonic()
-    try:
-        results = _upsert_async(site, items)
-    except Exception as exc:
-        _record_pim_error('push_prices_to_pim', exc, int((time.monotonic() - t0) * 1000))
-        raise PimScanError(f'PIM не принял цены партии из {len(targets)} товаров: {exc}') from exc
-    time.sleep(delay)
-    if not isinstance(results, list) or len(results) != len(targets):
-        raise PimScanError(f'PIM вернул {len(results) if isinstance(results, list) else results!r:.200} '
-                           f'результатов на {len(targets)} товаров')
-    accepted, rejected = [], []
-    for product, result in zip(targets, results):
-        if isinstance(result, dict) and result.get('status') != 'Failed' and result.get('id'):
-            product.pim_pushed_prices = payloads[product.pk]
-            accepted.append(product)
-        else:
-            rejected.append(result)
-    Product.objects.bulk_update(accepted, ['pim_pushed_prices'])
-    if rejected:
-        error = PimScanError(f'PIM отклонил цены {len(rejected)} из {len(targets)} товаров; '
-                             f'первый ответ: {rejected[0]!r:.500}')
-        _record_pim_error('push_prices_to_pim', error, int((time.monotonic() - t0) * 1000))
-        raise error
-    return len(accepted)
