@@ -37,8 +37,6 @@ from supplier_manager.models import Discount, Supplier
 from file_manager.models import FileModel
 from core.utils import *
 from main_product_manager.models import MainProduct, MainProductLog, MP_PRICES, PRICE_TYPES
-from product.filters import CATEGORY_LABEL_DEPTH
-from product.models import Category as ProductCategory
 from .forms import *
 from .tables import *
 from .filters import *
@@ -48,41 +46,6 @@ from decimal import Decimal, InvalidOperation
 import pandas as pd
 import re
 import math
-
-
-def _supplier_categories(supplier):
-  """Категории товаров поставщика — выбор для правила наценки.
-
-  Через MainProduct.product: собственные категории у MainProduct удалены в
-  Phase 2b, правило фильтрует по product__categories (get_fitting_mps).
-  """
-  # select_related обязателен: метка варианта — Category.__str__, а он
-  # поднимается по parent запросом на уровень (см. CATEGORY_LABEL_DEPTH).
-  if supplier is None:
-    rows = MainProduct.objects.filter(supplier__isnull=True)
-  else:
-    rows = MainProduct.objects.filter(supplierproducts__in=supplier.supplierproducts.all())
-  return ProductCategory.objects.filter(
-    pk__in=rows.values('product__categories')
-  ).select_related(CATEGORY_LABEL_DEPTH)
-
-
-# Источники из прайса поставщика: у строки без поставщика их нет.
-UNSUPPLIED_SOURCE_EXCLUDE = set(SP_PRICES)
-
-
-def _prepare_form(form, supplier):
-  """Выбор групп скидок, категорий и источников — под поставщика правила.
-
-  Правило без поставщика (supplier=None) — на строки ГП без поставщика:
-  у них нет ни прайса поставщика, ни групп скидок, ни РРЦ.
-  """
-  form.fields['discounts'].queryset = supplier.discounts.all() if supplier else Discount.objects.none()
-  form.fields['categories'].queryset = _supplier_categories(supplier)
-  if supplier is None:
-    form.fields['source'].widget.choices = [
-      (value, label) for value, label in form.fields['source'].widget.choices
-      if value not in UNSUPPLIED_SOURCE_EXCLUDE]
 
 
 def _rule_error(cd, supplier):
@@ -102,10 +65,37 @@ def _rule_error(cd, supplier):
   return None
 
 
-def _supplier_param(request, kwargs):
-  """Поставщик правила: из адреса, из ?supplier= или None — «без поставщика»."""
-  pk = kwargs.get('pk') or request.GET.get('supplier') or request.POST.get('supplier')
-  return get_object_or_404(Supplier, pk=pk) if pk else None
+class RuleFormRefreshMixin:
+  """Живая форма правила: смена поставщика, источника или цели шлёт форму
+  с ?refresh=1, и она перерисовывается под новые значения — без валидации
+  и без сохранения. Проверка идёт первой в post(): save() правила
+  пересобирает ценники, до него перерисовка дойти не должна.
+  """
+  lock_supplier = False
+
+  def is_refresh(self):
+    return bool(self.request.GET.get('refresh'))
+
+  def refresh(self):
+    initial = self.get_initial()
+    initial.update(self.get_form_class().initial_from_data(self.request.POST))
+    if self.lock_supplier:
+      initial.pop('supplier', None)
+    form = self.get_form_class()(initial=initial, instance=self.object,
+                                 lock_supplier=self.lock_supplier)
+    return self.render_to_response(self.get_context_data(form=form))
+
+  def get_form_kwargs(self):
+    kwargs = super().get_form_kwargs()
+    kwargs['lock_supplier'] = self.lock_supplier
+    return kwargs
+
+  def get_context_data(self, **kwargs):
+    context = super().get_context_data(**kwargs)
+    form = context['form']
+    context['supplier'] = form.rule_supplier
+    context['selected_discount_ids'] = form.selected_discount_ids()
+    return context
 
 class PriceManagerList(SingleTableView):
   '''Отображение наценок << /supplier/pricemanagers/<int:pk> >>'''
@@ -125,18 +115,29 @@ class PriceManagerList(SingleTableView):
   
 
 
-class PriceManagerCreate(CreateView):
-  '''Создание Наценки <<price-manager/create/>>'''
+class PriceManagerCreate(RuleFormRefreshMixin, CreateView):
+  '''Создание Наценки <<price-manager/create/>>
+
+  Поставщик выбирается в самой форме. create-for/<pk> и ?supplier=<pk>
+  только предвыбирают его; при сохранении решает поле формы, а форма
+  всегда шлётся на price-manager/create/.
+  '''
   model = PriceManager
   form_class = PriceManagerForm
   template_name = 'price_manager/partials/create.html'
   def get_success_url(self):
     return resolve_url('price-manager')
-  @property
-  def supplier(self):
-    if not hasattr(self, '_supplier'):
-      self._supplier = _supplier_param(self.request, self.kwargs)
-    return self._supplier
+  def get_initial(self):
+    initial = super().get_initial()
+    pk = self.kwargs.get('pk') or self.request.GET.get('supplier')
+    if pk and str(pk).isdigit():
+      initial['supplier'] = get_object_or_404(Supplier, pk=pk).pk
+    return initial
+  def post(self, request, *args, **kwargs):
+    self.object = None
+    if self.is_refresh():
+      return self.refresh()
+    return super().post(request, *args, **kwargs)
   def _format_value(self, value):
     return str(value) if not value is None else '—'
   def _build_generated_name(self, supplier, cleaned_data):
@@ -166,66 +167,54 @@ class PriceManagerCreate(CreateView):
       generated_name = f'{base_name} ({suffix})'
       suffix += 1
     return generated_name
-  def get_context_data(self, **kwargs) -> dict[str, Any]:
-    context = super().get_context_data(**kwargs)
-    context['supplier'] = self.supplier
-    _prepare_form(context['form'], self.supplier)
-    context['selected_discount_ids'] = []
-    return context
   def form_invalid(self, form):
     messages.error(self.request, 'Ошибка')
     response = super().form_invalid(form)
     return response
   def form_valid(self, form):
     cd = form.cleaned_data
-    supplier = self.supplier
+    supplier = cd['supplier']
     error = _rule_error(cd, supplier)
     if error:
       form.add_error(field=None, error=error)
       return self.form_invalid(form)
     instance = form.save(commit=False)
-    instance.supplier = supplier
     if cd['price_fixed']:
       instance.source = 'fixed_price'
     instance.name = self._build_generated_name(supplier, cd)
     instance.save()
     instance.discounts.set(cd['discounts'])
-    instance.categories.set(cd['categories'])
     messages.success(self.request, 'Менеджер добавлен')
     return HttpResponseClientRefresh()
-  
 
 
-class PriceManagerUpdate(SingleTableMixin, UpdateView):
-  '''Обновление Наценки <<price-manager/<int:pk>/>>'''
+
+class PriceManagerUpdate(RuleFormRefreshMixin, SingleTableMixin, UpdateView):
+  '''Обновление Наценки <<price-manager/<int:pk>/>>
+
+  Поставщик правила заблокирован — см. PriceManagerForm.
+  '''
   model = PriceManager
   form_class = PriceManagerForm
   template_name = 'price_manager/partials/update.html'
-  def dispatch(self, request, *args, **kwargs):
-    self.instance = PriceManager.objects.get(pk=self.kwargs.get('pk', None))
-    return super().dispatch(request, *args, **kwargs)
+  lock_supplier = True
   def get_success_url(self):
     return resolve_url('pricemanager-update', self.kwargs.get('pk', None))
-  def form_invalid(self, form):
-    response = super().form_invalid(form)
-    return response
+  def get_initial(self):
+    initial = super().get_initial()
+    initial['price_fixed'] = self.object.source == 'fixed_price'
+    return initial
   def post(self, request, *args, **kwargs):
+    self.object = self.get_object()
+    if self.is_refresh():
+      return self.refresh()
     if request.POST.get('delete', None) == 'true':
-      self.instance.delete()
+      self.object.delete()
       return HttpResponseClientRefresh()
     return super().post(request, *args, **kwargs)
-  def get_context_data(self, **kwargs) -> dict[str, Any]:
-    context = super().get_context_data(**kwargs)
-    supplier = self.instance.supplier
-    form = context['form']
-    form.initial['price_fixed'] = self.instance.source == 'fixed_price'
-    _prepare_form(form, supplier)
-    context['supplier'] = supplier
-    context['selected_discount_ids'] = list(self.instance.discounts.values_list('pk', flat=True))
-    return context
   def form_valid(self, form):
     cd = form.cleaned_data
-    error = _rule_error(cd, self.instance.supplier)
+    error = _rule_error(cd, self.object.supplier)
     if error:
       form.add_error(field=None, error=error)
       return self.form_invalid(form)
@@ -234,7 +223,6 @@ class PriceManagerUpdate(SingleTableMixin, UpdateView):
       instance.source = 'fixed_price'
     instance.save()
     instance.discounts.set(cd['discounts'])
-    instance.categories.set(cd['categories'])
     messages.success(self.request, 'Обновления менеджера сохранены')
     return HttpResponseClientRefresh()
   
@@ -244,9 +232,9 @@ class PriceManagerPage(TemplateView):
   """«Наценки ГП»: все правила наценок строк ГП — поставщиков и без поставщика.
 
   Правила поставщика по-прежнему видны и на его странице; здесь — общий
-  список, и единственное место, где заводят правила без поставщика (на
-  наборы, возвраты, бонусы, остатки). ?supplier=none|<pk> — фильтр,
-  ?deprecated=1 — показать устаревшие.
+  список, включая правила без поставщика (на наборы, возвраты, бонусы,
+  остатки). ?supplier=none|<pk> — фильтр, ?deprecated=1 — показать
+  устаревшие.
   """
   template_name = 'price_manager/page.html'
 
@@ -254,7 +242,7 @@ class PriceManagerPage(TemplateView):
     from django.db.models import Count
     context = super().get_context_data(**kwargs)
     rules = (PriceManager.objects.select_related('supplier')
-             .prefetch_related('discounts', 'categories')
+             .prefetch_related('discounts')
              .annotate(rows_count=Count('pricetags', distinct=True)))
     show_deprecated = self.request.GET.get('deprecated') == '1'
     if not show_deprecated:
@@ -280,16 +268,6 @@ class PriceManagerPage(TemplateView):
                     .filter(rules_count__gt=0).order_by('name')),
       'price_types': PRICE_TYPES,
     })
-    return context
-
-
-class PriceManagerChoose(TemplateView):
-  """Первый шаг «Добавить наценку» со страницы всех наценок: для каких строк ГП."""
-  template_name = 'price_manager/partials/choose.html'
-
-  def get_context_data(self, **kwargs):
-    context = super().get_context_data(**kwargs)
-    context['suppliers'] = Supplier.objects.order_by('name')
     return context
 
 

@@ -130,66 +130,6 @@ class PriceManagerDiscountFilteringTests(TestCase):
         self.assertEqual(fitting.first().changed_price, Decimal('10'))
 
 
-class PriceManagerCategoryScopingTests(TestCase):
-    """Категории правила — product.Category, через MainProduct.product (Phase 2b, D4)."""
-
-    def setUp(self):
-        from product.models import Category, Product
-
-        currency, _ = Currency.objects.get_or_create(name='KZT', defaults={'value': Decimal('1')})
-        self.supplier = Supplier.objects.create(
-            name='Scoped supplier', currency=currency,
-            delivery_days_available=1, delivery_days_navailable=2,
-        )
-        self.tools = Category.objects.create(name='Инструмент')
-        self.drills = Category.objects.create(name='Дрели', parent=self.tools)
-        self.lights = Category.objects.create(name='Свет')
-
-        def offer(article, category):
-            product = Product.objects.create(number=f'N-{article}')
-            if category:
-                product.categories.add(category)
-            mp = MainProduct.objects.create(supplier=self.supplier, article=article, name=article,
-                                            product=product)
-            SupplierProduct.objects.create(main_product=mp, supplier=self.supplier, article=article,
-                                           name=article, supplier_price=Decimal('10'))
-            return mp
-
-        self.tool = offer('TOOL', self.tools)
-        self.drill = offer('DRILL', self.drills)
-        self.light = offer('LIGHT', self.lights)
-        self.unlinked = MainProduct.objects.create(supplier=self.supplier, article='RAW', name='RAW')
-        SupplierProduct.objects.create(main_product=self.unlinked, supplier=self.supplier,
-                                       article='RAW', name='RAW', supplier_price=Decimal('10'))
-
-    def _manager(self):
-        return PriceManager.objects.create(
-            name='PM-CAT', supplier=self.supplier, source='supplier_price', dest='basic_price',
-            markup=Decimal('0'), increase=Decimal('0'),
-        )
-
-    def test_rule_without_categories_applies_to_every_row(self):
-        fitting = set(self._manager().get_fitting_mps().values_list('pk', flat=True))
-
-        self.assertEqual(fitting, {self.tool.pk, self.drill.pk, self.light.pk, self.unlinked.pk})
-
-    def test_scoped_rule_matches_exactly_the_chosen_categories(self):
-        """Как и до переноса — без разворота на потомков: «Инструмент» не
-        захватывает «Дрели». Строка без товара под такое правило не попадает."""
-        manager = self._manager()
-        manager.categories.add(self.tools)
-
-        self.assertEqual(list(manager.get_fitting_mps().values_list('pk', flat=True)), [self.tool.pk])
-
-    def test_product_in_two_chosen_categories_is_one_row(self):
-        self.tool.product.categories.add(self.lights)
-        manager = self._manager()
-        manager.categories.add(self.tools, self.lights)
-
-        self.assertEqual(sorted(manager.get_fitting_mps().values_list('pk', flat=True)),
-                         sorted([self.tool.pk, self.light.pk]))
-
-
 class PriceTagAndPriceManagerRuntimeTests(TestCase):
     def setUp(self):
         self.currency = Currency.objects.create(name='USD', value=Decimal('2'))
@@ -788,3 +728,103 @@ class PriceManagerPageTests(TestCase):
 
         self.assertContains(response, 'нет прайса поставщика')
         self.assertFalse(PriceTag.objects.filter(mp=row).exists())
+
+
+class LiveRuleFormTests(TestCase):
+    """Форма наценки ГП: поставщик — поле формы, перерисовка по ?refresh=1."""
+
+    def setUp(self):
+        from django.contrib.auth.models import User
+        usd, _ = Currency.objects.get_or_create(name='USD', defaults={'value': Decimal('500')})
+        self.supplier = Supplier.objects.create(name='Живой поставщик', currency=usd,
+                                                delivery_days_available=1, delivery_days_navailable=2)
+        self.other = Supplier.objects.create(name='Другой поставщик', currency=usd,
+                                             delivery_days_available=1, delivery_days_navailable=2)
+        self.own_group = Discount.objects.create(name='Своя группа', supplier=self.supplier)
+        self.foreign_group = Discount.objects.create(name='Чужая группа', supplier=self.other)
+        self.client.force_login(User.objects.create_user(username='live', password='pw'))
+
+    def url(self, name='price-manager-create', **kwargs):
+        from django.urls import reverse
+        return reverse(name, kwargs=kwargs or None)
+
+    def form(self, **overrides):
+        data = {'supplier': str(self.supplier.pk), 'dest': 'basic_price', 'source': 'prime_cost',
+                'markup': '10', 'increase': '0', 'fixed_price': '0'}
+        data.update(overrides)
+        return data
+
+    def test_refresh_redraws_for_the_chosen_supplier_and_saves_nothing(self):
+        response = self.client.post(self.url() + '?refresh=1',
+                                    self.form(source='supplier_price', discounts=[self.own_group.pk]),
+                                    HTTP_HX_REQUEST='true')
+
+        self.assertEqual(response.status_code, 200)
+        self.assertFalse(PriceManager.objects.exists())
+        self.assertContains(response, 'Своя группа')
+        self.assertNotContains(response, 'Чужая группа')
+        self.assertEqual(response.context['selected_discount_ids'], [self.own_group.pk])
+        # От цены из прайса диапазон — в валюте поставщика.
+        self.assertContains(response, '>USD<')
+
+    def test_refresh_without_supplier_drops_price_list_sources_and_dest(self):
+        response = self.client.post(self.url() + '?refresh=1', self.form(supplier='', dest='m_price'),
+                                    HTTP_HX_REQUEST='true')
+
+        choices = [value for value, _ in response.context['form'].fields['source'].widget.choices]
+        self.assertNotIn('supplier_price', choices)
+        self.assertNotIn('rrp', choices)
+        self.assertNotIn('m_price', choices)
+        self.assertIn('prime_cost', choices)
+        self.assertNotContains(response, 'Своя группа')
+
+    def test_supplier_page_link_only_preselects(self):
+        response = self.client.get(self.url('pricemanager-create', pk=self.supplier.pk), HTTP_HX_REQUEST='true')
+
+        self.assertEqual(response.context['supplier'], self.supplier)
+        self.assertContains(response, f'hx-post="{self.url()}"')
+
+    def test_saves_under_the_supplier_chosen_in_the_form(self):
+        self.client.post(self.url('pricemanager-create', pk=self.other.pk),
+                         self.form(discounts=[self.own_group.pk]), HTTP_HX_REQUEST='true')
+
+        rule = PriceManager.objects.get()
+        self.assertEqual(rule.supplier, self.supplier)
+        self.assertEqual(list(rule.discounts.all()), [self.own_group])
+
+    def test_a_discount_group_of_another_supplier_is_refused(self):
+        response = self.client.post(self.url(), self.form(discounts=[self.foreign_group.pk]),
+                                    HTTP_HX_REQUEST='true')
+
+        self.assertFalse(PriceManager.objects.exists())
+        self.assertTrue(response.context['form'].errors.get('discounts'))
+
+    def test_edit_refresh_saves_nothing_and_keeps_the_supplier(self):
+        row = MainProduct.objects.create(supplier=self.supplier, article='E-1', name='Строка',
+                                         prime_cost=Decimal('100'))
+        SupplierProduct.objects.create(supplier=self.supplier, main_product=row, article='E-1', name='Строка')
+        rule = PriceManager.objects.create(name='Правило', supplier=self.supplier, source='prime_cost',
+                                           dest='basic_price', markup=Decimal('10'))
+        tags = PriceTag.objects.count()
+
+        response = self.client.post(self.url('pricemanager-update', pk=rule.pk) + '?refresh=1',
+                                    self.form(supplier=str(self.other.pk), markup='50', delete='true'),
+                                    HTTP_HX_REQUEST='true')
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.context['supplier'], self.supplier)
+        self.assertTrue(PriceManager.objects.filter(pk=rule.pk).exists())
+        rule.refresh_from_db()
+        self.assertEqual(rule.markup, Decimal('10'))
+        self.assertEqual(PriceTag.objects.count(), tags)
+
+    def test_edit_ignores_a_posted_supplier(self):
+        rule = PriceManager.objects.create(name='Правило', supplier=self.supplier, source='prime_cost',
+                                           dest='basic_price')
+
+        self.client.post(self.url('pricemanager-update', pk=rule.pk),
+                         self.form(supplier=str(self.other.pk), markup='25'), HTTP_HX_REQUEST='true')
+
+        rule.refresh_from_db()
+        self.assertEqual(rule.supplier, self.supplier)
+        self.assertEqual(rule.markup, Decimal('25'))

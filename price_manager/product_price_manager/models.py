@@ -1,7 +1,6 @@
 from django.db import models
 from django.core.validators import (MinValueValidator, MaxValueValidator)
 from supplier_manager.models import Supplier, Discount
-from product.models import Category
 from supplier_product_manager.models import SupplierProduct, SP_PRICES
 from main_product_manager.models import MainProduct, PRICE_TYPES, MP_PRICES, MainProductLog
 from django.db.models import (F, ExpressionWrapper, 
@@ -54,16 +53,6 @@ class PriceManager(models.Model):
     Discount,
     related_name='pricemanagers',
     verbose_name='Группы скидок',
-    blank=True
-  )
-  # Категории товара из PIM (product.Category), а не supplier_manager.Category:
-  # MainProduct.categories удалены в Phase 2b (D4). Пустой выбор — правило на
-  # все товары поставщика; см. миграцию 0004, которая этого не допускает
-  # молча.
-  categories = models.ManyToManyField(
-    Category,
-    related_name='pricemanagers',
-    verbose_name='Категории',
     blank=True
   )
   date_from = models.DateTimeField(
@@ -193,12 +182,6 @@ class PriceManager(models.Model):
         f'''main_product__{price_manager.source}'''))
     
     mps = MainProduct.objects.filter(pk__in=products.values_list('main_product', flat=True))
-    if price_manager.categories.exists():
-      # Как и раньше — ровно выбранные узлы, без разворота на потомков. Через
-      # product: строка без привязки к Product под правило с категориями не
-      # попадает. distinct — товар в двух выбранных категориях дал бы строку
-      # дважды.
-      mps = mps.filter(product__categories__in=price_manager.categories.all()).distinct()
     source = price_manager.source
     if price_manager.source in SP_PRICES:
       filtered_source_price = (
@@ -275,7 +258,7 @@ class PriceManager(models.Model):
     правило с таким источником не подходит ни одной строке, а не считает от
     пустого. Себестоимость строки набора — сумма комплектующих
     (product.services.set_rows), правило её не пишет. Остальное — как у
-    правила поставщика: категории товара, диапазон цены-источника, формула.
+    правила поставщика: диапазон цены-источника, формула.
     """
     mps = MainProduct.objects.filter(supplier__isnull=True)
     if self.source in SP_PRICES:
@@ -284,8 +267,6 @@ class PriceManager(models.Model):
       mps = mps.filter(is_set=False)
     if self.source in MP_PRICES:
       mps = mps.filter(get_price_querry(self.price_from, self.price_to, self.source))
-    if self.categories.exists():
-      mps = mps.filter(product__categories__in=self.categories.all()).distinct()
     if self.source in MP_PRICES:
       changed = Ceil(NullIf(F(self.source), Value(Decimal('0')))
                      * (1 + Decimal(self.markup) / Decimal(100)) + Decimal(self.increase))
@@ -360,7 +341,6 @@ class PriceManager(models.Model):
     if mps.exists():
       print('\n\n\n', self.supplier, ': ', self.source, ',', self.dest, ';', self.price_from, ',', self.price_to)
       print('Группы скидок', self.discounts.all())
-      print('Категории', self.categories.all())
       print(mps)
     return mps.update(**{self.dest:F('changed_price'), 'price_updated_at':timezone.now()})
 

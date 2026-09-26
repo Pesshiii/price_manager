@@ -11,26 +11,26 @@ repo, and [[product_price_manager/pricing]] for `get_fitting_mps()` and
 
 ## Two models
 
-**`PriceManager:21`** — the rule. Scoped by `supplier`, M2M `discounts` and
-`categories`, a `date_from`/`date_to` window, a `price_from`/`price_to` band,
-and `has_rrp`.
+**`PriceManager`** — the rule. Scoped by `supplier`, M2M `discounts`, a
+`date_from`/`date_to` window, a `price_from`/`price_to` band, and `has_rrp`.
 
-**`categories` are `product.Category` since Phase 2b (migration 0004), read
-through `MainProduct.product`.** Three things follow, all deliberate:
-- **An empty `categories` means "every product of the supplier".**
-  `get_fitting_mps` only filters when `categories.exists()`. So anything that
-  empties the field silently widens a rule to the whole catalogue on its next
-  `save()`/`apply()`. Migration 0004 had to recreate the M2M (Django can't
-  retarget one), so it **raises** if any rule has categories instead of
-  wiping them — it was proven on the restored snapshot.
-- **Flat membership, no descendants** — as before the move. Choosing
-  «Инструмент» does not match products filed under «Инструмент > Дрели».
-  (The product page and the cart *do* expand descendants; rules never did.)
-- **A `MainProduct` with no `product` can't match a scoped rule.** The join
-  goes through the nullable FK. Unscoped rules still see it.
+**There is no category scope any more** — migration 0006 dropped
+`PriceManager.categories` (flat nodes, no descendants, unused; category pricing
+belongs to `product_pricing.ProductPriceRule`, which expands descendants).
+Dropping the field drops its filter, so 0006 **raises** while any rule still
+has categories, like 0004 did — a scoped rule would otherwise widen to the
+whole supplier on its next `save()`/`apply()`.
 
-The rule form's category picker offers the categories the supplier's products
-have, via `views._supplier_categories()` (`views.py:52`).
+**The rule form is live** (`forms.PriceManagerForm`). The supplier is a field
+of the form — there is no separate «choose supplier» step — and the
+discount/source choices are narrowed in `__init__` *before* validation, from
+the posted supplier. Changing supplier/source/dest posts the whole form to the
+same URL with `?refresh=1` (`views.RuleFormRefreshMixin`), which re-renders
+`#pm-rule-fields` from `initial` and never reaches `form_valid` — a real save
+rebuilds PriceTags. On edit the supplier is `disabled`: `save()` never removes
+PriceTags of rows that fall out of a rule, so moving a rule to another supplier
+would leave the old rows priced. `create-for/<pk>` and `?supplier=` only
+preselect; the form always posts to `price-manager/create/`.
 
 The arithmetic is `source → dest`, where:
 - `source` (`models.py:77`) may be a **supplier** price (`rrp`,
