@@ -48,7 +48,7 @@ import re
 import math
 
 
-def _rule_error(cd, supplier):
+def _rule_error(cd):
   """Общая проверка формы правила; текст ошибки или None."""
   if cd['price_fixed'] and cd['fixed_price'] == 0:
     return 'Не указана фиксированная цена'
@@ -57,8 +57,6 @@ def _rule_error(cd, supplier):
       return 'Поле от какой цены считать должно быть указано'
     if cd['source'] == cd['dest']:
       return 'Поля от какой цены считать и какую цену считать совпадают'
-    if supplier is None and cd['source'] in SP_PRICES:
-      return 'У строк без поставщика нет прайса поставщика — считайте от цены ГП'
     if (cd['price_from'] and cd['price_to']
       and cd['price_from'] >= cd['price_to']):
       return 'Неверный диапозон цены'
@@ -174,13 +172,11 @@ class PriceManagerCreate(RuleFormRefreshMixin, CreateView):
   def form_valid(self, form):
     cd = form.cleaned_data
     supplier = cd['supplier']
-    error = _rule_error(cd, supplier)
+    error = _rule_error(cd)
     if error:
       form.add_error(field=None, error=error)
       return self.form_invalid(form)
     instance = form.save(commit=False)
-    if cd['price_fixed']:
-      instance.source = 'fixed_price'
     instance.name = self._build_generated_name(supplier, cd)
     instance.save()
     instance.discounts.set(cd['discounts'])
@@ -214,13 +210,11 @@ class PriceManagerUpdate(RuleFormRefreshMixin, SingleTableMixin, UpdateView):
     return super().post(request, *args, **kwargs)
   def form_valid(self, form):
     cd = form.cleaned_data
-    error = _rule_error(cd, self.object.supplier)
+    error = _rule_error(cd)
     if error:
       form.add_error(field=None, error=error)
       return self.form_invalid(form)
     instance = form.save(commit=False)
-    if cd['price_fixed']:
-      instance.source = 'fixed_price'
     instance.save()
     instance.discounts.set(cd['discounts'])
     messages.success(self.request, 'Обновления менеджера сохранены')

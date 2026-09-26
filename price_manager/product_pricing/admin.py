@@ -5,7 +5,7 @@ from .models import ProductPrice, ProductPriceRule, ProductPriceType
 
 @admin.register(ProductPriceType)
 class ProductPriceTypeAdmin(admin.ModelAdmin):
-    list_display = ['id', 'name', 'pim_field', 'show_on_page', 'sorting']
+    list_display = ['id', 'name','show_on_page', 'sorting']
 
 
 @admin.register(ProductPriceRule)

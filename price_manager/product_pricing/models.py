@@ -70,10 +70,6 @@ class ProductPriceType(models.Model):
     """Вид расчётной цены товара — то, что считают наценки и показывает «Товары»."""
 
     name = models.CharField('Название', max_length=100, unique=True)
-    pim_field = models.CharField(
-        'Поле в PIM', max_length=100, blank=True, default='',
-        help_text='Имя поля PriceManagerProduct в PIM, куда отправлять эту цену. '
-                  'Пусто — в PIM не отправляется. Поле должно быть заведено в PIM.')
     show_on_page = models.BooleanField('Показывать на странице «Товары»', default=True)
     sorting = models.IntegerField('Порядок', default=0)
 

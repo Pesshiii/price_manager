@@ -18,16 +18,13 @@ class ProductPriceTypeTable(tables.Table):
 
     class Meta:
         model = ProductPriceType
-        fields = ['name', 'pim_field', 'show_on_page', 'sorting', 'prices_count']
+        fields = ['name','show_on_page', 'sorting', 'prices_count']
         orderable = False
         template_name = 'django_tables2/bootstrap5.html'
         attrs = {'class': 'table table-sm table-hover align-middle mb-0'}
 
     def render_name(self, record):
         return _edit_link(reverse('product-price-type-update', kwargs={'pk': record.pk}), record.name)
-
-    def render_pim_field(self, value):
-        return value or '—'
 
     def render_show_on_page(self, value):
         return format_html('<i class="bi bi-{}"></i>', 'check-lg' if value else 'dash')

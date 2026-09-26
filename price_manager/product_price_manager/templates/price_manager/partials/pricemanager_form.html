@@ -51,7 +51,7 @@
 
 {# Строка 1: РРЦ + Направление цены #}
 <div class="row g-3 mb-3">
-  {% if supplier %}{# у строк без поставщика нет прайса, а значит и РРЦ #}
+  {% if supplier or form.has_rrp.errors %}{# у строк без поставщика нет прайса, а значит и РРЦ #}
   <div class="col-md-6">
     <label class="form-label text-muted small fw-semibold text-uppercase">{{ form.has_rrp.label }}</label>
     {% render_field form.has_rrp class="form-select form-select-sm" %}

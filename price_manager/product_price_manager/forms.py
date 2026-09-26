@@ -66,7 +66,7 @@ class PriceManagerForm(forms.ModelForm):
     self.fields['discounts'].queryset = supplier.discounts.all() if supplier else Discount.objects.none()
     # Источник не может совпадать с тем, что считаем, а у строк без
     # поставщика нет прайса поставщика. Это подсказка в выборе; настоящая
-    # проверка — views._rule_error.
+    # проверка — views._rule_error и PriceManager.clean().
     dest = self._current_value('dest')
     self.fields['source'].widget.choices = [
       (value, label) for value, label in RULE_SOURCE_CHOICES
@@ -118,6 +118,14 @@ class PriceManagerForm(forms.ModelForm):
       elif name in data:
         initial[name] = data.get(name)
     return initial
+
+  def clean(self):
+    # До PriceManager.clean(): тот проверяет источник, а при фиксированной
+    # цене в скрытом select мог остаться любой, в том числе из прайса.
+    cleaned_data = super().clean()
+    if cleaned_data.get('price_fixed'):
+      cleaned_data['source'] = 'fixed_price'
+    return cleaned_data
 
 class PriceTagForm(forms.ModelForm):
   price_fixed = forms.BooleanField(widget=forms.widgets.CheckboxInput(), label='Фиксированная цена', required=False)
