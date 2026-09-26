@@ -33,6 +33,14 @@ class PriceManagerForm(forms.ModelForm):
       'markup', 'increase',
     )
 
+  def clean(self):
+    # До PriceManager.clean(): тот проверяет источник, а при фиксированной
+    # цене в скрытом select мог остаться любой, в том числе из прайса.
+    cleaned_data = super().clean()
+    if cleaned_data.get('price_fixed'):
+      cleaned_data['source'] = 'fixed_price'
+    return cleaned_data
+
 class PriceTagForm(forms.ModelForm):
   price_fixed = forms.BooleanField(widget=forms.widgets.CheckboxInput(), label='Фиксированная цена', required=False)
   source = forms.CharField(widget=forms.widgets.Select(choices=(

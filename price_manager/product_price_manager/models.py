@@ -1,4 +1,5 @@
 from django.db import models
+from django.core.exceptions import ValidationError
 from django.core.validators import (MinValueValidator, MaxValueValidator)
 from supplier_manager.models import Supplier, Discount
 from product.models import Category
@@ -138,7 +139,25 @@ class PriceManager(models.Model):
 
   def __str__(self):
     return self.name
-  
+
+  def clean(self):
+    """Правило без поставщика не может ссылаться на прайс поставщика.
+
+    Иначе оно сохраняется и молча ничего не делает (_fitting_unsupplied_mps).
+    Группы скидок (M2M) здесь не проверить — до сохранения их нет; их
+    отсекает queryset формы (_prepare_form).
+    """
+    super().clean()
+    if self.supplier_id is not None:
+      return
+    errors = {}
+    if self.source in SP_PRICES:
+      errors['source'] = 'У строк без поставщика нет прайса поставщика — считайте от цены ГП'
+    if self.has_rrp is not None:
+      errors['has_rrp'] = 'У строк без поставщика нет РРЦ — выберите «Без разницы»'
+    if errors:
+      raise ValidationError(errors)
+
   def get_fitting_mps(self):
     """
     Возвращает продукты подходящие под данный менеджер наценок \\

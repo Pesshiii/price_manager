@@ -788,3 +788,75 @@ class PriceManagerPageTests(TestCase):
 
         self.assertContains(response, 'нет прайса поставщика')
         self.assertFalse(PriceTag.objects.filter(mp=row).exists())
+
+    def test_supplier_rule_from_the_price_list_is_still_accepted(self):
+        # PriceManager.clean() судит по supplier — создание обязано знать его до валидации.
+        from django.urls import reverse
+        url = reverse('pricemanager-create', kwargs={'pk': self.supplier.pk})
+
+        self.client.post(url, {'dest': 'wholesale_price', 'source': 'rrp', 'markup': '10', 'increase': '0',
+                               'fixed_price': '0'}, HTTP_HX_REQUEST='true')
+
+        rule = PriceManager.objects.get(dest='wholesale_price')
+        self.assertEqual(rule.supplier, self.supplier)
+        self.assertEqual(rule.source, 'rrp')
+
+    def test_fixed_price_without_supplier_ignores_a_leftover_price_list_source(self):
+        from django.urls import reverse
+        self.client.post(reverse('price-manager-create'), {
+            'dest': 'wholesale_price', 'source': 'rrp', 'price_fixed': 'on', 'fixed_price': '500',
+            'markup': '0', 'increase': '0'}, HTTP_HX_REQUEST='true')
+
+        rule = PriceManager.objects.get(dest='wholesale_price')
+        self.assertIsNone(rule.supplier_id)
+        self.assertEqual(rule.source, 'fixed_price')
+
+
+class PriceManagerCleanTests(TestCase):
+    """PriceManager.clean(): правило без поставщика не ссылается на прайс поставщика."""
+
+    def setUp(self):
+        currency, _ = Currency.objects.get_or_create(name='KZT', defaults={'value': Decimal('1')})
+        self.supplier = Supplier.objects.create(name='Поставщик clean', currency=currency,
+                                                delivery_days_available=1, delivery_days_navailable=2)
+
+    def rule(self, **kwargs):
+        defaults = dict(name='Правило', supplier=None, source='prime_cost', dest='basic_price')
+        defaults.update(kwargs)
+        return PriceManager(**defaults)
+
+    def test_rejects_price_list_sources_without_supplier(self):
+        from django.core.exceptions import ValidationError
+        for source in ('rrp', 'supplier_price'):
+            with self.subTest(source=source), self.assertRaises(ValidationError) as ctx:
+                self.rule(source=source).full_clean()
+            self.assertIn('source', ctx.exception.message_dict)
+
+    def test_rejects_has_rrp_without_supplier(self):
+        from django.core.exceptions import ValidationError
+        for has_rrp in (True, False):
+            with self.subTest(has_rrp=has_rrp), self.assertRaises(ValidationError) as ctx:
+                self.rule(has_rrp=has_rrp).full_clean()
+            self.assertIn('has_rrp', ctx.exception.message_dict)
+
+    def test_accepts_mp_and_fixed_sources_without_supplier(self):
+        self.rule().full_clean()
+        self.rule(source='fixed_price', fixed_price=Decimal('100')).full_clean()
+
+    def test_supplier_rule_may_use_the_price_list(self):
+        self.rule(supplier=self.supplier, source='rrp', has_rrp=True).full_clean()
+
+    def test_update_refuses_to_switch_an_unsupplied_rule_to_the_price_list(self):
+        from django.contrib.auth.models import User
+        from django.urls import reverse
+        rule = self.rule()
+        rule.save()
+        self.client.force_login(User.objects.create_user(username='clean', password='pw'))
+
+        response = self.client.post(reverse('pricemanager-update', kwargs={'pk': rule.pk}), {
+            'dest': 'basic_price', 'source': 'supplier_price', 'markup': '0', 'increase': '0',
+            'fixed_price': '0'}, HTTP_HX_REQUEST='true')
+
+        self.assertContains(response, 'нет прайса поставщика')
+        rule.refresh_from_db()
+        self.assertEqual(rule.source, 'prime_cost')
