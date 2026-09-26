@@ -120,7 +120,7 @@ def _refresh_costs(set_pks, logs: bool) -> int:
 
 def sync_set_rows(logs: bool = True) -> dict:
     """Создать недостающие строки наборов, снять флаг с бывших, пересчитать себестоимость."""
-    set_pks = list(ProductSetItem.objects.values_list('set_product_id', flat=True).distinct())
+    set_pks = list(ProductSetItem.objects.order_by().values_list('set_product_id', flat=True).distinct())
     created = _create_missing_rows(set_pks)
     retired = _retire_stale_rows(set_pks, logs)
     updated = _refresh_costs(set_pks, logs)

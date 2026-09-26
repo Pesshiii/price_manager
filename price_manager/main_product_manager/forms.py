@@ -55,6 +55,10 @@ class MainProductForm(forms.ModelForm):
     self.fields['sku'].required = True
     self.fields['sku'].max_length = SKU_MAX_LENGTH
     self.fields['sku'].widget.attrs['maxlength'] = SKU_MAX_LENGTH
+    # null=True без blank=True — ModelForm сделал бы их обязательными, а
+    # пустое поле здесь значит «нет данных».
+    for name in ('stock', *MP_PRICES):
+      self.fields[name].required = False
     self.fields['stock'].min_value = 0
     self.fields['stock'].widget.attrs['min'] = 0
     for field in MP_PRICES:

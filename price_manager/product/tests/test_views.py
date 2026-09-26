@@ -331,7 +331,7 @@ class ProductFragmentTests(TestCase):
         response = self.client.get(reverse('product-suppliers', kwargs={'pk': self.product.pk}))
 
         self.assertEqual(response.status_code, 200)
-        self.assertContains(response, 'Ни один поставщик не привязан')
+        self.assertContains(response, 'У товара нет строк ГП')
 
     def test_filter_fragment_redirects_a_non_htmx_request(self):
         response = self.client.get(reverse('product-filter'))
