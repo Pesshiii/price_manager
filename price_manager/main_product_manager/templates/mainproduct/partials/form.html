@@ -1,0 +1,76 @@
+{% load widget_tweaks %}
+{% comment %}
+  Строка ГП — создание и правка (MainProductForm): поставщик (пусто — «без
+  поставщика»), артикулы, название, затем остаток и цены. Поля, которые
+  менять нельзя (поставщик строки из прайса, себестоимость строки набора),
+  просто заблокированы — без пояснений, по просьбе владельца.
+  Разметка руками, а не crispy: пакет crispy — bootstrap4 поверх BS5, и его
+  form-row / custom-select здесь развалили бы сетку цен (см. CLAUDE.md).
+{% endcomment %}
+{% with editing=form.instance.pk %}
+<div class="modal-header">
+  <h5 class="modal-title fw-semibold">{% if editing %}Строка ГП{% else %}Новая строка ГП{% endif %}</h5>
+  <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Закрыть"></button>
+</div>
+
+<form method="post"
+      {% if editing %}hx-post="{% url 'mainproduct-update' form.instance.pk %}"{% else %}hx-post="{% url 'mainproduct-create' %}"{% endif %}
+      hx-target="#modal-container .modal-content" hx-swap="innerHTML">
+  {% csrf_token %}
+  {% if preset_product %}<input type="hidden" name="product" value="{{ preset_product.pk }}">{% endif %}
+
+  <div class="modal-body">
+    {% if form.non_field_errors %}
+      <div class="alert alert-danger py-2 small">{{ form.non_field_errors|join:" " }}</div>
+    {% endif %}
+
+    <div class="row g-3">
+      <div class="col-md-6">
+        <label class="form-label small fw-medium" for="{{ form.supplier.id_for_label }}">Поставщик</label>
+        {% render_field form.supplier class="form-select" %}
+        {% for error in form.supplier.errors %}<div class="invalid-feedback d-block">{{ error }}</div>{% endfor %}
+      </div>
+      <div class="col-md-6">
+        <label class="form-label small fw-medium" for="{{ form.article.id_for_label }}">Артикул поставщика</label>
+        {% render_field form.article class="form-control" %}
+        {% for error in form.article.errors %}<div class="invalid-feedback d-block">{{ error }}</div>{% endfor %}
+      </div>
+      <div class="col-md-4">
+        <label class="form-label small fw-medium" for="{{ form.sku.id_for_label }}">Артикул товара</label>
+        {% render_field form.sku class="form-control" autocomplete="off" %}
+        {% for error in form.sku.errors %}<div class="invalid-feedback d-block">{{ error }}</div>{% endfor %}
+      </div>
+      <div class="col-md-8">
+        <label class="form-label small fw-medium" for="{{ form.name.id_for_label }}">Название</label>
+        {% render_field form.name class="form-control" %}
+        {% for error in form.name.errors %}<div class="invalid-feedback d-block">{{ error }}</div>{% endfor %}
+      </div>
+    </div>
+
+    <hr class="my-4">
+
+    <div class="mp-prices">
+      {% for field in form.stock_and_price_fields %}
+        <div>
+          <label class="form-label small fw-medium" for="{{ field.id_for_label }}">{{ field.label }}</label>
+          <div class="input-group">
+            {% render_field field class="form-control text-end" %}
+            <span class="input-group-text">{% if field.name == 'stock' %}шт.{% else %}тг{% endif %}</span>
+          </div>
+          {% for error in field.errors %}<div class="invalid-feedback d-block">{{ error }}</div>{% endfor %}
+        </div>
+      {% endfor %}
+    </div>
+  </div>
+
+  <div class="modal-footer">
+    <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Отмена</button>
+    <button type="submit" class="btn btn-primary px-4">{% if editing %}Сохранить{% else %}Добавить{% endif %}</button>
+  </div>
+</form>
+{% endwith %}
+
+<style>
+  .mp-prices { display: grid; grid-template-columns: repeat(auto-fill, minmax(11rem, 1fr)); gap: .75rem 1rem; }
+  .mp-prices .form-control { font-variant-numeric: tabular-nums; }
+</style>

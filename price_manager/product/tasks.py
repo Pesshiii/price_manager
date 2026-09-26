@@ -9,6 +9,7 @@ from .services.pim_sync import (
     sync_product_from_pim,
     sync_products,
 )
+from .services.set_rows import sync_set_rows
 from .services.sets import sync_product_sets
 
 logger = logging.getLogger(__name__)
@@ -79,7 +80,12 @@ def sync_product_sets_task() -> dict:
     """Наборы и их состав из PIM (services/sets.py). Ночью, после reindex_pim_ids:
     компоненты находятся через PriceManagerProduct, который тот заводит."""
     def _runner():
-        return sync_product_sets()['sets']
+        synced = sync_product_sets()['sets']
+        # Строка ГП нового набора — сразу, не ждать update_prices: без неё
+        # виртуальный набор без цен и не виден наценкам. Цены от её
+        # себестоимости посчитает ближайший update_prices.
+        sync_set_rows()
+        return synced
 
     return execute_locked_task(
         task_name='product.sync_product_sets',

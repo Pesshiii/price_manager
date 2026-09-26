@@ -758,14 +758,27 @@ class CopySupplierProductsToMainTaskTests(TestCase):
         sp.refresh_from_db()
         self.assertEqual(MainProduct.objects.get(pk=sp.main_product_id).product_id, product.pk)
 
-    def test_copy_never_creates_a_product(self):
-        """Создание Product — работа ночного reindex_pim_ids, не импорта."""
+    def test_copy_creates_the_product_a_new_sku_has_none_of(self):
+        """Строка ГП без товара не бывает: товар создаётся сразу, а не ночью."""
         SupplierProduct.objects.create(supplier=self.supplier, article="CT-6", name="Товар 6")
 
         copy_supplier_products_to_main_task(self.supplier.id, None, self.user.id)
 
-        self.assertEqual(Product.objects.count(), 0)
-        self.assertIsNone(MainProduct.objects.get(article="CT-6").product_id)
+        row = MainProduct.objects.get(article="CT-6")
+        self.assertIsNotNone(row.product_id)
+        self.assertEqual((row.product.number, row.product.name), ("CT-6", "Товар 6"))
+
+    def test_copy_links_case_insensitively_and_leaves_other_rows_alone(self):
+        product = Product.objects.create(number="ct-7")
+        stranger = MainProduct.objects.create(supplier=self.supplier, article="X", name="Чужая", sku="OTHER-1")
+        sp = SupplierProduct.objects.create(supplier=self.supplier, article="CT-7", name="Товар 7")
+
+        copy_supplier_products_to_main_task(self.supplier.id, None, self.user.id)
+
+        sp.refresh_from_db()
+        self.assertEqual(MainProduct.objects.get(pk=sp.main_product_id).product_id, product.pk)
+        stranger.refresh_from_db()
+        self.assertIsNone(stranger.product_id)
 
     def test_already_linked_row_gets_its_product_link_without_a_new_main_product(self):
         product = Product.objects.create(number="CT-3")

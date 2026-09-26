@@ -8,7 +8,7 @@ from django.conf import settings
 
 from core.models import NotificationKind, PersistentNotification
 from core.task_runner import execute_locked_task
-from main_product_manager.utils import compute_supplier_sku, link_to_local_products, update_stocks
+from main_product_manager.utils import compute_supplier_sku, link_unlinked_main_products, update_stocks
 from product_price_manager.models import update_prices
 from main_product_manager.models import MainProduct
 
@@ -518,12 +518,11 @@ def copy_supplier_products_to_main_task(
                 SupplierProduct.objects.bulk_update(unlinked, fields=["main_product"], batch_size=batch_size)
                 updated_links_count += len(unlinked)
 
-        # Связь с товаром (product.Product) — явно. До Phase 2b она ставилась
-        # побочным эффектом пересборки search_vector; без этого шага каждая
-        # новая строка ложилась бы с product IS NULL и не показывалась на
-        # /products/ до ночного reindex_pim_ids — без единой ошибки.
+        # Связь с товаром (product.Product) — явно, и товар создаётся, если
+        # его ещё нет: строка ГП без товара не видна на /products/, а ждать её
+        # до ночного reindex_pim_ids — это строка, пропавшая без единой ошибки.
         for ids_chunk in _chunked(list(touched_main_product_ids), batch_size):
-            link_to_local_products(ids_chunk)
+            link_unlinked_main_products(batch_size=batch_size, main_product_ids=ids_chunk)
 
         duration_seconds = round((timezone.now() - started_at).total_seconds(), 2)
         message = (

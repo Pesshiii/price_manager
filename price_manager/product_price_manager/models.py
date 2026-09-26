@@ -38,11 +38,13 @@ class PriceManager(models.Model):
   
   name = models.CharField(verbose_name='Название',
                           unique=True)
+  # Пусто — правило на строки ГП без поставщика: наборы, возвраты, бонусы,
+  # остатки на складе (_fitting_unsupplied_mps).
   supplier = models.ForeignKey(Supplier,
                                on_delete=models.CASCADE,
                                verbose_name='Поставщик',
                                related_name='pricemanagers',
-                               null=False,
+                               null=True,
                                blank=True)
   has_rrp = models.BooleanField(verbose_name='Есть РРЦ',
                              choices=[(None, 'Без разницы'),(True,'Да'),(False,'Нет')],
@@ -165,6 +167,8 @@ class PriceManager(models.Model):
         return Q()
 
     price_manager = self
+    if price_manager.supplier_id is None:
+      return price_manager._fitting_unsupplied_mps(get_price_querry)
     products = SupplierProduct.objects.filter(
       supplier=price_manager.supplier
     ).prefetch_related('main_product')
@@ -260,9 +264,38 @@ class PriceManager(models.Model):
     mps = mps.annotate(
         changed_price=Subquery(calc_qs, output_field=DecimalField())
       )
-    
+
     return mps
-  
+
+  def _fitting_unsupplied_mps(self, get_price_querry):
+    """get_fitting_mps правила без поставщика: строки ГП без поставщика.
+
+    Это возвраты, бонусы, остатки и строки наборов. Прайса поставщика у них
+    нет, поэтому РРЦ, группы скидок и источники из ПП к ним неприменимы:
+    правило с таким источником не подходит ни одной строке, а не считает от
+    пустого. Себестоимость строки набора — сумма комплектующих
+    (product.services.set_rows), правило её не пишет. Остальное — как у
+    правила поставщика: категории товара, диапазон цены-источника, формула.
+    """
+    mps = MainProduct.objects.filter(supplier__isnull=True)
+    if self.source in SP_PRICES:
+      return mps.none().annotate(changed_price=Value(None, output_field=DecimalField()))
+    if self.dest == 'prime_cost':
+      mps = mps.filter(is_set=False)
+    if self.source in MP_PRICES:
+      mps = mps.filter(get_price_querry(self.price_from, self.price_to, self.source))
+    if self.categories.exists():
+      mps = mps.filter(product__categories__in=self.categories.all()).distinct()
+    if self.source in MP_PRICES:
+      changed = Ceil(NullIf(F(self.source), Value(Decimal('0')))
+                     * (1 + Decimal(self.markup) / Decimal(100)) + Decimal(self.increase))
+    else:
+      changed = Ceil(Value(Decimal(self.fixed_price)))
+    calc_qs = (mps.filter(pk=OuterRef('pk'))
+               .annotate(_changed_price=ExpressionWrapper(changed, output_field=DecimalField()))
+               .values('_changed_price')[:1])
+    return mps.annotate(changed_price=Subquery(calc_qs, output_field=DecimalField()))
+
   def update_pricetags(self):
     pts = self.pricetags.values_list('mp', flat=True)
     mps = self.get_fitting_mps().filter(~Q(pk__in=pts))
@@ -603,6 +636,19 @@ def update_prices(logs: bool = True):
   )
   if fixed_mps:
     count += MainProduct.objects.bulk_update(fixed_mps, fields=[*MP_PRICES, 'price_updated_at'])
+
+  # Наборы — последними. Себестоимость строки набора — сумма себестоимостей
+  # комплектующих, и те только что пересчитали наценки выше; потом по новой
+  # себестоимости ещё раз проходят наценки без поставщика и ручные наценки
+  # строк наборов — только их, остальным строкам пересчитывать нечего.
+  from product.services.set_rows import sync_set_rows
+  count += sync_set_rows(logs=logs)['updated']
+  for pm in pms.filter(time_query).filter(supplier__isnull=True).exclude(source__in=SP_PRICES):
+    count += pm.apply(logs=logs)
+  set_tags = PriceTag.objects.filter(p_manager__isnull=True, mp__is_set=True).filter(time_query)
+  set_mps = get_updated_mps(set_tags.filter(source__in=MP_PRICES))
+  if set_mps:
+    count += MainProduct.objects.bulk_update(set_mps, fields=[*MP_PRICES, 'price_updated_at'])
 
   # Last, after every rule and tag had its chance to write a real price.
   dcount += clear_unsourced_prices(logs=logs, now=now)

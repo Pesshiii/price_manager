@@ -14,7 +14,7 @@
 
 {# Строка 1: РРЦ + Направление цены #}
 <div class="row g-3 mb-3">
-  <div class="col-md-6">
+  <div class="col-md-6"{% if not supplier %} hidden{% endif %}>
     <label class="form-label text-muted small fw-semibold text-uppercase">{{ form.has_rrp.label }}</label>
     {% render_field form.has_rrp class="form-select form-select-sm" %}
     {% if form.has_rrp.errors %}
@@ -48,8 +48,8 @@
   </div>
 </div>
 
-{# Группы скидок — custom dropdown #}
-<div class="mb-3">
+{# Группы скидок — custom dropdown; у строк без поставщика групп скидок нет #}
+<div class="mb-3"{% if not supplier %} hidden{% endif %}>
   <label class="form-label text-muted small fw-semibold text-uppercase">{{ form.discounts.label }}</label>
   <div class="dropdown" data-discount-dropdown>
     <button

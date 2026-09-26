@@ -23,4 +23,18 @@
 </div>
 {%endpartialdef%}
 
+{% comment %}
+  Модалка страницы: «Изменить» и наценки открываются в ней. Раньше своя была
+  только внутри списка наценок, и «Изменить» до его загрузки не работал.
+{% endcomment %}
+<div id="modal-container" class="modal modal-xl fade" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <div class="container d-flex justify-content-center mb-4 mt-4">
+        <div class="spinner-grow" role="status"></div>
+      </div>
+    </div>
+  </div>
+</div>
+
 {% endblock body %}
