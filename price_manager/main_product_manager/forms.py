@@ -12,8 +12,7 @@ class MainProductForm(forms.ModelForm):
 
   Строка может быть без поставщика: набор, остаток на складе, возврат, бонус —
   то, для чего заводить поставщика с выгрузкой незачем. Цены и остаток
-  вводятся руками; наценки потом могут их пересчитать (см. price_rules в
-  шаблоне — подсказка у каждой цены, которой это грозит).
+  вводятся руками; наценки потом могут их пересчитать.
 
   Что форма не даёт менять:
   - у строки из прайса поставщика — поставщика и артикул поставщика: по ним
@@ -25,16 +24,12 @@ class MainProductForm(forms.ModelForm):
 
   class Meta:
     model = MainProduct
-    fields = ('sku', 'supplier', 'article', 'name', 'note', 'stock', *MP_PRICES)
+    fields = ('sku', 'supplier', 'article', 'name', 'stock', *MP_PRICES)
     labels = {
       'sku': 'Артикул товара',
       'article': 'Артикул поставщика',
       'name': 'Название',
-      'note': 'Комментарий',
       'wholesale_price_extra': 'Оптовая цена доп.',
-    }
-    help_texts = {
-      'note': 'Зачем строка: возврат, бонус, остаток на складе…',
     }
 
   def __init__(self, *args, product=None, **kwargs):
@@ -77,8 +72,8 @@ class MainProductForm(forms.ModelForm):
         self.fields[name].disabled = True
 
   @property
-  def price_fields(self):
-    return [self[name] for name in MP_PRICES]
+  def stock_and_price_fields(self):
+    return [self[name] for name in ('stock', *MP_PRICES)]
 
   def clean_sku(self):
     sku = (self.cleaned_data.get('sku') or '').strip()
@@ -89,9 +84,6 @@ class MainProductForm(forms.ModelForm):
       if Product.objects.filter(number__iexact=sku).exclude(pk=self.product.pk).exists():
         raise forms.ValidationError('Этот артикул уже у другого товара')
     return sku
-
-  def clean_note(self):
-    return (self.cleaned_data.get('note') or '').strip()
 
   def clean(self):
     cleaned_data = super().clean()

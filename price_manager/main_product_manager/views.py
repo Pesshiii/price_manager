@@ -116,23 +116,6 @@ class MainProductDetail(DetailView):
     return context
 
 
-def _price_rules_by_field(main_product) -> dict:
-  """{поле цены: [названия наценок]} — действующие наценки, которые его пишут.
-
-  Подсказка у поля формы: цену, введённую руками, наценка перезапишет при
-  следующем пересчёте, и человек должен знать об этом до сохранения.
-  """
-  from product_price_manager.models import _active_pricetags
-  if not main_product.pk:
-    return {}
-  rules = {}
-  tags = (_active_pricetags(timezone.now()).filter(mp=main_product)
-          .select_related('p_manager').order_by('dest', 'p_manager__name'))
-  for tag in tags:
-    rules.setdefault(tag.dest, []).append(tag.p_manager.name if tag.p_manager_id else 'наценка на эту строку')
-  return rules
-
-
 def _after_main_product_saved(product_pks):
   """Основные цены затронутых товаров — сразу, расчётные — общим пересчётом.
 
@@ -163,12 +146,7 @@ class _MainProductFormMixin:
 
   def get_context_data(self, **kwargs):
     context = super().get_context_data(**kwargs)
-    form = context['form']
-    rules = _price_rules_by_field(form.instance)
-    context['price_rows'] = [(field, rules.get(field.name, [])) for field in form.price_fields]
     context['preset_product'] = self.get_preset_product()
-    context['sku_check_url'] = reverse('mainproduct-sku-check')
-    context['sku_check_vals'] = json.dumps({'current': form.instance.sku or ''} if form.instance.pk else {})
     return context
 
   def save_form(self, form):
@@ -249,23 +227,6 @@ class MainProductUpdate(_MainProductFormMixin, UpdateView):
       _after_main_product_saved([old_product_pk, main_product.product_id])
     messages.success(self.request, 'Строка ГП сохранена')
     return HttpResponseClientRefresh()
-
-
-class MainProductSkuCheck(View):
-  """Подсказка под артикулом в форме: к какому товару встанет строка."""
-
-  def get(self, request, *args, **kwargs):
-    from product.models import Product
-    sku = (request.GET.get('mp-sku') or '').strip()
-    current = request.GET.get('current') or ''
-    product = Product.objects.filter(number__iexact=sku).first() if sku else None
-    return render(request, 'mainproduct/partials/sku_hint.html', {
-      'sku': sku,
-      'current': current,
-      'product': product,
-      'unchanged': bool(current) and sku.lower() == current.strip().lower(),
-      'rows_count': product.main_products.count() if product else 0,
-    })
 
 
 class MainProductLogList(SingleTableView):

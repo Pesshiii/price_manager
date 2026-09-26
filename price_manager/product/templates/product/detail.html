@@ -45,7 +45,6 @@
   .pd-section-head .pd-section-actions .btn { margin-left: 0; }
   .pd-no-supplier { color: var(--bs-secondary-color); white-space: nowrap; }
   .pd-no-supplier .bi { margin-right: .25rem; }
-  .pd-note { max-width: 16rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .pd-empty-cta { display: flex; flex-wrap: wrap; gap: 1rem; align-items: center; justify-content: space-between; padding: 1rem 1.25rem; border: 1px dashed var(--bs-border-color); border-radius: .5rem; }
   .pd-empty-cta > div { max-width: 40rem; }
   .pd-row-actions .btn { --bs-btn-padding-y: .1rem; --bs-btn-padding-x: .4rem; }
@@ -173,8 +172,7 @@
         <button type="button" class="btn btn-sm btn-outline-primary"
                 data-bs-toggle="modal" data-bs-target="#modal-container"
                 hx-get="{% url 'mainproduct-create' %}?product={{ product.pk }}"
-                hx-target="#modal-container .modal-content" hx-swap="innerHTML"
-                title="Строка без поставщика или от поставщика — с артикулом этого товара">
+                hx-target="#modal-container .modal-content" hx-swap="innerHTML">
           <i class="bi bi-plus-lg me-1" aria-hidden="true"></i>Добавить строку ГП
         </button>
       </div>
@@ -195,14 +193,13 @@
                 <td>
                   {% if row.supplier %}{{ row.supplier.name }}
                   {% else %}<span class="pd-no-supplier"><i class="bi bi-box-seam" aria-hidden="true"></i>Без поставщика</span>{% endif %}
-                  {% if row.is_set %}<span class="pd-tag is-set ms-1" title="Себестоимость — сумма себестоимостей комплектующих">набор</span>{% endif %}
-                  {% if row.note %}<div class="pd-muted small pd-note" title="{{ row.note }}">{{ row.note }}</div>{% endif %}
+                  {% if row.is_set %}<span class="pd-tag is-set ms-1">набор</span>{% endif %}
                 </td>
                 <td>{{ row.article }}</td>
                 <td>{{ row.sku|default:"—" }}</td>
                 <td>{{ row.name }}</td>
                 <td class="pd-num">{% if row.stock is None %}<span class="pd-muted">нет данных</span>{% else %}{{ row.stock }}{% endif %}</td>
-                <td class="pd-num">{{ row.prime_cost|floatformat:"2g"|default:"—" }}{% if row.is_set %}<div class="pd-muted small">из компл.</div>{% endif %}</td>
+                <td class="pd-num">{{ row.prime_cost|floatformat:"2g"|default:"—" }}</td>
                 <td class="pd-num">{{ row.basic_price|floatformat:"2g"|default:"—" }}</td>
                 <td class="pd-num">{{ row.m_price|floatformat:"2g"|default:"—" }}</td>
                 <td class="pd-row-actions">
@@ -230,10 +227,7 @@
       </div>
     {% else %}
       <div class="pd-empty-cta">
-        <div>
-          <div class="fw-medium">Строк ГП нет</div>
-          <div class="pd-muted small">Без строки ГП у товара нет ни цен, ни остатка. Добавьте строку без поставщика — для остатка на складе, возврата или бонуса — или привяжите существующую.</div>
-        </div>
+        <div class="pd-muted">Строк ГП нет</div>
         <button type="button" class="btn btn-sm btn-primary"
                 data-bs-toggle="modal" data-bs-target="#modal-container"
                 hx-get="{% url 'mainproduct-create' %}?product={{ product.pk }}"

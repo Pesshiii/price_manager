@@ -1,4 +1,4 @@
-"""Строки ГП без поставщика: строка набора и комментарий."""
+"""Строка ГП набора (без поставщика, себестоимость из комплектующих)."""
 
 from django.db import migrations, models
 
@@ -14,11 +14,6 @@ class Migration(migrations.Migration):
             model_name='mainproduct',
             name='is_set',
             field=models.BooleanField(default=False, verbose_name='Строка набора'),
-        ),
-        migrations.AddField(
-            model_name='mainproduct',
-            name='note',
-            field=models.CharField(blank=True, default='', max_length=255, verbose_name='Комментарий'),
         ),
         migrations.AddConstraint(
             model_name='mainproduct',

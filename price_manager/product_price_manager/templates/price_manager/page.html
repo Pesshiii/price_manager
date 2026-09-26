@@ -10,7 +10,6 @@
 {% block style %}
 <style>
   .pm-page { max-width: 1400px; }
-  .pm-lead { font-size: .875rem; color: var(--bs-secondary-color); max-width: 52rem; }
   .pm-filters { display: flex; flex-wrap: wrap; gap: .5rem; align-items: center; margin: 1rem 0; }
   .pm-pill { display: inline-flex; align-items: center; gap: .4rem; font-size: .875rem; padding: .3rem .75rem; border: 1px solid var(--bs-border-color); border-radius: 2rem; color: var(--bs-body-color); text-decoration: none; background: var(--bs-body-bg); }
   .pm-pill:hover { background: var(--bs-tertiary-bg); }
@@ -32,9 +31,6 @@
   .pm-no-supplier .bi { margin-right: .25rem; }
   .pm-row-deprecated td { color: var(--bs-secondary-color); }
   .pm-empty { border: 1px dashed var(--bs-border-color); border-radius: .5rem; padding: 2rem; text-align: center; color: var(--bs-secondary-color); }
-  .pm-summary { display: grid; grid-template-columns: repeat(auto-fit, minmax(14rem, 1fr)); gap: .75rem; margin-top: 1rem; }
-  .pm-summary-item { background: var(--bs-tertiary-bg); border-radius: .5rem; padding: .75rem 1rem; font-size: .8125rem; color: var(--bs-secondary-color); }
-  .pm-summary-item strong { display: block; font-size: 1.125rem; color: var(--bs-body-color); font-variant-numeric: tabular-nums; }
 </style>
 {% endblock %}
 
@@ -42,12 +38,7 @@
 <div class="container-fluid pm-page py-3">
   <div class="d-flex flex-wrap align-items-start gap-2">
     <div class="me-auto">
-      <h1 class="h4 mb-1">Наценки ГП</h1>
-      <p class="pm-lead mb-0">
-        Правила, которые считают цены строк ГП: от цены поставщика или от другой цены ГП.
-        Правило без поставщика — для строк ГП без поставщика: наборов, остатков на складе, возвратов, бонусов.
-        Цены строк наборов пересчитываются последними — после себестоимости комплектующих.
-      </p>
+      <h1 class="h4 mb-0">Наценки ГП</h1>
     </div>
     <button type="button" class="btn btn-primary btn-sm"
             data-bs-toggle="modal" data-bs-target="#modal-container"
@@ -57,12 +48,6 @@
             hx-target="#modal-container .modal-content" hx-swap="innerHTML">
       <i class="bi bi-plus-lg me-1" aria-hidden="true"></i>Добавить наценку
     </button>
-  </div>
-
-  <div class="pm-summary">
-    <div class="pm-summary-item"><strong>{{ counts.all }}</strong>действующих наценок{% if show_deprecated %} и устаревших{% endif %}</div>
-    <div class="pm-summary-item"><strong>{{ counts.none }}</strong>наценок без поставщика</div>
-    <div class="pm-summary-item"><strong>{{ unsupplied_rows }}</strong>строк ГП без поставщика, из них {{ set_rows }} — строки наборов</div>
   </div>
 
   <nav class="pm-filters" aria-label="Фильтр по поставщику">
@@ -156,11 +141,7 @@
     </div>
   {% else %}
     <div class="pm-empty">
-      {% if selected == 'none' %}
-        Наценок без поставщика пока нет. Добавьте, например, «Базовая цена ← Себестоимость +30%» — и строки наборов получат цену от суммы комплектующих.
-      {% else %}
-        Наценок не найдено.
-      {% endif %}
+      Наценок нет
     </div>
   {% endif %}
 </div>

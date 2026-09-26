@@ -22,7 +22,7 @@
   {% render_table table %}
 {% else %}
   <div class="d-flex flex-wrap align-items-center gap-2 p-3">
-    <span class="text-muted small me-auto">У товара нет строк ГП — ни цен, ни остатка.</span>
+    <span class="text-muted small me-auto">Строк ГП нет</span>
     <button type="button" class="btn btn-sm btn-outline-primary"
             data-bs-toggle="modal" data-bs-target="#modal-container"
             hx-get="{% url 'mainproduct-create' %}?product={{ product.pk }}"

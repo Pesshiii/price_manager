@@ -70,6 +70,13 @@ class UpdateStocksNullSafeTests(TestCase):
         self.assertEqual(MainProductLog.objects.filter(main_product=mp).count(), logs_after_first_run)
 
 
+    def test_row_without_supplier_keeps_its_hand_entered_stock(self):
+        mp = MainProduct.objects.create(article='ST-4', name='Остаток на складе', stock=5)
+
+        self.assertEqual(update_stocks(), 0)
+        mp.refresh_from_db()
+        self.assertEqual(mp.stock, 5)
+
     def test_updates_from_positive_to_zero(self):
         mp = MainProduct.objects.create(
             supplier=self.supplier,
@@ -1045,14 +1052,13 @@ class MainProductFormTests(_PimSearchTestCase):
         self.assertEqual(response['HX-Redirect'], f'/products/{row.product_id}/')
 
     def test_row_without_supplier_takes_the_sku_as_its_article_and_keeps_prices(self):
-        self.create(name='Бонус', sku='BON-1', stock=2, note='бонус от поставщика',
+        self.create(name='Бонус', sku='BON-1', stock=2,
                     prime_cost='100.50', basic_price='150')
 
         row = MainProduct.objects.get(sku='BON-1')
         self.assertIsNone(row.supplier_id)
         self.assertEqual(row.article, 'BON-1')
         self.assertEqual((row.prime_cost, row.basic_price, row.stock), (Decimal('100.50'), Decimal('150'), 2))
-        self.assertEqual(row.note, 'бонус от поставщика')
         self.assertIsNotNone(row.price_updated_at)
         logged = set(MainProductLog.objects.filter(main_product=row).values_list('price_type', 'price', 'stock'))
         self.assertEqual(logged, {('prime_cost', Decimal('100.50'), None), ('basic_price', Decimal('150'), None),
@@ -1140,24 +1146,6 @@ class MainProductFormTests(_PimSearchTestCase):
 
         row.refresh_from_db()
         self.assertEqual((row.prime_cost, row.basic_price), (Decimal('500'), Decimal('800')))
-
-    def test_form_shows_the_markup_that_rewrites_a_price(self):
-        from django.urls import reverse
-        from product_price_manager.models import PriceTag
-        row = self.product(sku='TAG-1')
-        PriceTag.objects.create(mp=row, source='prime_cost', dest='basic_price', markup=Decimal('10'))
-
-        response = self.client.get(reverse('mainproduct-update', kwargs={'pk': row.pk}), HTTP_HX_REQUEST='true')
-
-        self.assertContains(response, 'наценка на эту строку')
-
-    def test_sku_hint_says_which_product_the_row_joins(self):
-        from django.urls import reverse
-        PimProduct.objects.create(number='HINT-1', name='Есть такой')
-        url = reverse('mainproduct-sku-check')
-
-        self.assertContains(self.client.get(url, {'mp-sku': 'hint-1'}), 'Есть такой')
-        self.assertContains(self.client.get(url, {'mp-sku': 'NOPE'}), 'он будет создан')
 
 
 class ProductForSkuTests(_PimSearchTestCase):

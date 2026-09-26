@@ -113,8 +113,6 @@ class MainProduct(models.Model):
     # комплектующих (product.services.set_rows), руками не правится; остальные
     # цены — как у любой строки ГП, наценками. Создаётся сама для каждого набора.
     is_set = models.BooleanField(verbose_name='Строка набора', default=False)
-    # Зачем строка без поставщика: возврат, бонус, остаток на складе.
-    note = models.CharField(verbose_name='Комментарий', max_length=255, blank=True, default='')
     def __str__(self)->str:
         return f'{self.sku}' if self.sku is not None else 'Не указан'
     def price_list(self) -> list[tuple[str, str, Decimal]]:

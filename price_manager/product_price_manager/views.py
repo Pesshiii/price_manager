@@ -279,8 +279,6 @@ class PriceManagerPage(TemplateView):
       'suppliers': (Supplier.objects.annotate(rules_count=Count('pricemanagers'))
                     .filter(rules_count__gt=0).order_by('name')),
       'price_types': PRICE_TYPES,
-      'unsupplied_rows': MainProduct.objects.filter(supplier__isnull=True).count(),
-      'set_rows': MainProduct.objects.filter(is_set=True).count(),
     })
     return context
 

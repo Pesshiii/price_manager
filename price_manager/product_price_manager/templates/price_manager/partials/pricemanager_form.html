@@ -12,14 +12,6 @@
   {% endif %}
 </div>
 
-{% if not supplier %}
-  <div class="alert alert-light border small mb-3">
-    <i class="bi bi-box-seam me-1" aria-hidden="true"></i>
-    Правило для строк ГП <strong>без поставщика</strong>: строки наборов, остатки на складе, возвраты, бонусы.
-    Прайса поставщика у них нет — считайте от цены ГП. Себестоимость строки набора — сумма комплектующих, правило её не меняет.
-  </div>
-{% endif %}
-
 {# Строка 1: РРЦ + Направление цены #}
 <div class="row g-3 mb-3">
   <div class="col-md-6"{% if not supplier %} hidden{% endif %}>

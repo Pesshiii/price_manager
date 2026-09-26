@@ -132,5 +132,5 @@ class SetRowOnTheCardTests(SetFixture, TestCase):
         response = self.client.get(reverse('product-detail', kwargs={'pk': self.kit.pk}))
 
         self.assertContains(response, 'Без поставщика')
-        self.assertContains(response, 'из компл.')
+        self.assertContains(response, '>набор</span>')
         self.assertContains(response, f'{reverse("mainproduct-create")}?product={self.kit.pk}')

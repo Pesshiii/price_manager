@@ -28,7 +28,6 @@
           </a>
         {% endif %}
       </div>
-      {% if mainproduct.note %}<p class="small mb-3"><i class="bi bi-chat-left-text me-1 text-body-secondary" aria-hidden="true"></i>{{ mainproduct.note }}</p>{% endif %}
 
       <div class="row g-2 mb-3">
         <div class="col-6 col-md-3">
@@ -42,7 +41,6 @@
             <div class="border rounded-3 p-3 h-100 bg-body-tertiary">
               <div class="text-muted small">{{ label }}</div>
               <div class="fw-semibold fs-5">{% if value is None %}—{% else %}{{ value|floatformat:"2g" }} тг{% endif %}</div>
-              {% if name == 'prime_cost' and mainproduct.is_set %}<div class="small text-body-secondary">из комплектующих</div>{% endif %}
             </div>
           </div>
         {% endfor %}
