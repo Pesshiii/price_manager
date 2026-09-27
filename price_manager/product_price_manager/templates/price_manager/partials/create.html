@@ -2,26 +2,18 @@
 <div class="modal-header">
   <h5 class="modal-title fw-semibold">
     <i class="bi bi-plus-circle me-2 text-primary"></i>Новая наценка
-    <span class="small fw-normal text-body-secondary ms-1">· {% if supplier %}{{ supplier.name }}{% else %}без поставщика{% endif %}</span>
   </h5>
   <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Закрыть"></button>
 </div>
+{% url "price-manager-create" as rule_url %}
 <form method="post"
-      {% if supplier %}hx-post="{% url "pricemanager-create" supplier.pk %}"{% else %}hx-post="{% url "price-manager-create" %}"{% endif %}
+      hx-post="{{ rule_url }}"
       hx-target="#modal-container .modal-content"
       hx-swap="innerHTML"
       enctype="multipart/form-data">
   {% csrf_token %}
   <div class="modal-body">
-    {% if form.non_field_errors %}
-      <div class="alert alert-danger alert-dismissible fade show" role="alert">
-        {% for error in form.non_field_errors %}
-          <div><i class="bi bi-exclamation-triangle-fill me-1"></i>{{ error }}</div>
-        {% endfor %}
-        <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
-      </div>
-    {% endif %}
-    {% include "price_manager/partials/pricemanager_form.html" with form=form %}
+    {% include "price_manager/partials/pricemanager_form.html" with form=form refresh_url=rule_url|add:"?refresh=1" %}
   </div>
   <div class="modal-footer gap-2">
     <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">

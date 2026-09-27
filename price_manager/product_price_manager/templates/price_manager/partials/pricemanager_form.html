@@ -1,4 +1,41 @@
 {% load widget_tweaks %}
+{% comment %}
+  Живая форма правила. Смена поля с data-rule-refresh (поставщик, источник,
+  цель — PriceManagerForm.RULE_REFRESH_FIELDS) шлёт всю форму на
+  refresh_url (?refresh=1): вьюха отдаёт её перерисованной под новые
+  значения — группы скидок поставщика, допустимые источники, единица
+  диапазона — без проверки и без сохранения. Меняется только этот блок;
+  hx-target/hx-swap заданы явно, иначе унаследовались бы от <form>.
+{% endcomment %}
+<div id="pm-rule-fields"
+     hx-post="{{ refresh_url }}"
+     hx-trigger="change[target.matches('[data-rule-refresh]')]"
+     hx-target="this"
+     hx-select="#pm-rule-fields"
+     hx-swap="outerHTML"
+     hx-sync="this:replace">
+
+{# Внутри живого блока: перерисовка после исправления убирает старую ошибку #}
+{% if form.non_field_errors %}
+  <div class="alert alert-danger alert-dismissible fade show" role="alert">
+    {% for error in form.non_field_errors %}
+      <div><i class="bi bi-exclamation-triangle-fill me-1"></i>{{ error }}</div>
+    {% endfor %}
+    <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+  </div>
+{% endif %}
+
+{# Поставщик: у существующего правила не меняется #}
+<div class="mb-3">
+  <label class="form-label text-muted small fw-semibold text-uppercase" for="{{ form.supplier.id_for_label }}">{{ form.supplier.label }}</label>
+  {% render_field form.supplier class="form-select form-select-sm" %}
+  {% if form.supplier.field.disabled %}
+    <div class="form-text">Поставщика у сохранённой наценки не меняют — создайте новую.</div>
+  {% endif %}
+  {% if form.supplier.errors %}
+    <div class="invalid-feedback d-block">{{ form.supplier.errors|join:", " }}</div>
+  {% endif %}
+</div>
 
 {# Название (readonly, auto-generated) #}
 <div class="mb-3">
@@ -14,13 +51,15 @@
 
 {# Строка 1: РРЦ + Направление цены #}
 <div class="row g-3 mb-3">
-  <div class="col-md-6"{% if not supplier and not form.has_rrp.errors %} hidden{% endif %}>
+  {% if supplier or form.has_rrp.errors %}{# у строк без поставщика нет прайса, а значит и РРЦ #}
+  <div class="col-md-6">
     <label class="form-label text-muted small fw-semibold text-uppercase">{{ form.has_rrp.label }}</label>
     {% render_field form.has_rrp class="form-select form-select-sm" %}
     {% if form.has_rrp.errors %}
       <div class="invalid-feedback d-block">{{ form.has_rrp.errors|join:", " }}</div>
     {% endif %}
   </div>
+  {% endif %}
   <div class="col-md-6">
     <label class="form-label text-muted small fw-semibold text-uppercase">{{ form.dest.label }}</label>
     {% render_field form.dest class="form-select form-select-sm" %}
@@ -97,18 +136,8 @@
   </div>
 </div>
 
-{# Категории #}
-<div class="mb-4">
-  <label class="form-label text-muted small fw-semibold text-uppercase">{{ form.categories.label }}</label>
-  {% render_field form.categories class="form-select form-select-sm" multiple="multiple" size="4" %}
-  <div class="form-text">Удерживайте Ctrl (⌘ на Mac) для выбора нескольких категорий</div>
-  {% if form.categories.errors %}
-    <div class="invalid-feedback d-block">{{ form.categories.errors|join:", " }}</div>
-  {% endif %}
-</div>
-
 {# Блок расчёта цены #}
-<div class="card border-0 bg-light rounded-3">
+<div class="card border-0 bg-light rounded-3 mt-4">
   <div class="card-body p-3">
     {# Переключатель фиксированной цены #}
     <div class="d-flex align-items-center justify-content-between mb-3">
@@ -135,12 +164,23 @@
 
     {# Процентная наценка + диапазон #}
     <div class="{% if form.price_fixed.value %}collapse{% endif %} setPrice" id="setPrice2">
+      <div class="mb-2">
+        <label class="form-label text-muted small fw-semibold text-uppercase" for="{{ form.source.id_for_label }}">{{ form.source.label }}</label>
+        {% render_field form.source class="form-select form-select-sm" %}
+        {% if not supplier %}
+          <div class="form-text">У строк без поставщика нет прайса — считать можно только от цен ГП.</div>
+        {% endif %}
+        {% if form.source.errors %}
+          <div class="invalid-feedback d-block">{{ form.source.errors|join:", " }}</div>
+        {% endif %}
+      </div>
+      {# Диапазон — по цене-источнику, в её единицах (PriceManagerForm.range_unit) #}
       <div class="row g-2 mb-2">
         <div class="col-6">
           <label class="form-label text-muted small fw-semibold text-uppercase">{{ form.price_from.label }}</label>
           <div class="input-group input-group-sm">
             {% render_field form.price_from class="form-control" %}
-            <span class="input-group-text">тг</span>
+            <span class="input-group-text">{{ form.range_unit }}</span>
           </div>
           {% if form.price_from.errors %}
             <div class="invalid-feedback d-block">{{ form.price_from.errors|join:", " }}</div>
@@ -150,19 +190,12 @@
           <label class="form-label text-muted small fw-semibold text-uppercase">{{ form.price_to.label }}</label>
           <div class="input-group input-group-sm">
             {% render_field form.price_to class="form-control" %}
-            <span class="input-group-text">тг</span>
+            <span class="input-group-text">{{ form.range_unit }}</span>
           </div>
           {% if form.price_to.errors %}
             <div class="invalid-feedback d-block">{{ form.price_to.errors|join:", " }}</div>
           {% endif %}
         </div>
-      </div>
-      <div class="mb-2">
-        <label class="form-label text-muted small fw-semibold text-uppercase">{{ form.source.label }}</label>
-        {% render_field form.source class="form-select form-select-sm" %}
-        {% if form.source.errors %}
-          <div class="invalid-feedback d-block">{{ form.source.errors|join:", " }}</div>
-        {% endif %}
       </div>
       <div class="row g-2">
         <div class="col-6">
@@ -249,3 +282,5 @@
   document.querySelectorAll("[data-discount-dropdown]").forEach(initDiscountDropdown);
 })();
 </script>
+
+</div>{# #pm-rule-fields #}

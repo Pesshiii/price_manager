@@ -92,7 +92,6 @@ urlpatterns = [
 
     # «Наценки ГП»: все правила строк ГП — поставщиков и без поставщика.
     path('price-manager/', ppm_views.PriceManagerPage.as_view(), name='price-manager'),
-    path('price-manager/choose/', ppm_views.PriceManagerChoose.as_view(), name='price-manager-choose'),
     path('price-manager/create/', ppm_views.PriceManagerCreate.as_view(), name='price-manager-create'),
     path('price-manager/create-for/<int:pk>', ppm_views.PriceManagerCreate.as_view(), name='pricemanager-create'),
     path('price-manager/<int:id>/delete', ppm_views.PriceManagerDelete.as_view(), name='price-manager-delete'),
