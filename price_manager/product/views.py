@@ -227,18 +227,24 @@ class ProductSuppliersView(View):
         product = get_object_or_404(Product, pk=pk)
         main_products = (
             MainProduct.objects.filter(product=product)
-            .select_related('supplier', 'supplier__currency')
+            .select_related('supplier', 'supplier__currency', 'product')
             .annotate(**_latest_supplier_prices())
-            .order_by('supplier__name', 'article')
+            # Строка набора — первой: из неё раскрывается состав.
+            .order_by('-is_set', 'supplier__name', 'article')
         )
+        set_totals = set_totals_for([product.pk]).get(product.pk)
         table = SupplierRowTable(main_products, request=request,
                                  selected_columns=load_columns(request.user))
+        # render_table передаёт шаблону таблицы только её саму.
+        table.set_totals = set_totals
         return render(request, 'product/partials/suppliers.html', {
             'product': product,
             'main_products': main_products,
             'table': table,
-            # Набор: под своими строками — строка «Из комплектующих» и состав.
-            'set_totals': set_totals_for([product.pk]).get(product.pk),
+            # Набор: состав раскрывается из строки набора, а без неё —
+            # из отдельной строки «Из комплектующих».
+            'set_totals': set_totals,
+            'has_set_row': any(row.is_set for row in main_products),
         })
 
 

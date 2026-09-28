@@ -391,6 +391,12 @@ class _PriceTagFormMixin:
   def get_mainproduct(self):
     raise NotImplementedError
 
+  def get_form_kwargs(self):
+    # Форма сужает выбор источника и цели под строку (PriceTagForm).
+    kwargs = super().get_form_kwargs()
+    kwargs['mp'] = self.get_mainproduct()
+    return kwargs
+
   def get_context_data(self, **kwargs) -> dict[str, Any]:
     context = super().get_context_data(**kwargs)
     context['mainproduct'] = self.get_mainproduct()
@@ -421,7 +427,9 @@ class PriceTagCreate(_PriceTagFormMixin, CreateView):
   success_message = 'Наценка добавлена'
 
   def get_mainproduct(self):
-    return get_object_or_404(MainProduct.objects.select_related('supplier'), pk=self.kwargs['pk'])
+    if not hasattr(self, '_mainproduct'):
+      self._mainproduct = get_object_or_404(MainProduct.objects.select_related('supplier'), pk=self.kwargs['pk'])
+    return self._mainproduct
 
 
 class PriceTagUpdate(_PriceTagFormMixin, UpdateView):

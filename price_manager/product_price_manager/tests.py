@@ -729,6 +729,49 @@ class PriceManagerPageTests(TestCase):
         self.assertContains(response, 'нет прайса поставщика')
         self.assertFalse(PriceTag.objects.filter(mp=row).exists())
 
+    def test_manual_tag_form_offers_only_fitting_choices(self):
+        # Строке без поставщика — ни РРЦ, ни цены поставщика; строке набора
+        # ещё и не выбрать себестоимость целью.
+        from django.urls import reverse
+        loose = MainProduct.objects.create(article='L-2', name='Бонус')
+        kit = MainProduct.objects.create(article='K-2', name='Набор', is_set=True)
+        supplied = MainProduct.objects.create(article='S-2', name='С прайсом', supplier=self.supplier)
+
+        loose_form = self.client.get(reverse('pricetag-create', kwargs={'pk': loose.pk}), HTTP_HX_REQUEST='true')
+        self.assertNotContains(loose_form, 'value="rrp"')
+        self.assertNotContains(loose_form, 'value="supplier_price"')
+        self.assertContains(loose_form, 'value="prime_cost"')
+
+        kit_form = self.client.get(reverse('pricetag-create', kwargs={'pk': kit.pk}), HTTP_HX_REQUEST='true')
+        dest = kit_form.context['form'].fields['dest']
+        self.assertNotIn('prime_cost', [value for value, _ in dest.choices])
+
+        supplied_form = self.client.get(reverse('pricetag-create', kwargs={'pk': supplied.pk}), HTTP_HX_REQUEST='true')
+        self.assertContains(supplied_form, 'value="rrp"')
+
+    def test_manual_tag_on_a_set_row_cannot_target_prime_cost(self):
+        from django.urls import reverse
+        kit = MainProduct.objects.create(article='K-3', name='Набор', is_set=True)
+
+        self.client.post(reverse('pricetag-create', kwargs={'pk': kit.pk}), {
+            'source': 'basic_price', 'dest': 'prime_cost', 'markup': '0', 'increase': '0'}, HTTP_HX_REQUEST='true')
+
+        self.assertFalse(PriceTag.objects.filter(mp=kit).exists())
+
+    def test_manual_tag_update_refuses_the_price_list_without_crashing(self):
+        # Раньше PriceTagUpdate брал self.instance, который ставил только get():
+        # любая ошибка формы на POST падала AttributeError.
+        from django.urls import reverse
+        row = MainProduct.objects.create(article='L-4', name='Возврат')
+        tag = PriceTag.objects.create(mp=row, source='prime_cost', dest='basic_price', markup=10, increase=0)
+
+        response = self.client.post(reverse('pricetag-update', kwargs={'pk': tag.pk}), {
+            'source': 'rrp', 'dest': 'basic_price', 'markup': '0', 'increase': '0'}, HTTP_HX_REQUEST='true')
+
+        self.assertContains(response, 'нет прайса поставщика')
+        tag.refresh_from_db()
+        self.assertEqual(tag.source, 'prime_cost')
+
     def test_supplier_rule_from_the_price_list_is_still_accepted(self):
         # PriceManager.clean() судит по supplier — поле формы задаёт его до валидации.
         from django.urls import reverse

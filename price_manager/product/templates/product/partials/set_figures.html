@@ -1,0 +1,32 @@
+{% comment %}
+  Итоги набора по составу и кнопка «разложить в заявку» — в раскрытой строке
+  набора (supplier_rows_table.html) и в «Из комплектующих» (set_assembly.html).
+  Внутри summary кнопка не раскрывает состав: цель клика — сама кнопка, и
+  действие по умолчанию у summary не срабатывает.
+{% endcomment %}
+<button type="button"
+        class="btn btn-sm btn-outline-primary"
+        title="Разложить набор на комплектующие в заявку"
+        aria-label="Разложить «{{ product.name }}» на комплектующие в заявку"
+        data-bs-toggle="modal"
+        data-bs-target="#modal-container"
+        hx-get="{% url 'cart-item-add-set' product.pk %}"
+        hx-target="#modal-container .modal-content"
+        hx-swap="innerHTML">
+  <i class="bi bi-cart-plus"></i>
+</button>
+<span class="text-body-secondary">{{ set_totals.count }} поз.</span>
+<span class="set-assembly-figure">
+  Себестоимость:
+  <strong>{% if set_totals.cost is None %}—{% else %}{{ set_totals.cost|floatformat:2 }}{% endif %}</strong>
+  {% if set_totals.missing_cost %}
+    <span class="set-incomplete" title="Сумма без компонентов, у которых нет цены или которых нет в Price Manager">нет цены у {{ set_totals.missing_cost }} из {{ set_totals.count }}</span>
+  {% endif %}
+</span>
+<span class="set-assembly-figure">
+  Можно собрать:
+  <strong>{% if set_totals.buildable is None %}—{% else %}{{ set_totals.buildable }}{% endif %}</strong>
+  {% if set_totals.missing_stock %}
+    <span class="set-incomplete" title="Без компонентов, по которым нет данных об остатке или которых нет в Price Manager">нет данных у {{ set_totals.missing_stock }} из {{ set_totals.count }}</span>
+  {% endif %}
+</span>

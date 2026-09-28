@@ -1,0 +1,47 @@
+{% extends 'django_tables2/bootstrap5.html' %}
+{% load l10n %}
+{% comment %}
+  Строки ГП под товаром (SupplierRowTable). Строка набора — одна строка с
+  составом: в её первой ячейке кнопка, раскрывающая под ней итоги и
+  комплектующие, а не отдельный блок «Из комплектующих» под таблицей.
+
+  render_table отдаёт шаблону только table, поэтому итоги состава приходят
+  атрибутом table.set_totals (ProductSuppliersView). Collapse Bootstrap, а не
+  <details>: раскрывается строка таблицы; обработчик data-bs-toggle
+  делегирован документу, и строкам, пришедшим HTMX-ом, инициализация не нужна.
+{% endcomment %}
+{% block table.tbody.row %}
+  {% with is_set_row=row.record.is_set %}
+    <tr {{ row.attrs.as_html }}>
+      {% for column, cell in row.items %}
+        <td {{ column.attrs.td.as_html }}>
+          {% if forloop.first and is_set_row and table.set_totals %}
+            <div class="d-flex align-items-center gap-1">
+              <button type="button" class="btn btn-sm set-row-toggle collapsed"
+                      data-bs-toggle="collapse" data-bs-target="#set-lines-{{ row.record.pk }}"
+                      aria-expanded="false" aria-controls="set-lines-{{ row.record.pk }}"
+                      title="Состав набора" aria-label="Состав набора «{{ row.record.name }}»">
+                <i class="bi bi-chevron-right set-assembly-chevron" aria-hidden="true"></i>
+                <span>{{ table.set_totals.count }} поз.</span>
+              </button>
+              {{ cell }}
+            </div>
+          {% elif column.localize == None %}{{ cell }}{% elif column.localize %}{{ cell|localize }}{% else %}{{ cell|unlocalize }}{% endif %}
+        </td>
+      {% endfor %}
+    </tr>
+    {% if is_set_row and table.set_totals %}
+      <tr class="collapse set-lines-row" id="set-lines-{{ row.record.pk }}">
+        <td class="p-0" colspan="{{ table.columns|length }}">
+          {% with set_totals=table.set_totals product=row.record.product %}
+            <div class="set-assembly-row">
+              <span class="set-assembly-title">Состав</span>
+              {% include 'product/partials/set_figures.html' %}
+            </div>
+            {% include 'product/partials/set_lines.html' %}
+          {% endwith %}
+        </td>
+      </tr>
+    {% endif %}
+  {% endwith %}
+{% endblock table.tbody.row %}
