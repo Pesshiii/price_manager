@@ -222,12 +222,45 @@ def get_df_sheet_names(pk):
   return columns
 
 def _df_cache_key(setting: Setting, supplier_file: SupplierFile) -> str:
-  # The instance's sheet_name and index_row, not the class attribute: keyed on
+  # The instance's sheet_name and has_header, not the class attribute: keyed on
   # `Setting.sheet_name` every sheet shared one entry, so switching the sheet
   # kept serving the old sheet's columns until the entry expired.
   # v2: cell values are stripped; an entry cached before that must not return.
+  # v3: attrs['header_row']; index_row is gone.
   return (f'setting<{setting.pk}>::dataframe<{supplier_file.pk}>'
-          f'::sheet<{setting.sheet_name}>::row<{setting.index_row}>::v2')
+          f'::sheet<{setting.sheet_name}>::header<{setting.has_header}>::v3')
+
+# How deep find_header_row looks for the header. A block of supplier details
+# above the table is a few rows; a header further down is not guessed.
+HEADER_SCAN_ROWS = 30
+
+def _clean_cells(df: pd.DataFrame) -> pd.DataFrame:
+  # Whitespace carries no meaning in a price list: runs collapse to one space,
+  # edges are stripped, and a cell of only whitespace is empty. Without the
+  # strip, «Товар» and «Товар␠» were two products. Rows stored with edge
+  # spaces before this are found by _match_whitespace_variants and renamed in
+  # place on their next import, so the strip does not re-key them.
+  for column in df.columns:
+    df[column] = df[column].str.replace(r'\s+', ' ', regex=True).str.strip().replace('', np.nan)
+  return df
+
+def find_header_row(raw: pd.DataFrame) -> int:
+  '''
+    Номер (с нуля, как skiprows) строки заголовков в листе, прочитанном без
+    заголовков. Заголовок — первая строка, заполненная почти как обычная
+    строка таблицы (80% медианы по непустым строкам, не меньше двух ячеек):
+    логотип, «Прайс на 01.09», адрес и реквизиты над таблицей занимают
+    одну-две ячейки и пропускаются.
+  '''
+  counts = raw.notna().sum(axis=1)
+  filled = counts[counts > 0]
+  if filled.empty:
+    return 0
+  # The median, not the widest row: rows of data outnumber everything else in
+  # the scan, while a single wide row of details must not set the bar.
+  typical = float(filled.median())
+  threshold = max(min(2, typical), -(-typical * 0.8 // 1))
+  return int(filled[filled >= threshold].index[0])
 
 def get_df(pk, recache=False)->pd.DataFrame|None:
   '''
@@ -257,29 +290,63 @@ def get_df(pk, recache=False)->pd.DataFrame|None:
     cached_df=cache.get(_df_cache_key(setting, sf))
     if not recache and not cached_df is None:
         return cached_df
+  read = dict(engine='calamine', dtype=str, sheet_name=setting.sheet_name,
+              index_col=None, na_values=[''])
   validated_file.open('rb')
   try:
-    df = pd.read_excel(validated_file, engine='calamine', dtype=str, skiprows=setting.index_row, sheet_name=setting.sheet_name, index_col=None, na_values=[''])
+    if setting.has_header:
+      # A headerless read numbers rows exactly as skiprows counts them, so the
+      # second read names columns the way pandas always has («Цена.1»,
+      # «Unnamed: 3») and the Links saved against those names still match.
+      raw = _clean_cells(pd.read_excel(validated_file, header=None,
+                                       nrows=HEADER_SCAN_ROWS, **read))
+      header_row = find_header_row(raw)
+      validated_file.seek(0)
+      df = pd.read_excel(validated_file, skiprows=header_row, **read)
+    else:
+      header_row = None
+      df = pd.read_excel(validated_file, header=None, **read)
+      df.columns = [f'Столбец {i + 1}' for i in range(len(df.columns))]
   finally:
     validated_file.close()
-  # Whitespace carries no meaning in a price list: runs collapse to one space,
-  # edges are stripped, and a cell of only whitespace is empty. Without the
-  # strip, «Товар» and «Товар␠» were two products. Rows stored with edge
-  # spaces before this are found by _match_whitespace_variants and renamed in
-  # place on their next import, so the strip does not re-key them.
-  for column in df.columns:
-    df[column] = df[column].str.replace(r'\s+', ' ', regex=True).str.strip().replace('', np.nan)
+  df = _clean_cells(df)
   df = df.dropna(axis=0, how='all')
   empty_columns = [str(column) for column in df.columns[df.isna().all()]]
   df = df.dropna(axis=1, how='all')
   # Headers present in the file whose column has no value at all. They are
   # dropped like before, but the import must not report them as missing.
   df.attrs['empty_columns'] = empty_columns
+  # 1-based, as Excel shows it; None without headers.
+  df.attrs['header_row'] = None if header_row is None else header_row + 1
   if df.shape[0] == 0:
     return None
   if not settings.DEBUG:
     cache.set(_df_cache_key(setting, sf), df, timeout=60*30)
   return df
+
+def remap_links_to_columns(setting: Setting, columns) -> None:
+  '''
+    Переносит сопоставление на новые столбцы листа — после смены
+    «С заголовками» названия столбцов другие целиком.
+    Связь, чей столбец остался, не трогается; связь без столбца теряет только
+    столбец (значение по умолчанию и замены остаются); свободные столбцы
+    сопоставляются автоматически по названию.
+  '''
+  columns = [str(column) for column in columns]
+  links = list(setting.links.all())
+  for link in links:
+    if link.value and link.value not in columns:
+      link.value = None
+      link.save(update_fields=['value'])
+  taken_columns = {link.value for link in links if link.value}
+  taken_keys = {link.key for link in links if link.value}
+  for column, key in zip(columns, auto_detect_link_keys(columns)):
+    if not key or key in taken_keys or column in taken_columns:
+      continue
+    Link.objects.update_or_create(setting=setting, key=key,
+                                  defaults={'value': column})
+    taken_keys.add(key)
+
 
 def get_dictformset(post, pk, link):
   '''
@@ -379,7 +446,7 @@ def _get_setting_signature(setting: Setting) -> str:
             "sheet_name": setting.sheet_name,
             "match_by_article": setting.match_by_article,
             "create_new": setting.create_new,
-            "index_row": setting.index_row,
+            "has_header": setting.has_header,
         },
         "supplier_file": {
             "id": supplier_file.pk if supplier_file else None,
@@ -471,8 +538,7 @@ def _parse_sps(setting: Setting, links, stats: dict) -> list[dict]:
             raise SupplierImportError('Для настройки не загружен файл')
         raise SupplierImportError(
             f'Лист «{setting.sheet_name}» пуст'
-            + (f' начиная со строки {setting.index_row}' if setting.index_row else '')
-            + ' — проверьте лист и ряд заголовков')
+            + ' — проверьте лист и настройку «С заголовками»')
     stats['rows_in_sheet'] = len(df)
     if not links.filter(Q(value__isnull=False) | Q(initial__isnull=False)).exists():
         raise SupplierImportError('Не сопоставлен ни один столбец файла')

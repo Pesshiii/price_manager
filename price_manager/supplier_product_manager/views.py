@@ -398,14 +398,12 @@ class SettingUpdate(UpdateView):
       setting.delete()
       return HttpResponseClientRefresh()
 
-    change = False
     if not setting.name == form.cleaned_data['name']:
       setting.name = form.cleaned_data['name']
       setting.save()
     if not setting.sheet_name == form.cleaned_data['sheet_name']:
       setting.sheet_name = form.cleaned_data['sheet_name']
       setting.save()
-      change = True
       return redirect(reverse('setting-update', kwargs={'pk': pk}))
     if not setting.create_new == form.cleaned_data['create_new']:
       setting.create_new = form.cleaned_data['create_new']
@@ -413,14 +411,19 @@ class SettingUpdate(UpdateView):
     if not setting.match_by_article == form.cleaned_data['match_by_article']:
       setting.match_by_article = form.cleaned_data['match_by_article']
       setting.save()
-      
-    if not setting.index_row == form.cleaned_data['index_row']:
-        setting.index_row = form.cleaned_data['index_row']
-        setting.save()
-        change = True
-      
 
-    df = get_df(pk, recache=change)
+    # The columns change wholesale, so the submitted mapping — one select per
+    # old column — no longer lines up with anything. Remap against the new
+    # columns and reload: re-rendering with this POST kept the old selects.
+    if not setting.has_header == form.cleaned_data['has_header']:
+      setting.has_header = form.cleaned_data['has_header']
+      setting.save()
+      df = get_df(pk, recache=True)
+      if df is not None:
+        remap_links_to_columns(setting, df.columns)
+      return redirect(reverse('setting-update', kwargs={'pk': pk}))
+
+    df = get_df(pk)
     if df is None:
       messages.error(self.request, f'Пустой лист или неподходящая структура')
       return self.form_invalid(form)
@@ -435,7 +438,7 @@ class SettingUpdate(UpdateView):
       item['key'] for item in link_formset.cleaned_data
       if item['key'] is not None and item['key'] != ''
     ]
-    if change or not selected_keys:
+    if not selected_keys:
       detected_keys = auto_detect_link_keys(df.columns)
       for idx, detected_key in enumerate(detected_keys):
         link_formset.cleaned_data[idx]['key'] = detected_key
@@ -476,6 +479,8 @@ class SettingUpdate(UpdateView):
     post = self.request.POST
     context['links'] = get_indicts(post, pk)
     context["link_formset"] = get_linkformset(post, pk)
+    df = get_df(pk)
+    context["header_row"] = df.attrs.get('header_row') if df is not None else None
     context["sps_json_schema"] = {
       "version": SPS_JSON_SCHEMA_VERSION,
       "fields": list(SPS_JSON_FIELDS),

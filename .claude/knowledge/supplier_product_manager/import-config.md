@@ -10,7 +10,9 @@ code: price_manager/supplier_product_manager/models.py
 `Setting` → `Link` → `DictItem`, plus `SupplierFile` as the upload queue.
 
 - **`Setting`** (`models.py:107`) — one named import profile per supplier.
-  `sheet_name`, `index_row` (which row holds the headers), `create_new`
+  `sheet_name`, `has_header` («С заголовками»; the header row is found by
+  `find_header_row` — it replaced the hand-entered `index_row` in 0019, see
+  [[supplier_product_manager/pipeline]]), `create_new`
   (create `SupplierProduct`s that don't exist yet), `match_by_article`
   (identity by article alone — see [[supplier_product_manager/matching]];
   replaced `ignore_name` in migration 0014).

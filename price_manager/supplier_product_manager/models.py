@@ -122,8 +122,11 @@ class Setting(models.Model):
     default=False)
   create_new = models.BooleanField(verbose_name='Создавать если нет',
                                    default=False)
-  index_row = models.IntegerField(verbose_name='Ряд для индексации',
-                                   null=True, blank=True)
+  # On: the first filled row of the table is the header — rows above it (a
+  # logo, the supplier's details) are skipped, see functions.find_header_row.
+  # Off: every row is data and columns are «Столбец 1», «Столбец 2»…
+  # Replaced index_row, a hand-entered row number (0019).
+  has_header = models.BooleanField(verbose_name='С заголовками', default=True)
   class Meta:
     constraints = [models.UniqueConstraint(fields=['name', 'supplier'], name='name_supplier_constraint')]
   def __str__(self):

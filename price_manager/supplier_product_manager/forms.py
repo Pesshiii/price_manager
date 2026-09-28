@@ -79,7 +79,7 @@ class UploadFileForm(forms.ModelForm):
 class SettingForm(forms.ModelForm):
   class Meta:
     model = Setting
-    fields = ['name', 'sheet_name', 'create_new', 'match_by_article', 'index_row']
+    fields = ['name', 'sheet_name', 'create_new', 'match_by_article', 'has_header']
 
   sheet_name = forms.ChoiceField(
     required=False,
@@ -102,10 +102,11 @@ class SettingForm(forms.ModelForm):
       Field('sheet_name', css_class="form-select mb-4"),
       Field('create_new', css_class="form-select mb-4"),
       Field('match_by_article', css_class="mb-4"),
-      Field('index_row', css_class="form-control mb-4"),
+      Field('has_header', css_class="mb-4"),
       HTML('''
         <div class="row p-2">
           <ul>
+            <li>«С заголовками»: первая заполненная строка таблицы — названия столбцов, строки над ней (логотип, реквизиты) пропускаются. Выключено: все строки — данные, столбцы называются «Столбец 1», «Столбец 2»…</li>
             <li>Поле "Добавлять новые товары в ПП" указывает поведение при наличии в файле товаров которых нет в ПП,<br>
             Создавать новые товары в пп или игнорировать<br>(для создания товаров необходимо поле названий)</li>
             <li>«Артикул уникален — сопоставлять только по артикулу»: товар определяется одним артикулом. Если название в файле изменилось, товар переименовывается, а не создаётся новый. Из повторов артикула в файле берётся первая строка. Если в базе у артикула уже несколько товаров, данные записываются во все. Выключено: товар определяется артикулом и названием — так под одним артикулом могут быть разные товары (варианты)</li>
