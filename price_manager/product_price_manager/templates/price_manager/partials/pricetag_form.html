@@ -1,0 +1,74 @@
+{% comment %}
+  Модалка фиксированной наценки строки ГП (PriceTagCreate / PriceTagUpdate).
+  action — адрес формы, mainproduct — строка, pricetag — правка (иначе создание).
+  Успех перезагружает страницу (htmx-modal-crud): карточку товара или
+  «Фиксированные наценки».
+{% endcomment %}
+<div class="modal-header">
+  <div>
+    <h2 class="modal-title fs-5">{% if pricetag %}Фиксированная наценка{% else %}Новая фиксированная наценка{% endif %}</h2>
+    <div class="small text-body-secondary">
+      {{ mainproduct.sku|default:"—" }} · {% if mainproduct.supplier %}{{ mainproduct.supplier.name }}{% else %}без поставщика{% endif %} · {{ mainproduct.name|truncatechars:80 }}
+    </div>
+  </div>
+  <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Закрыть"></button>
+</div>
+<form method="post" hx-post="{{ action }}" hx-target="#modal-container .modal-content">
+  {% csrf_token %}
+  <div class="modal-body">
+    {% if form.non_field_errors %}<div class="alert alert-danger py-2">{{ form.non_field_errors|join:" " }}</div>{% endif %}
+    <div class="row g-3">
+      <div class="col-md-4">
+        {{ form.dest|add_label_class:"form-label" }}
+        {% render_field form.dest class="form-select" %}
+        {% for error in form.dest.errors %}<div class="text-danger small">{{ error }}</div>{% endfor %}
+      </div>
+      <div class="col-md-4">
+        {{ form.date_from|add_label_class:"form-label" }}
+        {% render_field form.date_from class="form-control" type="date" %}
+      </div>
+      <div class="col-md-4">
+        {{ form.date_to|add_label_class:"form-label" }}
+        {% render_field form.date_to class="form-control" type="date" %}
+      </div>
+    </div>
+    <div class="border rounded p-3 mt-3">
+      <div class="form-check form-switch">
+        {% render_field form.price_fixed class="form-check-input" role="switch" data-bs-toggle="collapse" data-bs-target=".setPrice" aria-controls="setPrice1 setPrice2" %}
+        {{ form.price_fixed|add_label_class:"form-check-label" }}
+      </div>
+      <div class="{% if not form.price_fixed.value %}collapse{% else %}collapse show{% endif %} setPrice" id="setPrice1">
+        <div class="mt-3">
+          {{ form.fixed_price|add_label_class:"form-label" }}
+          {% render_field form.fixed_price class="form-control" %}
+          {% for error in form.fixed_price.errors %}<div class="text-danger small">{{ error }}</div>{% endfor %}
+        </div>
+      </div>
+      <div class="{% if form.price_fixed.value %}collapse{% else %}collapse show{% endif %} setPrice" id="setPrice2">
+        <div class="row g-3 mt-0">
+          <div class="col-md-6">
+            {{ form.source|add_label_class:"form-label" }}
+            {% render_field form.source class="form-select" %}
+            {% for error in form.source.errors %}<div class="text-danger small">{{ error }}</div>{% endfor %}
+          </div>
+          <div class="col-md-3">
+            {{ form.markup|add_label_class:"form-label" }}
+            {% render_field form.markup class="form-control" %}
+          </div>
+          <div class="col-md-3">
+            {{ form.increase|add_label_class:"form-label" }}
+            {% render_field form.increase class="form-control" %}
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div class="modal-footer">
+    {% if pricetag %}
+      <button type="submit" name="delete" value="true" class="btn btn-outline-danger me-auto"
+              hx-confirm="Удалить наценку? Цена «{{ pricetag.get_dest_display }}» у строки очистится.">Удалить</button>
+    {% endif %}
+    <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Отмена</button>
+    <button type="submit" class="btn btn-primary">{% if pricetag %}Сохранить{% else %}Добавить{% endif %}</button>
+  </div>
+</form>

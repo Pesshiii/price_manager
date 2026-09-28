@@ -6,7 +6,6 @@ PROJECT_INSTALLED_APPS = [
     'file_manager',
     'supplier_product_manager',
     'product_price_manager',
-    'product_pricing',
     'main_product_manager',
     'supplier_manager',
     'blogapp',

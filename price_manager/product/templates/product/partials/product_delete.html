@@ -24,7 +24,6 @@
     <div class="modal-body">
       <p class="mb-2">«{{ product.display_name }}» ({{ product.number|default:"без артикула" }}) будет удалён.</p>
       <ul class="small text-body-secondary mb-0 ps-3">
-        {% if prices_count %}<li>вместе с расчётными ценами: {{ prices_count }}</li>{% endif %}
         {% if set_items_count %}<li>вместе с составом набора: {{ set_items_count }} поз.</li>{% endif %}
         {% if product.pim_id %}<li>запись связи в PIM останется — её удаляют в PIM</li>{% endif %}
       </ul>

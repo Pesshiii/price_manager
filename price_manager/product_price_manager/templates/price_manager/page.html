@@ -2,7 +2,7 @@
 {% comment %}
   «Наценки ГП» (PriceManagerPage): все правила наценок строк ГП — поставщиков
   и без поставщика. Поставщик правила выбирается в самой форме.
-  Второй уровень цен — на товаре — живёт на «Ценах товаров», не здесь.
+  Наценки, заданные на самой строке, — на соседней вкладке (fixed_pricetags.html).
 {% endcomment %}
 
 {% block title %}Наценки ГП{% endblock %}
@@ -47,6 +47,10 @@
       <i class="bi bi-plus-lg me-1" aria-hidden="true"></i>Добавить наценку
     </button>
   </div>
+  <ul class="nav nav-underline mt-2">
+    <li class="nav-item"><a class="nav-link active" aria-current="page" href="{% url 'price-manager' %}">Правила</a></li>
+    <li class="nav-item"><a class="nav-link" href="{% url 'fixed-pricetags' %}">Фиксированные на строках</a></li>
+  </ul>
 
   <nav class="pm-filters" aria-label="Фильтр по поставщику">
     <a class="pm-pill{% if not selected %} is-active{% endif %}" href="?{% if show_deprecated %}deprecated=1{% endif %}">

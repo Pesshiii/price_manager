@@ -35,12 +35,12 @@
     <div class="row g-3 mt-0">
       <div class="col-md-5">
         <label class="form-label small fw-medium">Бренд</label>
-        {% include 'product_pricing/partials/picker.html' with name='brand' options=form.brand_options single=True disabled=form.from_pim placeholder='Найти бренд' all_label='Без бренда' %}
+        {% include 'product/partials/picker.html' with name='brand' options=form.brand_options single=True disabled=form.from_pim placeholder='Найти бренд' all_label='Без бренда' %}
         {% for error in form.brand.errors %}<div class="invalid-feedback d-block">{{ error }}</div>{% endfor %}
       </div>
       <div class="col-md-7">
         <label class="form-label small fw-medium">Категории</label>
-        {% include 'product_pricing/partials/picker.html' with name='categories' options=form.category_options tree=True disabled=form.from_pim placeholder='Найти категорию' all_label='Без категории' %}
+        {% include 'product/partials/picker.html' with name='categories' options=form.category_options tree=True disabled=form.from_pim placeholder='Найти категорию' all_label='Без категории' %}
         {% for error in form.categories.errors %}<div class="invalid-feedback d-block">{{ error }}</div>{% endfor %}
       </div>
     </div>

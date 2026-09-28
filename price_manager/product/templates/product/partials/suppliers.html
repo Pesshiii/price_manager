@@ -7,7 +7,6 @@
   У набора состав раскрывается из его строки ГП (supplier_rows_table.html);
   пока её нет — из строки «Из комплектующих» под таблицей (set_assembly.html).
 {% endcomment %}
-{% include 'product/partials/product_prices.html' %}
 {% if set_totals and not has_set_row %}
   {% comment %}
     Набор без своей строки ГП. Общая обёртка шириной с самый широкий из двух

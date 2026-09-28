@@ -33,9 +33,8 @@ that explains it rather than explaining it here.
 | Основная цена / основной остаток | `product.main_values` | The value by supplier levels, used by the export and by set cost. [[product/export]] |
 | «Наценки ГП» (`/price-manager/`) | `PriceManagerPage` | All `PriceManager`s; «Без поставщика» = `supplier` NULL. |
 | Наценка, менеджер наценок | `PriceManager` (rule), `PriceTag` (verbose name «Наценка») | Applying a rule rewrites prices catalog-wide. [[product_price_manager/overview]] |
-| Основные цены товара | `Product.prime_cost` … `kaspi_price`, `supplier_price`, `rrp`, `supplier_discount_price` | ГП prices plus ПП prices in tenge, taken from the top price-level supplier with the lowest prime cost; `product/services/prices.py`. |
-| ПП, прайс поставщика (в наценках) | `SupplierProduct.supplier_price` / `rrp` / `discount_price` → `Product.supplier_price` / `rrp` / `supplier_discount_price` | Source group «Прайс поставщика (ПП)» in the rule form. |
-| Цены товаров, наценка на товар, тип цены, расчётная цена | `product_pricing`: `ProductPriceRule`, `ProductPriceType`, `ProductPrice` | Second pricing level, on `Product`; shown as columns on «Товары». See CLAUDE.md. |
+| Фиксированная наценка (`/price-manager/fixed/`) | `PriceTag` with `p_manager` NULL, `FixedPriceTagPage` | Set on one ГП row; applied after the rules, so it overrides them. |
+| ПП, прайс поставщика (в наценках) | `SupplierProduct.supplier_price` / `rrp` / `discount_price` | Sources «РРЦ / Цена поставщика в валюте поставщика» in the rule form; converted by the supplier currency. |
 
 ## Suppliers and import
 

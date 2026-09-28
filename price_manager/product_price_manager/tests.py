@@ -942,3 +942,79 @@ class PriceManagerCleanTests(TestCase):
         self.assertContains(response, 'нет прайса поставщика')
         rule.refresh_from_db()
         self.assertEqual(rule.source, 'prime_cost')
+
+
+class FixedPriceTagPageTests(TestCase):
+    """«Фиксированные наценки»: наценки на самих строках ГП, без правил."""
+
+    def setUp(self):
+        from django.contrib.auth.models import User
+        currency, _ = Currency.objects.get_or_create(name='KZT', defaults={'value': Decimal('1')})
+        self.supplier = Supplier.objects.create(name='Фикс поставщик', currency=currency,
+                                                delivery_days_available=1, delivery_days_navailable=2)
+        self.row = MainProduct.objects.create(supplier=self.supplier, article='F-1', sku='FIX-1',
+                                              name='Строка с фиксом', m_price=Decimal('500'))
+        self.loose = MainProduct.objects.create(article='F-2', sku='FIX-2', name='Возврат',
+                                                basic_price=Decimal('100'))
+        self.fixed = PriceTag.objects.create(mp=self.row, source='fixed_price', dest='m_price',
+                                             fixed_price=Decimal('500'))
+        self.markup = PriceTag.objects.create(mp=self.loose, source='basic_price', dest='m_price',
+                                              markup=Decimal('20'), increase=Decimal('0'))
+        pm = PriceManager.objects.create(name='Правило', supplier=self.supplier, source='basic_price',
+                                         dest='prime_cost', markup=Decimal('0'), increase=Decimal('0'))
+        self.from_rule = PriceTag.objects.create(mp=self.row, p_manager=pm, source='basic_price',
+                                                 dest='prime_cost')
+        self.client.force_login(User.objects.create_user(username='fixed', password='pw'))
+
+    def get_page(self, **params):
+        from django.urls import reverse
+        return self.client.get(reverse('fixed-pricetags'), params)
+
+    def test_lists_only_tags_without_a_rule(self):
+        response = self.get_page()
+        self.assertEqual({tag.pk for tag in response.context['page']}, {self.fixed.pk, self.markup.pk})
+        self.assertContains(response, 'FIX-1')
+        self.assertContains(response, '+20%')
+        self.assertEqual(response.context['counts'], {'all': 2, 'none': 1})
+
+    def test_filters(self):
+        self.assertEqual([t.pk for t in self.get_page(q='fix-2').context['page']], [self.markup.pk])
+        self.assertEqual([t.pk for t in self.get_page(supplier='none').context['page']], [self.markup.pk])
+        self.assertEqual([t.pk for t in self.get_page(supplier=self.supplier.pk).context['page']],
+                         [self.fixed.pk])
+        self.assertEqual(list(self.get_page(dest='prime_cost').context['page']), [])
+
+    def test_deprecated_hidden_by_default(self):
+        PriceTag.objects.filter(pk=self.fixed.pk).update(deprecated=True)
+        self.assertEqual([t.pk for t in self.get_page().context['page']], [self.markup.pk])
+        self.assertEqual(len(self.get_page(deprecated='1').context['page']), 2)
+
+    def test_update_and_delete_from_the_modal(self):
+        from django.urls import reverse
+        url = reverse('pricetag-update', args=[self.fixed.pk])
+        self.assertContains(self.client.get(url, HTTP_HX_REQUEST='true'), 'Удалить')
+
+        response = self.client.post(url, {'dest': 'm_price', 'price_fixed': 'on', 'fixed_price': '700',
+                                          'markup': '0', 'increase': '0'}, HTTP_HX_REQUEST='true')
+        self.assertEqual(response.headers.get('HX-Refresh'), 'true')
+        self.fixed.refresh_from_db()
+        self.assertEqual(self.fixed.fixed_price, Decimal('700'))
+
+        response = self.client.post(url, {'delete': 'true'}, HTTP_HX_REQUEST='true')
+        self.assertEqual(response.headers.get('HX-Refresh'), 'true')
+        self.assertFalse(PriceTag.objects.filter(pk=self.fixed.pk).exists())
+        self.row.refresh_from_db()
+        self.assertIsNone(self.row.m_price)
+
+    def test_rule_tags_are_not_edited_here(self):
+        from django.urls import reverse
+        response = self.client.get(reverse('pricetag-update', args=[self.from_rule.pk]), HTTP_HX_REQUEST='true')
+        self.assertEqual(response.status_code, 404)
+
+    def test_fixed_price_is_required(self):
+        from django.urls import reverse
+        response = self.client.post(reverse('pricetag-create', args=[self.loose.pk]),
+                                    {'dest': 'basic_price', 'price_fixed': 'on', 'fixed_price': '',
+                                     'markup': '0', 'increase': '0'}, HTTP_HX_REQUEST='true')
+        self.assertContains(response, 'Не указана фиксированная цена')
+        self.assertEqual(PriceTag.objects.filter(mp=self.loose).count(), 1)

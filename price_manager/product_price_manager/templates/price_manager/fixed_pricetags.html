@@ -1,0 +1,166 @@
+{% extends "base.html" %}
+{% comment %}
+  «Фиксированные наценки» (FixedPriceTagPage): наценки, заданные на самой
+  строке ГП, — PriceTag без правила. Заводятся на строке в карточке товара,
+  правятся здесь или там же одной модалкой (PriceTagUpdate).
+{% endcomment %}
+
+{% block title %}Фиксированные наценки{% endblock %}
+
+{% block style %}
+<style>
+  .pm-page { max-width: 1400px; }
+  .pm-tabs { margin-top: .75rem; }
+  .pm-filters { display: flex; flex-wrap: wrap; gap: .5rem; align-items: center; margin: 1rem 0; }
+  .pm-pill { display: inline-flex; align-items: center; gap: .4rem; font-size: .875rem; padding: .3rem .75rem; border: 1px solid var(--bs-border-color); border-radius: 2rem; color: var(--bs-body-color); text-decoration: none; background: var(--bs-body-bg); }
+  .pm-pill:hover { background: var(--bs-tertiary-bg); }
+  .pm-pill.is-active { border-color: var(--bs-primary); background: var(--bs-primary-bg-subtle); color: var(--bs-primary-text-emphasis); }
+  .pm-pill .pm-pill-count { font-size: .75rem; color: var(--bs-secondary-color); }
+  .pm-pill.is-active .pm-pill-count { color: inherit; }
+  .pm-select { width: auto; min-width: 12rem; }
+  .pm-search { width: 16rem; }
+  .pm-table { font-size: .875rem; }
+  .pm-table th { font-weight: 500; font-size: .8125rem; color: var(--bs-secondary-color); white-space: nowrap; }
+  .pm-table td { vertical-align: middle; }
+  .pm-num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+  .pm-sub { font-size: .75rem; color: var(--bs-secondary-color); }
+  .pm-no-supplier { color: var(--bs-primary-text-emphasis); white-space: nowrap; }
+  .pm-no-supplier .bi { margin-right: .25rem; }
+  .pm-cond span { font-size: .75rem; border-radius: 1rem; padding: .05rem .5rem; background: var(--bs-tertiary-bg); color: var(--bs-secondary-color); white-space: nowrap; }
+  .pm-row-deprecated td { color: var(--bs-secondary-color); }
+  .pm-empty { border: 1px dashed var(--bs-border-color); border-radius: .5rem; padding: 2rem; text-align: center; color: var(--bs-secondary-color); }
+</style>
+{% endblock %}
+
+{% block body %}
+<div class="container-fluid pm-page py-3">
+  <h1 class="h4 mb-0">Фиксированные наценки</h1>
+  <ul class="nav nav-underline pm-tabs">
+    <li class="nav-item"><a class="nav-link" href="{% url 'price-manager' %}">Правила</a></li>
+    <li class="nav-item"><a class="nav-link active" aria-current="page" href="{% url 'fixed-pricetags' %}">Фиксированные на строках</a></li>
+  </ul>
+  <p class="small text-body-secondary mt-2 mb-0">
+    Наценки, заданные на самой строке ГП. Пересчёт применяет их после правил, поэтому они перекрывают правила.
+    Добавить — кнопкой <i class="bi bi-tag" aria-hidden="true"></i> у строки в карточке товара.
+  </p>
+
+  <form method="get" class="pm-filters" role="search">
+    {% if selected %}<input type="hidden" name="supplier" value="{{ selected }}">{% endif %}
+    {% if show_deprecated %}<input type="hidden" name="deprecated" value="1">{% endif %}
+    <label class="visually-hidden" for="pm-q">Поиск</label>
+    <input id="pm-q" type="search" name="q" value="{{ q }}" class="form-control form-control-sm pm-search" placeholder="Артикул или название">
+    <label class="visually-hidden" for="pm-dest">Какая цена</label>
+    <select id="pm-dest" name="dest" class="form-select form-select-sm pm-select" onchange="this.form.submit()">
+      <option value="">Любая цена</option>
+      {% for value, label in dests %}
+        <option value="{{ value }}" {% if dest == value %}selected{% endif %}>{{ label }}</option>
+      {% endfor %}
+    </select>
+    <button class="btn btn-sm btn-outline-secondary">Найти</button>
+    <div class="form-check form-switch ms-auto mb-0">
+      <input class="form-check-input" type="checkbox" role="switch" id="pm-deprecated" {% if show_deprecated %}checked{% endif %}
+             onchange="const u = new URL(location.href); u.searchParams.delete('page'); if (this.checked) u.searchParams.set('deprecated', '1'); else u.searchParams.delete('deprecated'); location.href = u;">
+      <label class="form-check-label small" for="pm-deprecated">Показать устаревшие</label>
+    </div>
+  </form>
+
+  <nav class="pm-filters mt-0" aria-label="Фильтр по поставщику">
+    <a class="pm-pill{% if not selected %} is-active{% endif %}" href="?{% if q %}q={{ q|urlencode }}&{% endif %}{% if dest %}dest={{ dest }}&{% endif %}{% if show_deprecated %}deprecated=1{% endif %}">
+      Все <span class="pm-pill-count">{{ counts.all }}</span>
+    </a>
+    <a class="pm-pill{% if selected == 'none' %} is-active{% endif %}" href="?supplier=none{% if q %}&q={{ q|urlencode }}{% endif %}{% if dest %}&dest={{ dest }}{% endif %}{% if show_deprecated %}&deprecated=1{% endif %}">
+      <i class="bi bi-box-seam" aria-hidden="true"></i>Без поставщика <span class="pm-pill-count">{{ counts.none }}</span>
+    </a>
+    <form method="get" class="d-flex gap-2 align-items-center">
+      {% if q %}<input type="hidden" name="q" value="{{ q }}">{% endif %}
+      {% if dest %}<input type="hidden" name="dest" value="{{ dest }}">{% endif %}
+      {% if show_deprecated %}<input type="hidden" name="deprecated" value="1">{% endif %}
+      <label class="visually-hidden" for="pm-supplier">Поставщик</label>
+      <select id="pm-supplier" name="supplier" class="form-select form-select-sm pm-select" onchange="this.form.submit()">
+        <option value="">Поставщик…</option>
+        {% for supplier in suppliers %}
+          <option value="{{ supplier.pk }}" {% if selected_supplier.pk == supplier.pk %}selected{% endif %}>{{ supplier.name }}</option>
+        {% endfor %}
+      </select>
+      <noscript><button class="btn btn-sm btn-outline-secondary">Показать</button></noscript>
+    </form>
+  </nav>
+
+  {% if page.object_list %}
+    <div class="table-responsive">
+      <table class="table pm-table align-middle">
+        <thead>
+          <tr>
+            <th>Товар</th>
+            <th>Строка ГП</th>
+            <th>Считает</th>
+            <th class="pm-num">Формула</th>
+            <th class="pm-num" title="Цена, которая сейчас стоит в строке ГП">Сейчас</th>
+            <th>Период</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for tag in page %}
+            <tr class="{% if tag.deprecated %}pm-row-deprecated{% endif %}">
+              <td>
+                {% if tag.mp.product %}
+                  <a href="{% url 'product-detail' tag.mp.product.pk %}" class="text-decoration-none">{{ tag.mp.sku }}</a>
+                  <div class="pm-sub">{{ tag.mp.product.display_name|truncatechars:60 }}</div>
+                {% else %}
+                  {{ tag.mp.sku|default:"—" }}
+                {% endif %}
+              </td>
+              <td>
+                {% if tag.mp.supplier %}{{ tag.mp.supplier.name }}{% else %}<span class="pm-no-supplier"><i class="bi bi-box-seam" aria-hidden="true"></i>Без поставщика</span>{% endif %}
+                <div class="pm-sub">{{ tag.mp.article }}{% if tag.mp.is_set %} · набор{% endif %}</div>
+              </td>
+              <td>{% include 'price_manager/partials/pricetag_flow.html' with tag=tag %}</td>
+              <td class="pm-num">{% include 'price_manager/partials/pricetag_formula.html' with tag=tag %}</td>
+              <td class="pm-num">{{ tag.current_price|floatformat:"2g"|default:"—" }}</td>
+              <td class="pm-cond">
+                {% if tag.date_from or tag.date_to %}
+                  <span>{% if tag.date_from %}с {{ tag.date_from|date:"d.m.Y" }}{% endif %}{% if tag.date_to %} по {{ tag.date_to|date:"d.m.Y" }}{% endif %}</span>
+                {% else %}
+                  <span>бессрочно</span>
+                {% endif %}
+                {% if tag.deprecated %}<span class="text-bg-secondary">устарела</span>{% endif %}
+              </td>
+              <td class="text-end">
+                <button type="button" class="btn btn-sm btn-outline-secondary"
+                        data-bs-toggle="modal" data-bs-target="#modal-container"
+                        hx-get="{% url 'pricetag-update' tag.pk %}"
+                        hx-target="#modal-container .modal-content" hx-swap="innerHTML"
+                        title="Изменить" aria-label="Изменить наценку строки {{ tag.mp.sku }}">
+                  <i class="bi bi-pencil"></i>
+                </button>
+              </td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% if page.has_other_pages %}
+      <nav aria-label="Страницы" class="d-flex align-items-center gap-2 small">
+        {% if page.has_previous %}<a class="btn btn-sm btn-outline-secondary" href="?{% if query %}{{ query }}&{% endif %}page={{ page.previous_page_number }}">Назад</a>{% endif %}
+        <span class="text-body-secondary">Страница {{ page.number }} из {{ page.paginator.num_pages }}</span>
+        {% if page.has_next %}<a class="btn btn-sm btn-outline-secondary" href="?{% if query %}{{ query }}&{% endif %}page={{ page.next_page_number }}">Дальше</a>{% endif %}
+      </nav>
+    {% endif %}
+  {% else %}
+    <div class="pm-empty">
+      {% if q or selected or dest %}Под фильтр ничего не подходит{% else %}Фиксированных наценок нет{% endif %}
+    </div>
+  {% endif %}
+</div>
+
+<div id="modal-container" class="modal modal-xl fade" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <div class="container d-flex justify-content-center mb-4 mt-4">
+        <div class="spinner-grow" role="status"></div>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}

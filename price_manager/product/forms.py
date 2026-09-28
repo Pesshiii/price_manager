@@ -5,7 +5,7 @@ from .models import Brand, Category, Product
 
 def category_picker_options(selected) -> list[dict]:
     """Дерево категорий плоским списком в порядке обхода, с путём для поиска —
-    для product_pricing/partials/picker.html.
+    для product/partials/picker.html.
 
     Путь собирается в памяти по parent_id: Category.__str__ ходил бы в базу
     за каждым предком. selected — множество pk строками.
