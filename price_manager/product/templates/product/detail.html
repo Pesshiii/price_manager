@@ -1,6 +1,6 @@
 {% extends "base.html" %}
 {% comment %}
-  Карточка товара. Три блока — цены, строки ГП, набор — и действия в шапке.
+  Карточка товара. Три блока — фиксированные наценки, строки ГП, набор — и действия в шапке.
   Всё, что меняет данные, открывается модалкой в #modal-container и по успеху
   перезагружает карточку (htmx-modal-crud).
 {% endcomment %}
@@ -32,13 +32,6 @@
   .pd-table td, .pd-table th { padding: .45rem .5rem; }
   .pd-num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
   .pd-muted { color: var(--bs-secondary-color); }
-  .pd-price { font-size: 1rem; font-weight: 600; }
-  .pd-rule a { text-decoration: none; }
-  .pd-overridden { font-size: .75rem; color: var(--bs-secondary-color); }
-  .pd-base { display: grid; grid-template-columns: auto 1fr; gap: .25rem 1rem; font-size: .8125rem; margin-top: .75rem; }
-  .pd-base dt { font-weight: 400; color: var(--bs-secondary-color); }
-  .pd-base dd { margin: 0; }
-  .pd-base dd span { margin-right: 1rem; white-space: nowrap; }
   .pd-empty { font-size: .875rem; color: var(--bs-secondary-color); padding: .75rem 0; }
   .pd-row-actions { white-space: nowrap; text-align: right; }
   .pd-section-actions { margin-left: auto; display: flex; flex-wrap: wrap; gap: .5rem; }
@@ -99,62 +92,41 @@
 
   <section class="pd-section">
     <div class="pd-section-head">
-      <h2>Цены</h2>
-      <button type="button" class="btn btn-sm btn-outline-primary"
-              data-bs-toggle="modal" data-bs-target="#modal-container"
-              hx-get="{% url 'product-price-rule-create' %}?product={{ product.pk }}"
-              hx-target="#modal-container .modal-content" hx-swap="innerHTML">
-        <i class="bi bi-plus-lg me-1" aria-hidden="true"></i>Наценка на этот товар
-      </button>
+      <h2>Фиксированные наценки</h2>
+      <span class="pd-count">{{ fixed_pricetags|length }}</span>
+      <a class="btn btn-sm btn-link" href="{% url 'fixed-pricetags' %}?q={{ product.number|urlencode }}">Все фиксированные наценки</a>
     </div>
-    {% if price_rows %}
+    {% if fixed_pricetags %}
       <table class="table pd-table align-middle">
         <thead>
-          <tr><th>Тип цены</th><th class="pd-num">Цена</th><th>Наценка</th></tr>
+          <tr><th>Строка ГП</th><th>Считает</th><th>Формула</th><th>Период</th><th></th></tr>
         </thead>
         <tbody>
-          {% for row in price_rows %}
-            <tr>
-              <td>{{ row.type.name }}</td>
-              <td class="pd-num">
-                {% if row.price %}<span class="pd-price">{{ row.price.value|floatformat:"2g" }}</span>
-                {% else %}<span class="pd-muted">—</span>{% endif %}
+          {% for tag in fixed_pricetags %}
+            <tr class="{% if tag.deprecated %}pd-muted{% endif %}">
+              <td>
+                {% if tag.mp.supplier %}{{ tag.mp.supplier.name }}{% else %}<span class="pd-no-supplier"><i class="bi bi-box-seam" aria-hidden="true"></i>Без поставщика</span>{% endif %}
+                <span class="pd-muted small">· {{ tag.mp.article|default:tag.mp.sku }}</span>
               </td>
-              <td class="pd-rule">
-                {% for rule in row.rules %}
-                  {% if forloop.first %}
-                    <a href="#" data-bs-toggle="modal" data-bs-target="#modal-container"
-                       hx-get="{% url 'product-price-rule-update' rule.pk %}"
-                       hx-target="#modal-container .modal-content" hx-swap="innerHTML">{{ rule.name }}</a>
-                    <span class="pd-muted small">· {{ rule.formula_label }}</span>
-                    {% if row.price and row.price.rule_id != rule.pk %}
-                      <div class="pd-overridden">Пересчёт ещё не прошёл — сейчас цена от другой наценки</div>
-                    {% endif %}
-                  {% else %}
-                    {% if forloop.counter == 2 %}<div class="pd-overridden">Перекрыты: {% endif %}{{ rule.name }}{% if not forloop.last %}, {% else %}</div>{% endif %}
-                  {% endif %}
-                {% empty %}
-                  <span class="pd-muted">Ни одна наценка не подходит</span>
-                {% endfor %}
+              <td>{% include 'price_manager/partials/pricetag_flow.html' with tag=tag %}</td>
+              <td class="pd-num">{% include 'price_manager/partials/pricetag_formula.html' with tag=tag %}</td>
+              <td class="small">
+                {% if tag.date_from or tag.date_to %}{% if tag.date_from %}с {{ tag.date_from|date:"d.m.Y" }}{% endif %}{% if tag.date_to %} по {{ tag.date_to|date:"d.m.Y" }}{% endif %}{% else %}<span class="pd-muted">бессрочно</span>{% endif %}
+                {% if tag.deprecated %}<span class="pd-tag ms-1">устарела</span>{% endif %}
+              </td>
+              <td class="pd-row-actions">
+                <button type="button" class="btn btn-sm btn-outline-secondary"
+                        data-bs-toggle="modal" data-bs-target="#modal-container"
+                        hx-get="{% url 'pricetag-update' tag.pk %}"
+                        hx-target="#modal-container .modal-content" hx-swap="innerHTML"
+                        title="Изменить наценку" aria-label="Изменить фиксированную наценку"><i class="bi bi-pencil"></i></button>
               </td>
             </tr>
           {% endfor %}
         </tbody>
       </table>
     {% else %}
-      <p class="pd-empty">Типов цен пока нет — их заводят на странице <a href="{% url 'product-pricing' %}">«Цены товаров»</a>.</p>
-    {% endif %}
-    {% if gp_prices or pp_prices %}
-      <dl class="pd-base">
-        {% if gp_prices %}
-          <dt title="Основные цены из ГП: поставщик верхнего уровня по цене, при нескольких — с меньшей себестоимостью">Основные, ГП</dt>
-          <dd>{% for label, value in gp_prices %}<span>{{ label }} {{ value|floatformat:"2g" }}</span>{% endfor %}</dd>
-        {% endif %}
-        {% if pp_prices %}
-          <dt title="Цены прайса поставщика в тенге">Основные, ПП</dt>
-          <dd>{% for label, value in pp_prices %}<span>{{ label }} {{ value|floatformat:"2g" }}</span>{% endfor %}</dd>
-        {% endif %}
-      </dl>
+      <p class="pd-empty">Фиксированных наценок нет. Их задают на строке ГП — кнопкой <i class="bi bi-tag" aria-hidden="true"></i> в таблице ниже.</p>
     {% endif %}
   </section>
 
@@ -212,6 +184,13 @@
                   </button>
                   <a class="btn btn-sm btn-outline-secondary" href="{% url 'mainproduct-info' row.pk %}"
                      title="Карточка строки ГП" aria-label="Карточка строки «{{ row.name }}»"><i class="bi bi-card-text"></i></a>
+                  <button type="button" class="btn btn-sm btn-outline-secondary"
+                          data-bs-toggle="modal" data-bs-target="#modal-container"
+                          hx-get="{% url 'pricetag-create' row.pk %}"
+                          hx-target="#modal-container .modal-content" hx-swap="innerHTML"
+                          title="Фиксированная наценка на строку" aria-label="Фиксированная наценка на «{{ row.name }}»">
+                    <i class="bi bi-tag"></i>
+                  </button>
                   <button type="button" class="btn btn-sm btn-outline-secondary"
                           data-bs-toggle="modal" data-bs-target="#modal-container"
                           hx-get="{% url 'main-product-move' row.pk %}"

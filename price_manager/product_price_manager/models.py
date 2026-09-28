@@ -453,7 +453,16 @@ class PriceTag(models.Model):
       return f'{PRICE_TYPES[self.source]} -> {PRICE_TYPES[self.dest]} ({(1+self.markup/100)*100}% + {self.increase} тг.)'
     else:
       return f'{PRICE_TYPES[self.dest]}: {self.fixed_price}'
-  
+
+  @property
+  def is_fixed_price(self):
+    """Фиксированная цена: source пуст у старых наценок, 'fixed_price' у новых."""
+    return self.source in ('fixed_price', None)
+
+  @property
+  def source_label(self):
+    return PRICE_TYPES['fixed_price'] if self.is_fixed_price else PRICE_TYPES.get(self.source, self.source)
+
   def get_sprice(self):
     if self.source in ('fixed_price', None):
       return self.fixed_price

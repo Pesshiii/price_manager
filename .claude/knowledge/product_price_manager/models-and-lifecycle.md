@@ -15,8 +15,9 @@ repo, and [[product_price_manager/pricing]] for `get_fitting_mps()` and
 `date_from`/`date_to` window, a `price_from`/`price_to` band, and `has_rrp`.
 
 **There is no category scope any more** — migration 0006 dropped
-`PriceManager.categories` (flat nodes, no descendants, unused; category pricing
-belongs to `product_pricing.ProductPriceRule`, which expands descendants).
+`PriceManager.categories` (flat nodes, no descendants, unused; the
+`product_pricing` app that took category pricing over was removed later, with
+its tables, in `product` migration 0015).
 Dropping the field drops its filter, so 0006 **raises** while any rule still
 has categories, like 0004 did — a scoped rule would otherwise widen to the
 whole supplier on its next `save()`/`apply()`.

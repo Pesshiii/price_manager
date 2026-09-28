@@ -116,21 +116,6 @@ class MainProductDetail(DetailView):
     return context
 
 
-def _after_main_product_saved(product_pks):
-  """Основные цены затронутых товаров — сразу, расчётные — общим пересчётом.
-
-  Как у переноса строки ГП в карточке товара (product.views._relinked):
-  карточка после перезагрузки уже показывает новые цены.
-  """
-  from product.services.prices import recalculate_base_prices
-  from product_pricing.tasks import update_product_prices_task
-  from core.task_runner import dispatch_after_commit
-  pks = [pk for pk in set(product_pks) if pk]
-  if pks:
-    recalculate_base_prices(pks=pks)
-  dispatch_after_commit(update_product_prices_task)
-
-
 class _MainProductFormMixin:
   model = MainProduct
   form_class = MainProductForm
@@ -189,7 +174,6 @@ class MainProductCreate(_MainProductFormMixin, CreateView):
         main_product.product = product
       else:
         ensure_product(main_product)
-      _after_main_product_saved([main_product.product_id])
     label = main_product.supplier.name if main_product.supplier else 'без поставщика'
     messages.success(self.request, f'Строка ГП «{main_product.name}» ({label}) добавлена')
     # Открыта карточка этого товара — перезагрузить её; иначе (с «Товаров»)
@@ -215,7 +199,6 @@ class MainProductUpdate(_MainProductFormMixin, UpdateView):
     return super().get(request, *args, **kwargs)
 
   def form_valid(self, form):
-    old_product_pk = form.instance.product_id
     sku_changed = 'sku' in form.changed_data
     with transaction.atomic():
       self.object = main_product = self.save_form(form)
@@ -224,7 +207,6 @@ class MainProductUpdate(_MainProductFormMixin, UpdateView):
         if target.pk != main_product.product_id:
           MainProduct.objects.filter(pk=main_product.pk).update(product=target)
           main_product.product = target
-      _after_main_product_saved([old_product_pk, main_product.product_id])
     messages.success(self.request, 'Строка ГП сохранена')
     return HttpResponseClientRefresh()
 

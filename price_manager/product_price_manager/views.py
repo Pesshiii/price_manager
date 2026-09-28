@@ -32,7 +32,7 @@ from django_tables2 import SingleTableView, RequestConfig, SingleTableMixin
 from django_htmx.http import HttpResponseClientRefresh 
 
 # Импорты моделей, функций, форм, таблиц
-from .models import PriceManager
+from .models import PriceManager, PriceTag
 from supplier_manager.models import Discount, Supplier
 from file_manager.models import FileModel
 from core.utils import *
@@ -265,6 +265,66 @@ class PriceManagerPage(TemplateView):
     return context
 
 
+class FixedPriceTagPage(TemplateView):
+  """«Фиксированные наценки»: наценки, заданные на самой строке ГП.
+
+  Это PriceTag без правила (p_manager пуст) — их пересчитывает update_prices
+  после правил, так что они перекрывают наценки поставщиков. Правятся той же
+  модалкой, что и в карточке товара (PriceTagUpdate). Фильтры: ?q= — артикул
+  или название строки/товара, ?supplier=none|<pk>, ?dest=<цена>,
+  ?deprecated=1 — показать устаревшие.
+  """
+  template_name = 'price_manager/fixed_pricetags.html'
+  paginate_by = 100
+
+  def get_context_data(self, **kwargs):
+    from django.core.paginator import Paginator
+    context = super().get_context_data(**kwargs)
+    params = self.request.GET
+    tags = (PriceTag.objects.filter(p_manager__isnull=True)
+            .select_related('mp', 'mp__supplier', 'mp__product'))
+    show_deprecated = params.get('deprecated') == '1'
+    if not show_deprecated:
+      tags = tags.filter(deprecated=False)
+    q = params.get('q', '').strip()
+    if q:
+      tags = tags.filter(Q(mp__sku__icontains=q) | Q(mp__article__icontains=q)
+                         | Q(mp__name__icontains=q) | Q(mp__product__name__icontains=q))
+    counts = {'all': tags.count(), 'none': tags.filter(mp__supplier__isnull=True).count()}
+    selected = params.get('supplier', '')
+    selected_supplier = None
+    if selected == 'none':
+      tags = tags.filter(mp__supplier__isnull=True)
+    elif selected.isdigit():
+      selected_supplier = Supplier.objects.filter(pk=selected).first()
+      tags = tags.filter(mp__supplier=selected_supplier)
+    dest = params.get('dest', '')
+    if dest in MP_PRICES:
+      tags = tags.filter(dest=dest)
+    else:
+      dest = ''
+    page = Paginator(tags.order_by('mp__sku', 'mp__supplier__name', 'dest', 'pk'),
+                     self.paginate_by).get_page(params.get('page'))
+    for tag in page:
+      tag.current_price = getattr(tag.mp, tag.dest, None) if tag.dest else None
+    query = params.copy()
+    query.pop('page', None)
+    context.update({
+      'page': page,
+      'counts': counts,
+      'q': q,
+      'selected': selected,
+      'selected_supplier': selected_supplier,
+      'dest': dest,
+      'dests': [(field, PRICE_TYPES[field]) for field in MP_PRICES],
+      'show_deprecated': show_deprecated,
+      'query': query.urlencode(),
+      'suppliers': Supplier.objects.filter(
+        pk__in=PriceTag.objects.filter(p_manager__isnull=True).values('mp__supplier')).order_by('name'),
+    })
+    return context
+
+
 class PriceManagerDetail(DetailView):
   '''Детали Наценки <<price-manager/<int:id>/>>'''
   model = PriceManager
@@ -307,84 +367,84 @@ def _pricetag_error(mp, cd):
   return None
 
 
-class PriceTagCreate(CreateView):
+def _pricetag_form_error(mp, cd):
+  """Проверка формы фиксированной наценки: (поле, текст) или None."""
+  if cd['price_fixed']:
+    if not cd['fixed_price']:
+      return 'fixed_price', 'Не указана фиксированная цена'
+  else:
+    if not cd['source']:
+      return 'source', 'Поле от какой цены считать должно быть указано'
+    if cd['source'] == cd['dest']:
+      return None, 'Поля от какой цены считать и какую цену считать совпадают'
+  error = _pricetag_error(mp, cd)
+  return (None, error) if error else None
+
+
+class _PriceTagFormMixin:
+  """Модалка фиксированной наценки строки ГП — с карточки товара и со
+  страницы «Фиксированные наценки»; успех перезагружает ту, откуда открыли."""
   model = PriceTag
   form_class = PriceTagForm
-  template_name = 'price_manager/partials/pricetag_create.html'
-  def get_success_url(self):
-    return resolve_url('mainproduct-detail', self.kwargs.get('pk', None))
+  template_name = 'price_manager/partials/pricetag_form.html'
+
+  def get_mainproduct(self):
+    raise NotImplementedError
+
   def get_context_data(self, **kwargs) -> dict[str, Any]:
     context = super().get_context_data(**kwargs)
-    context['mainproduct'] = MainProduct.objects.get(pk=self.kwargs.get('pk'))
+    context['mainproduct'] = self.get_mainproduct()
+    context['action'] = self.request.path
     return context
+
   def form_invalid(self, form):
     messages.error(self.request, 'Ошибка')
-    response = super().form_invalid(form)
-    return response
+    return super().form_invalid(form)
+
   def form_valid(self, form):
     cd = form.cleaned_data
-    if cd['price_fixed'] and cd['fixed_price'] == 0:
-      form.add_error(field=None, error='Не указана фиксированная цена')
-      return self.form_invalid(form)
-    if not cd['price_fixed']:
-      if not cd['source']:
-        form.add_error(field='source', error='Поле от какой цены считать должно быть указано')
-        return self.form_invalid(form)
-      if cd['source'] == cd['dest']:
-        form.add_error(field=None, error='Поля от какой цены считать и какую цену считать совпадают')
-        return self.form_invalid(form)
-    mp = MainProduct.objects.get(pk=self.kwargs.get('pk'))
-    error = _pricetag_error(mp, cd)
+    mp = self.get_mainproduct()
+    error = _pricetag_form_error(mp, cd)
     if error:
-      form.add_error(field=None, error=error)
+      form.add_error(*error)
       return self.form_invalid(form)
     instance = form.save(commit=False)
     instance.mp = mp
     if cd['price_fixed']:
       instance.source = 'fixed_price'
     instance.save()
-    messages.success(self.request, 'Менеджер добавлен')
+    messages.success(self.request, self.success_message)
     return HttpResponseClientRefresh()
-  
-  
 
 
-class PriceTagUpdate(UpdateView):
-  model = PriceTag
-  form_class = PriceTagForm
-  template_name = 'price_manager/partials/pricetag_update.html'
-  def get(self, request, *args, **kwargs):
-    self.instance = PriceTag.objects.get(pk=self.kwargs.get('pk', None))
-    return super().get(request, *args, **kwargs)
-  def get_success_url(self):
-    return resolve_url('mainproduct-detail', PriceTag.objects.get(pk=self.kwargs.get('pk', None)).mp.pk)
-  def form_invalid(self, form):
-    messages.error(self.request, 'Ошибка')
-    response = super().form_invalid(form)
-    return response
-  def get_context_data(self, **kwargs) -> dict[str, Any]:
-      context = super().get_context_data(**kwargs)
-      context["form"].initial['price_fixed'] = self.instance.source=='fixed_price'
-      return context
-  def form_valid(self, form):
-    cd = form.cleaned_data
-    if cd['price_fixed'] and cd['fixed_price'] == 0:
-      form.add_error(field=None, error='Не указана фиксированная цена')
-      return self.form_invalid(form)
-    if not cd['price_fixed']:
-      if not cd['source']:
-        form.add_error(field='source', error='Поле от какой цены считать должно быть указано')
-        return self.form_invalid(form)
-      if cd['source'] == cd['dest']:
-        form.add_error(field=None, error='Поля от какой цены считать и какую цену считать совпадают')
-        return self.form_invalid(form)
-    error = _pricetag_error(form.instance.mp, cd)
-    if error:
-      form.add_error(field=None, error=error)
-      return self.form_invalid(form)
-    instance = form.save(commit=False)
-    if cd['price_fixed']:
-      instance.source = 'fixed_price'
-    instance.save()
-    messages.success(self.request, 'Менеджер добавлен')
-    return HttpResponseClientRefresh()
+class PriceTagCreate(_PriceTagFormMixin, CreateView):
+  success_message = 'Наценка добавлена'
+
+  def get_mainproduct(self):
+    return get_object_or_404(MainProduct.objects.select_related('supplier'), pk=self.kwargs['pk'])
+
+
+class PriceTagUpdate(_PriceTagFormMixin, UpdateView):
+  """Правка и удаление (POST delete=true) фиксированной наценки.
+
+  Наценки из правил (p_manager) здесь не правятся — их перезапишет правило.
+  """
+  success_message = 'Наценка сохранена'
+
+  def get_queryset(self):
+    return PriceTag.objects.filter(p_manager__isnull=True).select_related('mp', 'mp__supplier')
+
+  def get_mainproduct(self):
+    return self.object.mp
+
+  def get_initial(self):
+    initial = super().get_initial()
+    initial['price_fixed'] = self.object.is_fixed_price
+    return initial
+
+  def post(self, request, *args, **kwargs):
+    if request.POST.get('delete') == 'true':
+      self.get_object().delete()
+      messages.success(request, 'Наценка удалена')
+      return HttpResponseClientRefresh()
+    return super().post(request, *args, **kwargs)

@@ -2,7 +2,6 @@ import logging
 import os
 
 from django.contrib import messages
-from django.db import transaction
 from django.db.models import OuterRef, Prefetch, Q, Subquery
 from django.http import FileResponse, Http404, HttpResponse, QueryDict
 from django.shortcuts import get_object_or_404, redirect, render
@@ -12,19 +11,15 @@ from django_filters.views import FilterView
 from django_htmx.http import HttpResponseClientRedirect, HttpResponseClientRefresh, trigger_client_event
 from django_tables2 import SingleTableMixin
 
-from core.task_runner import dispatch_after_commit
-from main_product_manager.models import MP_PRICES, MainProduct
+from main_product_manager.models import MainProduct
 from main_product_manager.utils import fetch_pim_image, pim_image_url
-from product_pricing.models import ProductPrice
-from product_pricing.services import product_price_rows
-from product_pricing.tasks import update_product_prices_task
+from product_price_manager.models import PriceTag
 from supplier_product_manager.models import SupplierProduct
 
 from .columns import PRODUCT_COLUMN_GROUPS, load_columns, save_columns
 from .filters import CATEGORY_LABEL_DEPTH, ProductFilter, matching_product_pks, ranked, search_terms
 from .forms import ProductForm
-from .models import SUPPLIER_PRICE_FIELDS, Category, Product, ProductExport
-from .services.prices import BASE_PRICE_FIELDS, recalculate_base_prices
+from .models import Category, Product, ProductExport
 from .set_costs import attach_set_info, set_totals_for
 from .tasks import export_products_task
 from .tables import (
@@ -47,16 +42,12 @@ def _base_queryset(by_category=False):
     без этого страница даёт N+1 на обеих связях. Категории предзагружаются
     вместе с предками: из них строится путь в заголовке группы
     (tables.category_path), и без select_related каждый шаг к корню был бы
-    запросом. Расчётные цены (product_pricing) — тоже предзагрузкой, с
-    правилом: колонки цен (tables.ProductPriceColumn) и подсказка с именем
-    наценки читают их на каждой строке.
+    запросом.
     """
     categories = Category.objects.select_related(CATEGORY_LABEL_DEPTH)
-    prices = ProductPrice.objects.select_related('rule')
     return annotate_product_rows(
         Product.objects.select_related('brand')
-        .prefetch_related(Prefetch('categories', queryset=categories),
-                          Prefetch('prices', queryset=prices)),
+        .prefetch_related(Prefetch('categories', queryset=categories)),
         by_category=by_category,
     )
 
@@ -248,13 +239,6 @@ class ProductSuppliersView(View):
             'table': table,
             # Набор: под своими строками — строка «Из комплектующих» и состав.
             'set_totals': set_totals_for([product.pk]).get(product.pk),
-            # Цены самого товара: основные и расчётные по наценкам.
-            'base_prices': [
-                (Product._meta.get_field(field).verbose_name, getattr(product, field))
-                for field in BASE_PRICE_FIELDS if getattr(product, field)
-            ],
-            'calculated_prices': ProductPrice.objects.filter(product=product)
-            .select_related('price_type', 'rule').order_by('price_type__sorting', 'price_type__name'),
         })
 
 
@@ -336,16 +320,11 @@ class PimImageView(View):
 
 # --- карточка товара ---------------------------------------------------------
 
-def _price_list(product, fields):
-    return [(Product._meta.get_field(field).verbose_name, getattr(product, field))
-            for field in fields if getattr(product, field)]
-
-
 class ProductDetailView(DetailView):
-    """Карточка товара: цены (расчётные и основные), строки ГП, состав набора.
+    """Карточка товара: строки ГП с их фиксированными наценками, состав набора.
 
-    Отсюда же правка и удаление товара, перенос строк ГП и наценка на этот
-    товар — всё модалками в #modal-container, успех перезагружает карточку.
+    Отсюда же правка и удаление товара, перенос строк ГП и фиксированные
+    наценки строк — всё модалками в #modal-container, успех перезагружает карточку.
     """
 
     model = Product
@@ -370,9 +349,9 @@ class ProductDetailView(DetailView):
         context.update({
             'main_products': main_products,
             'category_path': category_path(category) if category else [],
-            'price_rows': product_price_rows(product),
-            'gp_prices': _price_list(product, MP_PRICES),
-            'pp_prices': _price_list(product, SUPPLIER_PRICE_FIELDS),
+            'fixed_pricetags': (PriceTag.objects.filter(p_manager__isnull=True, mp__product=product)
+                                .select_related('mp', 'mp__supplier')
+                                .order_by('mp__supplier__name', 'mp__article', 'dest')),
             'set_totals': set_totals_for([product.pk]).get(product.pk),
             'in_sets': Product.objects.filter(set_items__component=product).distinct().order_by('name'),
             'photo_url': pim_image_url(data.get('mainImageId') or data.get('imageId')),
@@ -407,7 +386,6 @@ class ProductDeleteView(View):
         return render(request, self.template_name, {
             'product': product,
             'main_products_count': product.main_products.count(),
-            'prices_count': product.prices.count(),
             'set_items_count': product.set_items.count(),
         })
 
@@ -423,19 +401,13 @@ class ProductDeleteView(View):
 
 
 def _relinked(request, main_product, target, message):
-    """Перенос строки ГП в другой товар и пересчёт цен обоих.
+    """Перенос строки ГП в другой товар.
 
-    Основные цены двух товаров пересчитываются сразу — это дёшево, и карточка
-    после перезагрузки уже верна; расчётные — общим пересчётом после коммита.
     Связь, поставленная руками, ночью не трогается: link_unlinked_main_products
     привязывает только строки без товара.
     """
-    source_pk = main_product.product_id
-    with transaction.atomic():
-        main_product.product = target
-        main_product.save(update_fields=['product'])
-        recalculate_base_prices(pks=[pk for pk in (source_pk, target.pk) if pk])
-        dispatch_after_commit(update_product_prices_task)
+    main_product.product = target
+    main_product.save(update_fields=['product'])
     messages.success(request, message)
     return HttpResponseClientRefresh()
 

@@ -5,8 +5,7 @@ from django.test import TestCase
 from django.urls import reverse
 
 from main_product_manager.models import MainProduct
-from product_pricing.models import ProductPrice, ProductPriceRule, ProductPriceType
-from product_pricing.services import calculate_product_prices, product_price_rows
+from product_price_manager.models import PriceTag
 from supplier_manager.models import Supplier
 
 from product.filters import matching_product_pks
@@ -28,39 +27,20 @@ class DetailTestCase(TestCase):
 
 
 class ProductDetailPageTests(DetailTestCase):
-    def test_page_shows_product_prices_and_main_product_rows(self):
-        retail = ProductPriceType.objects.create(name='Розничная')
-        general = ProductPriceRule.objects.create(name='Общая', price_type=retail, markup=Decimal('50'))
-        special = ProductPriceRule.objects.create(name='Особая', price_type=retail, markup=Decimal('10'),
-                                                  priority=10)
-        special.products.add(self.product)
-        self.product.prime_cost = Decimal('100')
-        self.product.save()
-        calculate_product_prices()
+    def test_page_shows_fixed_pricetags_and_main_product_rows(self):
+        PriceTag.objects.create(mp=self.row, dest='m_price', source='fixed_price', fixed_price=Decimal('12990'))
 
         response = self.client.get(reverse('product-detail', kwargs={'pk': self.product.pk}))
 
         self.assertContains(response, 'Смеситель у поставщика')
-        self.assertContains(response, '110,00')
-        self.assertContains(response, 'Особая')
-        self.assertContains(response, 'Перекрыты: Общая')
+        self.assertContains(response, 'Фиксированные наценки')
+        self.assertContains(response, '12')
+        self.assertContains(response, reverse('pricetag-create', kwargs={'pk': self.row.pk}))
         self.assertContains(response, reverse('main-product-move', kwargs={'pk': self.row.pk}))
 
     def test_products_table_links_to_the_card(self):
         response = self.client.get(reverse('products'))
         self.assertContains(response, reverse('product-detail', kwargs={'pk': self.product.pk}))
-
-    def test_price_rows_list_matching_rules_by_priority(self):
-        retail = ProductPriceType.objects.create(name='Розничная')
-        self.product.prime_cost = Decimal('100')
-        self.product.save()
-        low = ProductPriceRule.objects.create(name='Общая', price_type=retail, priority=100)
-        high = ProductPriceRule.objects.create(name='Особая', price_type=retail, priority=1)
-        ProductPriceRule.objects.create(name='Выключена', price_type=retail, is_active=False)
-
-        rows = product_price_rows(self.product)
-
-        self.assertEqual(rows[0]['rules'], [high, low])
 
 
 class ProductEditTests(DetailTestCase):
@@ -112,17 +92,12 @@ class ProductDeleteTests(DetailTestCase):
 
 
 class RelinkTests(DetailTestCase):
-    def test_attach_takes_the_row_from_its_product_and_recalculates_both(self):
-        recalculated = Product.objects.get(pk=self.product.pk)
+    def test_attach_takes_the_row_from_its_product(self):
         self.hx_post(reverse('product-attach-main-product', kwargs={'pk': self.other.pk}),
                      {'main_product': self.row.pk})
 
         self.row.refresh_from_db()
-        self.other.refresh_from_db()
-        recalculated.refresh_from_db()
         self.assertEqual(self.row.product, self.other)
-        self.assertEqual(self.other.prime_cost, Decimal('100'))
-        self.assertIsNone(recalculated.prime_cost)
 
     def test_attach_search_finds_rows_of_other_products(self):
         response = self.client.get(reverse('product-attach-main-product', kwargs={'pk': self.other.pk}),
@@ -139,38 +114,3 @@ class RelinkTests(DetailTestCase):
 
         self.row.refresh_from_db()
         self.assertEqual(self.row.product, self.other)
-
-
-class ProductRuleTests(DetailTestCase):
-    def setUp(self):
-        super().setUp()
-        self.retail = ProductPriceType.objects.create(name='Розничная')
-        Product.objects.filter(pk__in=[self.product.pk, self.other.pk]).update(prime_cost=Decimal('100'))
-
-    def test_rule_form_from_the_card_is_preset_to_the_product(self):
-        response = self.client.get(reverse('product-price-rule-create'), {'product': self.product.pk})
-
-        self.assertContains(response, 'name="products" value="%s"' % self.product.pk)
-        self.assertContains(response, 'name="priority" value="10"')
-
-    def test_product_rule_prices_only_its_products(self):
-        response = self.hx_post(reverse('product-price-rule-create'), {
-            'price_type': self.retail.pk, 'source': 'prime_cost', 'markup': '20', 'increase': '0',
-            'priority': 10, 'is_active': 'on', 'products': [self.product.pk],
-        })
-        self.assertEqual(response.headers.get('HX-Refresh'), 'true')
-        rule = ProductPriceRule.objects.get()
-        self.assertEqual(rule.name, 'Розничная: Себестоимость + 20 % · SKU-1')
-
-        calculate_product_prices()
-
-        self.assertEqual(list(ProductPrice.objects.values_list('product_id', 'value')),
-                         [(self.product.pk, Decimal('120.00'))])
-
-    def test_preview_counts_only_the_chosen_products(self):
-        response = self.client.post(reverse('product-price-rule-preview'), {
-            'price_type': self.retail.pk, 'source': 'prime_cost', 'markup': '20', 'increase': '0',
-            'priority': 10, 'is_active': 'on', 'products': [self.product.pk],
-        })
-        self.assertEqual(response.context['preview']['in_scope'], 1)
-        self.assertContains(response, 'товары: SKU-1')
