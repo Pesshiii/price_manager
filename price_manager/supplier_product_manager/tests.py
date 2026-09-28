@@ -2467,3 +2467,130 @@ class SettingFreshnessTests(TestCase):
         self._run(setting, ImportRun.STATUS_APPLIED, 400)
 
         self.assertNotIn("давно не обновлялась", self._html())
+
+
+def _xlsx_rows(rows: list[list], filename: str = "supplier.xlsx") -> SimpleUploadedFile:
+    """A Sheet1 laid out cell by cell, None for an empty cell — for files whose
+    table does not start at A1."""
+    from openpyxl import Workbook
+    workbook = Workbook()
+    sheet = workbook.active
+    sheet.title = "Sheet1"
+    for row in rows:
+        sheet.append(row)
+    excel_buffer = BytesIO()
+    workbook.save(excel_buffer)
+    return SimpleUploadedFile(
+        filename,
+        excel_buffer.getvalue(),
+        content_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    )
+
+
+class HasHeaderTests(_SupplierFixtureMixin, TestCase):
+    """«С заголовками» заменило «Ряд для индексации»: строка заголовков ищется
+    сама, над ней может быть шапка с реквизитами поставщика."""
+
+    DETAILS_ABOVE = [
+        ["ТОО «Поставщик»"],
+        ["Прайс на 01.09", None, None, "тел. 123"],
+        [],
+        ["Артикул", "Название", "Цена", "Остаток"],
+        ["А-1", "Товар 1", "10", "5"],
+        ["А-2", "Товар 2", None, "3"],
+    ]
+
+    def setUp(self):
+        _block_pim(self)
+        self.supplier = self._make_supplier()
+        self.user = get_user_model().objects.create_user(username="header", password="x")
+
+    def _setting(self, rows, **fields):
+        setting = Setting.objects.create(name=f"Заголовки {Setting.objects.count()}",
+                                         supplier=self.supplier, sheet_name="Sheet1", **fields)
+        SupplierFile.objects.create(setting=setting, file=_xlsx_rows(rows))
+        return setting
+
+    def test_header_below_supplier_details_is_found(self):
+        df = get_df(self._setting(self.DETAILS_ABOVE).pk)
+
+        self.assertEqual(list(df.columns), ["Артикул", "Название", "Цена", "Остаток"])
+        self.assertEqual(df["Артикул"].tolist(), ["А-1", "А-2"])
+        self.assertEqual(df.attrs["header_row"], 4)
+
+    def test_header_in_the_first_row(self):
+        df = get_df(self._setting([["Артикул", "Цена"], ["А-1", "10"]]).pk)
+
+        self.assertEqual(list(df.columns), ["Артикул", "Цена"])
+        self.assertEqual(df.attrs["header_row"], 1)
+
+    def test_found_header_names_columns_as_before(self):
+        # Links saved while index_row existed hold pandas' names for duplicate
+        # and blank headers; the found header must produce the same ones.
+        df = get_df(self._setting([
+            ["Прайс"],
+            ["Артикул", "Цена", None, "Цена"],
+            ["А-1", "10", "x", "12"],
+        ]).pk)
+
+        self.assertEqual(list(df.columns), ["Артикул", "Цена", "Unnamed: 2", "Цена.1"])
+
+    def test_without_header_every_row_is_data(self):
+        df = get_df(self._setting([["А-1", "10"], ["А-2", "11"]], has_header=False).pk)
+
+        self.assertEqual(list(df.columns), ["Столбец 1", "Столбец 2"])
+        self.assertEqual(df["Столбец 1"].tolist(), ["А-1", "А-2"])
+        self.assertIsNone(df.attrs["header_row"])
+
+    @override_settings(SUPPLIER_IMPORT_GUARD_MIN_HISTORY=0)
+    def test_import_reads_the_table_under_the_details(self):
+        setting = self._setting(self.DETAILS_ABOVE, create_new=True)
+        for key, value in {"article": "Артикул", "name": "Название",
+                           "supplier_price": "Цена", "stock": "Остаток"}.items():
+            Link.objects.create(setting=setting, key=key, value=value)
+
+        result = process_supplier_file_import(setting.pk, self.user.pk)
+
+        self.assertEqual(result["status"], "ok")
+        self.assertEqual(
+            sorted(SupplierProduct.objects.filter(supplier=self.supplier)
+                   .values_list("article", "stock")),
+            [("А-1", 5), ("А-2", 3)])
+
+    def _toggle(self, setting, has_header):
+        self.client.force_login(self.user)
+        data = {"name": setting.name, "sheet_name": "Sheet1", "create_new": "False",
+                "action": "apply"}
+        if has_header:
+            data["has_header"] = "on"
+        return self.client.post(reverse("setting-update", kwargs={"pk": setting.pk}), data)
+
+    def test_toggling_remaps_the_columns_and_reloads(self):
+        # Re-rendering with the POST used to keep one select per old column,
+        # so the mapping never followed the new columns.
+        setting = self._setting([["Артикул", "Цена"], ["А-1", "10"]])
+        Link.objects.create(setting=setting, key="article", value="Артикул")
+        Link.objects.create(setting=setting, key="supplier_price", value="Цена", initial="7")
+
+        response = self._toggle(setting, has_header=False)
+
+        self.assertRedirects(response, reverse("setting-update", kwargs={"pk": setting.pk}),
+                             fetch_redirect_response=False)
+        setting.refresh_from_db()
+        self.assertFalse(setting.has_header)
+        links = {link.key: (link.value, link.initial) for link in setting.links.all()}
+        self.assertEqual(links["article"], (None, None))
+        self.assertEqual(links["supplier_price"], (None, "7"))
+
+        self._toggle(setting, has_header=True)
+
+        links = dict(setting.links.values_list("key", "value"))
+        self.assertEqual(links["article"], "Артикул")
+
+    def test_page_shows_the_header_row(self):
+        setting = self._setting(self.DETAILS_ABOVE)
+        self.client.force_login(self.user)
+
+        response = self.client.get(reverse("setting-update", kwargs={"pk": setting.pk}))
+
+        self.assertContains(response, "Заголовки найдены в строке 4")

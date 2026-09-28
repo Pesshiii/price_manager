@@ -67,6 +67,11 @@
       </ul>
       <div class="tab-content p-0">
         <div class="tab-pane fade show active overflow-auto scrollbar-top" id="source-table-pane" role="tabpanel" aria-labelledby="source-table-tab" tabindex="0">
+          {% if header_row %}
+            <p class="text-muted small mb-2">Заголовки найдены в строке {{ header_row }}</p>
+          {% elif link_formset and not setting.has_header %}
+            <p class="text-muted small mb-2">Без заголовков: все строки — данные</p>
+          {% endif %}
           {%partialdef table inline=True%}
             {{link_formset.management_form|crispy}}
             <table class="table table-bordered table-hover">

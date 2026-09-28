@@ -10,9 +10,23 @@ code: price_manager/supplier_product_manager/functions.py
 - `get_df(pk, recache=False)` (`:232`) / `get_df_sheet_names(pk)` (`:210`) read
   the spreadsheet with pandas. `get_df` caches the DataFrame under
   `_df_cache_key(setting, sf)` (`:224`): setting pk, file pk, **the instance's**
-  `sheet_name` and `index_row`. Until #202 the key interpolated the class
+  `sheet_name` and `has_header`. Until #202 the key interpolated the class
   attribute `Setting.sheet_name` — one key for every sheet — so switching the
   sheet served the old sheet's columns until the entry expired.
+- **The header row is found, not configured.** With `has_header`, `get_df`
+  reads the first `HEADER_SCAN_ROWS` headerless, `find_header_row` picks the
+  first row filled to ≥80% of the median row width, and the sheet is re-read
+  with `skiprows=` that row. The second read is deliberate: pandas' own naming
+  (`Цена.1`, `Unnamed: 3`, numeric headers) is what saved `Link.value`s hold,
+  and a headerless read numbers rows exactly as `skiprows` counts them. The
+  1-based row lands in `df.attrs['header_row']` for the settings page. Without
+  headers, columns are `Столбец N` and every row is data.
+- **Toggling `has_header` must not re-render the POST.** The link formset is
+  one select per *old* column; `SettingUpdate` instead runs
+  `remap_links_to_columns` (keeps links whose column survived, clears only
+  `value` of the rest — `initial`/dicts stay — auto-detects free columns) and
+  redirects. Re-rendering the bound formset was the «столбцы не обновляются»
+  bug of the old `index_row` field.
 - `get_sps(setting_or_pk, recache=False)` (`:410`) is the expensive one. It is
   keyed by `_get_sps_cache_key(setting, signature)` (`:405`) where the signature
   comes from `_get_setting_signature(setting)` (`:369`). **If you change what a
