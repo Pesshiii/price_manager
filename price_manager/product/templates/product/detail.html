@@ -94,7 +94,7 @@
     <div class="pd-section-head">
       <h2>Фиксированные наценки</h2>
       <span class="pd-count">{{ fixed_pricetags|length }}</span>
-      <a class="btn btn-sm btn-link" href="{% url 'fixed-pricetags' %}?q={{ product.number|urlencode }}">Все фиксированные наценки</a>
+      <a class="btn btn-sm btn-link" href="{% url 'pricetags' %}?q={{ product.number|urlencode }}">Все наценки товара</a>
     </div>
     {% if fixed_pricetags %}
       <table class="table pd-table align-middle">

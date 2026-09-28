@@ -34,6 +34,8 @@ class PriceManager(models.Model):
     __str__: Возвращает название менеджера цен.
   """
   class Meta:
+    verbose_name = 'Менеджер цен'
+    verbose_name_plural = 'Менеджеры цен'
     ordering = ['dest', 'source']
   
   name = models.CharField(verbose_name='Название',
@@ -386,7 +388,7 @@ class PriceTag(models.Model):
                                 to=MainProduct,
                                 related_name='pricetags',
                                 on_delete=models.CASCADE)
-  p_manager = models.ForeignKey(verbose_name="Менеджер наценок",
+  p_manager = models.ForeignKey(verbose_name="Менеджер цен",
                                 to=PriceManager,
                                 related_name='pricetags',
                                 on_delete=models.CASCADE,

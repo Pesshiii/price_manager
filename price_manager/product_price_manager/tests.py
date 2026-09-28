@@ -1,6 +1,7 @@
 from decimal import Decimal
 
 from django.test import TestCase
+from django.urls import reverse
 
 from main_product_manager.models import MainProduct, MainProductLog
 from supplier_manager.models import Currency, Discount, Supplier
@@ -614,8 +615,8 @@ class PriceTagListTests(TestCase):
         self.assertEqual(list(response.context['fixed_pricetags']), [manual])
         self.assertEqual(list(response.context['manager_pricetags']), [from_rule])
         content = response.content.decode()
-        self.assertLess(content.index('Фиксированные'), content.index('Из менеджеров наценок'))
-        self.assertLess(content.index('Из менеджеров наценок'), content.index('Правило карточки'))
+        self.assertLess(content.index('Фиксированные'), content.index('Из менеджеров цен'))
+        self.assertLess(content.index('Из менеджеров цен'), content.index('Правило карточки'))
         # Тег правила правится в менеджере: его перезапишет следующее применение.
         self.assertIn(reverse('pricetag-update', args=[manual.pk]), content)
         self.assertNotIn(reverse('pricetag-update', args=[from_rule.pk]), content)
@@ -624,7 +625,7 @@ class PriceTagListTests(TestCase):
     def test_empty_sections_say_so(self):
         response = self.get_list()
         self.assertContains(response, 'Нет наценок, заданных для этого товара.')
-        self.assertContains(response, 'Ни один менеджер наценок не применяется к этому товару.')
+        self.assertContains(response, 'Ни один менеджер цен не применяется к этому товару.')
 
 
 
@@ -675,7 +676,7 @@ class UnsuppliedRuleTests(TestCase):
 
 
 class PriceManagerPageTests(TestCase):
-    """«Наценки ГП»: все правила, фильтр по поставщику, создание без поставщика."""
+    """«Менеджеры цен»: все менеджеры, фильтр по поставщику, создание без поставщика."""
 
     def setUp(self):
         from django.contrib.auth.models import User
@@ -944,8 +945,8 @@ class PriceManagerCleanTests(TestCase):
         self.assertEqual(rule.source, 'prime_cost')
 
 
-class FixedPriceTagPageTests(TestCase):
-    """«Фиксированные наценки»: наценки на самих строках ГП, без правил."""
+class PriceTagPageTests(TestCase):
+    """«Наценки»: все наценки строк ГП, фильтр по менеджеру цен."""
 
     def setUp(self):
         from django.contrib.auth.models import User
@@ -968,26 +969,40 @@ class FixedPriceTagPageTests(TestCase):
 
     def get_page(self, **params):
         from django.urls import reverse
-        return self.client.get(reverse('fixed-pricetags'), params)
+        return self.client.get(reverse('pricetags'), params)
 
-    def test_lists_only_tags_without_a_rule(self):
+    def test_lists_all_tags(self):
         response = self.get_page()
-        self.assertEqual({tag.pk for tag in response.context['page']}, {self.fixed.pk, self.markup.pk})
+        self.assertEqual({tag.pk for tag in response.context['page']},
+                         {self.fixed.pk, self.markup.pk, self.from_rule.pk})
         self.assertContains(response, 'FIX-1')
         self.assertContains(response, '+20%')
-        self.assertEqual(response.context['counts'], {'all': 2, 'none': 1})
+        self.assertEqual(response.context['counts'], {'all': 3, 'none': 1})
+
+    def test_rule_filter(self):
+        self.assertEqual({t.pk for t in self.get_page(rule='none').context['page']},
+                         {self.fixed.pk, self.markup.pk})
+        response = self.get_page(rule=self.from_rule.p_manager_id)
+        self.assertEqual([t.pk for t in response.context['page']], [self.from_rule.pk])
+        # Наценка менеджера цен открывает модалку менеджера, а не наценки.
+        self.assertContains(response, reverse('pricemanager-update', args=[self.from_rule.p_manager_id]))
+        self.assertNotContains(response, reverse('pricetag-update', args=[self.from_rule.pk]))
+
+    def test_old_fixed_url_redirects_to_tags_without_rule(self):
+        response = self.client.get(reverse('fixed-pricetags'), {'q': 'fix'})
+        self.assertRedirects(response, reverse('pricetags') + '?q=fix&rule=none', fetch_redirect_response=False)
 
     def test_filters(self):
         self.assertEqual([t.pk for t in self.get_page(q='fix-2').context['page']], [self.markup.pk])
         self.assertEqual([t.pk for t in self.get_page(supplier='none').context['page']], [self.markup.pk])
-        self.assertEqual([t.pk for t in self.get_page(supplier=self.supplier.pk).context['page']],
-                         [self.fixed.pk])
-        self.assertEqual(list(self.get_page(dest='prime_cost').context['page']), [])
+        self.assertEqual({t.pk for t in self.get_page(supplier=self.supplier.pk).context['page']},
+                         {self.fixed.pk, self.from_rule.pk})
+        self.assertEqual([t.pk for t in self.get_page(dest='prime_cost').context['page']], [self.from_rule.pk])
 
     def test_deprecated_hidden_by_default(self):
         PriceTag.objects.filter(pk=self.fixed.pk).update(deprecated=True)
-        self.assertEqual([t.pk for t in self.get_page().context['page']], [self.markup.pk])
-        self.assertEqual(len(self.get_page(deprecated='1').context['page']), 2)
+        self.assertEqual([t.pk for t in self.get_page(rule='none').context['page']], [self.markup.pk])
+        self.assertEqual(len(self.get_page(rule='none', deprecated='1').context['page']), 2)
 
     def test_update_and_delete_from_the_modal(self):
         from django.urls import reverse

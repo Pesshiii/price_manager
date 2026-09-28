@@ -30,7 +30,7 @@
   <label class="form-label text-muted small fw-semibold text-uppercase" for="{{ form.supplier.id_for_label }}">{{ form.supplier.label }}</label>
   {% render_field form.supplier class="form-select form-select-sm" %}
   {% if form.supplier.field.disabled %}
-    <div class="form-text">Поставщика у сохранённой наценки не меняют — создайте новую.</div>
+    <div class="form-text">Поставщика у сохранённого менеджера цен не меняют — создайте новый.</div>
   {% endif %}
   {% if form.supplier.errors %}
     <div class="invalid-feedback d-block">{{ form.supplier.errors|join:", " }}</div>

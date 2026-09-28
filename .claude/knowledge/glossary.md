@@ -31,9 +31,10 @@ that explains it rather than explaining it here.
 | Цена поставщика, РРЦ, цена со скидкой (в валюте поставщика) | `SupplierProduct.supplier_price`, `rrp`, `discount_price` | `SP_PRICES`; not comparable across suppliers. |
 | Уровень по цене, уровень по остаткам | `Supplier.price_priority`, `Supplier.stock_priority` | Smaller is higher; empty is the shared bottom level. |
 | Основная цена / основной остаток | `product.main_values` | The value by supplier levels, used by the export and by set cost. [[product/export]] |
-| «Наценки ГП» (`/price-manager/`) | `PriceManagerPage` | All `PriceManager`s; «Без поставщика» = `supplier` NULL. |
-| Наценка, менеджер наценок | `PriceManager` (rule), `PriceTag` (verbose name «Наценка») | Applying a rule rewrites prices catalog-wide. [[product_price_manager/overview]] |
-| Фиксированная наценка (`/price-manager/fixed/`) | `PriceTag` with `p_manager` NULL, `FixedPriceTagPage` | Set on one ГП row; applied after the rules, so it overrides them. |
+| «Менеджеры цен» (`/price-manager/`) | `PriceManagerPage` | All `PriceManager`s; «Без поставщика» = `supplier` NULL. Was «Наценки ГП». |
+| Менеджер цен / наценка | `PriceManager` (rule, «Менеджер цен»), `PriceTag` («Наценка») | Applying a rule rewrites prices catalog-wide. [[product_price_manager/overview]] |
+| «Наценки» (`/price-manager/pricetags/`) | every `PriceTag`, `PriceTagPage` | Filter `?rule=<pk>\|none`. |
+| Фиксированная наценка (`?rule=none`) | `PriceTag` with `p_manager` NULL | Set on one ГП row; applied after the rules, so it overrides them. `/price-manager/fixed/` redirects to `?rule=none`. |
 | ПП, прайс поставщика (в наценках) | `SupplierProduct.supplier_price` / `rrp` / `discount_price` | Sources «РРЦ / Цена поставщика в валюте поставщика» in the rule form; converted by the supplier currency. |
 
 ## Suppliers and import

@@ -89,13 +89,14 @@ urlpatterns = [
     path('currency/create/', sm_views.CurrencyCreate.as_view(), name='currency-create'),
     path('currency/<int:id>/update', sm_views.CurrencyUpdate.as_view(), name='currency-update'),
 
-    # «Наценки ГП»: все правила строк ГП — поставщиков и без поставщика.
+    # «Менеджеры цен»: все менеджеры цен строк ГП — поставщиков и без поставщика.
     path('price-manager/', ppm_views.PriceManagerPage.as_view(), name='price-manager'),
     path('price-manager/create/', ppm_views.PriceManagerCreate.as_view(), name='price-manager-create'),
     path('price-manager/create-for/<int:pk>', ppm_views.PriceManagerCreate.as_view(), name='pricemanager-create'),
     path('price-manager/<int:id>/delete', ppm_views.PriceManagerDelete.as_view(), name='price-manager-delete'),
-    # Фиксированные наценки — заданные на самой строке ГП (PriceTag без правила).
-    path('price-manager/fixed/', ppm_views.FixedPriceTagPage.as_view(), name='fixed-pricetags'),
+    # «Наценки»: все PriceTag строк ГП, фильтр по менеджеру цен (none — заданные на строке).
+    path('price-manager/pricetags/', ppm_views.PriceTagPage.as_view(), name='pricetags'),
+    path('price-manager/fixed/', ppm_views.fixed_pricetags_redirect, name='fixed-pricetags'),
 
     
     path('pricetag/create-for/<int:pk>', ppm_views.PriceTagCreate.as_view(), name='pricetag-create'),
