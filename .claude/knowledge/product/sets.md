@@ -157,4 +157,4 @@ in both formats.
 [[product/pim-set-writes]] for the `AtroCore`/`pim_api.upsert_async` traps
 found doing exactly that for ~770 rack sets: the `reverseAssociationId`
 requirement, a `Failed` `upsert_async` item that still wrote the row, and the
-case-insensitive `number` filter matching case-twin duplicates in PIM itself.
+case-sensitive PIM `number` filter against our case-insensitive `number`.
