@@ -45,6 +45,10 @@ Task `product.sync_product_sets` (`tasks.py:77-92`, `execute_locked_task`,
   `Association` whose `code == 'set_components'`, `services/sets.py:58-63,66-72`)
   — PIM auto-creates the reverse `part_of_set` association too, and its
   `amount` is always `NULL`, so reading it would silently drop quantities.
+  There is no write path here yet — [[product/pim-set-writes]] has the traps
+  found writing compositions into PIM by hand (e.g. that a manual
+  `AssociatedProduct` write needs an explicit `reverseAssociationId` or the
+  reverse row never appears).
 - **Resolving a PIM product id → local `Product`** (`_candidates`/`_pick`,
   `services/sets.py:107-127`): match by PMP `platformID` (= local pk) first,
   then `number__iexact` (case-insensitive per the `Lower('number')`
@@ -145,3 +149,12 @@ assert exact header lists, and a non-set export must produce byte-identical
 headers to before. Both the xlsx path and `FullCsvExporter` share the same
 `rows()` generator (see [[product/export]]), so set columns behave identically
 in both formats.
+
+### Writing compositions into PIM by hand
+
+`sync_product_sets` is read-only against PIM. When compositions have to be
+*authored* — e.g. bulk-filling set data for a whole category — see
+[[product/pim-set-writes]] for the `AtroCore`/`pim_api.upsert_async` traps
+found doing exactly that for ~770 rack sets: the `reverseAssociationId`
+requirement, a `Failed` `upsert_async` item that still wrote the row, and the
+case-insensitive `number` filter matching case-twin duplicates in PIM itself.
