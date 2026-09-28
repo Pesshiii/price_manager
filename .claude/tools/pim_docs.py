@@ -205,7 +205,7 @@ def dotenv_values():
         return values
     candidates = [REPO_ROOT / '.env']
     common = subprocess.run(['git', '-C', str(REPO_ROOT), 'rev-parse', '--git-common-dir'],
-                            capture_output=True, text=True).stdout.strip()
+                            capture_output=True, text=True, encoding='utf-8').stdout.strip()
     if common:
         common_dir = Path(common) if Path(common).is_absolute() else REPO_ROOT / common
         candidates.append(common_dir.resolve().parent / '.env')
