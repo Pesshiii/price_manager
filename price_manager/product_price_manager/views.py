@@ -114,7 +114,7 @@ class PriceManagerList(SingleTableView):
 
 
 class PriceManagerCreate(RuleFormRefreshMixin, CreateView):
-  '''Создание Наценки <<price-manager/create/>>
+  '''Создание менеджера цен <<price-manager/create/>>
 
   Поставщик выбирается в самой форме. create-for/<pk> и ?supplier=<pk>
   только предвыбирают его; при сохранении решает поле формы, а форма
@@ -180,15 +180,15 @@ class PriceManagerCreate(RuleFormRefreshMixin, CreateView):
     instance.name = self._build_generated_name(supplier, cd)
     instance.save()
     instance.discounts.set(cd['discounts'])
-    messages.success(self.request, 'Менеджер добавлен')
+    messages.success(self.request, 'Менеджер цен добавлен')
     return HttpResponseClientRefresh()
 
 
 
 class PriceManagerUpdate(RuleFormRefreshMixin, SingleTableMixin, UpdateView):
-  '''Обновление Наценки <<price-manager/<int:pk>/>>
+  '''Обновление менеджера цен <<price-manager/<int:pk>/>>
 
-  Поставщик правила заблокирован — см. PriceManagerForm.
+  Поставщик менеджера цен заблокирован — см. PriceManagerForm.
   '''
   model = PriceManager
   form_class = PriceManagerForm
@@ -217,16 +217,16 @@ class PriceManagerUpdate(RuleFormRefreshMixin, SingleTableMixin, UpdateView):
     instance = form.save(commit=False)
     instance.save()
     instance.discounts.set(cd['discounts'])
-    messages.success(self.request, 'Обновления менеджера сохранены')
+    messages.success(self.request, 'Менеджер цен сохранён')
     return HttpResponseClientRefresh()
   
 
 
 class PriceManagerPage(TemplateView):
-  """«Наценки ГП»: все правила наценок строк ГП — поставщиков и без поставщика.
+  """«Менеджеры цен»: все менеджеры цен строк ГП — поставщиков и без поставщика.
 
-  Правила поставщика по-прежнему видны и на его странице; здесь — общий
-  список, включая правила без поставщика (на наборы, возвраты, бонусы,
+  Менеджеры цен поставщика по-прежнему видны и на его странице; здесь — общий
+  список, включая менеджеры без поставщика (на наборы, возвраты, бонусы,
   остатки). ?supplier=none|<pk> — фильтр, ?deprecated=1 — показать
   устаревшие.
   """
@@ -265,24 +265,25 @@ class PriceManagerPage(TemplateView):
     return context
 
 
-class FixedPriceTagPage(TemplateView):
-  """«Фиксированные наценки»: наценки, заданные на самой строке ГП.
+class PriceTagPage(TemplateView):
+  """«Наценки»: все PriceTag строк ГП — и из менеджеров цен, и заданные на
+  самой строке (p_manager пуст).
 
-  Это PriceTag без правила (p_manager пуст) — их пересчитывает update_prices
-  после правил, так что они перекрывают наценки поставщиков. Правятся той же
-  модалкой, что и в карточке товара (PriceTagUpdate). Фильтры: ?q= — артикул
-  или название строки/товара, ?supplier=none|<pk>, ?dest=<цена>,
-  ?deprecated=1 — показать устаревшие.
+  Заданные на строке пересчитывает update_prices после менеджеров цен, так что
+  они перекрывают их; правятся той же модалкой, что и в карточке товара
+  (PriceTagUpdate). Наценку из менеджера цен правят в самом менеджере — её
+  перезапишет следующий пересчёт. Фильтры: ?q= — артикул или название
+  строки/товара, ?rule=none|<pk> — менеджер цен (none — заданные на строке),
+  ?supplier=none|<pk>, ?dest=<цена>, ?deprecated=1 — показать устаревшие.
   """
-  template_name = 'price_manager/fixed_pricetags.html'
+  template_name = 'price_manager/pricetags.html'
   paginate_by = 100
 
   def get_context_data(self, **kwargs):
     from django.core.paginator import Paginator
     context = super().get_context_data(**kwargs)
     params = self.request.GET
-    tags = (PriceTag.objects.filter(p_manager__isnull=True)
-            .select_related('mp', 'mp__supplier', 'mp__product'))
+    tags = PriceTag.objects.select_related('mp', 'mp__supplier', 'mp__product', 'p_manager')
     show_deprecated = params.get('deprecated') == '1'
     if not show_deprecated:
       tags = tags.filter(deprecated=False)
@@ -290,6 +291,20 @@ class FixedPriceTagPage(TemplateView):
     if q:
       tags = tags.filter(Q(mp__sku__icontains=q) | Q(mp__article__icontains=q)
                          | Q(mp__name__icontains=q) | Q(mp__product__name__icontains=q))
+    rule = params.get('rule', '')
+    selected_rule = None
+    if rule == 'none':
+      tags = tags.filter(p_manager__isnull=True)
+    elif rule.isdigit():
+      selected_rule = PriceManager.objects.filter(pk=rule).first()
+      tags = tags.filter(p_manager=selected_rule)
+    else:
+      rule = ''
+    dest = params.get('dest', '')
+    if dest in MP_PRICES:
+      tags = tags.filter(dest=dest)
+    else:
+      dest = ''
     counts = {'all': tags.count(), 'none': tags.filter(mp__supplier__isnull=True).count()}
     selected = params.get('supplier', '')
     selected_supplier = None
@@ -298,21 +313,23 @@ class FixedPriceTagPage(TemplateView):
     elif selected.isdigit():
       selected_supplier = Supplier.objects.filter(pk=selected).first()
       tags = tags.filter(mp__supplier=selected_supplier)
-    dest = params.get('dest', '')
-    if dest in MP_PRICES:
-      tags = tags.filter(dest=dest)
-    else:
-      dest = ''
     page = Paginator(tags.order_by('mp__sku', 'mp__supplier__name', 'dest', 'pk'),
                      self.paginate_by).get_page(params.get('page'))
     for tag in page:
       tag.current_price = getattr(tag.mp, tag.dest, None) if tag.dest else None
     query = params.copy()
     query.pop('page', None)
+    rules = PriceManager.objects.select_related('supplier')
+    if not show_deprecated:
+      # Выбранный устаревший менеджер остаётся в списке, иначе выбор пропадёт.
+      rules = rules.filter(Q(deprecated=False) | Q(pk=getattr(selected_rule, 'pk', 0)))
     context.update({
       'page': page,
       'counts': counts,
       'q': q,
+      'rule': rule,
+      'selected_rule': selected_rule,
+      'rules': rules.order_by('supplier__name', 'dest', 'source', 'name'),
       'selected': selected,
       'selected_supplier': selected_supplier,
       'dest': dest,
@@ -320,9 +337,16 @@ class FixedPriceTagPage(TemplateView):
       'show_deprecated': show_deprecated,
       'query': query.urlencode(),
       'suppliers': Supplier.objects.filter(
-        pk__in=PriceTag.objects.filter(p_manager__isnull=True).values('mp__supplier')).order_by('name'),
+        pk__in=PriceTag.objects.values('mp__supplier')).order_by('name'),
     })
     return context
+
+
+def fixed_pricetags_redirect(request):
+  """Старый адрес «Фиксированных наценок» — те же наценки с ?rule=none."""
+  query = request.GET.copy()
+  query['rule'] = 'none'
+  return redirect(f"{reverse('pricetags')}?{query.urlencode()}")
 
 
 class PriceManagerDetail(DetailView):
@@ -345,8 +369,8 @@ class PriceTagList(TemplateView):
     context = super().get_context_data(**kwargs)
     context['mainproduct'] = MainProduct.objects.get(pk=self.kwargs.get('pk',None))
     pricetags = PriceTag.objects.filter(mp=self.kwargs.get('pk',None))
-    # Заданные на самом товаре и пришедшие из менеджеров наценок показываются
-    # раздельно: вторые перезаписывает правило, править их надо в менеджере.
+    # Заданные на самом товаре и пришедшие из менеджеров цен показываются
+    # раздельно: вторые перезаписывает менеджер цен, править их надо в нём.
     context['fixed_pricetags'] = pricetags.filter(p_manager__isnull=True).order_by('dest')
     context['manager_pricetags'] = (pricetags.filter(p_manager__isnull=False)
                                     .select_related('p_manager').order_by('p_manager__name', 'dest'))
@@ -383,7 +407,7 @@ def _pricetag_form_error(mp, cd):
 
 class _PriceTagFormMixin:
   """Модалка фиксированной наценки строки ГП — с карточки товара и со
-  страницы «Фиксированные наценки»; успех перезагружает ту, откуда открыли."""
+  страницы «Наценки»; успех перезагружает ту, откуда открыли."""
   model = PriceTag
   form_class = PriceTagForm
   template_name = 'price_manager/partials/pricetag_form.html'
@@ -435,7 +459,8 @@ class PriceTagCreate(_PriceTagFormMixin, CreateView):
 class PriceTagUpdate(_PriceTagFormMixin, UpdateView):
   """Правка и удаление (POST delete=true) фиксированной наценки.
 
-  Наценки из правил (p_manager) здесь не правятся — их перезапишет правило.
+  Наценки из менеджеров цен (p_manager) здесь не правятся — их перезапишет
+  менеджер цен.
   """
   success_message = 'Наценка сохранена'
 

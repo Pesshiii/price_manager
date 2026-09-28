@@ -1,11 +1,11 @@
 {% extends "base.html" %}
 {% comment %}
-  «Наценки ГП» (PriceManagerPage): все правила наценок строк ГП — поставщиков
-  и без поставщика. Поставщик правила выбирается в самой форме.
-  Наценки, заданные на самой строке, — на соседней вкладке (fixed_pricetags.html).
+  «Менеджеры цен» (PriceManagerPage): все менеджеры цен строк ГП — поставщиков
+  и без поставщика. Поставщик менеджера выбирается в самой форме.
+  Все наценки строк — на соседней вкладке (pricetags.html).
 {% endcomment %}
 
-{% block title %}Наценки ГП{% endblock %}
+{% block title %}Менеджеры цен{% endblock %}
 
 {% block style %}
 <style>
@@ -38,18 +38,18 @@
 <div class="container-fluid pm-page py-3">
   <div class="d-flex flex-wrap align-items-start gap-2">
     <div class="me-auto">
-      <h1 class="h4 mb-0">Наценки ГП</h1>
+      <h1 class="h4 mb-0">Менеджеры цен</h1>
     </div>
     <button type="button" class="btn btn-primary btn-sm"
             data-bs-toggle="modal" data-bs-target="#modal-container"
             hx-get="{% url 'price-manager-create' %}{% if selected_supplier %}?supplier={{ selected_supplier.pk }}{% endif %}"
             hx-target="#modal-container .modal-content" hx-swap="innerHTML">
-      <i class="bi bi-plus-lg me-1" aria-hidden="true"></i>Добавить наценку
+      <i class="bi bi-plus-lg me-1" aria-hidden="true"></i>Добавить менеджер цен
     </button>
   </div>
   <ul class="nav nav-underline mt-2">
-    <li class="nav-item"><a class="nav-link active" aria-current="page" href="{% url 'price-manager' %}">Правила</a></li>
-    <li class="nav-item"><a class="nav-link" href="{% url 'fixed-pricetags' %}">Фиксированные на строках</a></li>
+    <li class="nav-item"><a class="nav-link active" aria-current="page" href="{% url 'price-manager' %}">Менеджеры цен</a></li>
+    <li class="nav-item"><a class="nav-link" href="{% url 'pricetags' %}">Наценки</a></li>
   </ul>
 
   <nav class="pm-filters" aria-label="Фильтр по поставщику">
@@ -86,7 +86,7 @@
             <th>Считает</th>
             <th>Условия</th>
             <th>Формула</th>
-            <th class="pm-num" title="Строк ГП, к которым правило применено">Строк</th>
+            <th class="pm-num" title="Наценок — строк ГП, к которым менеджер цен применён">Наценок</th>
             <th></th>
           </tr>
         </thead>
@@ -125,13 +125,13 @@
                   {% if rule.markup >= 0 %}+{% endif %}{{ rule.markup|floatformat:"g" }}%{% if rule.increase %} {% if rule.increase > 0 %}+{% endif %}{{ rule.increase|floatformat:"g" }} тг{% endif %}
                 {% endif %}
               </td>
-              <td class="pm-num">{{ rule.rows_count }}</td>
+              <td class="pm-num"><a href="{% url 'pricetags' %}?rule={{ rule.pk }}{% if rule.deprecated %}&deprecated=1{% endif %}" class="text-decoration-none" title="Наценки этого менеджера цен">{{ rule.rows_count }}</a></td>
               <td class="text-end">
                 <button type="button" class="btn btn-sm btn-outline-secondary"
                         data-bs-toggle="modal" data-bs-target="#modal-container"
                         hx-get="{% url 'pricemanager-update' rule.pk %}"
                         hx-target="#modal-container .modal-content" hx-swap="innerHTML"
-                        title="{{ rule.name }}" aria-label="Изменить наценку «{{ rule.name }}»">
+                        title="{{ rule.name }}" aria-label="Изменить менеджер цен «{{ rule.name }}»">
                   <i class="bi bi-pencil"></i>
                 </button>
               </td>
@@ -142,7 +142,7 @@
     </div>
   {% else %}
     <div class="pm-empty">
-      Наценок нет
+      Менеджеров цен нет
     </div>
   {% endif %}
 </div>

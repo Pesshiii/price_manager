@@ -1,2 +1,2 @@
-{% comment %}Формула фиксированной наценки строки ГП: цена в тенге или % и надбавка.{% endcomment %}
+{% comment %}Формула наценки строки ГП: цена в тенге или % и надбавка.{% endcomment %}
 <span class="text-nowrap">{% if tag.is_fixed_price %}{{ tag.fixed_price|floatformat:"2g"|default:"—" }} тг{% else %}{% if tag.markup >= 0 %}+{% endif %}{{ tag.markup|floatformat:"g" }}%{% if tag.increase %} {% if tag.increase > 0 %}+{% endif %}{{ tag.increase|floatformat:"g" }} тг{% endif %}{% endif %}</span>

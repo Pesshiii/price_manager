@@ -1,11 +1,12 @@
 {% extends "base.html" %}
 {% comment %}
-  «Фиксированные наценки» (FixedPriceTagPage): наценки, заданные на самой
-  строке ГП, — PriceTag без правила. Заводятся на строке в карточке товара,
-  правятся здесь или там же одной модалкой (PriceTagUpdate).
+  «Наценки» (PriceTagPage): все PriceTag строк ГП — из менеджеров цен и
+  заданные на самой строке. Заданные на строке заводятся в карточке товара и
+  правятся здесь или там же одной модалкой (PriceTagUpdate); наценка из
+  менеджера цен открывает модалку самого менеджера.
 {% endcomment %}
 
-{% block title %}Фиксированные наценки{% endblock %}
+{% block title %}Наценки{% endblock %}
 
 {% block style %}
 <style>
@@ -18,6 +19,9 @@
   .pm-pill .pm-pill-count { font-size: .75rem; color: var(--bs-secondary-color); }
   .pm-pill.is-active .pm-pill-count { color: inherit; }
   .pm-select { width: auto; min-width: 12rem; }
+  .pm-rule-select { width: auto; max-width: 28rem; }
+  .pm-rule { max-width: 22rem; }
+  .pm-on-row { color: var(--bs-primary-text-emphasis); white-space: nowrap; }
   .pm-search { width: 16rem; }
   .pm-table { font-size: .875rem; }
   .pm-table th { font-weight: 500; font-size: .8125rem; color: var(--bs-secondary-color); white-space: nowrap; }
@@ -34,13 +38,13 @@
 
 {% block body %}
 <div class="container-fluid pm-page py-3">
-  <h1 class="h4 mb-0">Фиксированные наценки</h1>
+  <h1 class="h4 mb-0">Наценки</h1>
   <ul class="nav nav-underline pm-tabs">
-    <li class="nav-item"><a class="nav-link" href="{% url 'price-manager' %}">Правила</a></li>
-    <li class="nav-item"><a class="nav-link active" aria-current="page" href="{% url 'fixed-pricetags' %}">Фиксированные на строках</a></li>
+    <li class="nav-item"><a class="nav-link" href="{% url 'price-manager' %}">Менеджеры цен</a></li>
+    <li class="nav-item"><a class="nav-link active" aria-current="page" href="{% url 'pricetags' %}">Наценки</a></li>
   </ul>
   <p class="small text-body-secondary mt-2 mb-0">
-    Наценки, заданные на самой строке ГП. Пересчёт применяет их после правил, поэтому они перекрывают правила.
+    Наценки строк ГП — из менеджеров цен и заданные на самой строке. Заданные на строке пересчёт применяет после менеджеров цен, поэтому они их перекрывают.
     Добавить — кнопкой <i class="bi bi-tag" aria-hidden="true"></i> у строки в карточке товара.
   </p>
 
@@ -56,6 +60,14 @@
         <option value="{{ value }}" {% if dest == value %}selected{% endif %}>{{ label }}</option>
       {% endfor %}
     </select>
+    <label class="visually-hidden" for="pm-rule">Менеджер цен</label>
+    <select id="pm-rule" name="rule" class="form-select form-select-sm pm-rule-select" onchange="this.form.submit()">
+      <option value="">Любой менеджер цен</option>
+      <option value="none" {% if rule == 'none' %}selected{% endif %}>Без менеджера цен — заданные на строке</option>
+      {% for pm in rules %}
+        <option value="{{ pm.pk }}" {% if selected_rule.pk == pm.pk %}selected{% endif %}>{{ pm.name }}{% if pm.deprecated %} (устарел){% endif %}</option>
+      {% endfor %}
+    </select>
     <button class="btn btn-sm btn-outline-secondary">Найти</button>
     <div class="form-check form-switch ms-auto mb-0">
       <input class="form-check-input" type="checkbox" role="switch" id="pm-deprecated" {% if show_deprecated %}checked{% endif %}
@@ -65,15 +77,16 @@
   </form>
 
   <nav class="pm-filters mt-0" aria-label="Фильтр по поставщику">
-    <a class="pm-pill{% if not selected %} is-active{% endif %}" href="?{% if q %}q={{ q|urlencode }}&{% endif %}{% if dest %}dest={{ dest }}&{% endif %}{% if show_deprecated %}deprecated=1{% endif %}">
+    <a class="pm-pill{% if not selected %} is-active{% endif %}" href="?{% if q %}q={{ q|urlencode }}&{% endif %}{% if rule %}rule={{ rule }}&{% endif %}{% if dest %}dest={{ dest }}&{% endif %}{% if show_deprecated %}deprecated=1{% endif %}">
       Все <span class="pm-pill-count">{{ counts.all }}</span>
     </a>
-    <a class="pm-pill{% if selected == 'none' %} is-active{% endif %}" href="?supplier=none{% if q %}&q={{ q|urlencode }}{% endif %}{% if dest %}&dest={{ dest }}{% endif %}{% if show_deprecated %}&deprecated=1{% endif %}">
+    <a class="pm-pill{% if selected == 'none' %} is-active{% endif %}" href="?supplier=none{% if q %}&q={{ q|urlencode }}{% endif %}{% if rule %}&rule={{ rule }}{% endif %}{% if dest %}&dest={{ dest }}{% endif %}{% if show_deprecated %}&deprecated=1{% endif %}">
       <i class="bi bi-box-seam" aria-hidden="true"></i>Без поставщика <span class="pm-pill-count">{{ counts.none }}</span>
     </a>
     <form method="get" class="d-flex gap-2 align-items-center">
       {% if q %}<input type="hidden" name="q" value="{{ q }}">{% endif %}
       {% if dest %}<input type="hidden" name="dest" value="{{ dest }}">{% endif %}
+      {% if rule %}<input type="hidden" name="rule" value="{{ rule }}">{% endif %}
       {% if show_deprecated %}<input type="hidden" name="deprecated" value="1">{% endif %}
       <label class="visually-hidden" for="pm-supplier">Поставщик</label>
       <select id="pm-supplier" name="supplier" class="form-select form-select-sm pm-select" onchange="this.form.submit()">
@@ -93,6 +106,7 @@
           <tr>
             <th>Товар</th>
             <th>Строка ГП</th>
+            <th>Менеджер цен</th>
             <th>Считает</th>
             <th class="pm-num">Формула</th>
             <th class="pm-num" title="Цена, которая сейчас стоит в строке ГП">Сейчас</th>
@@ -115,6 +129,13 @@
                 {% if tag.mp.supplier %}{{ tag.mp.supplier.name }}{% else %}<span class="pm-no-supplier"><i class="bi bi-box-seam" aria-hidden="true"></i>Без поставщика</span>{% endif %}
                 <div class="pm-sub">{{ tag.mp.article }}{% if tag.mp.is_set %} · набор{% endif %}</div>
               </td>
+              <td>
+                {% if tag.p_manager %}
+                  <span class="d-inline-block text-truncate pm-rule align-middle" title="{{ tag.p_manager.name }}">{{ tag.p_manager.name }}</span>
+                {% else %}
+                  <span class="pm-on-row"><i class="bi bi-tag me-1" aria-hidden="true"></i>На строке</span>
+                {% endif %}
+              </td>
               <td>{% include 'price_manager/partials/pricetag_flow.html' with tag=tag %}</td>
               <td class="pm-num">{% include 'price_manager/partials/pricetag_formula.html' with tag=tag %}</td>
               <td class="pm-num">{{ tag.current_price|floatformat:"2g"|default:"—" }}</td>
@@ -129,9 +150,14 @@
               <td class="text-end">
                 <button type="button" class="btn btn-sm btn-outline-secondary"
                         data-bs-toggle="modal" data-bs-target="#modal-container"
+                        {% if tag.p_manager %}
+                        hx-get="{% url 'pricemanager-update' tag.p_manager.pk %}"
+                        title="Изменить менеджер цен" aria-label="Изменить менеджер цен «{{ tag.p_manager.name }}»"
+                        {% else %}
                         hx-get="{% url 'pricetag-update' tag.pk %}"
-                        hx-target="#modal-container .modal-content" hx-swap="innerHTML"
-                        title="Изменить" aria-label="Изменить наценку строки {{ tag.mp.sku }}">
+                        title="Изменить" aria-label="Изменить наценку строки {{ tag.mp.sku }}"
+                        {% endif %}
+                        hx-target="#modal-container .modal-content" hx-swap="innerHTML">
                   <i class="bi bi-pencil"></i>
                 </button>
               </td>
@@ -149,7 +175,7 @@
     {% endif %}
   {% else %}
     <div class="pm-empty">
-      {% if q or selected or dest %}Под фильтр ничего не подходит{% else %}Фиксированных наценок нет{% endif %}
+      {% if q or selected or dest or rule %}Под фильтр ничего не подходит{% else %}Наценок нет{% endif %}
     </div>
   {% endif %}
 </div>

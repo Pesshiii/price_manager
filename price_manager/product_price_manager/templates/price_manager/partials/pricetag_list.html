@@ -37,14 +37,14 @@
 <p class="small text-muted">Нет наценок, заданных для этого товара.</p>
 {% endfor %}
 
-<h5 class="text-muted mt-3 mb-2">Из менеджеров наценок</h5>
+<h5 class="text-muted mt-3 mb-2">Из менеджеров цен</h5>
 {% for pricetag in manager_pricetags %}
 <div class="border rounded p-2 mb-2">
   <div>{{pricetag}}</div>
   <div class="small text-muted">
-    Менеджер:
+    Менеджер цен:
     <a href="#"
-       title="Открыть менеджер наценок"
+       title="Открыть менеджер цен"
        data-bs-toggle="modal"
        data-bs-target="#modal-container"
        hx-get="{% url 'pricemanager-update' pricetag.p_manager.pk %}"
@@ -54,5 +54,5 @@
   </div>
 </div>
 {% empty %}
-<p class="small text-muted">Ни один менеджер наценок не применяется к этому товару.</p>
+<p class="small text-muted">Ни один менеджер цен не применяется к этому товару.</p>
 {% endfor %}
