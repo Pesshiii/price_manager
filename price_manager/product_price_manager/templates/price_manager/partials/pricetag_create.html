@@ -10,10 +10,6 @@
               {{ form.errors }}
             </div>
             <div class="row">
-              <div>
-                {{form.has_rrp|add_label_class:"form-lable mb-1 mt-4"}}
-                {% render_field form.has_rrp class="form-select mb-4"%}
-              </div>
               <div class="row gap-3">
                 <div class="col-3">
                   {{form.date_from|add_label_class:"form-lable mb-1 mt-4"}}

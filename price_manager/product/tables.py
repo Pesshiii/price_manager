@@ -417,6 +417,7 @@ class SupplierRowTable(tables.Table):
     """
 
     actions = tables.Column(verbose_name='', empty_values=(), orderable=False)
+    supplier = tables.Column(verbose_name=COLUMN_LABELS['supplier'], empty_values=())
     name = tables.Column(verbose_name=COLUMN_LABELS['name'])
     stock = tables.Column(verbose_name=COLUMN_LABELS['stock'], empty_values=())
     # Единственная колонка, которой разрешён перенос строк: сообщение о наличии
@@ -425,14 +426,16 @@ class SupplierRowTable(tables.Table):
                               attrs={'td': {'class': 'col-wrap'}})
     delivery_days = tables.Column(verbose_name=COLUMN_LABELS['delivery_days'], empty_values=())
 
-    DECLARED = ('actions', 'name', 'stock', 'stock_msg', 'delivery_days')
+    DECLARED = ('actions', 'supplier', 'name', 'stock', 'stock_msg', 'delivery_days')
 
     class Meta:
         model = MainProduct
         fields = ()
         orderable = False
-        template_name = 'django_tables2/bootstrap5.html'
+        # Строка набора раскрывает под собой состав — см. сам шаблон.
+        template_name = 'product/partials/supplier_rows_table.html'
         attrs = {'class': 'table table-sm align-middle mb-0 suppliers-table'}
+        row_attrs = {'class': lambda record: 'set-row' if record.is_set else None}
 
     def __init__(self, *args, **kwargs):
         self.request = kwargs.pop('request', None)
@@ -453,6 +456,13 @@ class SupplierRowTable(tables.Table):
     def render_actions(self, record):
         return render_to_string('product/partials/supplier_row_actions.html',
                                 {'record': record}, request=self.request)
+
+    def render_supplier(self, record):
+        if record.supplier:
+            return record.supplier.name
+        if record.is_set:
+            return format_html('<span class="set-row-label">Набор</span>')
+        return 'Без поставщика'
 
     def render_name(self, record):
         return format_html('<a href="{}">{}</a>',

@@ -128,16 +128,16 @@ class PriceManagerForm(forms.ModelForm):
     return cleaned_data
 
 class PriceTagForm(forms.ModelForm):
+  """Наценка на одной строке ГП.
+
+  Выборы сужаются под строку (mp): у строки без поставщика нет прайса
+  поставщика — источники из него не предлагаются и не принимаются; у строки
+  набора себестоимость — сумма комплектующих (product.services.set_rows), её
+  не выбрать целью. Та же проверка — views._pricetag_error; здесь она ещё и
+  убирает неверные варианты из списка, а не только ругается после отправки.
+  """
   price_fixed = forms.BooleanField(widget=forms.widgets.CheckboxInput(), label='Фиксированная цена', required=False)
-  source = forms.CharField(widget=forms.widgets.Select(choices=(
-    (None, 'Не указано'),
-    ('rrp', 'РРЦ в валюте поставщика'),
-    ('supplier_price', 'Цена поставщика в валюте поставщика'),
-    ('basic_price', 'Базовая цена'),
-    ('prime_cost', 'Себестоимость'),
-    ('m_price', 'Цена ИМ'),
-    ('wholesale_price', 'Оптовая цена'),
-    ('wholesale_price_extra', 'Оптовая цена1'))),
+  source = forms.CharField(widget=forms.widgets.Select(choices=RULE_SOURCE_CHOICES),
     label="От какой цены считать",
     required=False)
   class Meta:
@@ -148,3 +148,25 @@ class PriceTagForm(forms.ModelForm):
       'price_fixed', 'fixed_price',
       'markup', 'increase',
     )
+
+  def __init__(self, *args, mp=None, **kwargs):
+    super().__init__(*args, **kwargs)
+    self.mp = mp
+    if mp is None:
+      return
+    if mp.supplier_id is None:
+      self.fields['source'].widget.choices = [
+        (value, label) for value, label in RULE_SOURCE_CHOICES if value not in SP_PRICES]
+    if mp.is_set:
+      self.fields['dest'].choices = [
+        (value, label) for value, label in self.fields['dest'].choices if value != 'prime_cost']
+
+  def clean_source(self):
+    source = self.cleaned_data.get('source')
+    if self.mp is not None and self.mp.supplier_id is None and source in SP_PRICES:
+      # Скрытый select источника остаётся в форме и при фиксированной цене —
+      # тогда источник всё равно заменяется на fixed_price.
+      if not self.data.get(self.add_prefix('price_fixed')):
+        raise forms.ValidationError('У строки без поставщика нет прайса поставщика — считайте от цены ГП')
+      return ''
+    return source

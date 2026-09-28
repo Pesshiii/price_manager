@@ -311,6 +311,10 @@ class PriceTagCreate(CreateView):
   model = PriceTag
   form_class = PriceTagForm
   template_name = 'price_manager/partials/pricetag_create.html'
+  def get_form_kwargs(self):
+    kwargs = super().get_form_kwargs()
+    kwargs['mp'] = get_object_or_404(MainProduct, pk=self.kwargs.get('pk'))
+    return kwargs
   def get_success_url(self):
     return resolve_url('mainproduct-detail', self.kwargs.get('pk', None))
   def get_context_data(self, **kwargs) -> dict[str, Any]:
@@ -353,9 +357,10 @@ class PriceTagUpdate(UpdateView):
   model = PriceTag
   form_class = PriceTagForm
   template_name = 'price_manager/partials/pricetag_update.html'
-  def get(self, request, *args, **kwargs):
-    self.instance = PriceTag.objects.get(pk=self.kwargs.get('pk', None))
-    return super().get(request, *args, **kwargs)
+  def get_form_kwargs(self):
+    kwargs = super().get_form_kwargs()
+    kwargs['mp'] = self.object.mp
+    return kwargs
   def get_success_url(self):
     return resolve_url('mainproduct-detail', PriceTag.objects.get(pk=self.kwargs.get('pk', None)).mp.pk)
   def form_invalid(self, form):
@@ -364,7 +369,7 @@ class PriceTagUpdate(UpdateView):
     return response
   def get_context_data(self, **kwargs) -> dict[str, Any]:
       context = super().get_context_data(**kwargs)
-      context["form"].initial['price_fixed'] = self.instance.source=='fixed_price'
+      context["form"].initial['price_fixed'] = self.object.source=='fixed_price'
       return context
   def form_valid(self, form):
     cd = form.cleaned_data

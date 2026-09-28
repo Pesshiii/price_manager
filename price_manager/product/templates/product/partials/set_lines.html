@@ -1,0 +1,47 @@
+{% comment %}
+  Состав набора: компонент, количество, откуда себестоимость и остаток.
+  Цифры — product/set_costs.py: у каждого компонента основная себестоимость и
+  остаток по уровням поставщиков, как в выгрузке.
+{% endcomment %}
+<table class="table table-sm align-middle mb-0 suppliers-table set-lines-table">
+  <thead>
+    <tr>
+      <th>Компонент</th>
+      <th>Артикул</th>
+      <th class="text-end">Кол-во</th>
+      <th>Поставщик</th>
+      <th class="text-end">Себестоимость</th>
+      <th class="text-end">Сумма</th>
+      <th class="text-end">Остаток</th>
+      <th class="text-end">Хватит на</th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for line in set_totals.lines %}
+      <tr class="{% if line.limiting %}set-line-limiting{% endif %}{% if not line.component %} set-line-missing{% endif %}">
+        <td class="col-wrap">
+          {% if line.component %}
+            {{ line.component.display_name }}
+          {% else %}
+            {{ line.item.component_name|default:line.item.component_number }}
+            <div class="small text-body-secondary">нет в Price Manager</div>
+          {% endif %}
+        </td>
+        <td>{% if line.component %}{{ line.component.number|default:line.item.component_number }}{% else %}{{ line.item.component_number }}{% endif %}</td>
+        <td class="text-end">{{ line.amount }}</td>
+        <td>
+          {% if line.cost_row %}
+            <a href="{% url 'mainproduct-info' line.cost_row.pk %}">{{ line.cost_row.supplier|default:"Без поставщика" }}</a>
+          {% else %}—{% endif %}
+        </td>
+        <td class="text-end">{% if line.has_cost %}{{ line.cost|floatformat:2 }}{% else %}<span class="text-body-tertiary">нет цены</span>{% endif %}</td>
+        <td class="text-end">{% if line.has_cost %}{{ line.line_cost|floatformat:2 }}{% else %}—{% endif %}</td>
+        <td class="text-end">{% if line.stock is None %}<span class="text-body-tertiary">Нет данных</span>{% else %}{{ line.stock }}{% endif %}</td>
+        <td class="text-end">
+          {% if line.buildable is None %}—{% else %}{{ line.buildable }}{% endif %}
+          {% if line.limiting %}<i class="bi bi-exclamation-circle ms-1" title="Этот компонент ограничивает число наборов" aria-label="ограничивает число наборов"></i>{% endif %}
+        </td>
+      </tr>
+    {% endfor %}
+  </tbody>
+</table>

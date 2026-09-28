@@ -769,6 +769,53 @@
     white-space: nowrap;
   }
 
+  /* Строка набора: сама строка ГП и раскрывающийся под ней состав. */
+  .product-suppliers-panel .suppliers-table > tbody > tr.set-row > td {
+    background: #f5f8ff;
+  }
+
+  .set-row-label {
+    font-weight: 600;
+    color: #3538cd;
+  }
+
+  .set-row-toggle {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.3rem;
+    padding: 0.1rem 0.4rem;
+    font-size: 0.75rem;
+    font-weight: 600;
+    white-space: nowrap;
+    color: #3538cd;
+    background: #eef4ff;
+    border: 1px solid #c7d7fe;
+  }
+
+  .set-row-toggle:hover,
+  .set-row-toggle:focus-visible {
+    color: #3538cd;
+    background: #e0eaff;
+    border-color: #a4bcfd;
+  }
+
+  .set-row-toggle:not(.collapsed) .set-assembly-chevron {
+    transform: rotate(90deg);
+  }
+
+  /* Высота строки таблицы не анимируется — раскрытие без перехода. */
+  .set-lines-row.collapsing {
+    transition: none;
+  }
+
+  .product-suppliers-panel .suppliers-table > tbody > tr.set-lines-row > td {
+    border-left: 3px solid #c7d7fe;
+  }
+
+  .set-lines-row .set-assembly-row {
+    cursor: default;
+  }
+
   .product-suppliers-panel .set-lines-table > tbody > tr.set-line-limiting > td {
     background: #fffaeb;
   }
