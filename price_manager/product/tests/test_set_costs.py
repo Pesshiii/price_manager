@@ -196,6 +196,22 @@ class SetPageTests(SetFixture, TestCase):
         self.assertIn('Склад', html)
         self.assertIn('Из комплектующих', html)
 
+    def test_set_row_carries_the_composition(self):
+        # Строка набора и состав — одна строка: «Из комплектующих» под
+        # таблицей не рисуется, состав раскрывается из строки набора.
+        own = Supplier.objects.create(name='Склад')
+        self.mp(self.kit, own, cost='450', stock=1)
+        row = MainProduct.objects.create(product=self.kit, is_set=True, sku='KIT-1',
+                                         article='KIT-1', name='Стеллаж')
+        html = self.client.get(reverse('product-suppliers', kwargs={'pk': self.kit.pk})).content.decode()
+        self.assertNotIn('Из комплектующих', html)
+        self.assertIn(f'id="set-lines-{row.pk}"', html)
+        self.assertIn('class="set-row ', html)
+        self.assertIn('Стойка', html)
+        self.assertIn('480,00', html)
+        # Строка набора — первой, до строк поставщиков.
+        self.assertLess(html.index(f'set-lines-{row.pk}'), html.index('Склад'))
+
     def test_missing_component_is_listed_in_the_composition(self):
         self.add_missing_component()
         html = self.client.get(reverse('product-suppliers', kwargs={'pk': self.kit.pk})).content.decode()
