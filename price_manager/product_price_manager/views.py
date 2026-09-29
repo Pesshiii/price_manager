@@ -63,6 +63,14 @@ def _rule_error(cd):
   return None
 
 
+def _save_rule(form, instance):
+  """Правило, затем его охват (группы скидок, категории, бренды), и только
+  потом ценники — от охвата они и зависят (PriceManager.save)."""
+  instance.save(sync_pricetags=False)
+  form.save_m2m()
+  instance.sync_pricetags()
+
+
 class RuleFormRefreshMixin:
   """Живая форма правила: смена поставщика, источника или цели шлёт форму
   с ?refresh=1, и она перерисовывается под новые значения — без валидации
@@ -144,6 +152,8 @@ class PriceManagerCreate(RuleFormRefreshMixin, CreateView):
     has_rrp_map = {True: 'Да', False: 'Нет', None: 'Без разницы'}
     discounts = cleaned_data.get('discounts')
     discount_value = ','.join(sorted(discounts.values_list('name', flat=True))) if discounts else 'Все'
+    categories = cleaned_data.get('categories')
+    brands = cleaned_data.get('brands')
     dest_label = PRICE_TYPES.get(cleaned_data.get('dest'))
     source_label = PRICE_TYPES.get(source)
     price_range_label = f'{self._format_value(cleaned_data.get("price_from"))}..{self._format_value(cleaned_data.get("price_to"))}'
@@ -156,6 +166,9 @@ class PriceManagerCreate(RuleFormRefreshMixin, CreateView):
       f'{dest_label} ← {source_label}',
       f'РРЦ: {has_rrp_map.get(has_rrp_value)}',
       f'Скидки: {discount_value}',
+      # Категории и бренды — только когда заданы: «все» и так по умолчанию.
+      *([f'Категории: {",".join(sorted(categories.values_list("name", flat=True)))}'] if categories else []),
+      *([f'Бренды: {",".join(sorted(brands.values_list("name", flat=True)))}'] if brands else []),
       f'Диапазон: {price_range_label}',
       f'Расчет: {formula_label}',
     ])
@@ -178,8 +191,7 @@ class PriceManagerCreate(RuleFormRefreshMixin, CreateView):
       return self.form_invalid(form)
     instance = form.save(commit=False)
     instance.name = self._build_generated_name(supplier, cd)
-    instance.save()
-    instance.discounts.set(cd['discounts'])
+    _save_rule(form, instance)
     messages.success(self.request, 'Менеджер цен добавлен')
     return HttpResponseClientRefresh()
 
@@ -215,8 +227,7 @@ class PriceManagerUpdate(RuleFormRefreshMixin, SingleTableMixin, UpdateView):
       form.add_error(field=None, error=error)
       return self.form_invalid(form)
     instance = form.save(commit=False)
-    instance.save()
-    instance.discounts.set(cd['discounts'])
+    _save_rule(form, instance)
     messages.success(self.request, 'Менеджер цен сохранён')
     return HttpResponseClientRefresh()
   
@@ -236,7 +247,7 @@ class PriceManagerPage(TemplateView):
     from django.db.models import Count
     context = super().get_context_data(**kwargs)
     rules = (PriceManager.objects.select_related('supplier')
-             .prefetch_related('discounts')
+             .prefetch_related('discounts', 'categories', 'brands')
              .annotate(rows_count=Count('pricetags', distinct=True)))
     show_deprecated = self.request.GET.get('deprecated') == '1'
     if not show_deprecated:

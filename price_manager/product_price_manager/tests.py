@@ -1033,3 +1033,157 @@ class PriceTagPageTests(TestCase):
                                      'markup': '0', 'increase': '0'}, HTTP_HX_REQUEST='true')
         self.assertContains(response, 'Не указана фиксированная цена')
         self.assertEqual(PriceTag.objects.filter(mp=self.loose).count(), 1)
+
+
+class RuleScopeTests(TestCase):
+    """Охват правила: категории (с подкатегориями) и бренды товара строки ГП."""
+
+    def setUp(self):
+        from product.models import Brand, Category, Product
+        from django.contrib.auth.models import User
+        currency, _ = Currency.objects.get_or_create(name='KZT', defaults={'value': Decimal('1')})
+        self.supplier = Supplier.objects.create(name='Охват', currency=currency,
+                                                delivery_days_available=1, delivery_days_navailable=2)
+        self.tools = Category.objects.create(name='Инструмент')
+        self.drills = Category.objects.create(name='Дрели', parent=self.tools)
+        self.garden = Category.objects.create(name='Сад')
+        self.makita = Brand.objects.create(pim_id='b1', name='Makita')
+        self.bosch = Brand.objects.create(pim_id='b2', name='Bosch')
+        self.rows = {}
+        for key, category, brand in (('drill_makita', self.drills, self.makita),
+                                     ('drill_bosch', self.drills, self.bosch),
+                                     ('garden_makita', self.garden, self.makita)):
+            product = Product.objects.create(number=key, name=key, brand=brand)
+            product.categories.add(category)
+            self.rows[key] = self.row(key, product)
+        # Товар в двух выбранных категориях не должен давать строку дважды.
+        self.rows['drill_makita'].product.categories.add(self.tools)
+        self.rows['no_product'] = self.row('no_product', None)
+        self.client.force_login(User.objects.create_user(username='scope', password='pw'))
+
+    def row(self, key, product, supplier=True):
+        mp = MainProduct.objects.create(supplier=self.supplier if supplier else None, article=key, name=key,
+                                        product=product, prime_cost=Decimal('100'))
+        if supplier:
+            SupplierProduct.objects.create(supplier=self.supplier, main_product=mp, article=key, name=key)
+        return mp
+
+    def rule(self, categories=(), brands=(), **kwargs):
+        defaults = dict(name='Правило охвата', supplier=self.supplier, source='prime_cost', dest='basic_price',
+                        markup=Decimal('10'))
+        defaults.update(kwargs)
+        rule = PriceManager(**defaults)
+        rule.save(sync_pricetags=False)
+        rule.categories.set(categories)
+        rule.brands.set(brands)
+        rule.sync_pricetags()
+        return rule
+
+    def fitting(self, rule):
+        return set(rule.get_fitting_mps().values_list('article', flat=True))
+
+    def test_without_scope_every_row_fits(self):
+        self.assertEqual(self.fitting(self.rule()), set(self.rows))
+
+    def test_a_category_takes_its_subcategories(self):
+        self.assertEqual(self.fitting(self.rule(categories=[self.tools])), {'drill_makita', 'drill_bosch'})
+
+    def test_a_brand(self):
+        self.assertEqual(self.fitting(self.rule(brands=[self.makita])), {'drill_makita', 'garden_makita'})
+
+    def test_categories_and_brands_narrow_together(self):
+        rule = self.rule(categories=[self.tools], brands=[self.makita])
+
+        self.assertEqual(self.fitting(rule), {'drill_makita'})
+        self.assertEqual(set(rule.pricetags.values_list('mp__article', flat=True)), {'drill_makita'})
+
+    def test_a_rule_without_supplier_is_scoped_too(self):
+        product = self.rows['garden_makita'].product
+        loose = self.row('loose_garden', product, supplier=False)
+        self.row('loose_nothing', None, supplier=False)
+
+        rule = self.rule(supplier=None, categories=[self.garden])
+
+        self.assertEqual(self.fitting(rule), {loose.article})
+
+    def test_apply_writes_only_inside_the_scope(self):
+        self.rule(brands=[self.bosch]).apply(logs=False)
+
+        prices = dict(MainProduct.objects.values_list('article', 'basic_price'))
+        self.assertEqual(prices['drill_bosch'], Decimal('110'))
+        self.assertIsNone(prices['drill_makita'])
+
+    def test_creating_through_the_form_tags_only_the_scope(self):
+        self.client.post(reverse('price-manager-create'), {
+            'supplier': str(self.supplier.pk), 'dest': 'basic_price', 'source': 'prime_cost',
+            'markup': '10', 'increase': '0', 'fixed_price': '0',
+            'categories': [self.garden.pk], 'brands': [self.makita.pk, self.bosch.pk],
+        }, HTTP_HX_REQUEST='true')
+
+        rule = PriceManager.objects.get()
+        self.assertEqual(set(rule.categories.all()), {self.garden})
+        self.assertEqual(set(rule.pricetags.values_list('mp__article', flat=True)), {'garden_makita'})
+        self.assertIn('Категории: Сад', rule.name)
+        self.assertIn('Бренды: Bosch,Makita', rule.name)
+
+    def test_narrowing_drops_tags_and_clears_only_unclaimed_prices(self):
+        rule = self.rule()
+        rule.apply(logs=False)
+        # Ещё одно правило на ту же цену держит строку drill_bosch.
+        other = PriceManager(name='Другое', supplier=self.supplier, source='prime_cost', dest='basic_price',
+                             markup=Decimal('5'))
+        other.save(sync_pricetags=False)
+        other.brands.set([self.bosch])
+        other.sync_pricetags()
+
+        self.client.post(reverse('pricemanager-update', kwargs={'pk': rule.pk}), {
+            'dest': 'basic_price', 'source': 'prime_cost', 'markup': '10', 'increase': '0', 'fixed_price': '0',
+            'brands': [self.makita.pk],
+        }, HTTP_HX_REQUEST='true')
+
+        self.assertEqual(set(rule.pricetags.values_list('mp__article', flat=True)),
+                         {'drill_makita', 'garden_makita'})
+        prices = dict(MainProduct.objects.values_list('article', 'basic_price'))
+        self.assertEqual(prices['drill_makita'], Decimal('110'))
+        self.assertEqual(prices['drill_bosch'], Decimal('110'))  # его перепишет «Другое»
+        self.assertIsNone(prices['no_product'])
+
+    def test_changing_dest_moves_the_tags(self):
+        rule = self.rule()
+        rule.dest = 'm_price'
+        rule.save()
+
+        self.assertEqual(set(rule.pricetags.values_list('dest', flat=True)), {'m_price'})
+
+    def test_refresh_keeps_the_multi_selection_and_an_emptied_one(self):
+        rule = self.rule(categories=[self.garden])
+        url = reverse('pricemanager-update', kwargs={'pk': rule.pk}) + '?refresh=1'
+        data = {'dest': 'basic_price', 'source': 'm_price', 'markup': '10', 'increase': '0', 'fixed_price': '0'}
+
+        response = self.client.post(url, {**data, 'brands': [self.makita.pk, self.bosch.pk]},
+                                    HTTP_HX_REQUEST='true')
+
+        form = response.context['form']
+        self.assertEqual({o['pk'] for o in form.brand_options() if o['selected']}, {self.makita.pk, self.bosch.pk})
+        # Категории сняты — перерисовка не возвращает сохранённый выбор.
+        self.assertFalse([o for o in form.category_options() if o['selected']])
+        self.assertContains(response, 'data-scope-tree')
+        self.assertEqual(set(rule.categories.all()), {self.garden})
+
+    def test_a_brand_or_category_in_a_scope_cannot_be_deleted(self):
+        from django.db.models import ProtectedError
+        self.rule(categories=[self.garden], brands=[self.bosch])
+
+        # Удаление выбросило бы их из охвата, и правило стало бы правилом на всё.
+        with self.assertRaises(ProtectedError):
+            self.bosch.delete()
+        with self.assertRaises(ProtectedError):
+            self.garden.delete()
+
+    def test_category_options_are_a_tree(self):
+        from .forms import PriceManagerForm
+        options = {o['name']: o for o in PriceManagerForm().category_options()}
+
+        self.assertTrue(options['Инструмент']['has_children'])
+        self.assertEqual(options['Дрели']['parent'], self.tools.pk)
+        self.assertEqual(options['Дрели']['path'], 'Инструмент')

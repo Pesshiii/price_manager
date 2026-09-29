@@ -14,13 +14,42 @@ repo, and [[product_price_manager/pricing]] for `get_fitting_mps()` and
 **`PriceManager`** — the rule. Scoped by `supplier`, M2M `discounts`, a
 `date_from`/`date_to` window, a `price_from`/`price_to` band, and `has_rrp`.
 
-**There is no category scope any more** — migration 0006 dropped
-`PriceManager.categories` (flat nodes, no descendants, unused; the
-`product_pricing` app that took category pricing over was removed later, with
-its tables, in `product` migration 0015).
-Dropping the field drops its filter, so 0006 **raises** while any rule still
-has categories, like 0004 did — a scoped rule would otherwise widen to the
-whole supplier on its next `save()`/`apply()`.
+**Category and brand scope (migration 0008)** — M2M `categories`
+(`product.Category`) and `brands` (`product.Brand`), applied in
+`_in_scope()` to both `get_fitting_mps()` and `_fitting_unsupplied_mps()`.
+A chosen category covers its descendants (`get_queryset_descendants`); the
+two narrow together (AND). The filter is a `product__in=<Product subquery>`,
+not a join: a product in two chosen categories would otherwise yield its row
+twice, and the PriceTag upsert (`bulk_create(update_conflicts=True)`) fails
+when one statement updates the same row twice. The M2M go through
+`PriceManagerCategory`/`PriceManagerBrand` with `on_delete=PROTECT` on the
+category/brand: with auto-created through tables, deleting a rule's only brand
+would empty its scope and silently widen it to every row. Custom through
+tables also keep the two fields out of the admin form (`formfield_for_manytomany`
+skips them) — the rule form is where they are edited.
+
+**Known gap:** when PIM moves a product to another category or brand, its row
+leaves a rule's scope, but `apply()` only *adds* tags (`update_pricetags`) —
+the stale tag and the price stay until the rule is edited and re-synced.
+
+**Legacy stale tags:** before `sync_pricetags` existed, create ran `save()`
+before `discounts.set()`, so rules with discount groups hold tags on rows
+outside their groups. The first edit of such a rule prunes them and NULLs
+the unclaimed prices. The earlier `categories`
+field (flat nodes, no descendants, unused) was dropped by 0006, which
+**raises** while any rule still has categories.
+
+**PriceTags are built after the M2M, not in a bare `save()`.** Scope lives in
+M2M, and M2M is written only after `save()`, so a rule that built its tags in
+`save()` tagged every row of its supplier on create. The views
+(`views._save_rule`) and the admin (`save_model`/`save_related`) therefore save
+with `sync_pricetags=False`, write the M2M, then call `sync_pricetags()`.
+A bare `save()` still syncs (tests, `deprecate()` short-circuits on
+`deprecated`). `sync_pricetags()` also **removes** the rule's tags of rows that
+left the scope or sit on an old `dest`, and NULLs that price when no other
+active tag (`_active_pricetags`) claims the row's dest — otherwise the price
+would freeze. Rows claimed by another rule keep it until the next
+`update_prices`.
 
 **The rule form is live** (`forms.PriceManagerForm`). The supplier is a field
 of the form — there is no separate «choose supplier» step — and the
@@ -51,8 +80,9 @@ is the identity used by every upsert.
 
 ## Lifecycle methods have side effects — all four of them
 
-- **`save():290`** calls `super().save()` then immediately **bulk-upserts
-  PriceTags** for every fitting product (`update_conflicts=True`,
+- **`save()`** calls `super().save()` then, unless `sync_pricetags=False`,
+  `sync_pricetags()`: prunes stale tags and **bulk-upserts PriceTags** for
+  every fitting product (`update_conflicts=True`,
   `unique_fields=['mp','p_manager','dest']`). Saving a rule is a catalog-wide
   write. It short-circuits when `deprecated`.
 - **`apply():315`** is the one that moves money: filters to products whose

@@ -4,6 +4,7 @@ from django.core.validators import (MinValueValidator, MaxValueValidator)
 from supplier_manager.models import Supplier, Discount
 from supplier_product_manager.models import SupplierProduct, SP_PRICES
 from main_product_manager.models import MainProduct, PRICE_TYPES, MP_PRICES, MainProductLog
+from product.models import Brand, Category, Product
 from django.db.models import (F, ExpressionWrapper, 
                               fields, Func, 
                               Value, Min, Max,
@@ -14,6 +15,7 @@ from django.db.models.functions import Ceil, Coalesce, NullIf
 from django.utils import timezone
 
 # Импорты сторонних библиотек
+from collections import defaultdict
 from decimal import Decimal, InvalidOperation
 
 
@@ -56,6 +58,27 @@ class PriceManager(models.Model):
     Discount,
     related_name='pricemanagers',
     verbose_name='Группы скидок',
+    blank=True
+  )
+  # Охват правила по товару (product.Product) строки ГП. Пусто — все
+  # строки; категория берётся вместе с подкатегориями. Категории и бренды
+  # сужают вместе (И), выбранное внутри каждого — любое из (ИЛИ). Строка без
+  # товара под правило с охватом не попадает (_in_scope). Связи — через
+  # PriceManagerCategory/PriceManagerBrand с PROTECT: удалённая категория или
+  # бренд иначе молча выпали бы из охвата, и правило стало бы правилом на все
+  # строки.
+  categories = models.ManyToManyField(
+    Category,
+    through='PriceManagerCategory',
+    related_name='pricemanagers',
+    verbose_name='Категории',
+    blank=True
+  )
+  brands = models.ManyToManyField(
+    Brand,
+    through='PriceManagerBrand',
+    related_name='pricemanagers',
+    verbose_name='Бренды',
     blank=True
   )
   date_from = models.DateTimeField(
@@ -149,6 +172,24 @@ class PriceManager(models.Model):
     if errors:
       raise ValidationError(errors)
 
+  def _in_scope(self, mps):
+    """Сузить строки ГП до категорий (с подкатегориями) и брендов правила.
+
+    Через подзапрос по Product, а не join: строка в двух выбранных категориях
+    иначе пришла бы дважды, и upsert ценников (bulk_create с
+    update_conflicts) упал бы на двойном обновлении одной строки.
+    """
+    products = Product.objects.all()
+    scoped = False
+    if self.categories.exists():
+      categories = Category.objects.get_queryset_descendants(self.categories.all(), include_self=True)
+      products = products.filter(categories__in=categories)
+      scoped = True
+    if self.brands.exists():
+      products = products.filter(brand__in=self.brands.all())
+      scoped = True
+    return mps.filter(product__in=products.values('pk')) if scoped else mps
+
   def get_fitting_mps(self):
     """
     Возвращает продукты подходящие под данный менеджер наценок \\
@@ -203,6 +244,7 @@ class PriceManager(models.Model):
         f'''main_product__{price_manager.source}'''))
     
     mps = MainProduct.objects.filter(pk__in=products.values_list('main_product', flat=True))
+    mps = price_manager._in_scope(mps)
     source = price_manager.source
     if price_manager.source in SP_PRICES:
       filtered_source_price = (
@@ -279,9 +321,9 @@ class PriceManager(models.Model):
     правило с таким источником не подходит ни одной строке, а не считает от
     пустого. Себестоимость строки набора — сумма комплектующих
     (product.services.set_rows), правило её не пишет. Остальное — как у
-    правила поставщика: диапазон цены-источника, формула.
+    правила поставщика: категории и бренды, диапазон цены-источника, формула.
     """
-    mps = MainProduct.objects.filter(supplier__isnull=True)
+    mps = self._in_scope(MainProduct.objects.filter(supplier__isnull=True))
     if self.source in SP_PRICES:
       return mps.none().annotate(changed_price=Value(None, output_field=DecimalField()))
     if self.dest == 'prime_cost':
@@ -322,30 +364,68 @@ class PriceManager(models.Model):
         'increase',
         'fixed_price'])
   
-  def save(self, **kwargs):
-    super().save(**kwargs)
-    if self.deprecated: return None
+  def save(self, *args, sync_pricetags=True, **kwargs):
+    """Сохранить правило и пересобрать его ценники.
+
+    Охват правила — M2M (группы скидок, категории, бренды), а их пишут только
+    после save(). Поэтому форма и админка сохраняют с sync_pricetags=False,
+    затем M2M, затем зовут sync_pricetags() сами — иначе новое правило
+    получило бы ценники на все строки поставщика.
+    """
+    super().save(*args, **kwargs)
+    if sync_pricetags:
+      self.sync_pricetags()
+
+  def sync_pricetags(self):
+    """Ценники правила = строки, которые сейчас под него подходят.
+
+    Лишние (строка выпала из охвата или у правила сменилась цель) удаляются.
+    Цена, которую писало правило, у выпавшей строки очищается, если на эту
+    цену у строки не осталось другой действующей наценки — иначе цена
+    застыла бы навсегда; при наличии другой её перепишет следующий
+    update_prices. Устаревшее правило ценников не держит (deprecate()).
+    """
+    if self.deprecated:
+      return
     mps = self.get_fitting_mps()
-    pts = map(
-      lambda item: 
-        PriceTag(**{
-          'mp':item[1],
-          'p_manager':item[0],
-          'source':item[0].source,
-          'dest':item[0].dest,
-          'markup':item[0].markup,
-          'increase':item[0].increase,
-          'fixed_price':item[0].fixed_price
-        }), zip([self]*mps.count(), mps))
+    stale = self.pricetags.exclude(Q(mp__in=mps.values('pk')) & Q(dest=self.dest))
+    dropped = list(stale.values_list('mp_id', 'dest'))
+    # QuerySet.delete, не PriceTag.delete(): тот очищает цену безусловно.
+    stale.delete()
+    self._clear_unclaimed(dropped)
+    pts = [PriceTag(mp=mp, p_manager=self, source=self.source, dest=self.dest,
+                    markup=self.markup, increase=self.increase, fixed_price=self.fixed_price)
+           for mp in mps]
     PriceTag.objects.bulk_create(
-      pts, 
-      update_conflicts=True, 
-      unique_fields=['mp', 'p_manager', 'dest'], 
+      pts,
+      update_conflicts=True,
+      unique_fields=['mp', 'p_manager', 'dest'],
       update_fields=[
         'source',
         'markup',
         'increase',
         'fixed_price'])
+
+  @staticmethod
+  def _clear_unclaimed(dropped):
+    """Очистить цены выпавших строк, на которые не осталось действующих наценок."""
+    if not dropped:
+      return
+    now = timezone.now()
+    by_dest = defaultdict(set)
+    for mp_id, dest in dropped:
+      if dest in MP_PRICES:
+        by_dest[dest].add(mp_id)
+    active = _active_pricetags(now)
+    for dest, ids in by_dest.items():
+      claimed = set(active.filter(dest=dest, mp_id__in=ids).values_list('mp_id', flat=True))
+      free_ids = list(MainProduct.objects.filter(pk__in=ids - claimed, **{f'{dest}__isnull': False})
+                      .values_list('pk', flat=True))
+      if not free_ids:
+        continue
+      MainProductLog.objects.bulk_create(
+        MainProductLog(price_type=dest, main_product_id=pk, price=None) for pk in free_ids)
+      MainProduct.objects.filter(pk__in=free_ids).update(**{dest: None, 'price_updated_at': now})
 
   def apply(self, logs: bool = True):
     mps = self.get_fitting_mps()
@@ -377,6 +457,28 @@ class PriceManager(models.Model):
     self.save(update_fields=['deprecated'])
     return mps.update(**{self.dest:None, 'price_updated_at':timezone.now()})
 
+
+
+class PriceManagerCategory(models.Model):
+  """Категория в охвате менеджера цен. Категорию из охвата не удалить."""
+  class Meta:
+    verbose_name = 'Категория менеджера цен'
+    verbose_name_plural = 'Категории менеджеров цен'
+    constraints = [models.UniqueConstraint(fields=['price_manager', 'category'],
+                                           name='pricemanager_category_uniq')]
+  price_manager = models.ForeignKey(PriceManager, on_delete=models.CASCADE, verbose_name='Менеджер цен')
+  category = models.ForeignKey(Category, on_delete=models.PROTECT, verbose_name='Категория')
+
+
+class PriceManagerBrand(models.Model):
+  """Бренд в охвате менеджера цен. Бренд из охвата не удалить."""
+  class Meta:
+    verbose_name = 'Бренд менеджера цен'
+    verbose_name_plural = 'Бренды менеджеров цен'
+    constraints = [models.UniqueConstraint(fields=['price_manager', 'brand'],
+                                           name='pricemanager_brand_uniq')]
+  price_manager = models.ForeignKey(PriceManager, on_delete=models.CASCADE, verbose_name='Менеджер цен')
+  brand = models.ForeignKey(Brand, on_delete=models.PROTECT, verbose_name='Бренд')
 
 
 class PriceTag(models.Model):
