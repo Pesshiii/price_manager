@@ -1,0 +1,290 @@
+{% comment %}
+  Охват правила — выпадающий список с поиском, как у групп скидок.
+
+  Параметры include: field (BoundField — имя, подпись, ошибки), options —
+  [{pk, name, level, parent, has_children, path, selected}] из
+  PriceManagerForm.category_options/brand_options, tree — дерево со
+  сворачиванием, all_label — подпись пустого выбора, noun — «категорий» для
+  «Выбрано категорий: 5», placeholder — поиска, help — пояснение под полем.
+
+  Пустой выбор — «все строки», поэтому кнопки «Выбрать все» нет: она дала
+  бы то же, только исключив строки без категории или бренда.
+
+  В дереве выбор узла включает его подкатегории (PriceManager._in_scope):
+  они показаны отмеченными с пометкой «входит» и заблокированы, в форму не
+  уходят — уходит только сам узел. Отмеченная ранее подкатегория при выборе
+  родителя поглощается им, а при снятии родителя снимается вместе с ним.
+
+  Фрагмент перерисовывается целиком (#pm-rule-fields), а партиал
+  вставляется дважды, поэтому скрипт ничего не объявляет на верхнем уровне и
+  инициализирует только ещё не готовые блоки (data-scope-ready).
+{% endcomment %}
+<div class="mb-3 pm-scope" data-scope{% if tree %} data-scope-tree{% endif %}
+     data-all-label="{{ all_label }}" data-noun="{{ noun }}">
+  <label class="form-label text-muted small fw-semibold text-uppercase" id="{{ field.html_name }}_label">{{ field.label }}</label>
+  <div class="dropdown">
+    <button class="btn btn-outline-secondary btn-sm w-100 text-start d-flex justify-content-between align-items-center"
+            type="button" data-bs-toggle="dropdown" data-bs-auto-close="outside" aria-expanded="false"
+            aria-labelledby="{{ field.html_name }}_label {{ field.html_name }}_summary">
+      <span class="text-truncate" id="{{ field.html_name }}_summary" data-scope-summary>{{ all_label }}</span>
+      <i class="bi bi-chevron-down ms-2 flex-shrink-0" aria-hidden="true"></i>
+    </button>
+    <div class="dropdown-menu w-100 p-3 shadow-sm border-0" style="min-width: 100%;">
+      <div class="d-flex justify-content-between align-items-center mb-2">
+        <span class="text-muted small">{% if tree %}Подкатегории входят вместе с категорией{% else %}Фильтр:{% endif %}</span>
+        <div class="d-flex gap-2 flex-shrink-0">
+          {% if tree %}
+            <button type="button" class="btn btn-sm btn-link p-0 text-secondary" data-scope-expand>Развернуть</button>
+            <span class="text-muted">|</span>
+            <button type="button" class="btn btn-sm btn-link p-0 text-secondary" data-scope-collapse>Свернуть</button>
+            <span class="text-muted">|</span>
+          {% endif %}
+          <button type="button" class="btn btn-sm btn-link p-0 text-secondary" data-scope-clear>Снять все</button>
+        </div>
+      </div>
+      <input type="search" class="form-control form-control-sm mb-2" placeholder="{{ placeholder }}"
+             aria-label="{{ placeholder }}" autocomplete="off" data-scope-search>
+      <div class="border rounded pm-scope-list" data-scope-list>
+        {% for option in options %}
+          <div class="pm-scope-option" data-scope-option="{{ option.pk }}" data-parent="{{ option.parent }}"
+               data-text="{{ option.name|lower }}" style="--level: {% if tree %}{{ option.level }}{% else %}0{% endif %}">
+            {% if tree %}
+              {% if option.has_children %}
+                <button type="button" class="pm-scope-toggle" data-scope-toggle aria-expanded="false"
+                        aria-label="Показать подкатегории «{{ option.name }}»">
+                  <i class="bi bi-chevron-right" aria-hidden="true"></i>
+                </button>
+              {% else %}
+                <span class="pm-scope-toggle" aria-hidden="true"></span>
+              {% endif %}
+            {% endif %}
+            <input class="form-check-input" type="checkbox" name="{{ field.html_name }}" value="{{ option.pk }}"
+                   id="{{ field.html_name }}_{{ option.pk }}" data-label="{{ option.name }}"{% if option.selected %} checked{% endif %}>
+            <label class="pm-scope-name" for="{{ field.html_name }}_{{ option.pk }}">
+              {{ option.name }}
+              {% if option.path %}<span class="pm-scope-path">{{ option.path }}</span>{% endif %}
+            </label>
+            <span class="pm-scope-covered" aria-hidden="true">входит</span>
+          </div>
+        {% empty %}
+          <div class="text-muted small p-2 text-center">Список пуст</div>
+        {% endfor %}
+        <div class="text-muted small p-2 text-center d-none" data-scope-nothing>Ничего не найдено</div>
+      </div>
+    </div>
+  </div>
+  <div class="pm-scope-chips" data-scope-chips></div>
+  {% if help %}<div class="form-text">{{ help }}</div>{% endif %}
+  {% if field.errors %}
+    <div class="invalid-feedback d-block">{{ field.errors|join:", " }}</div>
+  {% endif %}
+</div>
+
+<style>
+  .pm-scope-list { max-height: 260px; overflow-y: auto; padding: .25rem 0; }
+  .pm-scope-option { display: flex; align-items: center; gap: .375rem; padding: .2rem .75rem;
+    padding-left: calc(.75rem + var(--level, 0) * 1.1rem); font-size: .875rem; }
+  .pm-scope-option:hover { background: var(--bs-tertiary-bg); }
+  .pm-scope-option .form-check-input { margin: 0; flex: none; }
+  .pm-scope-toggle { flex: none; width: 1.25rem; height: 1.25rem; padding: 0; border: 0; background: none;
+    color: var(--bs-secondary-color); display: inline-flex; align-items: center; justify-content: center;
+    border-radius: .25rem; }
+  button.pm-scope-toggle:hover { background: var(--bs-secondary-bg); color: var(--bs-body-color); }
+  .pm-scope-toggle .bi { display: inline-block; font-size: .75rem; transition: transform .15s; }
+  .pm-scope-toggle[aria-expanded="true"] .bi { transform: rotate(90deg); }
+  .pm-scope-name { flex: 1 1 auto; min-width: 0; cursor: pointer; margin: 0; }
+  .pm-scope-path { display: none; }  /* в дереве путь виден по предкам; остаётся подсказкой на чипе */
+  .pm-scope-option.is-context > .pm-scope-name { color: var(--bs-secondary-color); }
+  .pm-scope-covered { display: none; flex: none; font-size: .7rem; color: var(--bs-secondary-color);
+    background: var(--bs-secondary-bg); border-radius: 1rem; padding: 0 .45rem; }
+  .pm-scope-option.is-covered .pm-scope-covered { display: inline; }
+  .pm-scope-option.is-covered .pm-scope-name { color: var(--bs-secondary-color); }
+  .pm-scope-option.is-covered .form-check-input { opacity: .5; }
+  .pm-scope-empty { opacity: .65; }
+  .pm-scope-chips { display: flex; flex-wrap: wrap; gap: .25rem; margin-top: .375rem; }
+  .pm-scope-chips:empty { display: none; }
+  .pm-scope-chip { display: inline-flex; align-items: center; gap: .125rem; max-width: 100%;
+    background: var(--bs-primary-bg-subtle); color: var(--bs-primary-text-emphasis);
+    border-radius: 1rem; padding: .05rem .2rem .05rem .6rem; font-size: .8125rem; }
+  .pm-scope-chip-text { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .pm-scope-chip-remove { border: 0; background: none; color: inherit; line-height: 1; padding: 0 .3rem;
+    font-size: 1rem; border-radius: 1rem; }
+  .pm-scope-chip-remove:hover { background: var(--bs-primary-border-subtle); }
+</style>
+<script>
+(function () {
+  document.querySelectorAll('[data-scope]:not([data-scope-ready])').forEach(function (block) {
+    block.dataset.scopeReady = '';
+    var isTree = block.hasAttribute('data-scope-tree');
+    var allLabel = block.dataset.allLabel;
+    var noun = block.dataset.noun;
+    var summary = block.querySelector('[data-scope-summary]');
+    var chips = block.querySelector('[data-scope-chips]');
+    var search = block.querySelector('[data-scope-search]');
+    var nothing = block.querySelector('[data-scope-nothing]');
+    var rows = Array.prototype.slice.call(block.querySelectorAll('[data-scope-option]'));
+
+    var byPk = {};
+    var children = {};
+    rows.forEach(function (row) {
+      var pk = row.dataset.scopeOption;
+      byPk[pk] = row;
+      var parent = row.dataset.parent;
+      (children[parent] = children[parent] || []).push(pk);
+    });
+    var input = function (pk) { return byPk[pk].querySelector('input'); };
+    var parentOf = function (pk) { return byPk[pk].dataset.parent; };
+    var ancestors = function (pk) {
+      var out = [];
+      for (var p = parentOf(pk); p && byPk[p]; p = parentOf(p)) out.push(p);
+      return out;
+    };
+    var expanded = {};
+
+    // Покрытое родителем — не отдельный выбор: отмечено и заблокировано, в
+    // форму не уходит (disabled), уходит только сам родитель. Строки идут в
+    // порядке обхода дерева, так что родитель всегда решён раньше детей.
+    function syncCovered() {
+      var chosen = {};
+      var covered = {};
+      rows.forEach(function (row) {
+        var pk = row.dataset.scopeOption;
+        var parent = row.dataset.parent;
+        var box = input(pk);
+        var isCovered = isTree && !!parent && !!(covered[parent] || chosen[parent]);
+        chosen[pk] = !isCovered && box.checked && !box.disabled;
+        covered[pk] = isCovered;
+        if (isCovered) {
+          box.checked = true;
+        } else if (box.disabled) {
+          box.checked = false;  // был покрыт снятым родителем — сам не выбран
+        }
+        box.disabled = isCovered;
+        row.classList.toggle('is-covered', isCovered);
+      });
+    }
+
+    function renderSummary() {
+      var selected = rows.map(function (row) { return input(row.dataset.scopeOption); })
+        .filter(function (box) { return box.checked && !box.disabled; });
+      chips.textContent = '';
+      selected.forEach(function (box) {
+        var chip = document.createElement('span');
+        chip.className = 'pm-scope-chip';
+        var text = document.createElement('span');
+        text.className = 'pm-scope-chip-text';
+        text.textContent = box.dataset.label;
+        var row = byPk[box.value];
+        var path = row.querySelector('.pm-scope-path');
+        if (path) chip.title = path.textContent + ' › ' + box.dataset.label;
+        var remove = document.createElement('button');
+        remove.type = 'button';
+        remove.className = 'pm-scope-chip-remove';
+        remove.dataset.remove = box.value;
+        remove.setAttribute('aria-label', 'Убрать «' + box.dataset.label + '»');
+        remove.textContent = '×';
+        chip.appendChild(text);
+        chip.appendChild(remove);
+        chips.appendChild(chip);
+      });
+      if (!selected.length) {
+        summary.textContent = allLabel;
+        summary.classList.add('pm-scope-empty');
+      } else {
+        summary.classList.remove('pm-scope-empty');
+        summary.textContent = selected.length <= 2
+          ? selected.map(function (box) { return box.dataset.label; }).join(', ')
+          : 'Выбрано ' + noun + ': ' + selected.length;
+      }
+    }
+
+    function setExpanded(pk, open) {
+      expanded[pk] = open;
+      var toggle = byPk[pk].querySelector('[data-scope-toggle]');
+      if (toggle) toggle.setAttribute('aria-expanded', open ? 'true' : 'false');
+    }
+
+    function renderList() {
+      var query = (search.value || '').trim().toLowerCase();
+      block.classList.toggle('is-searching', query.length > 0);
+      var shown = 0;
+      if (query) {
+        // Совпадения — с их предками, чтобы было видно, где они в дереве.
+        var visible = {};
+        rows.forEach(function (row) {
+          var pk = row.dataset.scopeOption;
+          if (row.dataset.text.indexOf(query) === -1) return;
+          visible[pk] = true;
+          if (isTree) ancestors(pk).forEach(function (a) { visible[a] = 'context'; });
+        });
+        rows.forEach(function (row) {
+          var pk = row.dataset.scopeOption;
+          row.classList.toggle('d-none', !visible[pk]);
+          row.classList.toggle('is-context', visible[pk] === 'context');
+          if (visible[pk] === true) shown++;
+        });
+      } else {
+        rows.forEach(function (row) {
+          var pk = row.dataset.scopeOption;
+          var open = !isTree || ancestors(pk).every(function (a) { return expanded[a]; });
+          row.classList.toggle('d-none', !open);
+          row.classList.remove('is-context');
+          if (open) shown++;
+        });
+      }
+      nothing.classList.toggle('d-none', shown > 0 || !rows.length);
+    }
+
+    function refresh() { syncCovered(); renderSummary(); }
+
+    // Раскрыть путь к выбранному: иначе отмеченная глубоко категория не видна.
+    if (isTree) {
+      rows.forEach(function (row) {
+        var pk = row.dataset.scopeOption;
+        if (input(pk).checked) ancestors(pk).forEach(function (a) { setExpanded(a, true); });
+      });
+    }
+
+    block.addEventListener('change', function (event) {
+      if (event.target.type === 'checkbox') refresh();
+    });
+    block.addEventListener('click', function (event) {
+      var toggle = event.target.closest('[data-scope-toggle]');
+      if (toggle) {
+        var pk = toggle.closest('[data-scope-option]').dataset.scopeOption;
+        setExpanded(pk, !expanded[pk]);
+        renderList();
+        return;
+      }
+      var remove = event.target.closest('[data-remove]');
+      if (remove) {
+        input(remove.dataset.remove).checked = false;
+        refresh();
+        return;
+      }
+      if (event.target.closest('[data-scope-clear]')) {
+        rows.forEach(function (row) {
+          var box = input(row.dataset.scopeOption);
+          if (!box.disabled) box.checked = false;
+        });
+        refresh();
+      } else if (event.target.closest('[data-scope-expand]')) {
+        rows.forEach(function (row) {
+          if (children[row.dataset.scopeOption]) setExpanded(row.dataset.scopeOption, true);
+        });
+        renderList();
+      } else if (event.target.closest('[data-scope-collapse]')) {
+        rows.forEach(function (row) { setExpanded(row.dataset.scopeOption, false); });
+        renderList();
+      }
+    });
+    // Набор в поиске — не изменение формы и не отправка.
+    search.addEventListener('input', function (event) { event.stopPropagation(); renderList(); });
+    search.addEventListener('change', function (event) { event.stopPropagation(); });
+    search.addEventListener('keydown', function (event) { if (event.key === 'Enter') event.preventDefault(); });
+
+    refresh();
+    renderList();
+  });
+})();
+</script>

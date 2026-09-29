@@ -136,6 +136,10 @@
   </div>
 </div>
 
+{# Охват по товару: категории (деревом, с подкатегориями) и бренды. Пусто — все строки #}
+{% include 'price_manager/partials/scope_dropdown.html' with field=form.categories options=form.category_options tree=True all_label='Все категории' noun='категорий' placeholder='Найти категорию' %}
+{% include 'price_manager/partials/scope_dropdown.html' with field=form.brands options=form.brand_options all_label='Все бренды' noun='брендов' placeholder='Найти бренд' help='Категории и бренды сужают правило вместе: строка должна подойти и туда, и туда. Строки ГП без товара под правило с категориями или брендами не попадают.' %}
+
 {# Блок расчёта цены #}
 <div class="card border-0 bg-light rounded-3 mt-4">
   <div class="card-body p-3">
