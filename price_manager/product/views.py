@@ -20,6 +20,10 @@ from .columns import PRODUCT_COLUMN_GROUPS, load_columns, save_columns
 from .filters import CATEGORY_LABEL_DEPTH, ProductFilter, matching_product_pks, ranked, search_terms
 from .forms import ProductForm
 from .models import Category, Product, ProductExport
+from .pim_content import (
+    PimUnavailable, characteristics, clean_description, fetch_flat_product, other_fields,
+    pim_product_url, description_html,
+)
 from .set_costs import attach_set_info, set_totals_for
 from .tasks import export_products_task
 from .tables import (
@@ -352,7 +356,15 @@ class ProductDetailView(DetailView):
             .order_by('supplier__name', 'article'))
         category = primary_category(product)
         data = product.raw_data or {}
+        pim_product_id = data.get('id')
         context.update({
+            'pim_product_id': pim_product_id,
+            'pim_url': pim_product_url(pim_product_id),
+            # В PIM оба поля — полноценный текст с разметкой (description
+            # бывает целой статьёй с заголовками), поэтому оба — в «Описание»,
+            # под ценами, а не в шапке.
+            'description': description_html(data, product.name),
+            'long_description': clean_description(data.get('longDescription')),
             'main_products': main_products,
             'category_path': category_path(category) if category else [],
             'fixed_pricetags': (PriceTag.objects.filter(p_manager__isnull=True, mp__product=product)
@@ -363,6 +375,33 @@ class ProductDetailView(DetailView):
             'photo_url': pim_image_url(data.get('mainImageId') or data.get('imageId')),
         })
         return context
+
+
+class ProductPimView(View):
+    """Характеристики и прочие поля товара из PIM — панель карточки.
+
+    Отдельным запросом: это единственное место карточки, которое ходит в PIM,
+    и карточка не ждёт его. ?refresh=1 — мимо кэша.
+    """
+
+    def get(self, request, pk):
+        product = get_object_or_404(Product, pk=pk)
+        pim_product_id = (product.raw_data or {}).get('id')
+        context = {'product': product, 'pim_product_id': pim_product_id}
+        if pim_product_id:
+            try:
+                data = fetch_flat_product(pim_product_id, refresh=bool(request.GET.get('refresh')))
+            except PimUnavailable:
+                context['unavailable'] = True
+            else:
+                if data is None:
+                    context['not_found'] = True
+                else:
+                    groups = characteristics(data)
+                    context['groups'] = groups
+                    context['attribute_count'] = sum(len(group['items']) for group in groups)
+                    context['other_fields'] = other_fields(data)
+        return render(request, 'product/partials/pim_panel.html', context)
 
 
 class ProductUpdateView(UpdateView):

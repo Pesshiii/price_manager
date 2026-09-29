@@ -46,6 +46,7 @@ from .filters import *
 from .utils import *
 from .utils import ensure_product, get_pim_data_for_product, pim_image_url, maybe_notify_pim_error, product_for_sku
 from .tasks import sync_main_products_task
+from product.pim_content import clean_description
 from supplier_product_manager.views import UploadSupplierFile
 
 # Импорты сторонних библиотек
@@ -94,6 +95,9 @@ class MainProductInfo(DetailView):
     context['pim_data'] = pim_data
     if pim_data:
       context['pim_image_url'] = pim_image_url(pim_data.get('mainImageId') or pim_data.get('imageId'))
+      # В обоих полях PIM — HTML; без очистки менеджер видел теги текстом.
+      context['pim_description'] = clean_description(pim_data.get('description'))
+      context['pim_long_description'] = clean_description(pim_data.get('longDescription'))
     context['price_cards'] = _price_cards(self.object)
     return context
 
@@ -112,6 +116,9 @@ class MainProductDetail(DetailView):
     context['pim_data'] = pim_data
     if pim_data:
       context['pim_image_url'] = pim_image_url(pim_data.get('mainImageId') or pim_data.get('imageId'))
+      # В обоих полях PIM — HTML; без очистки менеджер видел теги текстом.
+      context['pim_description'] = clean_description(pim_data.get('description'))
+      context['pim_long_description'] = clean_description(pim_data.get('longDescription'))
     context['price_cards'] = _price_cards(self.object)
     return context
 

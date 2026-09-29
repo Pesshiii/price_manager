@@ -3,6 +3,10 @@
   Карточка товара. Три блока — фиксированные наценки, строки ГП, набор — и действия в шапке.
   Всё, что меняет данные, открывается модалкой в #modal-container и по успеху
   перезагружает карточку (htmx-modal-crud).
+
+  Под ними — контент из PIM, только для показа (product/pim_content.py): описания
+  из зеркала (raw_data), характеристики — ленивой панелью #product-pim, которая
+  одна на карточке ходит в PIM.
 {% endcomment %}
 
 {% block title %}{{ product.display_name }}{% endblock %}
@@ -41,6 +45,18 @@
   .pd-empty-cta { display: flex; flex-wrap: wrap; gap: 1rem; align-items: center; justify-content: space-between; padding: 1rem 1.25rem; border: 1px dashed var(--bs-border-color); border-radius: .5rem; }
   .pd-empty-cta > div { max-width: 40rem; }
   .pd-row-actions .btn { --bs-btn-padding-y: .1rem; --bs-btn-padding-x: .4rem; }
+  .pd-desc { font-size: .9375rem; line-height: 1.55; overflow-wrap: anywhere; }
+  .pd-desc.is-clamped { max-height: 24rem; overflow: hidden; }
+  .pd-desc h1, .pd-desc h2, .pd-desc h3, .pd-desc h4, .pd-desc h5, .pd-desc h6 { font-size: .9375rem; font-weight: 600; margin: 1rem 0 .25rem; }
+  .pd-desc > :first-child { margin-top: 0; }
+  .pd-desc table { font-size: .875rem; margin-bottom: 1rem; }
+  .pd-desc td, .pd-desc th { border: 1px solid var(--bs-border-color); padding: .25rem .5rem; }
+  .pd-attr-group { font-size: .8125rem; font-weight: 500; color: var(--bs-secondary-color); margin: 1rem 0 .25rem; }
+  .pd-attr-group:first-of-type { margin-top: 0; }
+  .pd-attrs { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: .2rem 1rem; font-size: .875rem; margin: 0; padding-bottom: .5rem; border-bottom: 1px solid var(--bs-border-color-translucent); }
+  .pd-attrs dt { font-weight: 400; color: var(--bs-secondary-color); }
+  .pd-attrs dd { margin: 0; overflow-wrap: anywhere; }
+  .pd-attrs .pd-multiline { white-space: pre-line; }
   @media (max-width: 767.98px) {
     .pd-head { flex-wrap: wrap; }
     .pd-actions { margin-left: 0; width: 100%; }
@@ -74,6 +90,11 @@
       </div>
     </div>
     <div class="pd-actions">
+      {% if pim_url %}
+        <a class="btn btn-sm btn-outline-secondary" href="{{ pim_url }}" target="_blank" rel="noopener noreferrer">
+          <i class="bi bi-box-arrow-up-right me-1" aria-hidden="true"></i>Открыть в PIM
+        </a>
+      {% endif %}
       <button type="button" class="btn btn-sm btn-outline-secondary"
               data-bs-toggle="modal" data-bs-target="#modal-container"
               hx-get="{% url 'product-update' product.pk %}"
@@ -264,6 +285,34 @@
       </div>
     </section>
   {% endif %}
+
+  {% if pim_product_id or description or long_description %}
+    <div class="row g-4">
+      <section class="pd-section col-lg-7" aria-labelledby="pd-desc-title">
+        <div class="pd-section-head"><h2 id="pd-desc-title">Описание</h2></div>
+        {% if description or long_description %}
+          <div class="pd-desc is-clamped" id="pd-desc">
+            {{ description }}
+            {% if description and long_description %}<h3 class="pd-attr-group mt-3">Подробное описание</h3>{% endif %}
+            {{ long_description }}
+          </div>
+          <button type="button" class="btn btn-sm btn-link px-0 d-none" id="pd-desc-toggle"
+                  aria-controls="pd-desc" aria-expanded="false">Показать полностью</button>
+        {% else %}
+          <p class="pd-empty">В PIM описания нет.</p>
+        {% endif %}
+      </section>
+      <section class="pd-section col-lg-5" id="product-pim" aria-live="polite"
+               {% if pim_product_id %}hx-get="{% url 'product-pim' product.pk %}" hx-trigger="load" hx-swap="innerHTML"{% endif %}>
+        <div class="pd-section-head"><h2>Характеристики</h2></div>
+        {% if pim_product_id %}
+          <div class="pd-empty"><span class="spinner-border spinner-border-sm me-2" aria-hidden="true"></span>Загружаю из PIM…</div>
+        {% else %}
+          <p class="pd-empty">Товара нет в PIM — характеристики появятся после синхронизации.</p>
+        {% endif %}
+      </section>
+    </div>
+  {% endif %}
 </div>
 
 <div id="modal-container" class="modal modal-xl fade" tabindex="-1" aria-hidden="true">
@@ -275,4 +324,24 @@
     </div>
   </div>
 </div>
+{% endblock %}
+
+{% block script %}
+<script>
+  // Длинное описание свёрнуто; кнопка — только если оно не влезло.
+  (function () {
+    var desc = document.getElementById('pd-desc');
+    var toggle = document.getElementById('pd-desc-toggle');
+    if (!desc || !toggle || desc.scrollHeight <= desc.clientHeight) {
+      if (desc) desc.classList.remove('is-clamped');
+      return;
+    }
+    toggle.classList.remove('d-none');
+    toggle.addEventListener('click', function () {
+      var clamped = desc.classList.toggle('is-clamped');
+      toggle.textContent = clamped ? 'Показать полностью' : 'Свернуть';
+      toggle.setAttribute('aria-expanded', String(!clamped));
+    });
+  })();
+</script>
 {% endblock %}

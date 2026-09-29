@@ -42,6 +42,7 @@ urlpatterns = [
          name='pim-image'),
     path('products/<int:pk>/suppliers/', product_views.ProductSuppliersView.as_view(),
          name='product-suppliers'),
+    path('products/<int:pk>/pim/', product_views.ProductPimView.as_view(), name='product-pim'),
     # Карточка товара: правка, удаление, строки ГП.
     path('products/<int:pk>/', product_views.ProductDetailView.as_view(), name='product-detail'),
     path('products/<int:pk>/edit/', product_views.ProductUpdateView.as_view(), name='product-update'),
