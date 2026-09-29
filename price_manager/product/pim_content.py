@@ -1,12 +1,14 @@
 """Контент товара из PIM для карточки: описания, характеристики, прочие поля.
 
 Описания лежат в зеркале (raw_data) — их приносит ночная синхронизация, в PIM
-за ними не ходим. Характеристик в зеркале нет: списочный запрос синхронизации
-их не отдаёт. Их берём одним запросом Product/{id} с Flatten-Attributes, когда
-карточка открыта, и держим в кэше.
+за ними не ходим. Характеристик в зеркале нет: синхронизация их не запрашивает.
+Их берём одним запросом Product/{id} с Flatten-Attributes, когда карточка
+открыта, и держим в кэше.
 
 Только показ. Фильтровать по характеристикам этим нельзя — для этого их
-придётся зеркалить.
+придётся зеркалить. Списком PIM их отдаёт (Flatten-Attributes +
+allAttributes=true, ~2,7 с на страницу в 200 товаров), но без подписей и
+групп — названия тогда брать из справочника Attribute.
 """
 
 from __future__ import annotations
@@ -185,6 +187,9 @@ def characteristics(data: dict) -> list[dict]:
         value = data.get(code)
         if value is None or (isinstance(value, str) and not value.strip()):
             continue
+        if kind == 'url' and not str(value).strip().lower().startswith(('http://', 'https://')):
+            # В href попадает только http(s): javascript: автоэкранирование не остановит.
+            kind = 'text'
         if kind == 'bool':
             value = 'да' if value else 'нет'
         elif kind == 'number':

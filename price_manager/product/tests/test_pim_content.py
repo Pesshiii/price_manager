@@ -114,6 +114,11 @@ class CharacteristicsTests(SimpleTestCase):
         labels = {i['label'] for g in characteristics(FLAT) for i in g['items']}
         self.assertFalse({'Длина упаковки (Unit)', 'Set Products'} & labels)
 
+    def test_url_that_is_not_http_is_shown_as_text(self):
+        data = {**FLAT, 'certificate': 'javascript:alert(1)'}
+        pack = {i['label']: i for g in characteristics(data) for i in g['items']}
+        self.assertEqual(pack['Сертификат']['kind'], 'text')
+
     def test_product_without_attributes_has_none(self):
         self.assertEqual(characteristics({'id': 'x'}), [])
 
