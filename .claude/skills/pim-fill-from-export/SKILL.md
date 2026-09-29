@@ -31,6 +31,12 @@ The host python may lack `openpyxl`; the docstring of `export_to_json.py` has
 the `docker compose cp` route through `celery_worker`. It prints every column
 with fill counts and a sample — the base of the profile in step 1.
 
+Very wide exports need care: «Мир инструмента» (15 040 rows × 6 996 columns,
+most of them empty per row) made pandas write a 4.3 GB JSON with every null
+spelled out, and ran for over ten minutes. Rows are therefore written **sparse**
+(empty cells omitted — read them with `row.get(col)`); for exports that wide,
+reading with `openpyxl` `read_only=True` directly is faster still.
+
 Before any schema question, consult `pim-docs` or the cached metadata
 (`python .claude/tools/pim_docs.py instance metadata entityDefs.<Entity>.fields --keys`).
 
@@ -53,6 +59,34 @@ python "$S/match_products.py" rows.json found.json Код_товара:number
 
 Report found / missing / ambiguous. Ambiguous keys (one key, two PIM products)
 are never resolved by guessing — *ask*.
+
+A supplier's products may carry a **number suffix** in PIM (*ask*): «Мир
+инструмента» articles are `<Код артикула>mi` (`89551` → `89551mi`). Add the
+keyed column to the rows (`number_mi`) and match on it alone. The same code
+*without* the suffix is often another source's card for the same item
+(`89551`, brand RUSSIA) — do not fall back to it, and count those in the report
+so the user can decide; the 2026-09-28 run created the `…mi` cards beside them.
+
+### Creating missing products
+
+Only when the user allows it («можно добавлять новые товары»). What the API
+demands, learned on that run:
+
+- `POST Product` requires **`status`** (400 «Required property 'status'»
+  otherwise); existing supplier cards are `draft`.
+- Photos by URL: `POST File {name, url, typeId}` makes PIM download the file,
+  then `POST ProductFile {productId, fileId, isMainImage}` links it. The link
+  is refused («not allow to link a file of type ''») unless the File has
+  `typeId` of the **Image** file type — `Product.files` metadata lists the
+  allowed `fileTypes` (`019c320b-77ba-73d3-8f1b-8346dce0f7bb` on this instance).
+  *Ask* how many photos per product (the user chose 5, first = main).
+- Guard creation by a lookup on `number` so a crash between POST and log never
+  duplicates, and resume a product's images from the number already linked.
+- Long runs hit `URLError: [SSL: RECORD_LAYER_FAILURE]` from the network, not an
+  HTTP code: retry `OSError` too, or the run dies on the first blip (it did,
+  twice, after ~1 400 products).
+- One photo takes ~2–3 s; 2 914 products with ~10 600 photos took ~9 hours in
+  one thread alongside the other runs.
 
 ## 2. The export's category tree (`<Src>Category`)
 
@@ -113,6 +147,12 @@ A node that already has a `category` is never changed without `--overwrite`
 (*ask*). Send the CSV with `SendUserFile`, get «да», then rerun with `--apply`.
 Inner nodes are not mapped automatically.
 
+The vote counts only each product's **most specific real categories**: an
+ancestor of another of its categories is dropped, and so is a childless root
+(«Корневая группа», where uncategorised products are parked). Before that rule,
+«Корневая группа» won 40 % of the «Мир инструмента» leaves. The CSV shows our
+categories as full paths, since leaf names repeat («Сверла»).
+
 Expect the vote to be empty for a new supplier: PIM holds ~36 000
 product↔category links for ~280 000 products, essentially the Satu ones. The 2026-09-28 supplier export
 (`export_universal_*`, 8 861 matched products, 1 035 leaves) had none, and
@@ -121,17 +161,20 @@ for the user, and the CSV is where it starts.
 
 ## 3. Descriptions
 
-*Ask* which export column goes to which Product field — `description`,
-`longDescription`, and their `…RuRu` variants all exist and are multilingual;
-look at a few filled PIM products first to see which the team uses. Copy the text
-as is (HTML stays HTML). A product whose target field is already non-empty is
-not overwritten unless the user says so — count them in the report.
+**The HTML (detailed) description goes to `longDescription`** («Длинное
+описание») — the user's rule, set on the «Мир инструмента» run after a pilot had
+put it into `description`. Do not infer the field from filled cards: many carry
+HTML in `description` from the earlier Satu run, which is exactly the misleading
+signal. `description` stays untouched unless the user names a source for it;
+*ask* about any other description column. Copy the text as is (HTML stays HTML).
+A product whose target field is already non-empty is not overwritten unless the
+user says so — count them in the report.
 
 ## 4. Characteristics and units
 
 Follow `reference/attributes.md` — it holds the rules that worked on the first
 full run and, above all, **the catalogue already in PIM to reuse** (14 `pm_*`
-measures, 9 `g_*` groups, ~254 attributes). Map new source names into existing
+measures, 9 `g_*` groups, ~360 attributes). Map new source names into existing
 attributes first; create a new attribute / unit only for what has no match, and
 list those creations for the user before making them.
 
@@ -145,6 +188,19 @@ about borderline «characteristics» (barcodes, marketing bullets, links).
 After «да» to the mapping: an idempotent setup that creates the missing
 measures / units / groups / attributes and saves `ids.json`
 (`attr`, `unit`, `attr_measure`), bodies in `reference/attributes.md`.
+
+**Filling only empty attributes** needs the card's current values, and they are
+readable one product at a time only: `GET Product/{id}` with
+`Flatten-Attributes: true` (keys are the `systemName`s, plus `<code>UnitId`).
+A list `GET Product` ignores that header, and `ProductAttributeValue` is not an
+endpoint (404). `upsert_values.py` overwrites whatever it is given, so for an
+only-empty run do the GET-filter-upsert per product in the writer (one GET per
+product; 15 040 products took ~3 h in 4 threads alongside other runs).
+
+Existing values can carry the **right number with the wrong unit** (Satu-era
+«Высота подъёма 400 м», «Длина 15 мм» for a 15 m hose, «10 атм» for bar). When
+the export has the same number with another unit, *ask*; the user chose to take
+the export's unit, 789 values on 763 cards, each logged.
 
 ## 5. Pilot, then the full run
 

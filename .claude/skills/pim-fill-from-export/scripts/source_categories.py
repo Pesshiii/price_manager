@@ -187,10 +187,20 @@ def cmd_map(a):
         p.update(where_in('productId', pids[i:i + 80]))
         for x in call('GET', 'ProductCategory', p)['list']:
             cats_of[x['productId']].add(x['categoryId'])
-    cat_name = {c['id']: c['name'] for c in get_all('Category', select='id,name')}
+    cats = get_all('Category', select='id,name,routes,childrenCount')
+    cat_name = {c['id']: ' > '.join([n['name'] for r in (c.get('routesNames') or [])[:1] for n in r] + [c['name']])
+                for c in cats}
+    ancestors = {c['id']: {x for r in (c.get('routes') or []) for x in r.split('|') if x} for c in cats}
+    # A product often sits in a category *and* its ancestors, or in a childless catch-all root
+    # («Корневая группа», where uncategorised products are parked); either would outvote the
+    # specific category. Vote with the most specific real categories only.
+    catch_all = {c['id'] for c in cats if not ancestors[c['id']] and not c.get('childrenCount')}
+    for pid, cs in cats_of.items():
+        above = {a for c in cs for a in ancestors.get(c, ())}
+        cats_of[pid] = {c for c in cs if c not in above} - catch_all
     by_name = collections.defaultdict(list)  # fallback when the products have no category yet
-    for cid, name in cat_name.items():
-        by_name[norm_name(name)].append(cid)
+    for c in cats:
+        by_name[norm_name(c['name'])].append(c['id'])
     if ent in metadata()['scopes']:
         nodes = {x.get('code'): x for x in get_all(ent, select='id,name,code,categoryId,categoryName') if x.get('code')}
     elif a.apply:
