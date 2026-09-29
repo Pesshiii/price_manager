@@ -1,4 +1,5 @@
-"""Excel/CSV export -> JSON list of row dicts, every value a stripped string or None.
+"""Excel/CSV export -> JSON list of row dicts, every value a stripped string; empty cells are omitted
+(read them with row.get(col)).
 
 usage: python export_to_json.py <export.xlsx|.csv> <out.json> [--sheet N]
 
@@ -32,10 +33,10 @@ def main():
         row = {}
         for k, v in rec.items():
             if v is None or (isinstance(v, float) and v != v):
-                row[str(k)] = None
-            else:
-                s = str(v).strip()
-                row[str(k)] = s or None
+                continue  # sparse: a 7 000-column export would otherwise spell out every null
+            s = str(v).strip()
+            if s:
+                row[str(k)] = s
         rows.append(row)
     json.dump(rows, open(out, 'w', encoding='utf-8'), ensure_ascii=False)
     print(f'rows {len(rows)} columns {len(df.columns)}')

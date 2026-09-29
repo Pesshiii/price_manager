@@ -14,7 +14,9 @@ That run created the catalogue every later export should map *into*, not beside:
   «Материалы и исполнение», `g_elec` «Электрика и двигатель», `g_perf`
   «Технические параметры», `g_general` «Общие», `g_set` «Комплектация», `g_lift`
   «Грузоподъёмное оборудование», `g_media` «Документы и медиа».
-- **~254 Attributes** on Product, all on panel `attributeValues`, keyed by
+- **~360 Attributes** on Product (284 before the 2026-09-28 «Мир инструмента»
+  run, which added 76 — валики, леска, домкраты, лестницы, ДВС, сертификация,
+  `chestny_znak`, `gtin`; groups as above), all on panel `attributeValues`, keyed by
   `systemName` (`length`, `weight`, `power`, `warranty`, `barcode`, `benefits`, …).
 
 Dump the live catalogue before mapping, don't trust this list:
