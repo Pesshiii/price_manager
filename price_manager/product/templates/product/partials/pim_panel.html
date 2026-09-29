@@ -1,0 +1,41 @@
+{% comment %}
+  Характеристики и прочие поля товара из PIM (ProductPimView). Грузится в
+  #product-pim карточки после неё самой; «Обновить» перезапрашивает мимо кэша.
+{% endcomment %}
+<div class="pd-section-head">
+  <h2>Характеристики</h2>
+  {% if attribute_count %}<span class="pd-count">{{ attribute_count }}</span>{% endif %}
+  {% if pim_product_id %}
+    <button type="button" class="btn btn-sm btn-link pd-muted ms-auto"
+            hx-get="{% url 'product-pim' product.pk %}?refresh=1" hx-target="#product-pim" hx-swap="innerHTML"
+            title="Загрузить заново из PIM" aria-label="Обновить характеристики из PIM">
+      <i class="bi bi-arrow-clockwise" aria-hidden="true"></i>
+    </button>
+  {% endif %}
+</div>
+{% if not pim_product_id %}
+  <p class="pd-empty">Товара нет в PIM — характеристики появятся после синхронизации.</p>
+{% elif unavailable %}
+  <p class="pd-empty">PIM не ответил. Попробуйте обновить через минуту.</p>
+{% elif not_found %}
+  <p class="pd-empty">Товар не найден в PIM — возможно, его удалили.</p>
+{% else %}
+  {% for group in groups %}
+    <h3 class="pd-attr-group">{{ group.name }}</h3>
+    <dl class="pd-attrs">
+      {% for item in group.items %}
+        <dt>{{ item.label }}</dt>
+        {# Без переносов внутри dd: у многострочного значения white-space: pre-line их бы показал. #}
+        <dd{% if item.kind == 'multiline' %} class="pd-multiline"{% endif %}>{% if item.kind == 'url' %}<a href="{{ item.value }}" target="_blank" rel="noopener noreferrer">открыть <i class="bi bi-box-arrow-up-right" aria-hidden="true"></i></a>{% else %}{{ item.value }}{% if item.unit %} {{ item.unit }}{% endif %}{% endif %}</dd>
+      {% endfor %}
+    </dl>
+  {% empty %}
+    <p class="pd-empty">В PIM характеристики не заполнены.</p>
+  {% endfor %}
+  {% if other_fields %}
+    <h3 class="pd-attr-group">Прочее из PIM</h3>
+    <dl class="pd-attrs">
+      {% for label, value in other_fields %}<dt>{{ label }}</dt><dd>{{ value }}</dd>{% endfor %}
+    </dl>
+  {% endif %}
+{% endif %}

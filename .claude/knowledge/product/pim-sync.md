@@ -101,6 +101,9 @@ local MPTT tree via `Category.get_ancestors()` — the `categories` M2M is the
 source of truth. If something needs a path string, derive it at read time.
 See [[product/testing]] for how this bug's regression test is structured.
 
+Characteristics are **not** synced into raw_data; the card fetches them lazily —
+see [[product/pim-content]].
+
 ## Filling the mirror from PIM (dev-only) — `load_pim_mirror`
 
 `services/pim_sync.py`: `sync_category_tree_from_pim()` (`:220-285`) and

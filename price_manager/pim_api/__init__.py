@@ -92,6 +92,18 @@ class Entity(BaseModel):
     def get(self, prefix: str, headers: Dict[str, str], timeout: float = 5.0) -> httpx.Response:
         return httpx.get(url=f'{prefix}{self.name}/{self.id}', headers=headers, timeout=timeout)
 
+class FlatEntity(Entity):
+    """Одна запись вместе со значениями атрибутов (характеристик).
+
+    С заголовком Flatten-Attributes PIM кладёт значения прямо в запись — по
+    ключу `code` атрибута, с `<code>UnitData` для единиц — и описания в
+    `attributesDefs` (подпись, тип, группа, порядок). Это одиночная запись; в
+    списке тот же заголовок работает только вместе с allAttributes=true, и
+    описания там урезаны до attributeId и type.
+    """
+    def get(self, prefix: str, headers: Dict[str, str], timeout: float = 5.0) -> httpx.Response:
+        return super().get(prefix, {**headers, 'Flatten-Attributes': 'true'}, timeout)
+
 class UpsertAsync(BaseModel):
     payload: Any
     def get(self, prefix: str, headers: Dict[str, str], timeout: float = 5.0) -> httpx.Response:
