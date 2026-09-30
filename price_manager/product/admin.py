@@ -6,7 +6,7 @@ from django.views.decorators.http import require_POST
 from mptt.admin import DraggableMPTTAdmin
 
 from .models import Category, Product, ProductSetItem
-from .tasks import export_products_full_csv_task
+from .tasks import export_products_full_csv_task, export_products_satu_task
 
 
 @admin.register(Category)
@@ -45,6 +45,9 @@ class ProductAdmin(admin.ModelAdmin):
             path('export-full-csv/',
                  self.admin_site.admin_view(require_POST(self.export_full_csv_view)),
                  name='product_product_export_full_csv'),
+            path('export-satu/',
+                 self.admin_site.admin_view(require_POST(self.export_satu_view)),
+                 name='product_product_export_satu'),
         ] + super().get_urls()
 
     def export_full_csv_view(self, request):
@@ -59,5 +62,21 @@ class ProductAdmin(admin.ModelAdmin):
         self.message_user(
             request,
             'Полный экспорт запущен. Ссылка на файл придёт в оповещениях на сайте.',
+            messages.INFO)
+        return redirect('admin:product_product_changelist')
+
+    def export_satu_view(self, request):
+        """Ставит выгрузку в формате Satu.kz в очередь (product/satu_export.py).
+
+        Весь каталог с характеристиками из PIM — десятки минут; файл — по
+        ссылке в оповещениях сайта.
+        """
+        if not self.has_view_permission(request):
+            raise PermissionDenied
+        export_products_satu_task.delay(user_id=request.user.pk)
+        self.message_user(
+            request,
+            'Выгрузка для Satu запущена — она займёт около часа. '
+            'Ссылка на файл придёт в оповещениях на сайте.',
             messages.INFO)
         return redirect('admin:product_product_changelist')

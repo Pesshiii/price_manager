@@ -102,7 +102,8 @@ def sync_product_sets_task() -> dict:
 EXPORT_TIME_LIMIT = 60 * 60
 
 
-def _run_export(task_name: str, title: str, user_id: int, build) -> dict:
+def _run_export(task_name: str, title: str, user_id: int, build,
+                lock_ttl: int = EXPORT_TIME_LIMIT) -> dict:
     """Общий ход экспорта: блокировка, файл, уведомление со ссылкой на скачивание.
 
     build() возвращает сохранённый ProductExport.
@@ -122,7 +123,7 @@ def _run_export(task_name: str, title: str, user_id: int, build) -> dict:
     try:
         payload = execute_locked_task(
             task_name=task_name,
-            lock_ttl=EXPORT_TIME_LIMIT,
+            lock_ttl=lock_ttl,
             runner=_runner,
             # Минуты чтения и в конце одна загрузка файла и одна вставка —
             # транзакция на весь проход ничего не даёт, а держалась бы открытой.
@@ -178,3 +179,19 @@ def export_products_full_csv_task(user_id: int) -> dict:
     return _run_export(
         f'product.export_products_full_csv:{user_id}', 'Полный экспорт товаров (csv)', user_id,
         lambda: build_full_csv_export(user_id))
+
+
+# Выгрузка Satu ходит в PIM за характеристиками всего каталога — ~1 600
+# запросов по ~2 с, дольше часа полного csv.
+SATU_EXPORT_TIME_LIMIT = 3 * 60 * 60
+
+
+@shared_task(name='product.export_products_satu', time_limit=SATU_EXPORT_TIME_LIMIT,
+             soft_time_limit=SATU_EXPORT_TIME_LIMIT - 60)
+def export_products_satu_task(user_id: int) -> dict:
+    """Выгрузка каталога в формате Satu.kz (кнопка в админке). Ссылка — в уведомлении."""
+    from .satu_export import build_satu_export
+
+    return _run_export(
+        f'product.export_products_satu:{user_id}', 'Выгрузка для Satu', user_id,
+        lambda: build_satu_export(user_id), lock_ttl=SATU_EXPORT_TIME_LIMIT)

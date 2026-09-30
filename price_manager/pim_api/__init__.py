@@ -71,6 +71,9 @@ class EntityList(BaseModel):
     maxSize: Optional[int] = None
 
     def get(self, prefix: str, headers: Dict[str, str], timeout: float = 5.0) -> httpx.Response:
+        return httpx.get(url=prefix + self.name, params=self.params(), headers=headers, timeout=timeout)
+
+    def params(self) -> Dict[str, Any]:
         params: Dict[str, Any] = dict()
         if self.select:
             params.update({'select':','.join(self.select)})
@@ -84,7 +87,26 @@ class EntityList(BaseModel):
         if self.ordering is not None:
             params['sortBy'] = self.ordering.sortBy
             params['asc'] = self.ordering.asc.value
-        return httpx.get(url=prefix + self.name, params=params, headers=headers, timeout=timeout)
+        return params
+
+class FlatEntityList(EntityList):
+    """Списочный запрос со значениями атрибутов — Flatten-Attributes плюс
+    allAttributes=true (без второго PIM отдаёт атрибуты только одиночной записи).
+
+    Значения — по ключу `code` атрибута, единица — в `<code>UnitData`, как у
+    FlatEntity; а вот `attributesDefs` урезаны до attributeId и type: подписи
+    брать из справочника Attribute.
+
+    Отбор `id in [...]` идёт в строке запроса, и на 200 uuid PIM отвечает
+    414 URI Too Long — 100 проходят (проверено 2026-09-30).
+    """
+
+    def params(self) -> Dict[str, Any]:
+        return {**super().params(), 'allAttributes': 'true'}
+
+    def get(self, prefix: str, headers: Dict[str, str], timeout: float = 5.0) -> httpx.Response:
+        return super().get(prefix, {**headers, 'Flatten-Attributes': 'true'}, timeout)
+
 
 class Entity(BaseModel):
     name: str
