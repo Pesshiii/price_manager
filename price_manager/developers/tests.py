@@ -76,6 +76,34 @@ class FeedbackFormTests(TestCase):
             self.post({'message': 'x', 'page': page})
         self.assertEqual(set(Feedback.objects.values_list('page_url', flat=True)), {''})
 
+    def test_rendered_page_is_kept_alongside_current_page(self):
+        response = self.client.get(self.url, {'page': '/products/?q=b', 'rendered_page': '/products/'})
+        self.assertContains(response, 'value="/products/"')
+
+        self.post({'message': 'x', 'page': '/products/?q=b', 'rendered_page': '/products/'})
+        feedback = Feedback.objects.get()
+        self.assertEqual(feedback.page_url, 'http://testserver/products/?q=b')
+        self.assertEqual(feedback.rendered_url, 'http://testserver/products/')
+
+    @override_settings(CSRF_TRUSTED_ORIGINS=['https://pm.example.kz'])
+    def test_urls_use_browser_origin_not_proxy_host(self):
+        # Behind the proxy Django sees Host: localhost; the browser's Origin is the public address.
+        with mock.patch('developers.views.send_feedback_task'), \
+                self.captureOnCommitCallbacks(execute=True):
+            self.client.post(
+                self.url,
+                {'message': 'x', 'page': '/products/?q=b', 'rendered_page': '/products/'},
+                HTTP_HX_REQUEST='true', HTTP_HOST='localhost', HTTP_ORIGIN='https://pm.example.kz',
+            )
+        feedback = Feedback.objects.get()
+        self.assertEqual(feedback.page_url, 'https://pm.example.kz/products/?q=b')
+        self.assertEqual(feedback.rendered_url, 'https://pm.example.kz/products/')
+
+    def test_navbar_button_sends_both_addresses(self):
+        response = self.client.get('/products/?q=abc')
+        self.assertContains(response, 'feedback/?rendered_page=%2Fproducts%2F%3Fq%3Dabc')
+        self.assertContains(response, "hx-vals='js:{page: window.location.pathname + window.location.search}'")
+
     def test_anonymous_is_sent_to_login(self):
         self.client.logout()
         response = self.client.get(self.url)
@@ -152,6 +180,14 @@ class SendFeedbackTaskTests(TestCase):
         post.assert_not_called()
         self.assertEqual(self.feedback.status, Feedback.Status.FAILED)
         self.assertIn('не настроена', self.feedback.error)
+
+    def test_rendered_page_is_mentioned_only_when_it_differs(self):
+        from developers.tasks import build_description
+
+        self.feedback.rendered_url = self.feedback.page_url
+        self.assertNotIn('Страница загрузки', build_description(self.feedback))
+        self.feedback.rendered_url = 'http://pm/'
+        self.assertIn('Страница загрузки: http://pm/', build_description(self.feedback))
 
     def test_title_is_truncated(self):
         self.feedback.message = 'а' * 200

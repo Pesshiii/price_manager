@@ -44,7 +44,9 @@
             type="button"
             data-bs-toggle="modal"
             data-bs-target="#developersFeedbackModal"
-            hx-get="{% url 'developers-feedback' %}?page={{ request.get_full_path|urlencode:'' }}"
+            {# Two addresses: the page this navbar was rendered for, and the browser's current one — HTMX filters and navigation rewrite it afterwards. #}
+            hx-get="{% url 'developers-feedback' %}?rendered_page={{ request.get_full_path|urlencode:'' }}"
+            hx-vals='js:{page: window.location.pathname + window.location.search}'
             hx-target="#developersFeedbackModal .modal-content"
             hx-swap="innerHTML"
             title="Обратная связь"

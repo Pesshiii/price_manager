@@ -4,9 +4,12 @@ from developers.models import Feedback
 
 
 class FeedbackForm(forms.ModelForm):
-    # The path of the page the modal was opened from; turned into an absolute
-    # URL by the view. Only a local path is accepted.
+    # Paths turned into absolute URLs by the view; only local paths are accepted.
+    # page — the browser's address when the modal was opened;
+    # rendered_page — the page the navbar (and so the button) was rendered for.
+    # They differ once HTMX has rewritten the address after the page load.
     page = forms.CharField(required=False, widget=forms.HiddenInput, max_length=400)
+    rendered_page = forms.CharField(required=False, widget=forms.HiddenInput, max_length=400)
 
     class Meta:
         model = Feedback
@@ -20,9 +23,16 @@ class FeedbackForm(forms.ModelForm):
             }),
         }
 
-    def clean_page(self):
-        page = self.cleaned_data.get('page', '').strip()
+    @staticmethod
+    def _local_path(value):
+        value = (value or '').strip()
         # A path on this site only: not '//evil.example', not a full URL.
-        if not page.startswith('/') or page.startswith('//'):
+        if not value.startswith('/') or value.startswith('//'):
             return ''
-        return page
+        return value
+
+    def clean_page(self):
+        return self._local_path(self.cleaned_data.get('page'))
+
+    def clean_rendered_page(self):
+        return self._local_path(self.cleaned_data.get('rendered_page'))

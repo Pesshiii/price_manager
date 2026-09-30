@@ -29,6 +29,10 @@ def build_description(feedback) -> str:
     lines = [
         f'Автор: {who}',
         f'Страница: {feedback.page_url or "не указана"}',
+    ]
+    if feedback.rendered_url and feedback.rendered_url != feedback.page_url:
+        lines.append(f'Страница загрузки: {feedback.rendered_url}')
+    lines += [
         f'Отправлено: {created}',
         '',
         feedback.message,

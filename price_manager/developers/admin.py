@@ -13,9 +13,9 @@ from developers.tasks import send_feedback_task
 class FeedbackAdmin(admin.ModelAdmin):
     list_display = ('id', 'created_at', 'author', 'short_message', 'status', 'task_link')
     list_filter = ('status', 'created_at')
-    search_fields = ('message', 'author__username', 'author__email', 'page_url')
+    search_fields = ('message', 'author__username', 'author__email', 'page_url', 'rendered_url')
     readonly_fields = (
-        'author', 'message', 'page_url', 'created_at',
+        'author', 'message', 'page_url', 'rendered_url', 'created_at',
         'status', 'task_link', 'sent_at', 'error',
     )
     fields = readonly_fields
