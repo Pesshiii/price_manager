@@ -1,0 +1,108 @@
+{% with supplier=row.supplier %}
+<div class="bulk-row{% if 'pending' in row.states %} bulk-row-pending{% endif %}" id="bulk-row-{{ supplier.pk }}"
+     data-name="{{ supplier.name|lower }}"
+     data-states="{{ row.states|join:' ' }}"
+     data-overdue="{{ row.overdue|yesno:'1,0' }}"
+     data-applied-today="{{ row.applied_today|yesno:'1,0' }}"
+     data-active="{{ row.poll|yesno:'1,0' }}"
+     {% if row.poll %}hx-get="{% url 'supplier-bulk-upload-row' supplier.pk %}" hx-trigger="every 3s"
+     hx-include="find select" hx-swap="outerHTML"{% endif %}>
+
+  <div class="bulk-supplier">
+    <a class="fw-medium text-body text-decoration-none text-truncate d-block" href="{% url 'supplier-detail' supplier.pk %}"
+       title="{{ supplier.name }}">{{ supplier.name }}</a>
+    <div class="small {% if row.overdue %}text-danger{% else %}text-muted{% endif %}"
+         {% if row.updated_at %}title="Обновлён {{ row.updated_at|date:'d.m.Y H:i' }}"{% endif %}>
+      {% if row.overdue %}<i class="bi bi-clock-history me-1" aria-hidden="true"></i>{% endif %}{{ row.updated_label }}
+    </div>
+  </div>
+
+  <form class="bulk-form" hx-post="{% url 'supplier-bulk-upload-row' supplier.pk %}" hx-trigger="bulk-upload"
+        hx-encoding="multipart/form-data" hx-target="closest .bulk-row" hx-swap="outerHTML">
+    <div class="bulk-setting">
+      <label class="visually-hidden" for="bulk-setting-{{ supplier.pk }}">Настройка для {{ supplier.name }}</label>
+      <select class="form-select form-select-sm" name="setting" id="bulk-setting-{{ supplier.pk }}">
+        {% for setting in row.settings %}
+          <option value="{{ setting.pk }}"{% if setting.pk == row.selected %} selected{% endif %}>
+            {{ setting.name }}{% if setting.pk == row.last_applied and row.settings|length > 1 %} · загружалась последней{% endif %}
+          </option>
+        {% endfor %}
+        <option value=""{% if not row.selected %} selected{% endif %}>Новая настройка из файла</option>
+      </select>
+    </div>
+
+    <div class="bulk-status">
+      {% for job in row.jobs %}
+        <div class="bulk-job">
+          {% if job.file %}
+            <div class="small text-truncate" title="{{ job.file }}">
+              <i class="bi bi-file-earmark-spreadsheet me-1" aria-hidden="true"></i>{{ job.file }}{% if job.setting and row.settings|length > 1 %}<span class="text-muted"> · {{ job.setting.name }}</span>{% endif %}
+            </div>
+          {% endif %}
+
+          {% if job.state == 'queued' %}
+            <span class="badge rounded-pill text-bg-light border"><span class="spinner-border spinner-border-sm me-1" aria-hidden="true"></span>В очереди</span>
+          {% elif job.state == 'running' %}
+            <span class="badge rounded-pill bg-primary-subtle text-primary-emphasis"><span class="spinner-border spinner-border-sm me-1" aria-hidden="true"></span>Разбор файла</span>
+            <div class="progress mt-1" style="height: 4px" role="progressbar" aria-label="Импорт выполняется">
+              <div class="progress-bar progress-bar-striped progress-bar-animated w-100"></div>
+            </div>
+          {% elif job.state == 'pending' %}
+            <span class="badge rounded-pill bg-warning-subtle text-warning-emphasis"><i class="bi bi-exclamation-triangle me-1" aria-hidden="true"></i>Ждёт подтверждения</span>
+            {% if job.reasons %}
+              <div class="small text-body-secondary bulk-reason" title="{{ job.reasons|join:'; ' }}">
+                {{ job.reasons.0 }}{% if job.reasons|length > 1 %} <span class="text-muted">и ещё {{ job.reasons|length|add:"-1" }}</span>{% endif %}
+              </div>
+            {% endif %}
+            {% if job.run %}
+              <div class="d-flex flex-wrap gap-1 mt-1">
+                <button type="button" class="btn btn-warning btn-sm"
+                        hx-post="{% url 'supplier-bulk-upload-apply' supplier.pk job.run.pk %}">Подтвердить</button>
+                <button type="button" class="btn btn-outline-secondary btn-sm"
+                        data-bs-toggle="modal" data-bs-target="#import-confirm-modal"
+                        hx-get="{% url 'import-run-confirm' job.run.pk %}?row={{ supplier.pk }}"
+                        hx-target="#import-confirm-modal .modal-content" hx-swap="innerHTML">Подробнее</button>
+                <button type="button" class="btn btn-link btn-sm text-secondary"
+                        hx-post="{% url 'supplier-bulk-upload-cancel' supplier.pk job.run.pk %}"
+                        hx-confirm="Отменить импорт «{{ job.setting.name }}»? Данные не изменятся.">Отменить</button>
+              </div>
+            {% endif %}
+          {% elif job.state == 'applied' %}
+            <span class="badge rounded-pill bg-success-subtle text-success-emphasis"><i class="bi bi-check-lg me-1" aria-hidden="true"></i>Применён</span>
+            <span class="small text-muted">{% if job.summary %}{{ job.summary }}{% endif %}{% if job.finished_at %} · {{ job.finished_at|date:"d.m H:i" }}{% endif %}</span>
+          {% elif job.state == 'unbound' %}
+            <span class="badge rounded-pill bg-warning-subtle text-warning-emphasis"><i class="bi bi-sliders me-1" aria-hidden="true"></i>Настройка не заполнена</span>
+            <div class="small text-body-secondary">
+              Файл сохранён. Укажите в настройке «{{ job.setting.name }}» столбцы артикула и названия и запустите загрузку оттуда.
+            </div>
+            <a class="btn btn-outline-secondary btn-sm mt-1" href="{{ job.setting_url }}">Открыть настройку</a>
+          {% elif job.state == 'error' %}
+            <span class="badge rounded-pill bg-danger-subtle text-danger-emphasis"><i class="bi bi-x-lg me-1" aria-hidden="true"></i>Не загружен</span>
+            <div class="small text-danger bulk-reason" title="{{ job.message }}">{{ job.message }}</div>
+            {% if job.setting %}
+              <a class="small" href="{% url 'setting-update' job.setting.pk %}">Открыть настройку</a>
+            {% endif %}
+          {% endif %}
+        </div>
+      {% endfor %}
+
+      {% if row.poll %}
+        <div class="small text-muted">Новый файл — после окончания импорта</div>
+      {% else %}
+        <label class="bulk-drop{% if row.jobs %} bulk-drop-compact{% endif %}">
+          <input type="file" name="file" class="visually-hidden bulk-file" accept=".xls,.xlsx,.xlsm">
+          <i class="bi bi-upload" aria-hidden="true"></i>
+          {% if row.jobs %}
+            <span>Загрузить новый файл</span>
+          {% else %}
+            <span>Перетащите файл или <span class="text-decoration-underline">выберите</span></span>
+          {% endif %}
+        </label>
+        <div class="bulk-uploading small text-primary">
+          <span class="spinner-border spinner-border-sm me-1" aria-hidden="true"></span>Загрузка файла…
+        </div>
+      {% endif %}
+    </div>
+  </form>
+</div>
+{% endwith %}

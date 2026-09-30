@@ -1931,7 +1931,8 @@ class ImportRobustnessTests(TestCase):
         with mock.patch("supplier_product_manager.views.process_supplier_file_import") as task:
             self.assertEqual(self.client.get(url).status_code, 405)
             task.delay.assert_not_called()
-            self.client.post(url)
+            with self.captureOnCommitCallbacks(execute=True):
+                self.client.post(url)
 
         task.delay.assert_called_once_with(self.setting.pk, self.user.pk)
 
@@ -2594,3 +2595,153 @@ class HasHeaderTests(_SupplierFixtureMixin, TestCase):
         response = self.client.get(reverse("setting-update", kwargs={"pk": setting.pk}))
 
         self.assertContains(response, "Заголовки найдены в строке 4")
+
+
+
+class BulkUploadTests(_SupplierFixtureMixin, TestCase):
+    """«Массовая загрузка»: строка на поставщика, файл — сразу в очередь, статус в строке."""
+
+    def setUp(self):
+        _block_pim(self)
+        self.user = get_user_model().objects.create_user(username="bulk", password="x")
+        self.client.force_login(self.user)
+        self.supplier = self._make_supplier("Массовый поставщик")
+
+    def _setting(self, name="Прайс", bound=True):
+        setting = Setting.objects.create(name=name, supplier=self.supplier, sheet_name="Sheet1")
+        if bound:
+            Link.objects.create(setting=setting, key="article", value="Артикул")
+        return setting
+
+    def _row_url(self, supplier=None):
+        return reverse("supplier-bulk-upload-row", kwargs={"pk": (supplier or self.supplier).pk})
+
+    def _upload(self, setting=None, upload=None):
+        upload = upload or _xlsx_upload({"Sheet1": pd.DataFrame([{"Артикул": "А-1"}])}, "price.xlsx")
+        data = {"file": upload, "setting": setting.pk if setting else ""}
+        with mock.patch("supplier_product_manager.views.process_supplier_file_import") as task:
+            with self.captureOnCommitCallbacks(execute=True):
+                response = self.client.post(self._row_url(), data)
+        return response, task
+
+    def test_suppliers_sorted_oldest_update_first_never_updated_last(self):
+        now = timezone.now()
+        self.supplier.price_updated_at = now - timezone.timedelta(days=2)
+        self.supplier.save()
+        stale = self._make_supplier("Давний")
+        stale.stock_updated_at = now - timezone.timedelta(days=30)
+        stale.save()
+        never = self._make_supplier("Ни разу")
+
+        response = self.client.get(reverse("supplier-bulk-upload"))
+
+        names = [row["supplier"].name for row in response.context["rows"]]
+        self.assertEqual(names, [stale.name, self.supplier.name, never.name])
+
+    def test_default_setting_is_the_last_applied_then_the_newest(self):
+        applied = self._setting("Применялась")
+        newest = self._setting("Новее")
+        rows = lambda: self.client.get(reverse("supplier-bulk-upload")).context["rows"]
+
+        self.assertEqual(rows()[0]["selected"], newest.pk)
+
+        ImportRun.objects.create(setting=applied, supplier=self.supplier, status=ImportRun.STATUS_APPLIED)
+        self.assertEqual(rows()[0]["selected"], applied.pk)
+
+    def test_upload_queues_the_import_and_the_row_polls(self):
+        setting = self._setting()
+
+        response, task = self._upload(setting)
+
+        task.delay.assert_called_once_with(setting.pk, self.user.pk)
+        supplier_file = setting.supplierfiles.get()
+        self.assertEqual(supplier_file.status, SupplierFile.STATUS_QUEUED)
+        self.assertContains(response, "В очереди")
+        self.assertContains(response, 'hx-trigger="every 3s"')
+        self.assertEqual(response.context["row"]["selected"], setting.pk)
+
+    def test_upload_to_an_unmapped_setting_keeps_the_file_and_links_the_setting(self):
+        setting = self._setting(bound=False)
+
+        response, task = self._upload(setting)
+
+        task.delay.assert_not_called()
+        self.assertEqual(setting.supplierfiles.count(), 1)
+        self.assertContains(response, "Настройка не заполнена")
+        self.assertContains(response, reverse("setting-update", kwargs={"pk": setting.pk}))
+        self.assertNotContains(response, 'hx-trigger="every 3s"')
+
+    def test_upload_without_a_setting_creates_one_from_the_file(self):
+        response, task = self._upload(None)
+
+        created = Setting.objects.get(supplier=self.supplier)
+        self.assertEqual(created.name, "price")
+        # A brand-new setting maps nothing yet.
+        task.delay.assert_not_called()
+        self.assertContains(response, "Настройка не заполнена")
+
+    def test_unreadable_file_is_reported_in_the_row(self):
+        setting = self._setting()
+        broken = SimpleUploadedFile("broken.xlsx", b"not a workbook")
+
+        response, task = self._upload(setting, broken)
+
+        task.delay.assert_not_called()
+        self.assertFalse(SupplierFile.objects.exists())
+        self.assertContains(response, "Не удалось прочитать файл")
+        self.assertContains(response, "broken.xlsx")
+
+    def _pending(self, setting):
+        supplier_file = SupplierFile.objects.create(
+            setting=setting, file=SimpleUploadedFile("p.xlsx", b"x"),
+            status=SupplierFile.STATUS_NEEDS_CONFIRMATION)
+        return ImportRun.objects.create(
+            setting=setting, supplier=self.supplier, supplier_file=supplier_file,
+            status=ImportRun.STATUS_NEEDS_CONFIRMATION,
+            guard_reasons=[{"kind": "history", "have": 1, "need": 3}])
+
+    def test_pending_row_offers_confirmation(self):
+        run = self._pending(self._setting())
+
+        response = self.client.get(self._row_url())
+
+        self.assertContains(response, "Ждёт подтверждения")
+        self.assertContains(response, "история ещё копится (1 из 3)")
+        self.assertContains(response, reverse("supplier-bulk-upload-apply",
+                                              kwargs={"pk": self.supplier.pk, "run_pk": run.pk}))
+
+    def test_apply_from_the_row_dispatches_the_checked_file_once(self):
+        setting = self._setting()
+        run = self._pending(setting)
+        url = reverse("supplier-bulk-upload-apply", kwargs={"pk": self.supplier.pk, "run_pk": run.pk})
+
+        with mock.patch("supplier_product_manager.views.process_supplier_file_import") as task:
+            with self.captureOnCommitCallbacks(execute=True):
+                response = self.client.post(url)
+            with self.captureOnCommitCallbacks(execute=True):
+                self.client.post(url)
+
+        task.delay.assert_called_once_with(setting.pk, self.user.pk, confirmed_run_id=run.pk)
+        self.assertContains(response, "В очереди")
+        self.assertNotIn("HX-Refresh", response.headers)
+
+    def test_cancel_from_the_row(self):
+        run = self._pending(self._setting())
+
+        response = self.client.post(reverse("supplier-bulk-upload-cancel",
+                                            kwargs={"pk": self.supplier.pk, "run_pk": run.pk}))
+
+        run.refresh_from_db()
+        self.assertEqual(run.status, ImportRun.STATUS_CANCELLED)
+        self.assertContains(response, "Импорт отменён, данные не изменены")
+
+    def test_details_dialog_from_the_page_answers_with_the_row(self):
+        run = self._pending(self._setting())
+        url = reverse("import-run-confirm", kwargs={"pk": run.pk})
+
+        from_page = self.client.get(f"{url}?row={self.supplier.pk}")
+        from_supplier = self.client.get(url)
+
+        self.assertContains(from_page, f'hx-target="#bulk-row-{self.supplier.pk}"')
+        self.assertContains(from_supplier, reverse("import-run-apply", kwargs={"pk": run.pk}))
+        self.assertNotContains(from_supplier, "bulk-row")

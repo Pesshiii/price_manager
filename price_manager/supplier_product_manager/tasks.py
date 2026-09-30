@@ -184,6 +184,11 @@ def _refuse_busy(setting: Setting, user_id: int, confirmed_run_id: int | None) -
         # pending, so "Применить" in the dialog works again.
         back_to_pending = ImportRun.objects.filter(pk=confirmed_run_id, status=ImportRun.STATUS_RUNNING).update(
             status=ImportRun.STATUS_NEEDS_CONFIRMATION, confirmed_by=None, confirmed_at=None)
+        if back_to_pending:
+            # apply_import_run queued the file; it waits for a decision again.
+            SupplierFile.objects.filter(
+                import_runs__pk=confirmed_run_id, status=SupplierFile.STATUS_QUEUED,
+            ).update(status=SupplierFile.STATUS_NEEDS_CONFIRMATION)
     else:
         supplier_file = setting.supplierfiles.order_by("-pk").first()
         in_progress = supplier_file is not None and ImportRun.objects.filter(

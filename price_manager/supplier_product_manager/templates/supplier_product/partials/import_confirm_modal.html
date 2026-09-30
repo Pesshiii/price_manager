@@ -29,9 +29,9 @@
 <div class="modal-footer border-0 pt-0">
   {% if pending %}
     <button type="button" class="btn btn-link text-secondary"
-            hx-post="{% url 'import-run-cancel' run.pk %}">Отменить импорт</button>
+            hx-post="{{ cancel_url }}"{% if row_target %} hx-target="{{ row_target }}" hx-swap="outerHTML" data-bs-dismiss="modal"{% endif %}>Отменить импорт</button>
     <button type="button" class="btn btn-warning"
-            hx-post="{% url 'import-run-apply' run.pk %}">Применить всё равно</button>
+            hx-post="{{ apply_url }}"{% if row_target %} hx-target="{{ row_target }}" hx-swap="outerHTML" data-bs-dismiss="modal"{% endif %}>Применить всё равно</button>
   {% else %}
     <span class="small text-muted">Импорт уже обработан: {{ run.get_status_display|lower }}</span>
   {% endif %}

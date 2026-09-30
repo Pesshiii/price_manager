@@ -7,6 +7,7 @@ from django.urls import include, path
 from core import views
 from file_manager import views as fm_views
 from supplier_product_manager import views as spm_views
+from supplier_product_manager import bulk_upload as spm_bulk
 from main_product_manager import views as mp_views
 from supplier_manager import views as sm_views
 from product_price_manager import views as ppm_views
@@ -63,6 +64,12 @@ urlpatterns = [
     path('supplier/<int:id>/delete/', sm_views.SupplierDelete.as_view(), name='supplier-delete'),
 
     path('supplier/create/', sm_views.SupplierCreate.as_view(), name='supplier-create'),
+    path('supplier/bulk-upload/', spm_bulk.BulkUploadView.as_view(), name='supplier-bulk-upload'),
+    path('supplier/<int:pk>/bulk-upload/', spm_bulk.bulk_upload_row, name='supplier-bulk-upload-row'),
+    path('supplier/<int:pk>/bulk-upload/<int:run_pk>/apply', spm_bulk.bulk_upload_apply,
+         name='supplier-bulk-upload-apply'),
+    path('supplier/<int:pk>/bulk-upload/<int:run_pk>/cancel', spm_bulk.bulk_upload_cancel,
+         name='supplier-bulk-upload-cancel'),
     path('supplier/<int:pk>/', spm_views.SupplierDetail.as_view(), name='supplier-detail'),
 
     path('supplier/<int:pk>/upload', spm_views.UploadSupplierFile.as_view(), name='supplier-upload'),

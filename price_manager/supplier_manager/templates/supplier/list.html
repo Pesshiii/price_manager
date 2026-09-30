@@ -8,10 +8,16 @@
   <div class="container mt-4 mb-5">
     <div class="d-flex justify-content-between align-items-center mb-3">
       <h1 class="h3 mb-0">Поставщики</h1>
-      <button class="btn btn-primary" onclick="window.location.href='/supplier/create/'">
-        <i class="bi bi-plus-lg me-1"></i>
-        Добавить
-      </button>
+      <div class="d-flex gap-2">
+        <a class="btn btn-outline-primary" href="{% url 'supplier-bulk-upload' %}">
+          <i class="bi bi-cloud-upload me-1"></i>
+          Массовая загрузка
+        </a>
+        <button class="btn btn-primary" onclick="window.location.href='/supplier/create/'">
+          <i class="bi bi-plus-lg me-1"></i>
+          Добавить
+        </button>
+      </div>
     </div>
 
     {% include "supplier/partials/list_table_partial.html" %}
