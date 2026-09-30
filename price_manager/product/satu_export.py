@@ -16,11 +16,15 @@
   (raw_data) их нет, они берутся списком по 100 товаров во время выгрузки.
   Страна и GTIN при пустом поле товара — из атрибутов «Страна производства»
   и «GTIN»/«Штрихкод» (COUNTRY_ATTRIBUTES, GTIN_ATTRIBUTES);
-- цены ГП — все семь, отдельными колонками после характеристик, основные
-  значения по уровням поставщиков, как в полном csv. Колонки Satu «Цена» и
-  «Оптовая_цена» пустые.
+- Цена — базовая цена, Валюта — KZT (цены ГП в тенге); Скидка — базовая
+  цена минус цена ИМ, срок её действия — с сегодняшнего дня на
+  DISCOUNT_DAYS дней (так цены на Satu ставит менеджер, 2026-09-30). Нет
+  цены ИМ или она не ниже базовой — скидки и её срока нет. Все цены — по
+  уровням поставщиков, как в полном csv;
+- цены ГП — все семь, ещё и отдельными колонками после характеристик.
+  «Оптовая_цена» Satu пустая.
 
-Остальное (группы Satu, подразделы, скидки, ссылки на сайт, фото — фото PIM
+Остальное (группы Satu, подразделы, ссылки на сайт, фото — фото PIM
 без токена не открываются) остаётся пустым. Лист групп — только заголовок.
 
 Весь каталог — ~158 тыс. товаров и ~1 600 запросов к PIM. Ширина листа
@@ -34,6 +38,7 @@ import json
 import logging
 import tempfile
 import time
+from datetime import date, timedelta
 from decimal import Decimal
 
 from django.core.files import File
@@ -82,6 +87,12 @@ GROUP_TITLES = [
 
 SATU_COLUMNS = MP_PRICES + [STOCK_COLUMN]
 PRICE_TITLES = [COLUMN_LABELS[key] for key in MP_PRICES]
+
+# Срок действия скидки: с дня выгрузки на столько дней.
+DISCOUNT_DAYS = 30
+DISCOUNT_FROM = 'Cрок действия скидки от'
+DISCOUNT_TO = 'Cрок действия скидки до'
+CURRENCY = 'KZT'
 
 IN_STOCK = '+'
 NOT_AVAILABLE = '-'
@@ -196,6 +207,13 @@ def _cell(value):
     return _excel_value(value)
 
 
+def discount(basic_price, m_price):
+    """Скидка Satu: базовая цена минус цена ИМ — только если обе есть и ИМ ниже."""
+    if not basic_price or not m_price or m_price >= basic_price:
+        return None
+    return basic_price - m_price
+
+
 def _first(*values):
     return next((value for value in values if value not in (None, '')), None)
 
@@ -211,6 +229,7 @@ class SatuExporter(ProductExporter):
         super().__init__(QueryDict(), SATU_COLUMNS)
         self.attributes = {}
         self.countries = {}
+        self.today = timezone.localdate()
 
     def product_row(self, product, main_products, main_cells, pim_data):
         raw = product.raw_data or {}
@@ -223,7 +242,15 @@ class SatuExporter(ProductExporter):
             by_name.setdefault(triple_name, value)
         cells = dict.fromkeys(BASE_TITLES)
         number, name = self.product_cells(product, main_products)[:2]
+        price = prices['basic_price'] or None
+        price_discount = discount(prices['basic_price'], prices['m_price'])
         cells.update({
+            'Цена': price,
+            'Валюта': CURRENCY if price else None,
+            'Скидка': price_discount,
+            DISCOUNT_FROM: self.today.isoformat() if price_discount else None,
+            DISCOUNT_TO: ((self.today + timedelta(days=DISCOUNT_DAYS)).isoformat()
+                          if price_discount else None),
             'Код_товара': number,
             'Название_позиции': name,
             'Поисковые_запросы': ', '.join(raw.get('tag') or []) or None,
@@ -279,8 +306,13 @@ class SatuExporter(ProductExporter):
             workbook = Workbook(write_only=True)
             sheet = workbook.create_sheet(PRODUCTS_SHEET)
             sheet.append(BASE_TITLES + CHARACTERISTIC_TITLES * width + PRICE_TITLES)
+            dates = [BASE_TITLES.index(DISCOUNT_FROM), BASE_TITLES.index(DISCOUNT_TO)]
             for line in rows_file:
                 row = json.loads(line)
+                # В jsonl дата — строкой ISO; в xlsx — датой, как у Satu.
+                for index in dates:
+                    if row['base'][index]:
+                        row['base'][index] = date.fromisoformat(row['base'][index])
                 triples = [cell for triple in row['characteristics'] for cell in triple]
                 triples += [None] * (3 * width - len(triples))
                 sheet.append([_cell(value)

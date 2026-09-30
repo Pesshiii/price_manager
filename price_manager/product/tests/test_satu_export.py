@@ -1,3 +1,4 @@
+from datetime import date
 from decimal import Decimal
 from io import BytesIO
 from unittest import mock
@@ -153,6 +154,34 @@ class SatuExportTests(TestCase):
         row = next(r for r in rows if r[0] == 'SKU-1')
         self.assertEqual(dict(zip(BASE_TITLES, row))['Описание'], '<p>Кованыйбоёк</p>')
         self.assertIn('Сталь', row)
+
+    def test_price_is_basic_and_discount_is_difference_to_shop_price(self):
+        MainProduct.objects.filter(product=self.product).update(basic_price=Decimal('2000'))
+        today = date(2026, 9, 30)
+        with mock.patch('product.satu_export.timezone.localdate', return_value=today):
+            _, sheets = self.export()
+        row = dict(zip(BASE_TITLES, next(r for r in sheets[PRODUCTS_SHEET][1:] if r[0] == 'SKU-1')))
+        self.assertEqual(row['Цена'], 2000)
+        self.assertEqual(row['Валюта'], 'KZT')
+        self.assertEqual(row['Скидка'], 500)
+        self.assertEqual(row['Cрок действия скидки от'].date(), today)
+        self.assertEqual(row['Cрок действия скидки до'].date(), date(2026, 10, 30))
+
+    def test_no_discount_when_shop_price_not_lower(self):
+        MainProduct.objects.filter(product=self.product).update(basic_price=Decimal('1500'))
+        _, sheets = self.export()
+        row = dict(zip(BASE_TITLES, next(r for r in sheets[PRODUCTS_SHEET][1:] if r[0] == 'SKU-1')))
+        self.assertEqual(row['Цена'], 1500)
+        self.assertIsNone(row['Скидка'])
+        self.assertIsNone(row['Cрок действия скидки от'])
+        self.assertIsNone(row['Cрок действия скидки до'])
+
+    def test_no_price_no_currency(self):
+        _, sheets = self.export()
+        row = dict(zip(BASE_TITLES, next(r for r in sheets[PRODUCTS_SHEET][1:] if r[0] == 'SKU-2')))
+        self.assertIsNone(row['Цена'])
+        self.assertIsNone(row['Валюта'])
+        self.assertIsNone(row['Скидка'])
 
     def export_with(self, flat, attributes, countries=None):
         with mock.patch('product.satu_export.fetch_flat_products', return_value={'pim-1': flat}), \
