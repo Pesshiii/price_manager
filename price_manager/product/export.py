@@ -59,6 +59,9 @@ PRICE_COLUMNS = set(MP_PRICES) | set(SUPPLIER_PRODUCT_PRICES)
 # остаток. Остальные колонки строк поставщиков — только на листах поставщиков.
 MAIN_PRICE_COLUMNS = set(MP_PRICES)
 STOCK_COLUMN = 'stock'
+# Срок поставки: у поставщика — минимальный по его строкам, основной — минимальный
+# по поставщикам товара. Не main_value: 0 дней — срок, а не «значения нет».
+DELIVERY_COLUMN = 'delivery_days'
 
 # Колонки товара, которые в файл не идут: «Действия» — кнопки, фото — картинка.
 NOT_EXPORTED = {'actions', 'photo'}
@@ -73,9 +76,10 @@ IDENTITY_TITLES = ['Артикул', 'Название']
 # хоть один набор: иначе у каждого файла было бы две пустые колонки.
 SET_TITLES = ['Себестоимость из комплектующих', 'Комплектующих без цены']
 
-# Полный csv-экспорт (FullCsvExporter): все цены и остаток, в порядке выбора колонок.
+# Полный csv-экспорт (FullCsvExporter): все цены, остаток и срок поставки, в
+# порядке выбора колонок.
 FULL_EXPORT_COLUMNS = [key for key in SUPPLIER_ROW_COLUMNS
-                       if key in PRICE_COLUMNS or key == STOCK_COLUMN]
+                       if key in PRICE_COLUMNS or key in (STOCK_COLUMN, DELIVERY_COLUMN)]
 
 # Имя листа Excel: не длиннее 31 символа, без []:*?/\ и не пустое.
 SHEET_NAME_LIMIT = 31
@@ -226,6 +230,11 @@ def _joined(values):
     return '; '.join(str(value) for value in distinct)
 
 
+def _min_days(values):
+    """Минимальный срок поставки; пусто, если срока нет ни у кого."""
+    return min((value for value in values if value not in (None, '')), default=None)
+
+
 class ProductExporter:
     """Собирает xlsx по параметрам страницы и выбранным колонкам."""
 
@@ -276,6 +285,8 @@ class ProductExporter:
                 titles.append(f'{COLUMN_LABELS[key]} (основная)')
             elif key == STOCK_COLUMN:
                 titles.append(f'{COLUMN_LABELS[key]} (основной)')
+            elif key == DELIVERY_COLUMN:
+                titles.append(f'{COLUMN_LABELS[key]} (минимальный)')
         if self.with_sets:
             titles += SET_TITLES
         return titles
@@ -321,8 +332,8 @@ class ProductExporter:
         Уникальности (товар, поставщик) у MainProduct нет, и строк у поставщика
         бывает несколько. Они сводятся тем же правилом, что поставщики одного
         уровня: цены — первое ненулевое по строкам от минимальной
-        себестоимости, остаток — максимальный; текст — различающиеся значения
-        через «; ».
+        себестоимости, остаток — максимальный, срок поставки — минимальный;
+        текст — различающиеся значения через «; ».
         """
         by_supplier = defaultdict(list)
         for main_product in main_products:
@@ -333,6 +344,8 @@ class ProductExporter:
             values[supplier_pk] = {
                 key: (main_value([[self.cell(mp, key) for mp in rows]], max)
                       if key == STOCK_COLUMN
+                      else _min_days(self.cell(mp, key) for mp in rows)
+                      if key == DELIVERY_COLUMN
                       else main_value([[self.cell(mp, key)] for mp in rows], min)
                       if key in PRICE_COLUMNS
                       else _joined(self.cell(mp, key) for mp in rows))
@@ -361,6 +374,8 @@ class ProductExporter:
         себестоимости на том же уровне, затем с уровней ниже.
 
         Остаток: максимальный ненулевой на первом уровне по остаткам, где он есть.
+
+        Срок поставки: минимальный по всем поставщикам товара, без уровней.
         """
         price_order = [[pk] for level in price_levels
                        for pk in winner_order([pk for pk in level if pk in values], costs)]
@@ -373,6 +388,8 @@ class ProductExporter:
                 cells.append(main_value(
                     ([values[pk][key] for pk in level if pk in values] for level in stock_levels),
                     max))
+            elif key == DELIVERY_COLUMN:
+                cells.append(_min_days(supplier[key] for supplier in values.values()))
         return cells
 
     def suppliers(self, pks):
@@ -461,8 +478,8 @@ class FullCsvExporter(ProductExporter):
 
     Весь каталог (фильтров нет, порядок — страница по умолчанию), одна
     строка на товар: товар, основные цены и остаток по уровням
-    поставщиков, затем по блоку на каждого поставщика — все его цены и
-    остаток, колонки «<поставщик> • <колонка>», поставщики по приоритету
+    поставщиков и минимальный срок поставки, затем по блоку на каждого
+    поставщика — все его цены, остаток и срок поставки, колонки «<поставщик> • <колонка>», поставщики по приоритету
     цены. У csv один лист, поэтому поставщики — колонками, а не листами.
 
     Разделитель «;», BOM и дробные с запятой — так файл сразу открывает Excel
