@@ -403,9 +403,11 @@ class FullCsvExportTests(TestCase):
         labels = [COLUMN_LABELS[key] for key in FULL_EXPORT_COLUMNS]
         self.assertEqual(header, (
             ['Артикул', 'Название', 'Бренд', 'Категории']
-            + [f'{label} (основной)' if key == 'stock' else f'{label} (основная)'
+            + [f'{label} (основной)' if key == 'stock'
+               else f'{label} (минимальный)' if key == 'delivery_days'
+               else f'{label} (основная)'
                for key, label in zip(FULL_EXPORT_COLUMNS, labels)
-               if key == 'stock' or key in MAIN_PRICE_COLUMNS]
+               if key in ('stock', 'delivery_days') or key in MAIN_PRICE_COLUMNS]
             + [f'А • {label}' for label in labels]
             + [f'Б • {label}' for label in labels]))
 
@@ -425,6 +427,31 @@ class FullCsvExportTests(TestCase):
         bare = next(row for row in rows if row['Артикул'] == 'SKU-2')
         self.assertEqual(bare['Базовая цена (основная)'], '')
         self.assertEqual(bare['А • Базовая цена'], '')
+
+    def test_delivery_days_per_supplier_and_minimum(self):
+        # У А остатка нет — срок «при отсутствии», у Б есть — «при наличии».
+        Supplier.objects.filter(pk=self.a.pk).update(
+            delivery_days_available=1, delivery_days_navailable=10)
+        Supplier.objects.filter(pk=self.b.pk).update(
+            delivery_days_available=3, delivery_days_navailable=20)
+        _, (header, rows) = self.export()
+        self.assertIn('Срок поставки (Рабочие дни) (минимальный)', header)
+        row = rows[0]
+        self.assertEqual(row['А • Срок поставки (Рабочие дни)'], '10')
+        self.assertEqual(row['Б • Срок поставки (Рабочие дни)'], '3')
+        self.assertEqual(row['Срок поставки (Рабочие дни) (минимальный)'], '3')
+
+    def test_delivery_days_zero_is_a_term_and_several_rows_take_minimum(self):
+        Supplier.objects.filter(pk=self.a.pk).update(
+            delivery_days_available=0, delivery_days_navailable=10)
+        MainProduct.objects.create(product=self.product, supplier=self.a, article='A-2',
+                                   name='Смеситель А2', stock=5)
+        _, (_, rows) = self.export()
+        # Строки А: без остатка — 10 дней, с остатком — 0; 0 — срок, а не пусто.
+        self.assertEqual(rows[0]['А • Срок поставки (Рабочие дни)'], '0')
+        self.assertEqual(rows[0]['Срок поставки (Рабочие дни) (минимальный)'], '0')
+        # У Б сроки не заданы — пусто.
+        self.assertEqual(rows[0]['Б • Срок поставки (Рабочие дни)'], '')
 
     def test_several_rows_of_one_supplier_fall_through(self):
         MainProduct.objects.filter(supplier=self.b).delete()
