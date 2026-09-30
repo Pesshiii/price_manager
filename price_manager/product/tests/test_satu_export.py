@@ -154,6 +154,39 @@ class SatuExportTests(TestCase):
         self.assertEqual(dict(zip(BASE_TITLES, row))['Описание'], '<p>Кованыйбоёк</p>')
         self.assertIn('Сталь', row)
 
+    def export_with(self, flat, attributes, countries=None):
+        with mock.patch('product.satu_export.fetch_flat_products', return_value={'pim-1': flat}), \
+                mock.patch('product.satu_export.fetch_attributes', return_value=attributes), \
+                mock.patch('product.satu_export.fetch_countries', return_value=countries or {}):
+            export = build_satu_export(self.user.pk)
+        with export.file.open('rb') as file:
+            rows = list(load_workbook(BytesIO(file.read()), read_only=True)
+                        [PRODUCTS_SHEET].iter_rows(values_only=True))
+        return dict(zip(BASE_TITLES, next(r for r in rows if r[0] == 'SKU-1')))
+
+    def test_country_and_gtin_from_characteristics_when_fields_empty(self):
+        attributes = {'a-c': ('Страна производства', (0, 1)), 'a-b': ('Страна бренда', (0, 0)),
+                      'a-g': ('Штрихкод', (0, 2))}
+        flat = {'id': 'pim-1', 'countryOfOriginId': None, 'ean': None,
+                'attributesDefs': {'country': {'attributeId': 'a-c', 'type': 'varchar'},
+                                   'brand_country': {'attributeId': 'a-b', 'type': 'varchar'},
+                                   'barcode': {'attributeId': 'a-g', 'type': 'varchar'}},
+                'country': 'Китай', 'brand_country': 'Германия', 'barcode': '3165140974851'}
+        row = self.export_with(flat, attributes)
+        # «Страна бренда» — не страна производства.
+        self.assertEqual(row['Страна_производитель'], 'Китай')
+        self.assertEqual(row['Код_маркировки_(GTIN)'], '3165140974851')
+
+    def test_product_fields_win_over_characteristics(self):
+        attributes = {'a-c': ('Страна производства', (0, 1)), 'a-g': ('Штрихкод', (0, 2))}
+        flat = {'id': 'pim-1', 'countryOfOriginId': 'c-de', 'ean': '4600000000001',
+                'attributesDefs': {'country': {'attributeId': 'a-c', 'type': 'varchar'},
+                                   'barcode': {'attributeId': 'a-g', 'type': 'varchar'}},
+                'country': 'Китай', 'barcode': '3165140974851'}
+        row = self.export_with(flat, attributes, countries={'c-de': 'Германия'})
+        self.assertEqual(row['Страна_производитель'], 'Германия')
+        self.assertEqual(row['Код_маркировки_(GTIN)'], '4600000000001')
+
     def test_wider_than_satu_when_product_has_more_characteristics(self):
         many = dict(FLAT, attributesDefs={f'c{i}': {'attributeId': f'x{i}', 'type': 'int'}
                                           for i in range(MIN_CHARACTERISTICS + 2)})

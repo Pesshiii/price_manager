@@ -13,7 +13,9 @@
 - Наличие — «+» при основном остатке > 0, иначе минимальный срок поставки
   по поставщикам товара, а если его нет — «-»; Количество — основной остаток;
 - Страна_производитель, GTIN (ean), MPN и характеристики — из PIM: в зеркале
-  (raw_data) их нет, они берутся списком по 100 товаров во время выгрузки;
+  (raw_data) их нет, они берутся списком по 100 товаров во время выгрузки.
+  Страна и GTIN при пустом поле товара — из атрибутов «Страна производства»
+  и «GTIN»/«Штрихкод» (COUNTRY_ATTRIBUTES, GTIN_ATTRIBUTES);
 - цены ГП — все семь, отдельными колонками после характеристик, основные
   значения по уровням поставщиков, как в полном csv. Колонки Satu «Цена» и
   «Оптовая_цена» пустые.
@@ -98,6 +100,14 @@ PIM_SELECT = ['id', 'countryOfOriginId', 'ean', 'mpn']
 # Типы атрибутов, которые являются характеристиками. link — единица
 # измерения атрибута, linkMultiple — связи (состав набора).
 CHARACTERISTIC_TYPES = {'varchar', 'text', 'int', 'float', 'bool', 'url'}
+
+# Поля товара PIM countryOfOrigin и ean почти пусты (страна — ни у одного из
+# ~283 тыс., ean — у ~10 тыс.; 2026-09-30), а те же данные лежат в атрибутах.
+# Колонка Satu берёт первое непустое: поле товара, затем атрибуты по порядку.
+# В тройках характеристик значения остаются. «Страна бренда» — не страна
+# производства, её здесь нет.
+COUNTRY_ATTRIBUTES = ['Страна производства']
+GTIN_ATTRIBUTES = ['GTIN', 'Штрихкод']
 
 
 def _pim_get(query):
@@ -186,6 +196,10 @@ def _cell(value):
     return _excel_value(value)
 
 
+def _first(*values):
+    return next((value for value in values if value not in (None, '')), None)
+
+
 def _json_value(value):
     if isinstance(value, Decimal):
         return float(value)
@@ -203,6 +217,10 @@ class SatuExporter(ProductExporter):
         pim = pim_data or {}
         prices = dict(zip(SATU_COLUMNS, main_cells))
         stock = prices[STOCK_COLUMN]
+        triples = characteristics(pim, self.attributes) if pim else []
+        by_name = {}
+        for triple_name, _, value in triples:
+            by_name.setdefault(triple_name, value)
         cells = dict.fromkeys(BASE_TITLES)
         number, name = self.product_cells(product, main_products)[:2]
         cells.update({
@@ -213,13 +231,15 @@ class SatuExporter(ProductExporter):
             'Наличие': availability(stock, main_products),
             'Количество': stock,
             'Производитель': product.brand.name if product.brand else raw.get('brandName'),
-            'Страна_производитель': self.countries.get(pim.get('countryOfOriginId')) or None,
-            'Код_маркировки_(GTIN)': pim.get('ean') or None,
+            'Страна_производитель': _first(self.countries.get(pim.get('countryOfOriginId')),
+                                           *(by_name.get(n) for n in COUNTRY_ATTRIBUTES)),
+            'Код_маркировки_(GTIN)': _first(pim.get('ean'),
+                                            *(by_name.get(n) for n in GTIN_ATTRIBUTES)),
             'Номер_устройства_(MPN)': pim.get('mpn') or None,
         })
         return {
             'base': [_json_value(cells[title]) for title in BASE_TITLES],
-            'characteristics': characteristics(pim, self.attributes) if pim else [],
+            'characteristics': triples,
             'prices': [_json_value(prices[key]) for key in MP_PRICES],
         }
 
