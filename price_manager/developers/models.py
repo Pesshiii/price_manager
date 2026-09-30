@@ -25,6 +25,11 @@ class Feedback(models.Model):
     )
     message = models.TextField(verbose_name='Сообщение')
     page_url = models.CharField(max_length=500, blank=True, verbose_name='Страница')
+    # Where the navbar was rendered; differs from page_url once HTMX has
+    # rewritten the address (filters, in-page navigation).
+    rendered_url = models.CharField(
+        max_length=500, blank=True, verbose_name='Страница загрузки'
+    )
     created_at = models.DateTimeField(auto_now_add=True, verbose_name='Отправлено')
     status = models.CharField(
         max_length=16,
