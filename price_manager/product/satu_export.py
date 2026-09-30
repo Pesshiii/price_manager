@@ -90,7 +90,10 @@ PIM_TIMEOUT = 60
 # Как у pim_sync: шесть попыток с удвоением — около минуты ожидания. После
 # них выгрузка падает, а не пишет товары молча без характеристик.
 PIM_RETRIES = 6
-PIM_SELECT = ['id', 'countryOfOriginName', 'ean', 'mpn']
+# Не countryOfOriginName: с полем-ссылкой *Name в select PIM отдаёт запись без
+# id и без значений атрибутов — молча (проверено 2026-09-30). Id страны
+# безопасен, название берётся из справочника Country (fetch_countries).
+PIM_SELECT = ['id', 'countryOfOriginId', 'ean', 'mpn']
 
 # Типы атрибутов, которые являются характеристиками. link — единица
 # измерения атрибута, linkMultiple — связи (состав набора).
@@ -118,6 +121,13 @@ def fetch_attributes() -> dict:
                      (item.get('attributeGroupSortOrder') or 0, item.get('sortOrder') or 0))
         for item in result.items
     }
+
+
+def fetch_countries() -> dict:
+    """Справочник стран PIM: {id: название}."""
+    result = fetch_list(pim_client.site, EntityList(name='Country', select=['id', 'name']),
+                        timeout=PIM_TIMEOUT)
+    return {item['id']: item.get('name') or '' for item in result.items}
 
 
 def fetch_flat_products(pim_ids) -> dict:
@@ -186,6 +196,7 @@ class SatuExporter(ProductExporter):
     def __init__(self):
         super().__init__(QueryDict(), SATU_COLUMNS)
         self.attributes = {}
+        self.countries = {}
 
     def product_row(self, product, main_products, main_cells, pim_data):
         raw = product.raw_data or {}
@@ -202,7 +213,7 @@ class SatuExporter(ProductExporter):
             'Наличие': availability(stock, main_products),
             'Количество': stock,
             'Производитель': product.brand.name if product.brand else raw.get('brandName'),
-            'Страна_производитель': pim.get('countryOfOriginName') or None,
+            'Страна_производитель': self.countries.get(pim.get('countryOfOriginId')) or None,
             'Код_маркировки_(GTIN)': pim.get('ean') or None,
             'Номер_устройства_(MPN)': pim.get('mpn') or None,
         })
@@ -236,6 +247,7 @@ class SatuExporter(ProductExporter):
         pks = ordered_product_pks(self.params)
         _, price_levels, stock_levels = self.suppliers(pks)
         self.attributes = fetch_attributes()
+        self.countries = fetch_countries()
 
         width = MIN_CHARACTERISTICS
         with tempfile.TemporaryFile('w+', encoding='utf-8') as rows_file:

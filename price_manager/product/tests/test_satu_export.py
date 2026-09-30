@@ -25,7 +25,7 @@ ATTRIBUTES = [
 
 FLAT = {
     'id': 'pim-1',
-    'countryOfOriginName': 'Германия',
+    'countryOfOriginId': 'c-de',
     'ean': '4600000000001',
     'mpn': None,
     'attributesDefs': {
@@ -49,7 +49,13 @@ FLAT = {
 def fake_pim(query, timeout=None):
     if query.name == 'Attribute':
         return {'total': len(ATTRIBUTES), 'list': ATTRIBUTES if not query.offset else []}
+    if query.name == 'Country':
+        return {'total': 1, 'list': [{'id': 'c-de', 'name': 'Германия'}] if not query.offset else []}
     assert isinstance(query, FlatEntityList)
+    if any(field.endswith('Name') for field in query.select or []):
+        # Так отвечает боевой PIM: с полем-ссылкой *Name в select — запись без
+        # id и без значений атрибутов (2026-09-30).
+        return {'total': 1, 'list': [{'countryOfOriginName': 'Германия'}]}
     ids = query.where[0].value
     return {'total': 1, 'list': [FLAT] if 'pim-1' in ids else []}
 
@@ -154,7 +160,8 @@ class SatuExportTests(TestCase):
         many.update({f'c{i}': i for i in range(MIN_CHARACTERISTICS + 2)})
         with mock.patch('product.satu_export.fetch_flat_products',
                         return_value={'pim-1': many}), \
-                mock.patch('product.satu_export.fetch_attributes', return_value={}):
+                mock.patch('product.satu_export.fetch_attributes', return_value={}), \
+                mock.patch('product.satu_export.fetch_countries', return_value={}):
             export = build_satu_export(self.user.pk)
         with export.file.open('rb') as file:
             header = next(load_workbook(BytesIO(file.read()), read_only=True)
