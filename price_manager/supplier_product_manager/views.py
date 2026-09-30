@@ -60,6 +60,10 @@ logger = logging.getLogger(__name__)
 # name clash cannot loop.
 MAX_SETTING_NAME_ATTEMPTS = 100
 
+# The log line of a file put in the import queue — it tells a queued file
+# from one merely uploaded (both are STATUS_QUEUED, the model default).
+QUEUED_LOG = "Поставлена в очередь на обработку"
+
 class SupplierDetail(SingleTableMixin, FilterView):
   '''
   Таблица отображения товаров на странице поставщиков
@@ -143,6 +147,103 @@ def copy_to_main(request, pk, state):
   messages.info(request, 'Копирование товаров в ГП запущено в фоне. Уведомление придет после завершения.')
   return HttpResponseClientRedirect(reverse('supplier-detail', kwargs={'pk':pk}))
 
+def store_supplier_file(request, supplier, form):
+  """Сохранить файл из UploadFileForm; без выбранной настройки — создать её по имени файла.
+
+  Возвращает (SupplierFile, None) или (None, причина отказа).
+  Общий путь загрузки с экрана поставщика и со страницы массовой загрузки.
+  """
+  instance = form.save(commit=False)
+  # Read the workbook once, before anything is created. A corrupt or
+  # password-protected file used to fail inside the create-setting loop,
+  # which caught the error as a name clash and kept creating settings.
+  try:
+    sheet_names = pd.ExcelFile(instance.file, engine='calamine').sheet_names
+  except Exception as ex:
+    logger.warning('Supplier file %s is not a readable workbook: %s', instance.file.name, ex)
+    return None, 'Не удалось прочитать файл: он повреждён, защищён паролем или это не Excel'
+  finally:
+    instance.file.seek(0)
+  if not sheet_names:
+    return None, 'В файле нет ни одного листа'
+  if not instance.setting:
+    stem = Path(instance.file.name).stem
+    for number in range(MAX_SETTING_NAME_ATTEMPTS):
+      anti_copy = f'({number})' if number else ''
+      try:
+        with transaction.atomic():
+          instance.setting = Setting.objects.create(
+            name=stem + anti_copy,
+            supplier=supplier,
+            sheet_name=sheet_names[0])
+        break
+      except IntegrityError:
+        continue
+    else:
+      return None, f'Не удалось подобрать свободное название настройки для «{stem}»'
+    messages.info(request, f"Новая настройка создана: {instance.setting.name}")
+  if not instance.setting.sheet_name in sheet_names:
+    return None, f'В файле нет листа «{instance.setting.sheet_name}» из настройки «{instance.setting.name}»'
+  # Older files are not deleted here: an import may be reading one right now.
+  # Imports always take the newest file, and cleanup_supplier_files_task
+  # removes the older ones once they are not in progress.
+  instance.save()
+  # The file an unconfirmed import was checked against is replaced.
+  supersede_pending_runs(ImportRun.objects.filter(setting=instance.setting), 'Загружен новый файл')
+  # Older queued or pending files will never be imported now; releasing
+  # them lets the cleanup delete them. A running one finishes on its own.
+  instance.setting.supplierfiles.exclude(pk=instance.pk).filter(
+    status__in=(SupplierFile.STATUS_QUEUED, SupplierFile.STATUS_NEEDS_CONFIRMATION),
+  ).update(status=SupplierFile.STATUS_ERROR)
+  return instance, None
+
+
+def start_setting_import(setting, user) -> bool:
+  """Поставить последний файл настройки в очередь импорта. False — настройка не заполнена."""
+  if not setting.is_bound():
+    return False
+  supplier_file = setting.supplierfiles.order_by('-pk').first()
+  if supplier_file:
+    supplier_file.status = SupplierFile.STATUS_QUEUED
+    supplier_file.logs = QUEUED_LOG
+    supplier_file.save(update_fields=['status', 'logs'])
+  dispatch_after_commit(process_supplier_file_import, setting.pk, user.pk)
+  return True
+
+
+def apply_import_run(pk, user):
+  """Подтвердить импорт: применить ровно тот файл, что был проверен. None — уже обработан."""
+  # Conditional update: a second click (or a second user) finds the run no
+  # longer pending and does nothing, so the file is never applied twice.
+  claimed = ImportRun.objects.filter(pk=pk, status=ImportRun.STATUS_NEEDS_CONFIRMATION).update(
+    status=ImportRun.STATUS_RUNNING, confirmed_by=user, confirmed_at=timezone.now())
+  if not claimed:
+    return None
+  dismiss_confirmations([pk])
+  run = ImportRun.objects.get(pk=pk)
+  # The file leaves «ждёт подтверждения» at once, so a status poll does not
+  # show the old verdict until the worker picks the import up.
+  SupplierFile.objects.filter(
+    pk=run.supplier_file_id, status=SupplierFile.STATUS_NEEDS_CONFIRMATION,
+  ).update(status=SupplierFile.STATUS_QUEUED, logs=QUEUED_LOG)
+  dispatch_after_commit(process_supplier_file_import, run.setting_id, user.pk, confirmed_run_id=run.pk)
+  return run
+
+
+def cancel_import_run(pk, user) -> bool:
+  """Отменить импорт: данные не меняются, файл остаётся для исправления настройки."""
+  cancelled = ImportRun.objects.filter(pk=pk, status=ImportRun.STATUS_NEEDS_CONFIRMATION).update(
+    status=ImportRun.STATUS_CANCELLED, finished_at=timezone.now(),
+    message=f'Отменён пользователем {user}')
+  if not cancelled:
+    return False
+  dismiss_confirmations([pk])
+  SupplierFile.objects.filter(
+    import_runs__pk=pk, status=SupplierFile.STATUS_NEEDS_CONFIRMATION,
+  ).update(status=SupplierFile.STATUS_ERROR)
+  return True
+
+
 # Обработка настройки
 class UploadSupplierFile(CreateView):
   model = SupplierFile
@@ -159,53 +260,11 @@ class UploadSupplierFile(CreateView):
     context["supplier"] = Supplier.objects.get(pk=self.kwargs.get('pk'))
     return context
   def form_valid(self, form):
-    instance = form.save(commit=False)
-    # Read the workbook once, before anything is created. A corrupt or
-    # password-protected file used to fail inside the create-setting loop,
-    # which caught the error as a name clash and kept creating settings.
-    try:
-      sheet_names = pd.ExcelFile(instance.file, engine='calamine').sheet_names
-    except Exception as ex:
-      logger.warning('Supplier file %s is not a readable workbook: %s', instance.file.name, ex)
-      messages.error(self.request, 'Не удалось прочитать файл: он повреждён, защищён паролем или это не Excel')
+    supplier = Supplier.objects.get(pk=self.kwargs.get('pk'))
+    instance, error = store_supplier_file(self.request, supplier, form)
+    if error:
+      messages.error(self.request, error)
       return self.form_invalid(form)
-    finally:
-      instance.file.seek(0)
-    if not sheet_names:
-      messages.error(self.request, 'В файле нет ни одного листа')
-      return self.form_invalid(form)
-    if not instance.setting:
-      supplier = Supplier.objects.get(pk=self.kwargs.get('pk'))
-      stem = Path(instance.file.name).stem
-      for number in range(MAX_SETTING_NAME_ATTEMPTS):
-        anti_copy = f'({number})' if number else ''
-        try:
-          with transaction.atomic():
-            instance.setting = Setting.objects.create(
-              name=stem + anti_copy,
-              supplier=supplier,
-              sheet_name=sheet_names[0])
-          break
-        except IntegrityError:
-          continue
-      else:
-        messages.error(self.request, f'Не удалось подобрать свободное название настройки для «{stem}»')
-        return self.form_invalid(form)
-      messages.info(self.request, f"Новая настройка создана: {instance.setting.name}")
-    if not instance.setting.sheet_name in sheet_names:
-      messages.error(self.request, f'Нет листа {instance.setting.sheet_name}')
-      return self.form_invalid(form)
-    # Older files are not deleted here: an import may be reading one right now.
-    # Imports always take the newest file, and cleanup_supplier_files_task
-    # removes the older ones once they are not in progress.
-    instance.save()
-    # The file an unconfirmed import was checked against is replaced.
-    supersede_pending_runs(ImportRun.objects.filter(setting=instance.setting), 'Загружен новый файл')
-    # Older queued or pending files will never be imported now; releasing
-    # them lets the cleanup delete them. A running one finishes on its own.
-    instance.setting.supplierfiles.exclude(pk=instance.pk).filter(
-      status__in=(SupplierFile.STATUS_QUEUED, SupplierFile.STATUS_NEEDS_CONFIRMATION),
-    ).update(status=SupplierFile.STATUS_ERROR)
     if instance.setting.is_bound():
       return redirect(reverse('setting-upload', kwargs={'pk': instance.setting.pk, 'state':0}))
     else: 
@@ -223,24 +282,31 @@ def setting_upload(request, pk, state):
   # reload, the back button or a prefetch must not start another import.
   if request.method != 'POST':
     return HttpResponseNotAllowed(['POST'])
-  if setting.is_bound():
-    supplier_file = setting.supplierfiles.order_by('-pk').first()
-    if supplier_file:
-      supplier_file.status = SupplierFile.STATUS_QUEUED
-      supplier_file.logs = "Поставлена в очередь на обработку"
-      supplier_file.save(update_fields=['status', 'logs'])
-    process_supplier_file_import.delay(pk, request.user.pk)
+  if start_setting_import(setting, request.user):
     messages.info(request, f"Запущена фоновая загрузка через настройку {setting.name}")
   else:
-    messages.error(request, f'Не указано поле артикула и\\или наименования')
+    messages.error(request, f'Не указано поле артикула и\или наименования')
   return HttpResponseClientRefresh()
 
 def import_run_confirm(request, pk):
   '''Окно подтверждения импорта, который не прошёл проверку << import-run/<pk>/ >>'''
   run = get_object_or_404(ImportRun.objects.select_related('setting', 'supplier'), pk=pk)
   n = lambda value: format_count(value or 0)
+  # ?row=<supplier pk> — opened from «Массовая загрузка»: the buttons answer
+  # with that supplier's row instead of reloading the page.
+  if request.GET.get('row') == str(run.supplier_id):
+    apply_url = reverse('supplier-bulk-upload-apply', kwargs={'pk': run.supplier_id, 'run_pk': run.pk})
+    cancel_url = reverse('supplier-bulk-upload-cancel', kwargs={'pk': run.supplier_id, 'run_pk': run.pk})
+    row_target = f'#bulk-row-{run.supplier_id}'
+  else:
+    apply_url = reverse('import-run-apply', kwargs={'pk': run.pk})
+    cancel_url = reverse('import-run-cancel', kwargs={'pk': run.pk})
+    row_target = ''
   return render(request, 'supplier_product/partials/import_confirm_modal.html', {
     'run': run,
+    'apply_url': apply_url,
+    'cancel_url': cancel_url,
+    'row_target': row_target,
     'pending': run.status == ImportRun.STATUS_NEEDS_CONFIRMATION,
     'figures': [
       (n(run.covered), 'будет записано', False),
@@ -274,31 +340,18 @@ def import_run_confirm(request, pk):
 @require_POST
 def import_run_apply(request, pk):
   '''«Применить всё равно»: применить ровно тот файл, что был проверен.'''
-  # Conditional update: a second click (or a second user) finds the run no
-  # longer pending and does nothing, so the file is never applied twice.
-  claimed = ImportRun.objects.filter(pk=pk, status=ImportRun.STATUS_NEEDS_CONFIRMATION).update(
-    status=ImportRun.STATUS_RUNNING, confirmed_by=request.user, confirmed_at=timezone.now())
-  if not claimed:
+  run = apply_import_run(pk, request.user)
+  if run is None:
     messages.warning(request, 'Этот импорт уже обработан')
-    return HttpResponseClientRefresh()
-  dismiss_confirmations([pk])
-  run = ImportRun.objects.get(pk=pk)
-  dispatch_after_commit(process_supplier_file_import, run.setting_id, request.user.pk, confirmed_run_id=run.pk)
-  messages.info(request, f'Импорт «{run.setting}» применяется. Уведомление придёт после завершения.')
+  else:
+    messages.info(request, f'Импорт «{run.setting}» применяется. Уведомление придёт после завершения.')
   return HttpResponseClientRefresh()
 
 
 @require_POST
 def import_run_cancel(request, pk):
   '''«Отменить импорт»: данные не меняются, файл остаётся для исправления настройки.'''
-  cancelled = ImportRun.objects.filter(pk=pk, status=ImportRun.STATUS_NEEDS_CONFIRMATION).update(
-    status=ImportRun.STATUS_CANCELLED, finished_at=timezone.now(),
-    message=f'Отменён пользователем {request.user}')
-  if cancelled:
-    dismiss_confirmations([pk])
-    SupplierFile.objects.filter(
-      import_runs__pk=pk, status=SupplierFile.STATUS_NEEDS_CONFIRMATION,
-    ).update(status=SupplierFile.STATUS_ERROR)
+  if cancel_import_run(pk, request.user):
     messages.info(request, 'Импорт отменён, данные не изменены')
   else:
     messages.warning(request, 'Этот импорт уже обработан')
