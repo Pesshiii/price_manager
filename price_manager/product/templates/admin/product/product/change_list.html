@@ -12,5 +12,15 @@
       </button>
     </form>
   </li>
+  <li>
+    <form method="post" action="{% url 'admin:product_product_export_satu' %}" style="display:inline">
+      {% csrf_token %}
+      <button type="submit" class="historylink"
+              style="border:0;cursor:pointer;font:inherit"
+              title="Весь каталог в формате выгрузки Satu.kz: описания, характеристики из PIM, наличие, остаток и все цены ГП отдельными колонками. Около часа">
+        Выгрузка для Satu (xlsx)
+      </button>
+    </form>
+  </li>
   {{ block.super }}
 {% endblock %}
