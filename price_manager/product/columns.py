@@ -4,7 +4,8 @@
 
 - «Товар» — строка Product. Её обязательные колонки (название, номер, бренд,
   категории, поставщики, себестоимость, остаток) не выбираются; здесь только
-  необязательные, из данных PIM.
+  необязательные: из данных PIM и основные цены товара по уровням поставщиков
+  (MAIN_PRICE_COLUMNS, см. tables.main_price).
 - «Строки поставщиков» и «Поставщик» — таблица MainProduct, которая
   раскрывается под товаром. Это то, что на старой главной было всей таблицей.
 
@@ -30,6 +31,12 @@ PRODUCT_COLUMN_GROUPS = [
             ('tags', 'Теги'),
             ('ean', 'EAN'),
             ('pim_status', 'Статус в PIM'),
+            ('main_wholesale_price', 'Оптовая цена'),
+            ('main_basic_price', 'Базовая цена'),
+            ('main_m_price', 'Цена ИМ'),
+            ('main_kaspi_price', 'Цена Каспи'),
+            ('main_wholesale_price_extra', 'Оптовая цена доп.'),
+            ('main_discount_price', 'Цена со скидкой'),
         ],
     ),
     (
@@ -74,6 +81,17 @@ PRODUCT_COLUMN_GROUPS = [
     ),
 ]
 
+# Основные цены товара: колонка строки товара → поле MainProduct. Себестоимости
+# здесь нет — у строки товара она обязательная, диапазоном по всем поставщикам.
+MAIN_PRICE_COLUMNS = {
+    'main_wholesale_price': 'wholesale_price',
+    'main_basic_price': 'basic_price',
+    'main_m_price': 'm_price',
+    'main_kaspi_price': 'kaspi_price',
+    'main_wholesale_price_extra': 'wholesale_price_extra',
+    'main_discount_price': 'discount_price',
+}
+
 PRODUCT_ROW_COLUMNS = [key for key, _ in PRODUCT_COLUMN_GROUPS[0][1]]
 SUPPLIER_ROW_COLUMNS = [key for _, choices in PRODUCT_COLUMN_GROUPS[1:] for key, _ in choices]
 COLUMN_LABELS = {key: label for _, choices in PRODUCT_COLUMN_GROUPS for key, label in choices}
@@ -83,6 +101,7 @@ COLUMN_LABELS = {key: label for _, choices in PRODUCT_COLUMN_GROUPS for key, lab
 # Фото по умолчанию выключено — см. ProductTable.render_photo. Порядок —
 # каталожный, как и у любого сохранённого выбора (см. normalize_columns).
 _DEFAULT = {
+    *MAIN_PRICE_COLUMNS,
     'actions', 'supplier', 'article', 'sku', 'prime_cost', 'basic_price', 'm_price',
     'stock', 'stock_msg', 'delivery_days',
 }

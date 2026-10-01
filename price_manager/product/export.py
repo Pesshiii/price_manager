@@ -41,6 +41,7 @@ from main_product_manager.models import MP_PRICES, MainProduct
 from supplier_manager.models import Supplier
 
 from .columns import COLUMN_LABELS, SUPPLIER_ROW_COLUMNS
+from .columns import MAIN_PRICE_COLUMNS as PRODUCT_MAIN_PRICES
 from .main_values import cost_key, is_zero, main_value  # noqa: F401 — is_zero/main_value и для тестов
 from .filters import CATEGORY_LABEL_DEPTH, ProductFilter, search_terms
 from .models import Category, Product, ProductExport, ProductSetItem
@@ -64,7 +65,9 @@ STOCK_COLUMN = 'stock'
 DELIVERY_COLUMN = 'delivery_days'
 
 # Колонки товара, которые в файл не идут: «Действия» — кнопки, фото — картинка.
-NOT_EXPORTED = {'actions', 'photo'}
+# Основные цены строки товара в файле не отдельные колонки: «Товары» и так
+# несут основные значения выбранных цен строк поставщиков (main_value_cells).
+NOT_EXPORTED = {'actions', 'photo', *PRODUCT_MAIN_PRICES}
 
 NO_SUPPLIER = 'Без поставщика'
 

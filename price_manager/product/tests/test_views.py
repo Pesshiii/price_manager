@@ -120,6 +120,47 @@ class ProductPageTests(TestCase):
         record = self.client.get(reverse('products')).context['table'].rows[0].record
         self.assertIsNone(record.main_stock)
 
+    def _record(self, query=''):
+        return self.client.get(reverse('products') + query).context['table'].rows[0].record
+
+    def test_main_prices_follow_price_levels_then_lowest_cost(self):
+        """Правило выгрузки: уровень по цене, внутри — от меньшей себестоимости;
+        нет цены у победителя — берётся у следующего."""
+        self.supplier.price_priority = 2
+        self.supplier.save()
+        MainProduct.objects.filter(product=self.product).update(
+            basic_price=Decimal('500.00'), m_price=Decimal('510.00'))
+        first = Supplier.objects.create(name='Первый', price_priority=1)
+        cheap = Supplier.objects.create(name='Дешёвый', price_priority=1)
+        MainProduct.objects.create(product=self.product, supplier=first, article='A2', name='Смеситель',
+                                   prime_cost=Decimal('300.00'), basic_price=Decimal('400.00'),
+                                   m_price=Decimal('410.00'))
+        MainProduct.objects.create(product=self.product, supplier=cheap, article='A3', name='Смеситель',
+                                   prime_cost=Decimal('250.00'), basic_price=Decimal('350.00'),
+                                   m_price=Decimal('0.00'))
+
+        record = self._record()
+
+        self.assertEqual(record.main_basic_price, Decimal('350.00'))
+        self.assertEqual(record.main_m_price, Decimal('410.00'))
+        self.assertIsNone(record.main_kaspi_price)
+
+    def test_main_price_is_zero_when_only_zeros(self):
+        MainProduct.objects.filter(product=self.product).update(basic_price=0)
+        self.assertEqual(self._record().main_basic_price, 0)
+
+    def test_main_prices_are_sortable(self):
+        MainProduct.objects.filter(product=self.product).update(basic_price=Decimal('100.00'))
+        other = Product.objects.create(pim_id='pmp-2', number='SKU-2', name='Кран')
+        MainProduct.objects.create(product=other, supplier=self.supplier, article='B1', name='Кран',
+                                   basic_price=Decimal('900.00'))
+
+        response = self.client.get(reverse('products') + '?sort=-main_basic_price')
+        numbers = [row.record.number for row in response.context['table'].rows]
+
+        self.assertEqual(numbers[:2], ['SKU-2', 'SKU-1'])
+        self.assertContains(response, 'Базовая цена')
+
     def test_product_appears_once_even_with_several_suppliers(self):
         other = Supplier.objects.create(name='Второй')
         MainProduct.objects.create(

@@ -1,7 +1,7 @@
 import django_tables2 as tables
 from django.contrib.postgres.fields import ArrayField
 from django.db.models import (
-    Case, Count, F, Func, IntegerField, Max, Min, Q, Value, When, Window,
+    Case, Count, DecimalField, F, Func, IntegerField, Max, Min, Q, Value, When, Window,
 )
 from django.db.models.functions import Coalesce
 from django.template.loader import render_to_string
@@ -11,7 +11,9 @@ from django.utils.html import format_html, format_html_join
 
 from main_product_manager.models import MainProduct
 
-from .columns import COLUMN_LABELS, DEFAULT_COLUMNS, PRODUCT_ROW_COLUMNS, SUPPLIER_ROW_COLUMNS
+from .columns import (
+    COLUMN_LABELS, DEFAULT_COLUMNS, MAIN_PRICE_COLUMNS, PRODUCT_ROW_COLUMNS, SUPPLIER_ROW_COLUMNS,
+)
 from .models import Product
 
 # Ровно эта строка, когда остаток не синхронизировался ни разу: NULL в stock —
@@ -53,13 +55,25 @@ def _money(value):
     return format_html('{}', text)
 
 
+def _level_parts(priority_field, sign):
+    """Группа и номер уровня строки поставщика для массивов main_stock /
+    main_price — порядок main_values.level_key: проранжированные по номеру,
+    затем общий нижний уровень непроранжированных, затем строки без
+    поставщика. sign=-1 переворачивает порядок — для Max."""
+    group = Case(
+        When(main_products__supplier__isnull=True, then=Value(2 * sign)),
+        When(**{f'main_products__supplier__{priority_field}__isnull': True}, then=Value(sign)),
+        default=Value(0), output_field=IntegerField(),
+    )
+    level = Coalesce(F(f'main_products__supplier__{priority_field}'), Value(0)) * sign
+    return group, level
+
+
 def main_stock():
     """Основной остаток товара по уровням поставщиков — main_values.main_row
     (stock, stock_priority, max) одним агрегатом.
 
     Первый уровень, где есть ненулевой остаток, внутри него — максимальный.
-    Уровни: проранжированные по номеру, затем общий нижний уровень
-    непроранжированных, затем строки без поставщика (main_values.level_key).
     Это max по массивам [-группа, -уровень, остаток] среди ненулевых строк:
     Postgres сравнивает массивы поэлементно, так что побеждает старший
     уровень, а внутри него — больший остаток; остаток — третий элемент.
@@ -70,17 +84,44 @@ def main_stock():
     считается на каждой строке (2,6 с против 0,48 с на снапшоте прода). Max
     переживает и join на categories в выдаче по категориям, в отличие от Sum.
     """
-    level_group = Case(
-        When(main_products__supplier__isnull=True, then=Value(-2)),
-        When(main_products__supplier__stock_priority__isnull=True, then=Value(-1)),
-        default=Value(0), output_field=IntegerField(),
-    )
-    level = -Coalesce(F('main_products__supplier__stock_priority'), Value(0))
-    ranked = Func(level_group, level, F('main_products__stock'),
+    group, level = _level_parts('stock_priority', -1)
+    ranked = Func(group, level, F('main_products__stock'),
                   template='ARRAY[%(expressions)s]', output_field=ArrayField(IntegerField()))
     leading = Func(Max(ranked, filter=Q(main_products__stock__gt=0)),
                    template='(%(expressions)s)[3]', output_field=IntegerField())
     return Coalesce(leading, Max('main_products__stock'), output_field=IntegerField())
+
+
+def main_price(field):
+    """Основная цена товара `field` по уровням поставщиков по цене — правило
+    выгрузки (export.main_value_cells) одним агрегатом, чтобы по ней можно
+    было сортировать (см. main_stock).
+
+    Порядок строк: уровень по цене (Supplier.price_priority), внутри уровня —
+    от меньшей себестоимости, нулевая и пустая в конце; цена берётся у первой
+    строки, где она ненулевая. Это min по массивам [группа, уровень,
+    себестоимость пуста?, себестоимость, цена] среди строк с ненулевой ценой;
+    цена — пятый элемент. Ненулевой нет нигде: 0 или NULL, как у остатка.
+
+    Расхождение с выгрузкой — только в краях: поставщика с несколькими
+    строками одного товара выгрузка ставит по его минимальной себестоимости,
+    здесь каждая строка встаёт по своей; при равной себестоимости здесь
+    решает меньшая цена, а не имя поставщика.
+    """
+    column = f'main_products__{field}'
+    money = DecimalField(max_digits=20, decimal_places=2)
+    group, level = _level_parts('price_priority', 1)
+    no_cost = Case(
+        When(Q(main_products__prime_cost__isnull=True) | Q(main_products__prime_cost=0),
+             then=Value(1)),
+        default=Value(0), output_field=IntegerField(),
+    )
+    cost = Coalesce(F('main_products__prime_cost'), Value(0), output_field=money)
+    ranked = Func(group, level, no_cost, cost, F(column),
+                  template='ARRAY[%(expressions)s]::numeric[]', output_field=ArrayField(money))
+    priced = Q(**{f'{column}__isnull': False}) & ~Q(**{column: 0})
+    leading = Func(Min(ranked, filter=priced), template='(%(expressions)s)[5]', output_field=money)
+    return Coalesce(leading, Min(column), output_field=money)
 
 
 def annotate_product_rows(queryset, by_category=False):
@@ -112,6 +153,7 @@ def annotate_product_rows(queryset, by_category=False):
     queryset = queryset.annotate(
         supplier_count=Count('main_products__supplier', distinct=True),
         main_stock=main_stock(),
+        **{key: main_price(field) for key, field in MAIN_PRICE_COLUMNS.items()},
         min_prime_cost=Min('main_products__prime_cost'),
         max_prime_cost=Max('main_products__prime_cost'),
         in_stock_count=Count('main_products', filter=Q(main_products__stock__gt=0), distinct=True),
@@ -211,6 +253,19 @@ def with_category_headers(rows):
     return result
 
 
+class MainPriceColumn(tables.Column):
+    """Основная цена товара (main_price): пусто — «—», ноль приглушён."""
+
+    def __init__(self, key):
+        super().__init__(verbose_name=COLUMN_LABELS[key], empty_values=(),
+                         attrs={'th': {'class': 'text-end'}, 'td': {'class': 'col-num'}})
+
+    def render(self, value):
+        if value is None:
+            return format_html('<span class="text-body-tertiary">{}</span>', '—')
+        return _money(value)
+
+
 class ProductTable(tables.Table):
     """Товарная таблица: строка — Product, поставщики раскрываются под ней."""
 
@@ -242,13 +297,21 @@ class ProductTable(tables.Table):
     ean = tables.Column(verbose_name=COLUMN_LABELS['ean'], empty_values=(), orderable=False)
     pim_status = tables.Column(verbose_name=COLUMN_LABELS['pim_status'], empty_values=(),
                                orderable=False)
+    # Основные цены по уровням поставщиков (main_price) — сортируемые.
+    main_wholesale_price = MainPriceColumn('main_wholesale_price')
+    main_basic_price = MainPriceColumn('main_basic_price')
+    main_m_price = MainPriceColumn('main_m_price')
+    main_kaspi_price = MainPriceColumn('main_kaspi_price')
+    main_wholesale_price_extra = MainPriceColumn('main_wholesale_price_extra')
+    main_discount_price = MainPriceColumn('main_discount_price')
 
     class Meta:
         model = Product
         fields = ()
         sequence = (
             'expand', 'photo', 'display_name', 'number',
-            'supplier_count', 'prime_cost_range', 'main_stock', 'tags', 'ean', 'pim_status',
+            'supplier_count', 'prime_cost_range', *MAIN_PRICE_COLUMNS, 'main_stock',
+            'tags', 'ean', 'pim_status',
         )
         attrs = {'class': 'table products-table align-middle mb-0'}
         row_attrs = {'class': 'product-row', 'data-product-pk': lambda record: record.pk}

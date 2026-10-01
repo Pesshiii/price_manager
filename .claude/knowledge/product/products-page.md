@@ -105,6 +105,14 @@ The key is chosen by measurement on the snapshot:
   by it a subquery runs for every row (2.6 s against 0.48 s).
   `test_product_with_two_categories_is_listed_once_and_its_stock_is_not_doubled`
   guards the join. The snapshot cannot, because it has zero multi-category products.
+- **Main prices use the same trick** (`tables.main_price`, columns `main_<field>` in
+  `columns.MAIN_PRICE_COLUMNS`, optional, on by default, sortable):
+  `(min(ARRAY[group, level, no_cost, cost, price]::numeric[]) FILTER (price ≠ 0))[5]` —
+  price level, then lowest prime cost, as the export's `main_value_cells`. It differs
+  from the export only at the edges: a supplier with several rows of one product is
+  ordered row by row, not by its minimum cost, and equal costs break by price, not by
+  supplier name. They are excluded from the file (`export.NOT_EXPORTED`): the export
+  already writes main prices from the selected supplier-row price columns.
 - ~64% of `Product`s have no PIM category (see [[product/pim-sync]] for coverage
   numbers). All of them are one «Без категории» group at the tail, ordered by stored
   `name`, which unsynced rows may lack.
