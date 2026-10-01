@@ -121,7 +121,7 @@ class ProductPageTests(TestCase):
         self.assertIsNone(record.main_stock)
 
     def _record(self, query=''):
-        return self.client.get(reverse('products') + query).context['table'].rows[0].record
+        return self.client.get(reverse('products') + query).context['product_rows'][0][1].record
 
     def test_main_prices_follow_price_levels_then_lowest_cost(self):
         """Правило выгрузки: уровень по цене, внутри — от меньшей себестоимости;
@@ -160,6 +160,29 @@ class ProductPageTests(TestCase):
 
         self.assertEqual(numbers[:2], ['SKU-2', 'SKU-1'])
         self.assertContains(response, 'Базовая цена')
+
+    def test_products_without_price_sort_last_both_ways(self):
+        MainProduct.objects.filter(product=self.product).update(basic_price=Decimal('100.00'))
+        Product.objects.create(pim_id='pmp-2', number='SKU-2', name='Кран')
+
+        for sort in ('main_basic_price', '-main_basic_price'):
+            response = self.client.get(reverse('products') + '?sort=' + sort)
+            numbers = [row.record.number for row in response.context['table'].rows]
+            self.assertEqual(numbers, ['SKU-1', 'SKU-2'], sort)
+
+    def test_products_without_stock_data_sort_last_both_ways(self):
+        Product.objects.create(pim_id='pmp-2', number='SKU-2', name='Кран')
+
+        for sort in ('main_stock', '-main_stock'):
+            response = self.client.get(reverse('products') + '?sort=' + sort)
+            numbers = [row.record.number for row in response.context['table'].rows]
+            self.assertEqual(numbers, ['SKU-1', 'SKU-2'], sort)
+
+    def test_main_prices_are_computed_for_the_page_only(self):
+        """Цены навешиваются на строки страницы, а не аннотируются выборкой —
+        иначе шесть агрегатов считались бы по всему каталогу."""
+        response = self.client.get(reverse('products'))
+        self.assertFalse(hasattr(response.context['table'].data.data.first(), 'main_basic_price'))
 
     def test_product_appears_once_even_with_several_suppliers(self):
         other = Supplier.objects.create(name='Второй')

@@ -27,7 +27,7 @@ from .pim_content import (
 from .set_costs import attach_set_info, set_totals_for
 from .tasks import export_products_task
 from .tables import (
-    ProductTable, SupplierRowTable, annotate_product_rows, best_match_groups_first,
+    ProductTable, SupplierRowTable, annotate_product_rows, attach_main_prices, best_match_groups_first,
     category_path, primary_category, with_category_headers,
 )
 
@@ -187,6 +187,7 @@ class ProductPage(SingleTableMixin, FilterView):
         # Наборы и компоненты — только для показанных строк; ячейки таблицы
         # отрисовываются в шаблоне позже и читают навешенное здесь.
         attach_set_info(row.record for _, row in context['product_rows'])
+        attach_main_prices(row.record for _, row in context['product_rows'])
         return context
 
 

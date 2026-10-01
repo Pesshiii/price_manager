@@ -107,12 +107,24 @@ The key is chosen by measurement on the snapshot:
   guards the join. The snapshot cannot, because it has zero multi-category products.
 - **Main prices use the same trick** (`tables.main_price`, columns `main_<field>` in
   `columns.MAIN_PRICE_COLUMNS`, optional, on by default, sortable):
-  `(min(ARRAY[group, level, no_cost, cost, price]::numeric[]) FILTER (price ≠ 0))[5]` —
-  price level, then lowest prime cost, as the export's `main_value_cells`. It differs
-  from the export only at the edges: a supplier with several rows of one product is
-  ordered row by row, not by its minimum cost, and equal costs break by price, not by
-  supplier name. They are excluded from the file (`export.NOT_EXPORTED`): the export
+  `(min(ARRAY[group, level, no_cost, cost, supplier_id, price]::numeric[]) FILTER (price ≠ 0))[6]`
+  — price level, then lowest prime cost, then lowest supplier pk, as the export's
+  `main_value_cells`/`winner_order`. The tie used to break by supplier name in the export;
+  a name cannot sit in a numeric array, and on the 2026-09-23 snapshot the two rules
+  disagreed on ~0.2% of products, so the export moved to pk. The only remaining
+  difference: a supplier with several rows of one product is ordered row by row, not by
+  its minimum cost. They are excluded from the file (`export.NOT_EXPORTED`): the export
   already writes main prices from the selected supplier-row price columns.
+- **But main prices are not annotations of the page queryset.** Six such aggregates over
+  the whole catalog cost +0.5 s per page (0.74 → 1.33 s for the query on the snapshot).
+  `attach_main_prices` sets them on the 25 page records in one query (like
+  `attach_set_info`), and `MainPriceColumn.order` annotates only the column being sorted.
+  So a record from `table.rows` has no `main_*` price — read `context['product_rows']`.
+- **Empty values sort last both ways** (`order_main_stock`, `MainPriceColumn.order`):
+  Postgres puts NULL first on DESC, so «most stock first» opened on «Нет данных». Before
+  this change `sort=-total_stock` did not sort at all — its plan had no Sort node — which
+  is why it looked 3× faster than any other sort; a correct stock or price sort costs about
+  what `sort=number` does.
 - ~64% of `Product`s have no PIM category (see [[product/pim-sync]] for coverage
   numbers). All of them are one «Без категории» group at the tail, ordered by stored
   `name`, which unsynced rows may lack.

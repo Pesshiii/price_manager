@@ -98,15 +98,15 @@ def main_price(field):
     было сортировать (см. main_stock).
 
     Порядок строк: уровень по цене (Supplier.price_priority), внутри уровня —
-    от меньшей себестоимости, нулевая и пустая в конце; цена берётся у первой
-    строки, где она ненулевая. Это min по массивам [группа, уровень,
-    себестоимость пуста?, себестоимость, цена] среди строк с ненулевой ценой;
-    цена — пятый элемент. Ненулевой нет нигде: 0 или NULL, как у остатка.
+    от меньшей себестоимости (нулевая и пустая в конце), при равной — меньший
+    pk поставщика (export.winner_order); цена берётся у первой строки, где она
+    ненулевая. Это min по массивам [группа, уровень, себестоимость пуста?,
+    себестоимость, поставщик, цена] среди строк с ненулевой ценой; цена —
+    шестой элемент. Ненулевой нет нигде: 0 или NULL, как у остатка.
 
-    Расхождение с выгрузкой — только в краях: поставщика с несколькими
-    строками одного товара выгрузка ставит по его минимальной себестоимости,
-    здесь каждая строка встаёт по своей; при равной себестоимости здесь
-    решает меньшая цена, а не имя поставщика.
+    Расхождение с выгрузкой — только у поставщика с несколькими строками
+    одного товара: выгрузка ставит его по минимальной себестоимости его
+    строк, здесь каждая строка встаёт по своей.
     """
     column = f'main_products__{field}'
     money = DecimalField(max_digits=20, decimal_places=2)
@@ -117,10 +117,11 @@ def main_price(field):
         default=Value(0), output_field=IntegerField(),
     )
     cost = Coalesce(F('main_products__prime_cost'), Value(0), output_field=money)
-    ranked = Func(group, level, no_cost, cost, F(column),
+    supplier = Coalesce(F('main_products__supplier'), Value(0))
+    ranked = Func(group, level, no_cost, cost, supplier, F(column),
                   template='ARRAY[%(expressions)s]::numeric[]', output_field=ArrayField(money))
     priced = Q(**{f'{column}__isnull': False}) & ~Q(**{column: 0})
-    leading = Func(Min(ranked, filter=priced), template='(%(expressions)s)[5]', output_field=money)
+    leading = Func(Min(ranked, filter=priced), template='(%(expressions)s)[6]', output_field=money)
     return Coalesce(leading, Min(column), output_field=money)
 
 
@@ -153,7 +154,6 @@ def annotate_product_rows(queryset, by_category=False):
     queryset = queryset.annotate(
         supplier_count=Count('main_products__supplier', distinct=True),
         main_stock=main_stock(),
-        **{key: main_price(field) for key, field in MAIN_PRICE_COLUMNS.items()},
         min_prime_cost=Min('main_products__prime_cost'),
         max_prime_cost=Max('main_products__prime_cost'),
         in_stock_count=Count('main_products', filter=Q(main_products__stock__gt=0), distinct=True),
@@ -253,12 +253,44 @@ def with_category_headers(rows):
     return result
 
 
+def attach_main_prices(products) -> None:
+    """Навешивает на товары страницы основные цены (main_price) — одним
+    запросом по их строкам.
+
+    Атрибутами, а не аннотациями выборки: шесть агрегатов по всем 158 тыс.
+    товарам ради 25 показанных — это +0,5 с к странице (0,74 → 1,33 с на
+    снапшоте прода), а по строкам страницы — миллисекунды. По всему каталогу
+    считается только цена, по которой сортируют (MainPriceColumn.order).
+    """
+    products = list(products)
+    prices = {
+        row['pk']: row for row in
+        Product.objects.filter(pk__in=[product.pk for product in products]).order_by()
+        .values('pk', **{key: main_price(field) for key, field in MAIN_PRICE_COLUMNS.items()})
+    }
+    for product in products:
+        for key in MAIN_PRICE_COLUMNS:
+            setattr(product, key, prices.get(product.pk, {}).get(key))
+
+
 class MainPriceColumn(tables.Column):
-    """Основная цена товара (main_price): пусто — «—», ноль приглушён."""
+    """Основная цена товара: пусто — «—», ноль приглушён.
+
+    Значение навешивает attach_main_prices; аннотация по всему каталогу — только
+    при сортировке по этой колонке. Пустые — в конце в обе стороны: «сначала
+    дорогие» не должно начинаться с товаров без цены.
+    """
 
     def __init__(self, key):
+        self.key = key
         super().__init__(verbose_name=COLUMN_LABELS[key], empty_values=(),
                          attrs={'th': {'class': 'text-end'}, 'td': {'class': 'col-num'}})
+
+    def order(self, queryset, is_descending):
+        queryset = queryset.annotate(**{self.key: main_price(MAIN_PRICE_COLUMNS[self.key])})
+        field = F(self.key)
+        field = field.desc(nulls_last=True) if is_descending else field.asc(nulls_last=True)
+        return queryset.order_by(field, 'pk'), True
 
     def render(self, value):
         if value is None:
@@ -404,6 +436,13 @@ class ProductTable(tables.Table):
         if not totals:
             return own
         return format_html('{}<div class="set-cost-hint">из компл.: {}</div>', own, set_cost_html(totals))
+
+    def order_main_stock(self, queryset, is_descending):
+        """«Нет данных» — в конце в обе стороны: DESC в Postgres ставит NULL
+        первыми, и «больше всего остатка» начиналось бы с несинхронизированных."""
+        field = F('main_stock')
+        field = field.desc(nulls_last=True) if is_descending else field.asc(nulls_last=True)
+        return queryset.order_by(field, 'pk'), True
 
     def render_main_stock(self, record):
         """NULL и 0 — разные вещи.

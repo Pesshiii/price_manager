@@ -148,10 +148,12 @@ def export_columns(selected) -> tuple[list[str], list[str]]:
 def winner_order(level, costs) -> list:
     """Поставщики уровня по цене: победитель (минимальная себестоимость) первым.
 
-    Без себестоимости — в конце. sorted устойчив, так что при равной
-    себестоимости остаётся порядок уровня — по имени.
+    Без себестоимости — в конце. При равной себестоимости — меньший pk:
+    тот же порядок умеет и агрегат страницы (tables.main_price), а с ним
+    основные цены на экране и в файле не расходятся. Строки без поставщика
+    (None) — отдельный уровень, им сравнивать не с кем.
     """
-    return sorted(level, key=lambda pk: cost_key(costs.get(pk)))
+    return sorted(level, key=lambda pk: (cost_key(costs.get(pk)), pk or 0))
 
 
 def ranked_suppliers(supplier_ids, priority_field) -> list:
