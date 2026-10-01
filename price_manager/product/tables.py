@@ -1,8 +1,9 @@
 import django_tables2 as tables
 from django.contrib.postgres.fields import ArrayField
 from django.db.models import (
-    Count, F, Func, IntegerField, Max, Min, OuterRef, Q, Subquery, Sum, Window,
+    Case, Count, F, Func, IntegerField, Max, Min, Q, Value, When, Window,
 )
+from django.db.models.functions import Coalesce
 from django.template.loader import render_to_string
 from django.urls import reverse
 from django.utils.formats import number_format
@@ -52,6 +53,36 @@ def _money(value):
     return format_html('{}', text)
 
 
+def main_stock():
+    """Основной остаток товара по уровням поставщиков — main_values.main_row
+    (stock, stock_priority, max) одним агрегатом.
+
+    Первый уровень, где есть ненулевой остаток, внутри него — максимальный.
+    Уровни: проранжированные по номеру, затем общий нижний уровень
+    непроранжированных, затем строки без поставщика (main_values.level_key).
+    Это max по массивам [-группа, -уровень, остаток] среди ненулевых строк:
+    Postgres сравнивает массивы поэлементно, так что побеждает старший
+    уровень, а внутри него — больший остаток; остаток — третий элемент.
+    Ненулевого нет нигде: 0, если хоть у кого-то 0, иначе NULL («нет данных»)
+    — это и есть Max по оставшимся нулям и NULL.
+
+    Агрегат, а не подзапрос: по «Остатку» сортируют, а подзапрос в ORDER BY
+    считается на каждой строке (2,6 с против 0,48 с на снапшоте прода). Max
+    переживает и join на categories в выдаче по категориям, в отличие от Sum.
+    """
+    level_group = Case(
+        When(main_products__supplier__isnull=True, then=Value(-2)),
+        When(main_products__supplier__stock_priority__isnull=True, then=Value(-1)),
+        default=Value(0), output_field=IntegerField(),
+    )
+    level = -Coalesce(F('main_products__supplier__stock_priority'), Value(0))
+    ranked = Func(level_group, level, F('main_products__stock'),
+                  template='ARRAY[%(expressions)s]', output_field=ArrayField(IntegerField()))
+    leading = Func(Max(ranked, filter=Q(main_products__stock__gt=0)),
+                   template='(%(expressions)s)[3]', output_field=IntegerField())
+    return Coalesce(leading, Max('main_products__stock'), output_field=IntegerField())
+
+
 def annotate_product_rows(queryset, by_category=False):
     """Агрегаты по связанным MainProduct для строки товара.
 
@@ -70,26 +101,17 @@ def annotate_product_rows(queryset, by_category=False):
     считается на каждой из 158 тыс. строк, и на снапшоте прода это 8 с на
     страницу против ~0,5 с сейчас; join укладывается в те же ~0,5–0,7 с.
 
-    Join на categories размножает строки MainProduct на число категорий
-    товара. Count(distinct) и Min/Max это переживают, Sum — нет: остаток
-    товара с двумя категориями удвоился бы. Поэтому в этом режиме total_stock
-    считается подзапросом. Он не в ORDER BY, и Postgres вычисляет его уже после
-    LIMIT — для 25 строк страницы, а не для всех. Вне этого режима остаток
-    остаётся Sum: по нему можно сортировать, и тогда подзапрос считался бы на
-    каждой строке (2,6 с против 0,5 с).
+    Остаток — не сумма по поставщикам, а основной остаток по уровням
+    поставщиков (main_stock), то же правило, что в выгрузке: себестоимость
+    строка показывает диапазоном по всем, остаток — тот, что пошёл бы в каталог.
     """
-    total_stock = Sum('main_products__stock')
     extra = {}
     if by_category:
-        total_stock = Subquery(
-            MainProduct.objects.filter(product=OuterRef('pk'))
-            .order_by().values('product').annotate(total=Sum('stock')).values('total')
-        )
         extra['category_key'] = Min(_category_tree_position(), filter=Q(categories__isnull=False))
 
     queryset = queryset.annotate(
         supplier_count=Count('main_products__supplier', distinct=True),
-        total_stock=total_stock,
+        main_stock=main_stock(),
         min_prime_cost=Min('main_products__prime_cost'),
         max_prime_cost=Max('main_products__prime_cost'),
         in_stock_count=Count('main_products', filter=Q(main_products__stock__gt=0), distinct=True),
@@ -211,7 +233,7 @@ class ProductTable(tables.Table):
         verbose_name='Себестоимость', accessor='pk', orderable=False, empty_values=(),
         attrs={'th': {'class': 'text-end'}, 'td': {'class': 'col-num'}},
     )
-    total_stock = tables.Column(verbose_name='Остаток', default=NO_STOCK_DATA,
+    main_stock = tables.Column(verbose_name='Остаток', default=NO_STOCK_DATA,
                                 attrs={'th': {'class': 'text-end'}, 'td': {'class': 'col-num'}})
 
     # Необязательные колонки — включаются в выборе колонок (product/columns.py).
@@ -226,7 +248,7 @@ class ProductTable(tables.Table):
         fields = ()
         sequence = (
             'expand', 'photo', 'display_name', 'number',
-            'supplier_count', 'prime_cost_range', 'total_stock', 'tags', 'ean', 'pim_status',
+            'supplier_count', 'prime_cost_range', 'main_stock', 'tags', 'ean', 'pim_status',
         )
         attrs = {'class': 'table products-table align-middle mb-0'}
         row_attrs = {'class': 'product-row', 'data-product-pk': lambda record: record.pk}
@@ -320,13 +342,13 @@ class ProductTable(tables.Table):
             return own
         return format_html('{}<div class="set-cost-hint">из компл.: {}</div>', own, set_cost_html(totals))
 
-    def render_total_stock(self, record):
+    def render_main_stock(self, record):
         """NULL и 0 — разные вещи.
 
         NULL означает «остаток ни разу не синхронизировался», 0 — «синхронизи-
-        ровался и его нет». Sum() по пустому множеству тоже даёт NULL.
+        ровался и его нет» (см. main_stock).
         """
-        total = getattr(record, 'total_stock', None)
+        total = getattr(record, 'main_stock', None)
         if total is None:
             return format_html('<span class="text-body-tertiary">{}</span>', NO_STOCK_DATA)
         if total > 0:

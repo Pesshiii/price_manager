@@ -322,7 +322,7 @@ class ExportOrderTests(TestCase):
 
     def test_sorted_by_column(self):
         self.assert_same_order('sort=number')
-        self.assert_same_order('sort=-total_stock')
+        self.assert_same_order('sort=-main_stock')
 
     def test_search(self):
         self.assert_same_order('search=Кран')
