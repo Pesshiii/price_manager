@@ -78,9 +78,47 @@ class ProductPageTests(TestCase):
         row = response.context['table'].rows[0]
 
         self.assertEqual(row.record.supplier_count, 2)
-        self.assertEqual(row.record.total_stock, 10)
+        # Оба без уровня — один общий уровень, на нём максимум, не сумма.
+        self.assertEqual(row.record.main_stock, 6)
         self.assertEqual(row.record.min_prime_cost, Decimal('120.00'))
         self.assertEqual(row.record.max_prime_cost, Decimal('150.00'))
+
+    def test_stock_follows_supplier_levels_while_cost_shows_every_supplier(self):
+        """Остаток — основной по уровням остатков, как в выгрузке; себестоимость
+        — диапазон по всем поставщикам."""
+        self.supplier.stock_priority = 2
+        self.supplier.save()
+        first = Supplier.objects.create(name='Первый', stock_priority=1)
+        MainProduct.objects.create(product=self.product, supplier=first, article='A2',
+                                   name='Смеситель', stock=1, prime_cost=Decimal('200.00'))
+        MainProduct.objects.create(product=self.product, supplier=None, sku='SKU-1',
+                                   name='Смеситель', stock=50, prime_cost=Decimal('90.00'))
+
+        record = self.client.get(reverse('products')).context['table'].rows[0].record
+
+        self.assertEqual(record.main_stock, 1)
+        self.assertEqual((record.min_prime_cost, record.max_prime_cost),
+                         (Decimal('90.00'), Decimal('200.00')))
+
+    def test_stock_skips_a_level_with_only_zeros(self):
+        self.supplier.stock_priority = 2
+        self.supplier.save()
+        first = Supplier.objects.create(name='Первый', stock_priority=1)
+        MainProduct.objects.create(product=self.product, supplier=first, article='A2',
+                                   name='Смеситель', stock=0)
+
+        record = self.client.get(reverse('products')).context['table'].rows[0].record
+
+        self.assertEqual(record.main_stock, 4)
+
+    def test_stock_is_zero_when_only_zeros_and_empty_when_no_data(self):
+        MainProduct.objects.filter(product=self.product).update(stock=0)
+        record = self.client.get(reverse('products')).context['table'].rows[0].record
+        self.assertEqual(record.main_stock, 0)
+
+        MainProduct.objects.filter(product=self.product).update(stock=None)
+        record = self.client.get(reverse('products')).context['table'].rows[0].record
+        self.assertIsNone(record.main_stock)
 
     def test_product_appears_once_even_with_several_suppliers(self):
         other = Supplier.objects.create(name='Второй')
@@ -260,8 +298,8 @@ class ProductCategoryGroupingTests(TestCase):
 
     def test_product_with_two_categories_is_listed_once_and_its_stock_is_not_doubled(self):
         """Ключ категории — агрегат по join на categories. Join размножает
-        строки поставщиков на число категорий, и Sum по ним удвоил бы остаток —
-        поэтому в этом режиме остаток считается подзапросом."""
+        строки поставщиков на число категорий; Sum удвоил бы остаток, а Max
+        по уровням (main_stock) это переживает."""
         product = self._product('M-1', 'Набор', self.fasteners, self.saws)
         first, second = Supplier.objects.create(name='Первый'), Supplier.objects.create(name='Второй')
         MainProduct.objects.create(product=product, supplier=first, article='M1', name='Набор',
@@ -274,7 +312,7 @@ class ProductCategoryGroupingTests(TestCase):
 
         self.assertEqual(len(rows), 1)
         record = rows[0].record
-        self.assertEqual(record.total_stock, 10)
+        self.assertEqual(record.main_stock, 6)
         self.assertEqual(record.supplier_count, 2)
         self.assertEqual(record.in_stock_count, 2)
         # Стоит под первой из своих категорий в порядке дерева — «Пилами»,

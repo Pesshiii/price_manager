@@ -95,24 +95,25 @@ The key is chosen by measurement on the snapshot:
   come from different categories, so the key names neither one. `primary_category()`
   in `tables.py` must apply the same rule in Python (first category in tree order), or a
   row sorts under one group and shows another group's header.
-- **That join doubles `Sum`.** `Count(distinct)` and `Min`/`Max` survive it, but
-  `total_stock` would count stock once per category. So in this mode `total_stock` is a
-  `Subquery`. Postgres evaluates a target-list subplan after the `LIMIT` (`loops=25`),
-  so it costs nothing. **Don't make it a Subquery always:** «Остаток» is sortable, and
-  sorted by it the subquery runs for every row (2.6 s against 0.48 s).
+- **That join doubles `Sum`** — which is why «Остаток» is not a sum. It is
+  `main_stock` (`tables.main_stock`): the main stock by supplier `stock_priority` levels,
+  the same rule as the export (`main_values.main_row`), while «Себестоимость» stays the
+  min–max range over every supplier. It is one aggregate,
+  `(max(ARRAY[-group, -level, stock]) FILTER (stock > 0))[3]`, coalesced with
+  `Max(stock)` for the 0-vs-NULL fallback; `Max` survives the category join, so both
+  modes share it. **Don't turn it into a Subquery:** «Остаток» is sortable, and sorted
+  by it a subquery runs for every row (2.6 s against 0.48 s).
   `test_product_with_two_categories_is_listed_once_and_its_stock_is_not_doubled`
-  guards this. The snapshot cannot, because it has zero multi-category products.
+  guards the join. The snapshot cannot, because it has zero multi-category products.
 - ~64% of `Product`s have no PIM category (see [[product/pim-sync]] for coverage
   numbers). All of them are one «Без категории» group at the tail, ordered by stored
   `name`, which unsynced rows may lack.
 - Header paths come from the categories prefetch, now
   `Prefetch(..., Category.objects.select_related(CATEGORY_LABEL_DEPTH))` in
   `_base_queryset` (`views.py:35-50`). Walking `parent` without it is a query per level.
-- **The paginator's `count()` keeps the `total_stock` subquery** in its inner select,
-  because it is a non-aggregate annotation. Postgres drops the unused output, so the
-  count stays at ~70–120 ms. Time the SQL Django actually emits
-  (`CaptureQueriesContext`), not a hand-written count — a hand-written one is how
-  this went unchecked.
+- **Time the SQL Django actually emits** (`CaptureQueriesContext`), not a hand-written
+  count — the paginator's `count()` once carried a stock subquery in its inner select
+  unnoticed for exactly that reason.
 
 ### Search and filters have to include each other
 

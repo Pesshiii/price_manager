@@ -66,7 +66,7 @@ them.
   `Product.display_name` is a `@property`, not a column, so the database
   can't order by it (a sortable name would need an annotation reproducing the
   fallback — `Coalesce`, untried). Sort links come from `column.orderable`
-  (`partials/table.html:33`): only `number`, `supplier_count`, `total_stock`
+  (`partials/table.html:33`): only `number`, `supplier_count`, `main_stock`
   sort. Brand and categories render as a `brand · category · …` line under
   the name (`tables.py:286-288`), not columns — hence no brand sort.
   `_base_queryset` (`views.py:35-50`) keeps `select_related('brand')` and the
