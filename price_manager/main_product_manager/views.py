@@ -174,9 +174,6 @@ class MainProductCreate(_MainProductFormMixin, CreateView):
     with transaction.atomic():
       self.object = main_product = self.save_form(form)
       if product is not None:
-        if not product.number:
-          product.number = main_product.sku
-          product.save(update_fields=['number'])
         MainProduct.objects.filter(pk=main_product.pk).update(product=product)
         main_product.product = product
       else:

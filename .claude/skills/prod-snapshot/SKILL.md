@@ -182,18 +182,19 @@ DELETE FROM django_migrations
 # D3. Now product migrates cleanly, together with the retiring apps it drags in.
 docker compose exec -T -e POSTGRES_DB=pricemanager_snapshot web python manage.py migrate product
 
-# D4. Give Products their numbers and link stragglers — LOCALLY. Do NOT run the
-#     reindex_pim_ids task: its fan-out pushes PriceManagerProduct records into PIM.
+# D4. Link stragglers — LOCALLY. Do NOT run the reindex_pim_ids task: its
+#     fan-out pushes PriceManagerProduct records into PIM.
 docker compose exec -T -e POSTGRES_DB=pricemanager_snapshot web python manage.py shell -c "
-from main_product_manager.utils import backfill_product_numbers, link_unlinked_main_products
-print(backfill_product_numbers(), link_unlinked_main_products(batch_size=1000))"
+from main_product_manager.utils import link_unlinked_main_products
+print(link_unlinked_main_products(batch_size=1000))"
 
 # D5. (Optional) Fill Product content from PIM — read-only, see 'Talking to PIM' below.
 ```
 
 Expect `0011` to report ~156k MainProducts linked, `0007` to zero ~155k `pim_id`s, and
-the number backfill to leave ~900 Products without a number (their MainProducts disagree
-on `sku`). Those are logged, not errors.
+`0016` to move ~900 ГП rows off placeholders that got no number (their sku was already
+another Product's) and delete the emptied placeholders. `0016` stops with a `RuntimeError`
+instead if a row has no usable sku or an emptied placeholder is still referenced.
 
 ### Talking to PIM from a snapshot
 

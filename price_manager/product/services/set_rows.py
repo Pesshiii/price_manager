@@ -61,7 +61,7 @@ def _create_missing_rows(set_pks) -> int:
         MainProduct(product=product, supplier=None, is_set=True, sku=product.number,
                     article=product.number, name=product.name or product.number)
         for product in Product.objects.filter(pk__in=set_pks).exclude(pk__in=have_row)
-        .exclude(number__isnull=True).exclude(number='').only('pk', 'number', 'name')
+        .only('pk', 'number', 'name')
         if len(product.number) <= NUMBER_MAX_LENGTH
     ]
     try:

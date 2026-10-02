@@ -44,11 +44,9 @@ code: price_manager/product/services/pim_sync.py, price_manager/product/tasks.py
 - `IntegrityError` still propagates uncaught: a new `Product` whose `number`
   another `Product` already holds under a different `pim_id` (now
   case-insensitively, per the `Lower('number')` constraint — see [[product/overview]]).
-- **`or None`, two fields, two different reasons:** `number = link.get('number')
-  or None` (`:126`) is constraint-driven (Postgres treats `NULL`s as
-  distinct in a unique index but `''` as equal — coercing to `''` would let
-  the first numberless `Product` save and `IntegrityError` every one after
-  it). `apply_pim_product`'s `product.name = data.get('name') or None`
+- **A PMP without a number raises `ValueError`** instead of creating a
+  `Product`: `number` is NOT NULL and non-empty since `0017`. (It used to
+  be `or None`, which made numberless placeholders.) `apply_pim_product`'s `product.name = data.get('name') or None`
   (`:155`) is **not** — `name` stopped being unique (see [[product/pim-link]])
   — it's now just convention (`__str__` reads `f'{number} — {name}'`); tests
   assert the `None`, not `''`.

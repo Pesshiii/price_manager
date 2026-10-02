@@ -1,7 +1,7 @@
 from unittest.mock import patch
 
 from django.contrib.postgres.search import SearchQuery
-from django.db import IntegrityError
+from django.db import IntegrityError, transaction
 from django.test import TestCase
 
 from main_product_manager.models import MainProduct
@@ -80,10 +80,12 @@ class ProductModelTests(TestCase):
         Product.objects.create(pim_id='p2', number='N2', name=None)
         self.assertEqual(Product.objects.filter(name__isnull=True).count(), 2)
 
-    def test_products_without_number_coexist(self):
-        Product.objects.create(pim_id='p1', number=None, name='A')
-        Product.objects.create(pim_id='p2', number=None, name='B')
-        self.assertEqual(Product.objects.filter(number__isnull=True).count(), 2)
+    def test_number_is_required(self):
+        # NOT NULL and not '': a Product without a number matches no sku —
+        # that is how one sku once ended up split across two Products (0016).
+        for number in (None, ''):
+            with self.subTest(number=number), transaction.atomic(), self.assertRaises(IntegrityError):
+                Product.objects.create(pim_id='p1', number=number, name='A')
 
 
 class BrandModelTests(TestCase):

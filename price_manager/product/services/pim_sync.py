@@ -112,8 +112,9 @@ def sync_product_from_pim(pim_id: str, data: dict | None = None) -> Product:
     and PIM staff may link the PMP to a Product numbered differently. A PMP
     not linked to a PIM Product yet leaves name/raw_data/categories as they are.
 
-    Lets IntegrityError (a new Product whose number another Product already
-    holds under a different pim_id) and any PIM-fetch error propagate — it's
+    Raises ValueError for an unknown PMP without a number. Lets IntegrityError
+    (a new Product whose number another Product already holds under a
+    different pim_id) and any PIM-fetch error propagate — it's
     the caller's job to decide how to surface them. Fetches happen before the
     first write, so a failed fetch leaves no half-made row behind.
     """
@@ -121,15 +122,17 @@ def sync_product_from_pim(pim_id: str, data: dict | None = None) -> Product:
     product = Product.objects.filter(pim_id=pim_id).first()
     if product is None:
         link = _fetch_pim_link(pim_id)
-        # `or None`, not `or ''`: number is unique, and Postgres treats NULLs
-        # as distinct in a unique index but '' as equal.
-        number = link.get('number') or None
+        number = (link.get('number') or '').strip()
+        if not number:
+            # number is required: a Product without one matches no sku and is
+            # how one sku once ended up on two Products (product.0016).
+            raise ValueError(f'PMP {pim_id} has no number — nothing to match a local Product by')
         # iexact: number's uniqueness is case-insensitive (Lower('number')),
         # so a differently-cased match is the same Product, not a new one.
         product = (
             Product.objects.filter(number__iexact=number, pim_id__isnull=True).first()
-            if number else None
-        ) or Product(number=number)
+            or Product(number=number)
+        )
         product.pim_id = pim_id
     if data is None:
         if link is None:
@@ -300,7 +303,7 @@ def load_products_by_number(page_size: int = 1000, limit: int | None = None,
     """
     by_number = {
         number: pk for pk, number in
-        Product.objects.exclude(number__isnull=True).values_list('pk', 'number')
+        Product.objects.values_list('pk', 'number')
     }
     categories = {c.pim_id: c.pk for c in Category.objects.exclude(pim_id__isnull=True)}
     brands = {b.pim_id: b.pk for b in Brand.objects.all()}

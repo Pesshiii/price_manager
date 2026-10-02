@@ -8,7 +8,7 @@ from django.contrib.auth import get_user_model
 from product_price_manager.models import update_prices
 
 from .utils import (
-    backfill_product_numbers, delete_outdated_logs, get_pim_data, iter_unpushed_product_pk_batches,
+    delete_outdated_logs, get_pim_data, iter_unpushed_product_pk_batches,
     link_unlinked_main_products, push_pim_links, update_logs, update_stocks,
 )
 from .models import MainProduct
@@ -135,8 +135,6 @@ def reindex_pim_ids_task(delay: float = 0.5, batch_size: int = 1000) -> dict:
     a pim_id.
     """
     def _runner():
-        # Numbers before links — see backfill_product_numbers.
-        numbered = backfill_product_numbers()
         linked = link_unlinked_main_products(batch_size=batch_size)
         # dispatch_after_commit, not .delay(): execute_locked_task runs this
         # runner inside transaction.atomic(), and a batch handed straight to
@@ -149,11 +147,9 @@ def reindex_pim_ids_task(delay: float = 0.5, batch_size: int = 1000) -> dict:
             )
             dispatched += 1
         logger.info(
-            'reindex_pim_ids: numbered %s Products, linked %s MainProducts, dispatched %s batches',
-            numbered, linked, dispatched,
+            'reindex_pim_ids: linked %s MainProducts, dispatched %s batches',
+            linked, dispatched,
         )
-        # One bare int: execute_locked_task sums a tuple's members, and
-        # Products numbered and MainProducts linked are not the same count.
         return linked
 
     return execute_locked_task(
