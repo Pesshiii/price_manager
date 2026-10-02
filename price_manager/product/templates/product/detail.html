@@ -126,7 +126,7 @@
           {% for tag in fixed_pricetags %}
             <tr class="{% if tag.deprecated %}pd-muted{% endif %}">
               <td>
-                {% if tag.mp.supplier %}{{ tag.mp.supplier.name }}{% else %}<span class="pd-no-supplier"><i class="bi bi-box-seam" aria-hidden="true"></i>Без поставщика</span>{% endif %}
+                {% if tag.mp.supplier %}{{ tag.mp.supplier.name }}{% else %}<span class="pd-no-supplier"><i class="bi bi-box-seam" aria-hidden="true"></i>Набор</span>{% endif %}
                 <span class="pd-muted small">· {{ tag.mp.article|default:tag.mp.sku }}</span>
               </td>
               <td>{% include 'price_manager/partials/pricetag_flow.html' with tag=tag %}</td>
@@ -185,8 +185,7 @@
               <tr>
                 <td>
                   {% if row.supplier %}{{ row.supplier.name }}
-                  {% else %}<span class="pd-no-supplier"><i class="bi bi-box-seam" aria-hidden="true"></i>Без поставщика</span>{% endif %}
-                  {% if row.is_set %}<span class="pd-tag is-set ms-1">набор</span>{% endif %}
+                  {% else %}<span class="pd-tag is-set">набор</span>{% endif %}
                 </td>
                 <td>{{ row.article }}</td>
                 <td>{{ row.sku|default:"—" }}</td>

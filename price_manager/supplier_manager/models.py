@@ -31,6 +31,9 @@ class Currency(models.Model):
         return self.name
 
 
+UNSUPPLIED_NAME = 'Без поставщика'
+
+
 def _get_default_currnecy():
     obj, created = Currency.objects.get_or_create(name="KZT", value=1)
     return obj.pk
@@ -115,11 +118,34 @@ class Supplier(models.Model):
         null=True,
         blank=True,
     )
+    # Служебный поставщик «Без поставщика»: возвраты, бонусы, остатки на
+    # складе — всё, что не из прайса настоящего поставщика. Ведёт себя как
+    # любой поставщик (загрузка, копирование в ГП, менеджеры цен, уровни), его
+    # нельзя удалить и переименовать. Ровно один, создаётся миграцией
+    # (product_price_manager 0009) и, на чистой базе, Supplier.unsupplied().
+    # Строки ГП с поставщиком NULL — только строки наборов.
+    is_unsupplied = models.BooleanField(verbose_name='Без поставщика',
+                                        default=False,
+                                        editable=False)
     class Meta:
         verbose_name = 'Поставщик'
+        constraints = [
+            models.UniqueConstraint(fields=['is_unsupplied'],
+                                    condition=models.Q(is_unsupplied=True),
+                                    name='supplier_single_unsupplied'),
+        ]
         ordering = ['name']
     def __str__(self):
         return self.name
+
+    @classmethod
+    def unsupplied(cls) -> 'Supplier':
+        """Служебный поставщик «Без поставщика» — создаётся, если его ещё нет."""
+        supplier = cls.objects.filter(is_unsupplied=True).first()
+        if supplier is None:
+            supplier, _ = cls.objects.update_or_create(name=UNSUPPLIED_NAME,
+                                                       defaults={'is_unsupplied': True})
+        return supplier
 
     def update_status(self, kind, now=None):
         """Статус обновления цен (`kind='price'`) или остатков (`'stock'`).

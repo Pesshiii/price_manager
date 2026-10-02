@@ -1,7 +1,7 @@
 {% extends "base.html" %}
 {% comment %}
   «Менеджеры цен» (PriceManagerPage): все менеджеры цен строк ГП — поставщиков
-  и без поставщика. Поставщик менеджера выбирается в самой форме.
+  и наборов (без поставщика). Поставщик менеджера выбирается в самой форме.
   Все наценки строк — на соседней вкладке (pricetags.html).
 {% endcomment %}
 
@@ -57,7 +57,7 @@
       Все <span class="pm-pill-count">{{ counts.all }}</span>
     </a>
     <a class="pm-pill{% if selected == 'none' %} is-active{% endif %}" href="?supplier=none{% if show_deprecated %}&deprecated=1{% endif %}">
-      <i class="bi bi-box-seam" aria-hidden="true"></i>Без поставщика <span class="pm-pill-count">{{ counts.none }}</span>
+      <i class="bi bi-box-seam" aria-hidden="true"></i>Наборы <span class="pm-pill-count">{{ counts.none }}</span>
     </a>
     <form method="get" class="d-flex gap-2 align-items-center">
       {% if show_deprecated %}<input type="hidden" name="deprecated" value="1">{% endif %}
@@ -97,7 +97,7 @@
                 {% if rule.supplier %}
                   <a href="?supplier={{ rule.supplier.pk }}" class="text-decoration-none">{{ rule.supplier.name }}</a>
                 {% else %}
-                  <span class="pm-no-supplier"><i class="bi bi-box-seam" aria-hidden="true"></i>Без поставщика</span>
+                  <span class="pm-no-supplier"><i class="bi bi-box-seam" aria-hidden="true"></i>Наборы</span>
                 {% endif %}
               </td>
               <td class="pm-flow">

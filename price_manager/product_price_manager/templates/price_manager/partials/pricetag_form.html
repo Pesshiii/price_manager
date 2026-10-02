@@ -8,7 +8,7 @@
   <div>
     <h2 class="modal-title fs-5">{% if pricetag %}Фиксированная наценка{% else %}Новая фиксированная наценка{% endif %}</h2>
     <div class="small text-body-secondary">
-      {{ mainproduct.sku|default:"—" }} · {% if mainproduct.supplier %}{{ mainproduct.supplier.name }}{% else %}без поставщика{% endif %} · {{ mainproduct.name|truncatechars:80 }}
+      {{ mainproduct.sku|default:"—" }} · {% if mainproduct.supplier %}{{ mainproduct.supplier.name }}{% else %}набор{% endif %} · {{ mainproduct.name|truncatechars:80 }}
     </div>
   </div>
   <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Закрыть"></button>

@@ -162,7 +162,7 @@ class PriceManagerCreate(RuleFormRefreshMixin, CreateView):
     else:
       formula_label = f'+{self._format_value(cleaned_data.get("markup"))}% + {self._format_value(cleaned_data.get("increase"))} тг'
     base_name = ' | '.join([
-      f'{supplier.name if supplier else "Без поставщика"}',
+      f'{supplier.name if supplier else "Наборы"}',
       f'{dest_label} ← {source_label}',
       f'РРЦ: {has_rrp_map.get(has_rrp_value)}',
       f'Скидки: {discount_value}',
@@ -234,12 +234,11 @@ class PriceManagerUpdate(RuleFormRefreshMixin, SingleTableMixin, UpdateView):
 
 
 class PriceManagerPage(TemplateView):
-  """«Менеджеры цен»: все менеджеры цен строк ГП — поставщиков и без поставщика.
+  """«Менеджеры цен»: все менеджеры цен строк ГП — поставщиков и наборов.
 
   Менеджеры цен поставщика по-прежнему видны и на его странице; здесь — общий
-  список, включая менеджеры без поставщика (на наборы, возвраты, бонусы,
-  остатки). ?supplier=none|<pk> — фильтр, ?deprecated=1 — показать
-  устаревшие.
+  список, включая менеджеры без поставщика (на строки наборов).
+  ?supplier=none|<pk> — фильтр, ?deprecated=1 — показать устаревшие.
   """
   template_name = 'price_manager/page.html'
 
@@ -390,13 +389,13 @@ class PriceTagList(TemplateView):
 def _pricetag_error(mp, cd):
   """Почему наценка не подходит строке ГП — или None.
 
-  У строки без поставщика нет прайса поставщика: наценка от его цены считала
+  У строки набора (без поставщика) нет прайса поставщика: наценка от его цены считала
   бы от пустого, и clear_unsourced_prices очищал бы её цену при каждом
   пересчёте. Себестоимость строки набора — сумма комплектующих, её наценка не
   пишет (product.services.set_rows).
   """
   if mp.supplier_id is None and not cd['price_fixed'] and cd['source'] in SP_PRICES:
-    return 'У строки без поставщика нет прайса поставщика — считайте от цены ГП или задайте фиксированную'
+    return 'У строки набора нет прайса поставщика — считайте от цены ГП или задайте фиксированную'
   if mp.is_set and cd['dest'] == 'prime_cost':
     return 'Себестоимость строки набора — сумма себестоимостей комплектующих, наценка её не меняет'
   return None

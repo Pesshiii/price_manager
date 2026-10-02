@@ -81,7 +81,7 @@
       Все <span class="pm-pill-count">{{ counts.all }}</span>
     </a>
     <a class="pm-pill{% if selected == 'none' %} is-active{% endif %}" href="?supplier=none{% if q %}&q={{ q|urlencode }}{% endif %}{% if rule %}&rule={{ rule }}{% endif %}{% if dest %}&dest={{ dest }}{% endif %}{% if show_deprecated %}&deprecated=1{% endif %}">
-      <i class="bi bi-box-seam" aria-hidden="true"></i>Без поставщика <span class="pm-pill-count">{{ counts.none }}</span>
+      <i class="bi bi-box-seam" aria-hidden="true"></i>Наборы <span class="pm-pill-count">{{ counts.none }}</span>
     </a>
     <form method="get" class="d-flex gap-2 align-items-center">
       {% if q %}<input type="hidden" name="q" value="{{ q }}">{% endif %}
@@ -126,7 +126,7 @@
                 {% endif %}
               </td>
               <td>
-                {% if tag.mp.supplier %}{{ tag.mp.supplier.name }}{% else %}<span class="pm-no-supplier"><i class="bi bi-box-seam" aria-hidden="true"></i>Без поставщика</span>{% endif %}
+                {% if tag.mp.supplier %}{{ tag.mp.supplier.name }}{% else %}<span class="pm-no-supplier"><i class="bi bi-box-seam" aria-hidden="true"></i>Набор</span>{% endif %}
                 <div class="pm-sub">{{ tag.mp.article }}{% if tag.mp.is_set %} · набор{% endif %}</div>
               </td>
               <td>

@@ -514,10 +514,13 @@ def update_stocks(logs: bool = True, batch_size: int = 10000) -> int:
     next run. Every batch stamps the same stock_updated_at, so one run still
     means one timestamp.
 
-    Rows without a supplier are skipped: they have no price list at all —
-    sets, leftover stock, returns, bonuses — and their stock is entered by
-    hand. Without the skip every run would reset it to 0 ("no supplier row
-    means unknown").
+    Rows without a supplier are skipped: those are set rows, whose stock is
+    how many sets the components make — product.services.set_rows recounts
+    it at the end, from the stocks this run just wrote. Returns, bonuses and
+    leftover stock belong to the «Без поставщика» supplier and go through
+    here like any supplier's rows; their hand-entered stock survives because
+    every such row has a price-list row of its own
+    (supplier_product_manager.unsupplied).
     """
     updated = 0
     now = timezone.now()
@@ -540,6 +543,8 @@ def update_stocks(logs: bool = True, batch_size: int = 10000) -> int:
             mpls = [MainProductLog(main_product=mp, stock=mp.new_stock) for mp in mps]
             MainProductLog.objects.bulk_create(mpls, batch_size=batch_size)
         updated += mps.update(stock=F('new_stock'), stock_updated_at=now)
+    from product.services.set_rows import sync_set_stocks
+    updated += sync_set_stocks(logs=logs)
     return updated
 
 def compute_supplier_sku(article: str, supplier) -> str:

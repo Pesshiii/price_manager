@@ -968,7 +968,7 @@ class MainProductFormTests(_PimSearchTestCase):
         self.assertEqual(PimProduct.objects.count(), 1)
 
     def test_a_new_sku_gets_its_product_at_once(self):
-        response = self.create(name='Возврат', sku='RET-1', stock=1)
+        response = self.create(supplier=Supplier.unsupplied().pk, name='Возврат', sku='RET-1', stock=1)
 
         row = MainProduct.objects.get(sku='RET-1')
         self.assertIsNotNone(row.product_id)
@@ -977,11 +977,12 @@ class MainProductFormTests(_PimSearchTestCase):
         self.assertEqual(response['HX-Redirect'], f'/products/{row.product_id}/')
 
     def test_row_without_supplier_takes_the_sku_as_its_article_and_keeps_prices(self):
-        self.create(name='Бонус', sku='BON-1', stock=2,
+        unsupplied = Supplier.unsupplied()
+        self.create(supplier=unsupplied.pk, name='Бонус', sku='BON-1', stock=2,
                     prime_cost='100.50', basic_price='150')
 
         row = MainProduct.objects.get(sku='BON-1')
-        self.assertIsNone(row.supplier_id)
+        self.assertEqual(row.supplier_id, unsupplied.pk)
         self.assertEqual(row.article, 'BON-1')
         self.assertEqual((row.prime_cost, row.basic_price, row.stock), (Decimal('100.50'), Decimal('150'), 2))
         self.assertIsNotNone(row.price_updated_at)
@@ -1001,7 +1002,8 @@ class MainProductFormTests(_PimSearchTestCase):
         card = f'http://testserver{reverse("product-detail", kwargs={"pk": product.pk})}'
 
         response = self.post(reverse('mainproduct-create'),
-                             {'product': product.pk, 'name': 'Остаток', 'sku': 'IGNORED', 'stock': 4}, card)
+                             {'product': product.pk, 'supplier': Supplier.unsupplied().pk,
+                              'name': 'Остаток', 'sku': 'IGNORED', 'stock': 4}, card)
 
         row = MainProduct.objects.get(name='Остаток')
         self.assertEqual((row.product_id, row.sku), (product.pk, 'CARD-1'))
@@ -1240,3 +1242,55 @@ class MainProductDetailCardTests(TestCase):
         self.assertNotContains(self.get_card(), 'Привязать из ГП')
         with self.assertRaises(NoReverseMatch):
             reverse('mainproduct-resolve', kwargs={'pk': self.mp.pk})
+
+
+class UnsuppliedRowFormTests(TestCase):
+    """Строка «Без поставщика» из модалки: её остаток живёт в строке прайса."""
+
+    def setUp(self):
+        from django.contrib.auth.models import User
+        self.client.force_login(User.objects.create_user(username='unsupplied-form', password='pw'))
+        self.unsupplied = Supplier.unsupplied()
+        self.other = Supplier.objects.create(name='Обычный')
+
+    def post(self, url, **data):
+        return self.client.post(url, {f'mp-{key}': value for key, value in data.items()},
+                                HTTP_HX_REQUEST='true', HTTP_HX_CURRENT_URL='http://testserver/products/')
+
+    def test_the_form_offers_the_unsupplied_supplier_first_and_by_default(self):
+        from .forms import MainProductForm
+        form = MainProductForm()
+        self.assertEqual(form.initial['supplier'], self.unsupplied.pk)
+        self.assertEqual(list(form.fields['supplier'].queryset)[0], self.unsupplied)
+        self.assertIsNone(form.fields['supplier'].empty_label)
+
+    def test_hand_entered_stock_survives_update_stocks_and_follows_edits(self):
+        from django.urls import reverse
+        from .forms import MainProductForm
+        self.post(reverse('mainproduct-create'), supplier=self.unsupplied.pk, name='Остаток', sku='LO-1', stock=5)
+        row = MainProduct.objects.get(sku='LO-1')
+        self.assertEqual(SupplierProduct.objects.get(main_product=row).stock, 5)
+
+        update_stocks()
+        row.refresh_from_db()
+        self.assertEqual(row.stock, 5)
+
+        self.post(reverse('mainproduct-update', kwargs={'pk': row.pk}), supplier=self.unsupplied.pk,
+                  sku='LO-1', article='LO-1', name='Остаток', stock=3)
+        update_stocks()
+        row.refresh_from_db()
+        self.assertEqual(row.stock, 3)
+        # Ручная строка не держит поставщика и артикул, как строка из файла.
+        self.assertFalse(MainProductForm(instance=row).fields['supplier'].disabled)
+
+    def test_moving_to_another_supplier_drops_the_unsupplied_price_row(self):
+        from django.urls import reverse
+        self.post(reverse('mainproduct-create'), supplier=self.unsupplied.pk, name='Бонус', sku='BO-1', stock=1)
+        row = MainProduct.objects.get(sku='BO-1')
+
+        self.post(reverse('mainproduct-update', kwargs={'pk': row.pk}), supplier=self.other.pk,
+                  sku='BO-1', article='BO-1', name='Бонус', stock=1)
+
+        row.refresh_from_db()
+        self.assertEqual(row.supplier, self.other)
+        self.assertFalse(SupplierProduct.objects.filter(main_product=row).exists())

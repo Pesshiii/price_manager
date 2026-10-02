@@ -31,7 +31,7 @@
         <td class="text-end">{{ line.amount }}</td>
         <td>
           {% if line.cost_row %}
-            <a href="{% url 'mainproduct-info' line.cost_row.pk %}">{{ line.cost_row.supplier|default:"Без поставщика" }}</a>
+            <a href="{% url 'mainproduct-info' line.cost_row.pk %}">{{ line.cost_row.supplier|default:"Набор" }}</a>
           {% else %}—{% endif %}
         </td>
         <td class="text-end">{% if line.has_cost %}{{ line.cost|floatformat:2 }}{% else %}<span class="text-body-tertiary">нет цены</span>{% endif %}</td>
