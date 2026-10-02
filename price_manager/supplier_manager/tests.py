@@ -135,6 +135,9 @@ class SupplierListViewTests(TestCase):
             self.assertEqual(names, [Supplier.unsupplied().name, *expected])
 
     def test_price_cells_follow_header_order(self):
+        # Ячейки ищутся по всей странице — «Без поставщика» (из миграции, если
+        # её не стёр TransactionTestCase) добавил бы свою строку.
+        Supplier.objects.filter(is_unsupplied=True).delete()
         s = _supplier('Цены')
         MainProduct.objects.create(supplier=s, article='A', name='A', basic_price=10, prime_cost=None)
         response = self._get()
