@@ -11,10 +11,12 @@ from supplier.models import Supplier as FeedSupplier
 from supplier_feed.models import SupplierLink
 from supplier_manager.models import Currency, Supplier
 
+from .test_migration_0016 import NumberlessProductsMixin
+
 migration = importlib.import_module('product.migrations.0007_product_pim_id_is_price_manager_product')
 
 
-class ResetPimIdsTests(TestCase):
+class ResetPimIdsTests(NumberlessProductsMixin, TestCase):
     """The data step of product.0007, run against the live registry.
 
     CI migrates an empty database, where the step has nothing to touch; this
@@ -22,6 +24,7 @@ class ResetPimIdsTests(TestCase):
     """
 
     def setUp(self):
+        super().setUp()
         currency = Currency.objects.get_or_create(name='KZT', value=1)[0]
         self.supplier = Supplier.objects.create(
             name='Migration supplier',
@@ -32,17 +35,17 @@ class ResetPimIdsTests(TestCase):
 
     def test_nulls_every_pim_id_and_deletes_only_unreferenced_placeholders(self):
         numbered = Product.objects.create(pim_id='old-1', number='N-1')
-        linked_placeholder = Product.objects.create(pim_id='old-2')
+        linked_placeholder = Product.objects.create(pim_id='old-2', number=None)
         MainProduct.objects.create(supplier=self.supplier, article='A', name='A', product=linked_placeholder)
         # SupplierLink.product is on_delete=CASCADE: deleting this "orphan"
         # would silently take the supplier link with it.
-        feed_placeholder = Product.objects.create(pim_id='old-3')
+        feed_placeholder = Product.objects.create(pim_id='old-3', number=None)
         SupplierLink.objects.create(
             supplier=FeedSupplier.objects.create(name='Feed supplier'),
             supplier_sku='FEED-1',
             product=feed_placeholder,
         )
-        orphan = Product.objects.create(pim_id='old-4')
+        orphan = Product.objects.create(pim_id='old-4', number=None)
 
         with contextlib.redirect_stdout(io.StringIO()):
             migration.reset_pim_ids(apps, None)

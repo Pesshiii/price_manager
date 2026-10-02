@@ -289,22 +289,6 @@ class ReindexPimIdsDispatchTests(TestCase):
         # updated_count is the MainProducts linked, not the batches dispatched.
         self.assertEqual(payload['updated_count'], 3)
 
-    def test_placeholder_claims_its_sku_before_unlinked_products_are_linked(self):
-        placeholder = PimProduct.objects.create()
-        MainProduct.objects.filter(pk=self.products[0].pk).update(product=placeholder)
-        unlinked = MainProduct.objects.create(
-            supplier=self.supplier, article='RX-TWIN', name='Twin', sku='RX-SKU-0'
-        )
-
-        with patch.object(mp_tasks.reindex_pim_ids_batch_task, 'delay'):
-            with self.captureOnCommitCallbacks(execute=True):
-                mp_tasks.reindex_pim_ids_task(delay=0)
-
-        unlinked.refresh_from_db()
-        placeholder.refresh_from_db()
-        self.assertEqual(placeholder.number, 'RX-SKU-0')
-        self.assertEqual(unlinked.product_id, placeholder.pk)
-
 
 from .utils import get_file_url
 
@@ -445,7 +429,6 @@ from .utils import (
     _SEARCH_FOUND,
     _link_to_local_product,
     _search_pim_product_id,
-    backfill_product_numbers,
     get_pim_data,
     iter_unpushed_product_pk_batches,
     link_to_local_products,
@@ -489,7 +472,7 @@ class _PimSearchTestCase(TestCase):
         # pim_id= — удобство фабрики: связь идёт через FK на product.Product.
         pim_id = kwargs.pop('pim_id', None)
         if pim_id:
-            kwargs['product'] = PimProduct.objects.get_or_create(pim_id=pim_id)[0]
+            kwargs['product'] = PimProduct.objects.get_or_create(pim_id=pim_id, defaults={'number': sku})[0]
         return MainProduct.objects.create(
             supplier=self.supplier,
             article=kwargs.pop('article', f'ART-{sku}'),
@@ -630,71 +613,13 @@ class LinkUnlinkedMainProductsTests(_PimSearchTestCase):
         self.assertEqual(PimProduct.objects.count(), 1)
 
 
-class BackfillProductNumbersTests(_PimSearchTestCase):
-    """Placeholder Products (number NULL) take their MainProducts' sku only when unambiguous."""
-
-    def test_placeholder_takes_the_sku_its_main_products_share(self):
-        placeholder = PimProduct.objects.create()
-        self.product(sku='SKU-1', product=placeholder)
-        self.product(sku='SKU-1', article='OTHER', product=placeholder)
-
-        self.assertEqual(backfill_product_numbers(), 1)
-
-        placeholder.refresh_from_db()
-        self.assertEqual(placeholder.number, 'SKU-1')
-
-    def test_disagreeing_skus_leave_the_number_empty(self):
-        placeholder = PimProduct.objects.create()
-        self.product(sku='SKU-1', product=placeholder)
-        self.product(sku='SKU-2', product=placeholder)
-
-        with self.assertLogs(mp_utils.logger, level='WARNING'):
-            self.assertEqual(backfill_product_numbers(), 0)
-
-        placeholder.refresh_from_db()
-        self.assertIsNone(placeholder.number)
-
-    def test_taken_number_is_not_duplicated(self):
-        PimProduct.objects.create(number='SKU-1')
-        placeholder = PimProduct.objects.create()
-        second = PimProduct.objects.create()
-        self.product(sku='SKU-1', product=placeholder)
-        self.product(sku='SKU-2', product=second)
-        self.product(sku='SKU-2', article='OTHER', product=PimProduct.objects.create())
-
-        with self.assertLogs(mp_utils.logger, level='WARNING'):
-            self.assertEqual(backfill_product_numbers(), 1)
-
-        placeholder.refresh_from_db()
-        self.assertIsNone(placeholder.number)
-        # Two placeholders wanting SKU-2: the lower pk gets it, the other waits.
-        second.refresh_from_db()
-        self.assertEqual(second.number, 'SKU-2')
-
-    def test_case_variant_of_a_taken_number_is_treated_as_a_conflict(self):
-        # number's uniqueness is case-insensitive: assigning 'SKU-1' while
-        # 'sku-1' is already taken must be caught here, not left to raise an
-        # IntegrityError out of the bulk_update below.
-        PimProduct.objects.create(number='sku-1')
-        placeholder = PimProduct.objects.create()
-        self.product(sku='SKU-1', product=placeholder)
-
-        with self.assertLogs(mp_utils.logger, level='WARNING'):
-            self.assertEqual(backfill_product_numbers(), 0)
-
-        placeholder.refresh_from_db()
-        self.assertIsNone(placeholder.number)
-
-
 class IterUnpushedProductPkBatchesTests(_PimSearchTestCase):
-    def test_only_numbered_linked_products_without_pim_id_are_pushed(self):
+    def test_only_linked_products_without_pim_id_are_pushed(self):
         waiting = PimProduct.objects.create(number='WAITING')
         self.product(sku='WAITING', product=waiting)
         self.product(sku='WAITING', article='TWICE', product=waiting)
         pushed = PimProduct.objects.create(number='PUSHED', pim_id='pmp-1')
         self.product(sku='PUSHED', product=pushed)
-        unnumbered = PimProduct.objects.create()
-        self.product(sku='X', product=unnumbered)
         PimProduct.objects.create(number='ORPHAN')
 
         self.assertEqual(list(iter_unpushed_product_pk_batches()), [[waiting.pk]])
@@ -1081,25 +1006,6 @@ class MainProductFormTests(_PimSearchTestCase):
         row = MainProduct.objects.get(name='Остаток')
         self.assertEqual((row.product_id, row.sku), (product.pk, 'CARD-1'))
         self.assertEqual(response['HX-Refresh'], 'true')
-
-    def test_card_of_a_product_without_number_gives_it_the_sku(self):
-        product = PimProduct.objects.create(number=None, name='Без артикула')
-        from django.urls import reverse
-
-        self.post(reverse('mainproduct-create'), {'product': product.pk, 'name': 'Остаток', 'sku': 'NUM-9'})
-
-        product.refresh_from_db()
-        self.assertEqual(product.number, 'NUM-9')
-        self.assertEqual(MainProduct.objects.get(name='Остаток').product_id, product.pk)
-
-    def test_card_refuses_a_number_another_product_holds(self):
-        PimProduct.objects.create(number='TAKEN')
-        product = PimProduct.objects.create(number=None)
-        from django.urls import reverse
-
-        response = self.post(reverse('mainproduct-create'), {'product': product.pk, 'name': 'X', 'sku': 'taken'})
-
-        self.assertContains(response, 'Этот артикул уже у другого товара')
 
     def test_editing_prices_logs_them_and_moves_nothing(self):
         row = self.product(sku='ED-1', prime_cost=Decimal('10'))

@@ -122,15 +122,14 @@ creds). `site` is bound into `utils`'s own namespace — patch
 
 ## `reindex_pim_ids` — order matters (`tasks.py:129-163`)
 
-`backfill_product_numbers()` (`utils.py:512-563`) runs **before**
-`link_unlinked_main_products()` (`utils.py:566-649`) inside the parent
-task's transaction — deliberately. Placeholder Products seeded by
-`product.0005`/`main_product_manager.0011` have `number=NULL`; linking first
-would let an unlinked MainProduct with a matching sku claim its own new
-Product, permanently blocking the placeholder's backfill. Backfill only
-assigns a number when every linked MainProduct on that Product agrees on
-`sku`, it fits `max_length`, and no other Product holds it already;
-otherwise logs and moves on, never touching an *existing* link.
+The local half is `link_unlinked_main_products()` alone, inside the parent
+task's transaction. It used to be preceded by `backfill_product_numbers()`,
+which numbered the `number=NULL` placeholders of `product.0005`/
+`main_product_manager.0011` from their rows' sku. It skipped a placeholder
+whose sku another Product already held, which left ~900 skus split across a
+numbered Product and a numberless twin. `product.0016` merged those twins,
+and `product.0017` made `number` NOT NULL and non-empty, so the backfill and
+its ordering constraint are gone.
 
 `link_unlinked_main_products` counts linked rows as `before - after`, not
 `update()`'s count — its last step is one correlated `UPDATE ... SET
@@ -141,9 +140,8 @@ only logged.
 PIM-facing half fans out via `iter_unpushed_product_pk_batches`
 (`utils.py:652-668`), dispatched through `dispatch_after_commit`
 (`tasks.py:146-150`). **The two halves are not equally safe on a snapshot.**
-`backfill_product_numbers()`/`link_unlinked_main_products()` are purely
-local — safe directly on prod data. The fan-out **writes to PIM**, so
+`link_unlinked_main_products()` is purely local — safe directly on prod
+data. The fan-out **writes to PIM**, so
 **never run the task itself against a snapshot with real credentials**; use
 [[product]]'s `load_pim_mirror` for read-only Product content. Measured on
-the 2026-09-03 snapshot: backfill numbered 154,050 Products, left 919
-unnumbered (sku disagreement); linking picked up 122 stragglers.
+the 2026-09-03 snapshot: linking picked up 122 stragglers.

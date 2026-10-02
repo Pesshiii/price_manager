@@ -59,7 +59,6 @@ class ProductForm(forms.ModelForm):
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        self.fields['number'].required = False
         self.fields['number'].help_text = (
             'Ключ привязки строк ГП: новые строки с таким артикулом (sku) привяжутся к этому товару.')
         self.fields['categories'].queryset = Category.objects.all()
@@ -79,13 +78,13 @@ class ProductForm(forms.ModelForm):
         return brand_picker_options(selected_pks(self['brand']))
 
     def clean_number(self):
-        """Пустой артикул — NULL, а не '': уникальность по Lower(number)
-        считает две пустые строки одинаковыми, а два NULL — нет."""
-        number = (self.cleaned_data.get('number') or '').strip() or None
-        if number:
-            other = Product.objects.filter(number__iexact=number).exclude(pk=self.instance.pk).first()
-            if other:
-                raise forms.ValidationError(f'Этот артикул уже у товара «{other.display_name}».')
+        """Артикул обязателен: без него товар не найти по sku и не выгрузить в PIM."""
+        number = (self.cleaned_data.get('number') or '').strip()
+        if not number:
+            raise forms.ValidationError('Укажите артикул товара.')
+        other = Product.objects.filter(number__iexact=number).exclude(pk=self.instance.pk).first()
+        if other:
+            raise forms.ValidationError(f'Этот артикул уже у товара «{other.display_name}».')
         return number
 
     def save(self, commit=True):

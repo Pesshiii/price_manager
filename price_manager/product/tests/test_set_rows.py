@@ -69,12 +69,6 @@ class SetRowSyncTests(SetFixture, TestCase):
         row = MainProduct.objects.get(product=self.kit)
         self.assertEqual((row.is_set, row.prime_cost), (False, None))
 
-    def test_set_without_number_gets_no_row(self):
-        self.kit.number = None
-        self.kit.save(update_fields=['number'])
-
-        self.assertEqual(sync_set_rows()['created'], 0)
-
 
 class SetPricesAreLastTests(SetFixture, TestCase):
     """Наценки строки набора считают от свежей суммы комплектующих — в том же прогоне."""

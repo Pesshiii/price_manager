@@ -82,8 +82,10 @@ class Product(models.Model):
     # The match key: MainProduct.sku. Local, never overwritten from PIM.
     # Case-insensitive: uniqueness is enforced by Meta.constraints on
     # Lower('number'), not by unique=True here — see the product_product_number_lower_uniq
-    # constraint below.
-    number = models.CharField('Артикул', max_length=128, null=True, blank=True)
+    # constraint below. Never empty (product_product_number_not_blank): a
+    # Product without one can't be matched, searched or pushed, and is how one
+    # sku ended up split across two Products — see product.0016.
+    number = models.CharField('Артикул', max_length=128)
     # Not unique: several Products can sit on one PIM Product, and PIM does not
     # keep Product.name unique either.
     name = models.CharField('Название', max_length=512, null=True, blank=True)
@@ -112,6 +114,7 @@ class Product(models.Model):
         ]
         constraints = [
             models.UniqueConstraint(Lower('number'), name='product_product_number_lower_uniq'),
+            models.CheckConstraint(condition=~models.Q(number=''), name='product_product_number_not_blank'),
         ]
 
     def __str__(self) -> str:

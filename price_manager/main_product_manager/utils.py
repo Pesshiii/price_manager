@@ -554,60 +554,6 @@ def compute_supplier_sku(article: str, supplier) -> str:
     return f'{prefix}{article}{suffix}'
 
 
-def backfill_product_numbers() -> int:
-    """Give a number to local Products that have none, from their MainProducts' sku.
-
-    Rows seeded by product.0005 / main_product_manager.0011 carry no number,
-    so they can be neither searched nor pushed. Such a Product takes its
-    MainProducts' sku when that is unambiguous: every linked MainProduct with
-    a sku has the same one, it fits number's max_length, and no other Product
-    holds that number yet. Anything else is logged and left alone — guessing
-    would put two products under one PIM record, and existing links are not
-    reindex's to move. Returns how many Products got a number.
-
-    Runs before link_unlinked_main_products on purpose: a placeholder claims
-    its sku first, so unlinked MainProducts with that sku join it instead of
-    getting a second Product that would then block this backfill for good.
-    """
-    has_sku = ~Q(main_products__sku='')
-    candidates = (
-        PimProduct.objects.filter(number__isnull=True)
-        .annotate(
-            sku_count=Count('main_products__sku', distinct=True, filter=has_sku),
-            first_sku=Min('main_products__sku', filter=has_sku),
-        )
-        .filter(sku_count__gte=1)
-        .order_by('pk')
-    )
-    # Lower-cased: number's uniqueness is case-insensitive (Lower('number')),
-    # so a sku that's a case-variant of an already-taken number is still taken
-    # — missing this would let bulk_update below hit that constraint instead
-    # of skipping the row as a logged conflict.
-    taken = {
-        n.lower() for n in
-        PimProduct.objects.exclude(number__isnull=True).values_list('number', flat=True)
-    }
-    numbered = []
-    conflicts = 0
-    for product in candidates.iterator():
-        sku = product.first_sku
-        if product.sku_count != 1 or len(sku) > PRODUCT_NUMBER_MAX_LENGTH or sku.lower() in taken:
-            conflicts += 1
-            continue
-        product.number = sku
-        taken.add(sku.lower())
-        numbered.append(product)
-    if numbered:
-        PimProduct.objects.bulk_update(numbered, fields=['number'], batch_size=1000)
-    if conflicts:
-        logger.warning(
-            'backfill_product_numbers: %s Products left without a number '
-            '(MainProducts disagree on sku, sku too long, or the number is taken)',
-            conflicts,
-        )
-    return len(numbered)
-
-
 def link_unlinked_main_products(batch_size: int = 1000, main_product_ids=None) -> int:
     """Link every unlinked MainProduct that has a sku to the local Product with number = sku.
 
@@ -705,14 +651,14 @@ def link_unlinked_main_products(batch_size: int = 1000, main_product_ids=None) -
 def iter_unpushed_product_pk_batches(batch_size: int = 1000):
     """Yield pks of local Products still waiting for a PriceManagerProduct, chunked.
 
-    Waiting means pim_id NULL, a number to push under, and at least one
-    MainProduct — the PMP takes its name and description from one, and a
-    Product nothing links to has no business in PIM. Used by
+    Waiting means pim_id NULL and at least one MainProduct — the PMP takes
+    its name and description from one, and a Product nothing links to has no
+    business in PIM. Used by
     reindex_pim_ids_task to fan out one reindex_pim_ids_batch_task per chunk.
     """
     pks = list(
         PimProduct.objects
-        .filter(pim_id__isnull=True, number__isnull=False, main_products__isnull=False)
+        .filter(pim_id__isnull=True, main_products__isnull=False)
         .order_by('pk')
         .values_list('pk', flat=True)
         .distinct()
@@ -858,7 +804,7 @@ def push_pim_links(pks: list[int], delay: float = 0.5, batch_size: int = 1000) -
     push stayed rejected, so the batch is recorded as an error, not a success.
     """
     products = list(
-        PimProduct.objects.filter(pk__in=pks, pim_id__isnull=True, number__isnull=False).order_by('pk')
+        PimProduct.objects.filter(pk__in=pks, pim_id__isnull=True).order_by('pk')
     )
     if not products:
         return 0

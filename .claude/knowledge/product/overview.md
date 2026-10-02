@@ -30,8 +30,11 @@ decisions: `.claude/shift-to-product-brief.md`.
   Added later than the rest of the model, in migration `0008`, alongside
   `search_vector`.
 - `Product` — `pim_id` (nullable, unique — see [[product/pim-link]] for what
-  it identifies), `number` (nullable, the local match key = `MainProduct.sku`,
-  never overwritten from PIM). **Not `unique=True` on the field** —
+  it identifies), `number` (the local match key = `MainProduct.sku`, never
+  overwritten from PIM; **NOT NULL and never `''`** since `0017`, the latter
+  by `CheckConstraint` `product_product_number_not_blank` — `0016` first
+  merged the numberless placeholders left over from `0011` into the
+  Products of their rows' sku). **Not `unique=True` on the field** —
   uniqueness is a `Meta.constraints` `UniqueConstraint(Lower('number'),
   name='product_product_number_lower_uniq')` (`models.py:113-115`, added by
   migration `0009_product_number_case_insensitive`), i.e. **case-insensitive**:

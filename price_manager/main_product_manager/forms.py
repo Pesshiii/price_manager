@@ -62,8 +62,7 @@ class MainProductForm(forms.ModelForm):
     if product is not None and not instance.pk:
       self.initial.setdefault('sku', product.number)
       self.initial.setdefault('name', product.name or product.display_name)
-      if product.number:
-        self.fields['sku'].disabled = True
+      self.fields['sku'].disabled = True
     if self.from_price_list:
       self.fields['supplier'].disabled = True
       self.fields['article'].disabled = True
@@ -79,10 +78,6 @@ class MainProductForm(forms.ModelForm):
     sku = (self.cleaned_data.get('sku') or '').strip()
     if not sku:
       raise forms.ValidationError('Укажите артикул товара')
-    if self.product is not None and not self.product.number:
-      from product.models import Product
-      if Product.objects.filter(number__iexact=sku).exclude(pk=self.product.pk).exists():
-        raise forms.ValidationError('Этот артикул уже у другого товара')
     return sku
 
   def clean(self):
