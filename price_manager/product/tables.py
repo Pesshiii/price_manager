@@ -470,9 +470,7 @@ class SupplierRowTable(tables.Table):
         return record.supplier.msg_available or ''
 
     def render_delivery_days(self, record):
-        # Срок физически берётся из полей поставщика — без него его неоткуда
-        # взять, отсюда и расхождение с render_stock_msg.
-        if not record.supplier:
-            return ''
-        days = record.supplier.get_delivery_days_for_stock(record.stock)
+        # Срок берётся из полей поставщика, у строки набора — самый долгий по
+        # составу (MainProduct.get_delivery_days).
+        days = record.get_delivery_days()
         return '' if days is None else days

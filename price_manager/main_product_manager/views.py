@@ -38,6 +38,7 @@ from crispy_forms.utils import render_crispy_form
 # Импорты моделей, функций, форм, таблиц
 from .models import *
 from supplier_product_manager.models import SupplierProduct
+from supplier_product_manager.unsupplied import sync_unsupplied_price_row
 from file_manager.models import FileModel
 from core.utils import *
 from .forms import *
@@ -146,6 +147,9 @@ class _MainProductFormMixin:
     with transaction.atomic():
       main_product = form.save()
       MainProductLog.objects.bulk_create(form.price_log_entries())
+      # «Без поставщика»: остаток строки живёт в её строке прайса, иначе
+      # update_stocks обнулил бы введённое здесь.
+      sync_unsupplied_price_row(main_product)
     return main_product
 
 
@@ -178,7 +182,7 @@ class MainProductCreate(_MainProductFormMixin, CreateView):
         main_product.product = product
       else:
         ensure_product(main_product)
-    label = main_product.supplier.name if main_product.supplier else 'без поставщика'
+    label = main_product.supplier.name if main_product.supplier else 'набор'
     messages.success(self.request, f'Строка ГП «{main_product.name}» ({label}) добавлена')
     # Открыта карточка этого товара — перезагрузить её; иначе (с «Товаров»)
     # — перейти в карточку: там видно новую строку, а на списке она спрятана

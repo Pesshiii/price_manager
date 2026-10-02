@@ -77,6 +77,9 @@ class SupplierForm(forms.ModelForm):
     url = kwargs.pop('url', None)
     if not url: return None
     super().__init__(*args, **kwargs)
+    if self.instance.is_unsupplied:
+      # Служебный поставщик: имя — то, как его узнают во всех списках.
+      self.fields['name'].disabled = True
     self.helper = FormHelper(self)
     self.helper.form_method = 'POST'
     self.helper.label_class='mt-4'

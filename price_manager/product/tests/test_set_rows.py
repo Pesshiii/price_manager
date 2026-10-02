@@ -5,6 +5,9 @@ from django.test import TestCase
 from django.urls import reverse
 
 from main_product_manager.models import MainProduct, MainProductLog
+from main_product_manager.utils import update_stocks
+from supplier_manager.models import Supplier
+from supplier_product_manager.models import SupplierProduct
 from product_price_manager.models import PriceManager, PriceTag, update_prices
 
 from product.services.set_rows import sync_set_rows
@@ -68,6 +71,65 @@ class SetRowSyncTests(SetFixture, TestCase):
         self.assertEqual(sync_set_rows()['retired'], 1)
         row = MainProduct.objects.get(product=self.kit)
         self.assertEqual((row.is_set, row.prime_cost), (False, None))
+        # Строка без поставщика бывает только у набора — бывшая уходит к «Без
+        # поставщика» со строкой прайса, иначе update_stocks обнулил бы остаток.
+        self.assertEqual(row.supplier, Supplier.unsupplied())
+        self.assertEqual(SupplierProduct.objects.get(main_product=row).stock, 2)
+        update_stocks()
+        row.refresh_from_db()
+        self.assertEqual(row.stock, 2)
+
+    def test_a_stray_row_without_supplier_moves_to_unsupplied_with_its_prices(self):
+        stray = MainProduct.objects.create(product=self.stand, article='STRAY', name='Возврат', stock=3,
+                                           prime_cost=Decimal('70'))
+
+        self.assertEqual(sync_set_rows()['retired'], 1)
+
+        stray.refresh_from_db()
+        self.assertEqual((stray.supplier, stray.prime_cost, stray.stock),
+                         (Supplier.unsupplied(), Decimal('70'), 3))
+        self.assertEqual(SupplierProduct.objects.get(main_product=stray).stock, 3)
+
+    def with_delivery_days(self):
+        for supplier, available, navailable in ((self.first, 1, 10), (self.second, 3, 30),
+                                                (self.unranked, 7, 70)):
+            supplier.delivery_days_available = available
+            supplier.delivery_days_navailable = navailable
+            supplier.save()
+
+    def test_stock_is_how_many_sets_the_components_make_and_delivery_the_longest(self):
+        self.with_delivery_days()
+
+        sync_set_rows()
+
+        row = self.set_row()
+        # Стойка: основной остаток 9 у «Второго» (уровень 1 по остаткам) — 9 // 4 = 2.
+        # Полка: 5 у «Без уровня» — 5 // 2 = 2. Срок — поставщиков этих остатков, при
+        # наличии: 3 и 7, набору — 7.
+        self.assertEqual((row.stock, row.set_delivery_days), (2, 7))
+        self.assertEqual(row.get_delivery_days(), 7)
+        self.assertTrue(MainProductLog.objects.filter(main_product=row, stock=2).exists())
+
+    def test_without_stock_data_for_a_component_the_set_has_none(self):
+        self.with_delivery_days()
+        self.add_missing_component()
+
+        sync_set_rows()
+
+        row = self.set_row()
+        self.assertEqual((row.stock, row.set_delivery_days), (None, None))
+
+    def test_update_stocks_recounts_the_set_with_the_components(self):
+        self.with_delivery_days()
+        sync_set_rows()
+
+        # Прайсов у компонентов нет — update_stocks ставит им 0.
+        update_stocks()
+
+        row = self.set_row()
+        # Нулевой остаток — нигде нет: срок «при отсутствии» у поставщика верхнего
+        # уровня по остаткам — у стойки «Второй» (30), у полки «Первый» (10).
+        self.assertEqual((row.stock, row.set_delivery_days), (0, 30))
 
 
 class SetPricesAreLastTests(SetFixture, TestCase):
@@ -125,6 +187,5 @@ class SetRowOnTheCardTests(SetFixture, TestCase):
     def test_card_marks_the_set_row_and_offers_a_new_row(self):
         response = self.client.get(reverse('product-detail', kwargs={'pk': self.kit.pk}))
 
-        self.assertContains(response, 'Без поставщика')
         self.assertContains(response, '>набор</span>')
         self.assertContains(response, f'{reverse("mainproduct-create")}?product={self.kit.pk}')

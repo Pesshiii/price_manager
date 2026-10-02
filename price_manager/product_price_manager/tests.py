@@ -694,7 +694,7 @@ class PriceManagerPageTests(TestCase):
         response = self.client.get(reverse('price-manager'))
 
         self.assertEqual(len(response.context['rules']), 2)
-        self.assertContains(response, 'Без поставщика')
+        self.assertContains(response, 'Наборы')
         self.assertContains(response, 'Поставщик страницы')
 
     def test_filters_to_rules_without_supplier(self):
@@ -718,7 +718,7 @@ class PriceManagerPageTests(TestCase):
         self.client.post(url, form, HTTP_HX_REQUEST='true')
         rule = PriceManager.objects.get(dest='wholesale_price')
         self.assertIsNone(rule.supplier_id)
-        self.assertTrue(rule.name.startswith('Без поставщика'))
+        self.assertTrue(rule.name.startswith('Наборы'))
 
     def test_manual_tag_on_a_row_without_supplier_cannot_use_the_price_list(self):
         from django.urls import reverse
@@ -1187,3 +1187,42 @@ class RuleScopeTests(TestCase):
         self.assertTrue(options['Инструмент']['has_children'])
         self.assertEqual(options['Дрели']['parent'], self.tools.pk)
         self.assertEqual(options['Дрели']['path'], 'Инструмент')
+
+
+class UnsuppliedMigrationTests(TestCase):
+    """0009: строки без поставщика (кроме наборов) — к «Без поставщика», правила — пополам."""
+
+    def run_migration(self):
+        import importlib
+        from django.apps import apps
+        importlib.import_module('product_price_manager.migrations.0009_unsupplied_supplier').forwards(apps, None)
+
+    def test_rows_move_with_their_stock_and_rules_split_without_changing_prices(self):
+        from main_product_manager.utils import update_stocks
+        unsupplied = Supplier.unsupplied()
+        returned = MainProduct.objects.create(sku='RET-1', article='RET-1', name='Возврат', stock=4,
+                                              prime_cost=Decimal('100'))
+        kit = MainProduct.objects.create(sku='KIT-1', article='KIT-1', name='Набор', is_set=True,
+                                         prime_cost=Decimal('200'))
+        rule = PriceManager.objects.create(name='Склад +10%', supplier=None, source='prime_cost',
+                                           dest='basic_price', markup=10)
+        self.assertEqual(set(rule.pricetags.values_list('mp_id', flat=True)), {returned.pk, kit.pk})
+
+        self.run_migration()
+
+        returned.refresh_from_db()
+        kit.refresh_from_db()
+        self.assertEqual(returned.supplier, unsupplied)
+        self.assertIsNone(kit.supplier_id)
+        price_row = SupplierProduct.objects.get(main_product=returned)
+        self.assertEqual((price_row.supplier, price_row.article, price_row.stock), (unsupplied, 'RET-1', 4))
+        clone = PriceManager.objects.get(supplier=unsupplied)
+        self.assertEqual((clone.name, clone.source, clone.dest, clone.markup),
+                         ('Склад +10% (без поставщика)', 'prime_cost', 'basic_price', Decimal('10')))
+        self.assertEqual(list(clone.pricetags.values_list('mp_id', flat=True)), [returned.pk])
+        self.assertEqual(list(rule.pricetags.values_list('mp_id', flat=True)), [kit.pk])
+
+        update_prices()
+        update_stocks()
+        returned.refresh_from_db()
+        self.assertEqual((returned.basic_price, returned.stock), (Decimal('110'), 4))

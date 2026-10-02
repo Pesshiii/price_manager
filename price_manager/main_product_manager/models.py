@@ -113,6 +113,11 @@ class MainProduct(models.Model):
     # комплектующих (product.services.set_rows), руками не правится; остальные
     # цены — как у любой строки ГП, наценками. Создаётся сама для каждого набора.
     is_set = models.BooleanField(verbose_name='Строка набора', default=False)
+    # Срок поставки строки набора — самый долгий срок по составу (срок
+    # поставщика основного остатка каждого компонента). Пишет только
+    # product.services.set_rows; у строк поставщиков срок — из поставщика.
+    set_delivery_days = models.PositiveIntegerField(verbose_name='Срок поставки набора',
+                                                    null=True, blank=True)
     def __str__(self)->str:
         return f'{self.sku}' if self.sku is not None else 'Не указан'
     def price_list(self) -> list[tuple[str, str, Decimal]]:
@@ -122,10 +127,28 @@ class MainProduct(models.Model):
             for name in MP_PRICES
             if getattr(self, name) is not None
         ]
+    def get_delivery_days(self):
+        """Срок поставки строки: у строки поставщика — его срок по остатку, у
+        строки набора — самый долгий по составу. Пусто — неоткуда взять."""
+        if self.supplier_id is not None:
+            return self.supplier.get_delivery_days_for_stock(self.stock)
+        if self.is_set:
+            return self.set_delivery_days
+        return None
     @property
     def has_supplier_price_list(self) -> bool:
-        """Строка пришла из прайса поставщика: её поставщика и артикул держит импорт."""
-        return self.supplier_id is not None and self.supplierproducts.exists()
+        """Строка пришла из прайса поставщика: её поставщика и артикул держит импорт.
+
+        У «Без поставщика» строка прайса есть и у строк, заведённых руками
+        (supplier_product_manager.unsupplied), — из прайса там только строка,
+        которую поставляет настройка загрузки.
+        """
+        if self.supplier_id is None:
+            return False
+        rows = self.supplierproducts.all()
+        if self.supplier.is_unsupplied:
+            rows = rows.filter(source_settings__isnull=False)
+        return rows.exists()
     def save(self, *args, **kwargs):
         super().save(*args, **kwargs)
   

@@ -74,7 +74,7 @@ class RankedSuppliersTests(TestCase):
         second = Supplier.objects.create(name='Б', price_priority=2)
         first = Supplier.objects.create(name='В', price_priority=1)
         ranked = ranked_suppliers({unranked.pk, second.pk, first.pk, None}, 'price_priority')
-        self.assertEqual([name for _, name in ranked], ['В', 'Б', 'А-без приоритета', 'Без поставщика'])
+        self.assertEqual([name for _, name in ranked], ['В', 'Б', 'А-без приоритета', 'Наборы'])
 
 
 class SupplierLevelsTests(TestCase):
@@ -102,7 +102,7 @@ class SheetNamesTests(TestCase):
         self.assertEqual(names[2], long.upper()[:27] + ' (2)')
         # «Товары» уже занят основным листом — Excel не различает регистр.
         self.assertEqual(names[3], 'товары (2)')
-        self.assertEqual(names[4], 'Без поставщика')
+        self.assertEqual(names[4], 'Наборы')
         self.assertTrue(all(len(name) <= 31 for name in names))
 
 

@@ -193,8 +193,7 @@ def availability(stock, main_products):
     по поставщикам товара, а без него «-»."""
     if stock:
         return IN_STOCK
-    days = [mp.supplier.get_delivery_days_for_stock(mp.stock)
-            for mp in main_products if mp.supplier_id]
+    days = [mp.get_delivery_days() for mp in main_products]
     days = [day for day in days if day is not None]
     return min(days) if days else NOT_AVAILABLE
 

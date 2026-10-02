@@ -10,15 +10,18 @@ SKU_MAX_LENGTH = 128  # product.Product.number — артикул строки �
 class MainProductForm(forms.ModelForm):
   """Строка ГП — создание и правка, одной формой.
 
-  Строка может быть без поставщика: набор, остаток на складе, возврат, бонус —
-  то, для чего заводить поставщика с выгрузкой незачем. Цены и остаток
-  вводятся руками; наценки потом могут их пересчитать.
+  Остаток на складе, возврат, бонус — то, для чего заводить поставщика с
+  выгрузкой незачем, — строки служебного поставщика «Без поставщика» (он и
+  предлагается по умолчанию). Цены и остаток вводятся руками; наценки потом
+  могут их пересчитать. Остаток такой строки хранится и в её строке прайса
+  (supplier_product_manager.unsupplied, зовёт вью) — как у любого поставщика.
+  Без поставщика (NULL) — только строки наборов, их форма не создаёт.
 
   Что форма не даёт менять:
   - у строки из прайса поставщика — поставщика и артикул поставщика: по ним
     её находит импорт, и следующая загрузка прайса завела бы строку заново;
-  - у строки набора — поставщика, артикул и себестоимость: себестоимость —
-    сумма комплектующих (product.services.set_rows);
+  - у строки набора — поставщика, артикул, себестоимость и остаток: они —
+    из комплектующих (product.services.set_rows);
   - при создании из карточки товара — артикул: он и есть товар.
   """
 
@@ -43,9 +46,11 @@ class MainProductForm(forms.ModelForm):
     self.is_set_row = bool(instance.pk) and instance.is_set
 
     supplier = self.fields['supplier']
-    supplier.queryset = Supplier.objects.order_by('name')
-    supplier.empty_label = 'Без поставщика'
-    supplier.required = False
+    supplier.queryset = Supplier.objects.order_by('-is_unsupplied', 'name')
+    supplier.empty_label = None
+    supplier.required = not self.is_set_row
+    if not instance.pk:
+      self.initial.setdefault('supplier', Supplier.unsupplied().pk)
     self.fields['article'].required = False
     self.fields['sku'].required = True
     self.fields['sku'].max_length = SKU_MAX_LENGTH
@@ -67,7 +72,7 @@ class MainProductForm(forms.ModelForm):
       self.fields['supplier'].disabled = True
       self.fields['article'].disabled = True
     if self.is_set_row:
-      for name in ('supplier', 'sku', 'article', 'prime_cost'):
+      for name in ('supplier', 'sku', 'article', 'prime_cost', 'stock'):
         self.fields[name].disabled = True
 
   @property
@@ -85,9 +90,9 @@ class MainProductForm(forms.ModelForm):
     supplier = cleaned_data.get('supplier')
     article = (cleaned_data.get('article') or '').strip()
     if not article:
-      if supplier is not None:
+      if supplier is not None and not supplier.is_unsupplied:
         self.add_error('article', 'У строки поставщика нужен его артикул')
-      # У строки без поставщика своего кода нет — им служит артикул товара.
+      # У строки «Без поставщика» своего кода нет — им служит артикул товара.
       article = cleaned_data.get('sku') or ''
     cleaned_data['article'] = article
     name = cleaned_data.get('name')

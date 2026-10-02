@@ -124,19 +124,21 @@ class SupplierListViewTests(TestCase):
         self.assertEqual(self._count_queries(), one)
 
     def test_priority_sort_puts_unranked_last_both_ways(self):
+        Supplier.unsupplied()
         _supplier('Б', price_priority=2)
         _supplier('А')
         _supplier('В', price_priority=1)
         for direction, expected in (('asc', ['В', 'Б', 'А']), ('desc', ['Б', 'В', 'А'])):
             response = self._get(sort='price_priority', dir=direction)
+            # «Без поставщика» (из миграции) — всегда первой, остальные по уровню.
             names = [row['name'] for row in response.context['suppliers']]
-            self.assertEqual(names, expected)
+            self.assertEqual(names, [Supplier.unsupplied().name, *expected])
 
     def test_price_cells_follow_header_order(self):
         s = _supplier('Цены')
         MainProduct.objects.create(supplier=s, article='A', name='A', basic_price=10, prime_cost=None)
         response = self._get()
-        row = response.context['suppliers'][0]
+        row = next(row for row in response.context['suppliers'] if row['pk'] == s.pk)
         self.assertEqual([p['key'] for p in row['prices']],
                          [key for key, _ in response.context['price_columns']])
         self.assertEqual(row['basic_price'], 0)
@@ -335,3 +337,31 @@ class DeliveryDaysNullStockTests(TestCase):
     def test_unknown_stock_still_returns_a_term(self):
         """Срок обязан показаться, а не остаться пустым."""
         self.assertEqual(self.supplier.get_delivery_days_for_stock(None), 30)
+
+
+class UnsuppliedSupplierTests(TestCase):
+    """«Без поставщика» — служебный поставщик: один, первым, не удаляется и не переименовывается."""
+
+    def setUp(self):
+        self.client.force_login(User.objects.create_user(username='unsupplied', password='pw'))
+        self.unsupplied = Supplier.unsupplied()
+
+    def test_there_is_exactly_one(self):
+        self.assertEqual(Supplier.unsupplied(), self.unsupplied)
+        self.assertEqual(Supplier.objects.filter(is_unsupplied=True).count(), 1)
+
+    def test_listed_first_whatever_the_sort(self):
+        _supplier('А')
+        for params in ({}, {'sort': 'name', 'dir': 'desc'}, {'sort': 'total', 'dir': 'desc'}):
+            response = self.client.get(reverse('supplier'), params)
+            self.assertEqual(response.context['suppliers'][0]['pk'], self.unsupplied.pk)
+
+    def test_cannot_be_deleted(self):
+        response = self.client.post(reverse('supplier-delete', kwargs={'id': self.unsupplied.pk}))
+        self.assertEqual(response.status_code, 404)
+        self.assertTrue(Supplier.objects.filter(pk=self.unsupplied.pk).exists())
+
+    def test_name_is_locked_in_the_form(self):
+        from .forms import SupplierForm
+        form = SupplierForm(instance=self.unsupplied, url='/x')
+        self.assertTrue(form.fields['name'].disabled)

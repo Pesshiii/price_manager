@@ -45,7 +45,9 @@ class PriceManagerForm(forms.ModelForm):
     queryset=Supplier.objects.none(),
     label='Поставщик',
     required=False,
-    empty_label='Без поставщика — наборы, возвраты, бонусы, остатки',
+    # Пусто — правило на строки наборов (у них поставщика нет). Возвраты,
+    # бонусы и остатки — у служебного поставщика «Без поставщика», он в списке.
+    empty_label='Наборы — строки наборов',
   )
   price_fixed = forms.BooleanField(widget=forms.widgets.CheckboxInput(), label='Фиксированная цена', required=False)
   source = forms.CharField(widget=forms.widgets.Select(choices=RULE_SOURCE_CHOICES),
@@ -66,15 +68,15 @@ class PriceManagerForm(forms.ModelForm):
 
   def __init__(self, *args, lock_supplier=False, **kwargs):
     super().__init__(*args, **kwargs)
-    self.fields['supplier'].queryset = Supplier.objects.select_related('currency').order_by('name')
+    self.fields['supplier'].queryset = Supplier.objects.select_related('currency').order_by('-is_unsupplied', 'name')
     self.fields['supplier'].disabled = lock_supplier
     self.rule_supplier = self._current_supplier()
     supplier = self.rule_supplier
     self.fields['discounts'].queryset = supplier.discounts.all() if supplier else Discount.objects.none()
     self.fields['categories'].queryset = Category.objects.all()
     self.fields['brands'].queryset = Brand.objects.all()
-    # Источник не может совпадать с тем, что считаем, а у строк без
-    # поставщика нет прайса поставщика. Это подсказка в выборе; настоящая
+    # Источник не может совпадать с тем, что считаем, а у строк наборов
+    # нет прайса поставщика. Это подсказка в выборе; настоящая
     # проверка — views._rule_error и PriceManager.clean().
     dest = self._current_value('dest')
     self.fields['source'].widget.choices = [
@@ -169,8 +171,8 @@ class PriceManagerForm(forms.ModelForm):
 class PriceTagForm(forms.ModelForm):
   """Наценка на одной строке ГП.
 
-  Выборы сужаются под строку (mp): у строки без поставщика нет прайса
-  поставщика — источники из него не предлагаются и не принимаются; у строки
+  Выборы сужаются под строку (mp): у строки набора (без поставщика) нет
+  прайса поставщика — источники из него не предлагаются и не принимаются; у строки
   набора себестоимость — сумма комплектующих (product.services.set_rows), её
   не выбрать целью. Та же проверка — views._pricetag_error; здесь она ещё и
   убирает неверные варианты из списка, а не только ругается после отправки.
@@ -206,6 +208,6 @@ class PriceTagForm(forms.ModelForm):
       # Скрытый select источника остаётся в форме и при фиксированной цене —
       # тогда источник всё равно заменяется на fixed_price.
       if not self.data.get(self.add_prefix('price_fixed')):
-        raise forms.ValidationError('У строки без поставщика нет прайса поставщика — считайте от цены ГП')
+        raise forms.ValidationError('У строки набора нет прайса поставщика — считайте от цены ГП')
       return ''
     return source

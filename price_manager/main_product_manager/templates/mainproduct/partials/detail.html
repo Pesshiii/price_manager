@@ -17,8 +17,6 @@
         {% if mainproduct.supplier %}
           <span class="badge text-bg-light">Поставщик: {{ mainproduct.supplier }}</span>
           <span class="badge text-bg-light">Артикул поставщика: {{ mainproduct.article }}</span>
-        {% else %}
-          <span class="badge text-bg-light"><i class="bi bi-box-seam me-1" aria-hidden="true"></i>Без поставщика</span>
         {% endif %}
         {% if mainproduct.is_set %}<span class="badge text-bg-primary">Строка набора</span>{% endif %}
         <span class="badge text-bg-light">Артикул: {% if mainproduct.sku %}{{ mainproduct.sku }}{% else %}—{% endif %}</span>

@@ -13,7 +13,8 @@ that explains it rather than explaining it here.
 | Товар, «Товары» (`/products/`) | `product.Product` | The root of search and filtering since the product shift. Mirrors a PIM product. [[product/overview]] |
 | Карточка товара | `product.views.ProductDetailView`, `/products/<pk>/` | Prices with their rules, ГП rows (attach/move), set composition; edit and delete. See CLAUDE.md on why ГП rows are moved, never unlinked. |
 | ГП, главный прайс, «Главный продукт», строка поставщика | `main_product_manager.MainProduct` | One supplier's stock and prices for one `Product`. `/mainproduct/` redirects to `/products/`. [[main_product_manager/overview]] |
-| ГП без поставщика, строка без поставщика | `MainProduct` with `supplier` NULL | Sets, leftover stock, returns, bonuses. See CLAUDE.md. |
+| «Без поставщика» | `Supplier` with `is_unsupplied=True` | Service supplier for leftover stock, returns, bonuses; behaves like any supplier. See CLAUDE.md. |
+| Строка набора, «Наборы» (правило без поставщика) | `MainProduct` with `supplier` NULL (`is_set`); `PriceManager.supplier` NULL | Only set rows have no supplier. See CLAUDE.md. |
 | Строка набора | `MainProduct.is_set` | One per set; `prime_cost` from components, `product/services/set_rows.py`. |
 | Артикул | `Product.number` = `MainProduct.sku` | Local match key; unique case-insensitively. [[product/pim-link]] |
 | Артикул поставщика | `MainProduct.article`, `SupplierProduct.article` | The supplier's own code; `sku` is built from it (`compute_supplier_sku`). [[main_product_manager/sku-and-linking]] |
