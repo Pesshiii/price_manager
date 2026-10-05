@@ -32,7 +32,6 @@ from django.utils import timezone
 
 from main_product_manager.models import MainProduct, MainProductLog
 from supplier_manager.models import Supplier
-from supplier_product_manager.unsupplied import sync_unsupplied_price_row
 
 from ..models import Product, ProductSetItem
 from ..set_costs import set_totals_for
@@ -86,13 +85,13 @@ def _create_missing_rows(set_pks) -> int:
 
 
 def _retire_stale_rows(set_pks, logs: bool) -> int:
-    """Товар перестал быть набором — его строка переходит к поставщику «Без поставщика».
+    """Товар перестал быть набором — его строка переходит к «Своему складу».
 
     Не удаляется: у неё могут быть наценки, место в заявках. Но себестоимость
     из комплектующих больше не от чего считать — она очищается, иначе застывшая
     сумма выглядела бы введённой руками. Остаток остаётся последним посчитанным
-    и дальше живёт как у любой строки «Без поставщика» — через её строку прайса
-    (без неё update_stocks обнулил бы его).
+    и дальше правится руками: строки прайса у неё нет, и update_stocks его не
+    трогает.
 
     Туда же, но с ценами как есть, — любая строка без поставщика, которая не
     строка набора: без поставщика бывают только наборы. Такие остаются,
@@ -102,7 +101,7 @@ def _retire_stale_rows(set_pks, logs: bool) -> int:
     strays = list(MainProduct.objects.filter(is_set=False, supplier__isnull=True))
     if not stale and not strays:
         return 0
-    unsupplied = Supplier.unsupplied()
+    own_stock = Supplier.own_stock()
     now = timezone.now()
     for row in stale:
         if logs and row.prime_cost is not None:
@@ -112,12 +111,10 @@ def _retire_stale_rows(set_pks, logs: bool) -> int:
         row.set_delivery_days = None
         row.price_updated_at = now
     for row in stale + strays:
-        row.supplier = unsupplied
+        row.supplier = own_stock
     MainProduct.objects.bulk_update(stale, fields=['is_set', 'prime_cost', 'set_delivery_days',
                                                    'price_updated_at'])
     MainProduct.objects.bulk_update(stale + strays, fields=['supplier'])
-    for row in stale + strays:
-        sync_unsupplied_price_row(row)
     return len(stale) + len(strays)
 
 
@@ -174,13 +171,13 @@ def sync_set_stocks(logs: bool = True) -> int:
 
 
 def sync_set_rows(logs: bool = True) -> dict:
-    """Создать недостающие строки наборов, перевести бывшие к «Без поставщика»,
+    """Создать недостающие строки наборов, перевести бывшие к «Своему складу»,
     пересчитать себестоимость, остаток и срок."""
     set_pks = _set_pks()
     created = _create_missing_rows(set_pks)
     retired = _retire_stale_rows(set_pks, logs)
     updated = _refresh(set_pks, logs)
     if created or retired or updated:
-        logger.info('set_rows: создано %s, переведено к «Без поставщика» %s, изменено %s',
+        logger.info('set_rows: создано %s, переведено к «Своему складу» %s, изменено %s',
                     created, retired, updated)
     return {'created': created, 'retired': retired, 'updated': updated}

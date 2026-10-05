@@ -7,7 +7,7 @@ import httpx
 from django.conf import settings
 from django.db.models import Max, F
 from django.core.cache import cache
-from django.db.models import Value, OuterRef, Subquery, Q, F, Sum, IntegerField, Count, Min
+from django.db.models import Value, OuterRef, Subquery, Exists, Q, F, Sum, IntegerField, Count, Min
 from django.utils import timezone
 from django.db.models.functions import Coalesce, Length, Lower
 
@@ -516,11 +516,14 @@ def update_stocks(logs: bool = True, batch_size: int = 10000) -> int:
 
     Rows without a supplier are skipped: those are set rows, whose stock is
     how many sets the components make — product.services.set_rows recounts
-    it at the end, from the stocks this run just wrote. Returns, bonuses and
-    leftover stock belong to the «Без поставщика» supplier and go through
-    here like any supplier's rows; their hand-entered stock survives because
-    every such row has a price-list row of its own
-    (supplier_product_manager.unsupplied).
+    it at the end, from the stocks this run just wrote.
+
+    Rows without a price-list row (no SupplierProduct at all) are skipped
+    too, whatever their supplier: such a row was made by hand — a return, a
+    bonus, leftover stock on «Свой склад», a retired set row — and its stock
+    was typed in, so there is nothing to sync it from. A row whose price-list
+    row merely lost its stock (the row vanished from the supplier's file)
+    still goes to 0: there the price list does speak, and says "unknown".
     """
     updated = 0
     now = timezone.now()
@@ -536,7 +539,9 @@ def update_stocks(logs: bool = True, batch_size: int = 10000) -> int:
         # chunk is a slice of every pk in pk order, so every existing product
         # between its ends is inside it — the range bounds select exactly
         # pk__in=chunk without shipping a batch_size-long IN list.
-        mps = MainProduct.objects.filter(pk__gte=chunk[0], pk__lte=chunk[-1], supplier__isnull=False).annotate(
+        mps = MainProduct.objects.filter(pk__gte=chunk[0], pk__lte=chunk[-1], supplier__isnull=False).filter(
+            Exists(SupplierProduct.objects.filter(main_product_id=OuterRef('pk'))),
+        ).annotate(
             new_stock=Coalesce(Subquery(stock_subq, output_field=IntegerField()), Value(0), output_field=IntegerField()),
         ).filter(Q(stock__isnull=True) | ~Q(stock=F('new_stock')))
         if logs:

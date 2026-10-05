@@ -104,7 +104,7 @@ class SupplierList(TemplateView):
       return {
         'pk': obj.pk,
         'name': obj.name,
-        'is_unsupplied': obj.is_unsupplied,
+        'is_own_stock': obj.is_own_stock,
         'total': obj.total,
         'statuses': statuses,
         'price_priority': obj.price_priority,
@@ -126,8 +126,8 @@ class SupplierList(TemplateView):
       suppliers = ranked + [r for r in suppliers if r[sort_by] is None]
     else:
       suppliers.sort(key=sort_value, reverse=reverse)
-    # «Без поставщика» — всегда первой строкой, при любой сортировке.
-    suppliers.sort(key=lambda row: not row['is_unsupplied'])
+    # «Свой склад» — всегда первой строкой, при любой сортировке.
+    suppliers.sort(key=lambda row: not row['is_own_stock'])
 
     context["suppliers"] = suppliers
     context["price_columns"] = PRICE_COLUMNS
@@ -184,9 +184,9 @@ class SupplierDelete(DeleteView):
   template_name = 'supplier/confirm_delete.html'
 
   def get_queryset(self):
-    # «Без поставщика» не удаляется: на него опираются ручные строки ГП и
-    # строки бывших наборов (Supplier.is_unsupplied).
-    return super().get_queryset().filter(is_unsupplied=False)
+    # «Свой склад» не удаляется: на него опираются ручные строки ГП и
+    # строки бывших наборов (Supplier.is_own_stock).
+    return super().get_queryset().filter(is_own_stock=False)
 
 class SupplierUpdate(UpdateView):
   '''Таблица  обновления Поставщиков <<supplier/update/>>'''

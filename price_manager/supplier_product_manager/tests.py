@@ -2636,14 +2636,14 @@ class BulkUploadTests(_SupplierFixtureMixin, TestCase):
         response = self.client.get(reverse("supplier-bulk-upload"))
 
         names = [row["supplier"].name for row in response.context["rows"]
-                 if not row["supplier"].is_unsupplied]
+                 if not row["supplier"].is_own_stock]
         self.assertEqual(names, [stale.name, self.supplier.name, never.name])
 
     def test_default_setting_is_the_last_applied_then_the_newest(self):
         applied = self._setting("Применялась")
         newest = self._setting("Новее")
         rows = lambda: [row for row in self.client.get(reverse("supplier-bulk-upload")).context["rows"]
-                        if not row["supplier"].is_unsupplied]
+                        if not row["supplier"].is_own_stock]
 
         self.assertEqual(rows()[0]["selected"], newest.pk)
 

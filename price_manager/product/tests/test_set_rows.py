@@ -71,15 +71,16 @@ class SetRowSyncTests(SetFixture, TestCase):
         self.assertEqual(sync_set_rows()['retired'], 1)
         row = MainProduct.objects.get(product=self.kit)
         self.assertEqual((row.is_set, row.prime_cost), (False, None))
-        # Строка без поставщика бывает только у набора — бывшая уходит к «Без
-        # поставщика» со строкой прайса, иначе update_stocks обнулил бы остаток.
-        self.assertEqual(row.supplier, Supplier.unsupplied())
-        self.assertEqual(SupplierProduct.objects.get(main_product=row).stock, 2)
+        # Строка без поставщика бывает только у набора — бывшая уходит к
+        # «Своему складу». Строки прайса у неё нет, и update_stocks её остаток
+        # не трогает.
+        self.assertEqual(row.supplier, Supplier.own_stock())
+        self.assertFalse(SupplierProduct.objects.filter(main_product=row).exists())
         update_stocks()
         row.refresh_from_db()
         self.assertEqual(row.stock, 2)
 
-    def test_a_stray_row_without_supplier_moves_to_unsupplied_with_its_prices(self):
+    def test_a_stray_row_without_supplier_moves_to_own_stock_with_its_prices(self):
         stray = MainProduct.objects.create(product=self.stand, article='STRAY', name='Возврат', stock=3,
                                            prime_cost=Decimal('70'))
 
@@ -87,8 +88,10 @@ class SetRowSyncTests(SetFixture, TestCase):
 
         stray.refresh_from_db()
         self.assertEqual((stray.supplier, stray.prime_cost, stray.stock),
-                         (Supplier.unsupplied(), Decimal('70'), 3))
-        self.assertEqual(SupplierProduct.objects.get(main_product=stray).stock, 3)
+                         (Supplier.own_stock(), Decimal('70'), 3))
+        update_stocks()
+        stray.refresh_from_db()
+        self.assertEqual(stray.stock, 3)
 
     def with_delivery_days(self):
         for supplier, available, navailable in ((self.first, 1, 10), (self.second, 3, 30),
@@ -123,7 +126,10 @@ class SetRowSyncTests(SetFixture, TestCase):
         self.with_delivery_days()
         sync_set_rows()
 
-        # Прайсов у компонентов нет — update_stocks ставит им 0.
+        # Прайсы компонентов остатка не дали — update_stocks ставит им 0.
+        for row in MainProduct.objects.filter(supplier__isnull=False):
+            SupplierProduct.objects.create(supplier_id=row.supplier_id, main_product=row,
+                                           article=row.article or row.sku, name=row.name or row.sku)
         update_stocks()
 
         row = self.set_row()

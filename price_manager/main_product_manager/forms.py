@@ -11,11 +11,10 @@ class MainProductForm(forms.ModelForm):
   """Строка ГП — создание и правка, одной формой.
 
   Остаток на складе, возврат, бонус — то, для чего заводить поставщика с
-  выгрузкой незачем, — строки служебного поставщика «Без поставщика» (он и
-  предлагается по умолчанию). Цены и остаток вводятся руками; наценки потом
-  могут их пересчитать. Остаток такой строки хранится и в её строке прайса
-  (supplier_product_manager.unsupplied, зовёт вью) — как у любого поставщика.
-  Без поставщика (NULL) — только строки наборов, их форма не создаёт.
+  выгрузкой незачем, — строки поставщика «Свой склад» (он и предлагается по
+  умолчанию). Цены и остаток вводятся руками; наценки потом могут пересчитать
+  цены. Остаток строки без строки прайса update_stocks не трогает — у любого
+  поставщика. Без поставщика (NULL) — только строки наборов, их форма не создаёт.
 
   Что форма не даёт менять:
   - у строки из прайса поставщика — поставщика и артикул поставщика: по ним
@@ -46,11 +45,11 @@ class MainProductForm(forms.ModelForm):
     self.is_set_row = bool(instance.pk) and instance.is_set
 
     supplier = self.fields['supplier']
-    supplier.queryset = Supplier.objects.order_by('-is_unsupplied', 'name')
+    supplier.queryset = Supplier.objects.order_by('-is_own_stock', 'name')
     supplier.empty_label = None
     supplier.required = not self.is_set_row
     if not instance.pk:
-      self.initial.setdefault('supplier', Supplier.unsupplied().pk)
+      self.initial.setdefault('supplier', Supplier.own_stock().pk)
     self.fields['article'].required = False
     self.fields['sku'].required = True
     self.fields['sku'].max_length = SKU_MAX_LENGTH
@@ -90,9 +89,9 @@ class MainProductForm(forms.ModelForm):
     supplier = cleaned_data.get('supplier')
     article = (cleaned_data.get('article') or '').strip()
     if not article:
-      if supplier is not None and not supplier.is_unsupplied:
+      if supplier is not None and not supplier.is_own_stock:
         self.add_error('article', 'У строки поставщика нужен его артикул')
-      # У строки «Без поставщика» своего кода нет — им служит артикул товара.
+      # У строки «Своего склада» своего кода нет — им служит артикул товара.
       article = cleaned_data.get('sku') or ''
     cleaned_data['article'] = article
     name = cleaned_data.get('name')

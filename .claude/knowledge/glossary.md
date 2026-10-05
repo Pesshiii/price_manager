@@ -13,7 +13,7 @@ that explains it rather than explaining it here.
 | Товар, «Товары» (`/products/`) | `product.Product` | The root of search and filtering since the product shift. Mirrors a PIM product. [[product/overview]] |
 | Карточка товара | `product.views.ProductDetailView`, `/products/<pk>/` | Prices with their rules, ГП rows (attach/move), set composition; edit and delete. See CLAUDE.md on why ГП rows are moved, never unlinked. |
 | ГП, главный прайс, «Главный продукт», строка поставщика | `main_product_manager.MainProduct` | One supplier's stock and prices for one `Product`. `/mainproduct/` redirects to `/products/`. [[main_product_manager/overview]] |
-| «Без поставщика» | `Supplier` with `is_unsupplied=True` | Service supplier for leftover stock, returns, bonuses; behaves like any supplier. See CLAUDE.md. |
+| «Свой склад» (was «Без поставщика») | `Supplier` with `is_own_stock=True` | Supplier for leftover stock, returns, bonuses; behaves like any supplier, default of the «Строка ГП» modal. See CLAUDE.md. |
 | Строка набора, «Наборы» (правило без поставщика) | `MainProduct` with `supplier` NULL (`is_set`); `PriceManager.supplier` NULL | Only set rows have no supplier. See CLAUDE.md. |
 | Строка набора | `MainProduct.is_set` | One per set; `prime_cost` from components, `product/services/set_rows.py`. |
 | Артикул | `Product.number` = `MainProduct.sku` | Local match key; unique case-insensitively. [[product/pim-link]] |
@@ -32,7 +32,7 @@ that explains it rather than explaining it here.
 | Цена поставщика, РРЦ, цена со скидкой (в валюте поставщика) | `SupplierProduct.supplier_price`, `rrp`, `discount_price` | `SP_PRICES`; not comparable across suppliers. |
 | Уровень по цене, уровень по остаткам | `Supplier.price_priority`, `Supplier.stock_priority` | Smaller is higher; empty is the shared bottom level. |
 | Основная цена / основной остаток | `product.main_values` | The value by supplier levels, used by the export and by set cost. [[product/export]] |
-| «Менеджеры цен» (`/price-manager/`) | `PriceManagerPage` | All `PriceManager`s; «Без поставщика» = `supplier` NULL. Was «Наценки ГП». |
+| «Менеджеры цен» (`/price-manager/`) | `PriceManagerPage` | All `PriceManager`s; «Наборы» = `supplier` NULL. Was «Наценки ГП». |
 | Менеджер цен / наценка | `PriceManager` (rule, «Менеджер цен»), `PriceTag` («Наценка») | Applying a rule rewrites prices catalog-wide. [[product_price_manager/overview]] |
 | «Наценки» (`/price-manager/pricetags/`) | every `PriceTag`, `PriceTagPage` | Filter `?rule=<pk>\|none`. |
 | Фиксированная наценка (`?rule=none`) | `PriceTag` with `p_manager` NULL | Set on one ГП row; applied after the rules, so it overrides them. `/price-manager/fixed/` redirects to `?rule=none`. |

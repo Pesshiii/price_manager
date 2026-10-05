@@ -77,7 +77,7 @@ class SupplierForm(forms.ModelForm):
     url = kwargs.pop('url', None)
     if not url: return None
     super().__init__(*args, **kwargs)
-    if self.instance.is_unsupplied:
+    if self.instance.is_own_stock:
       # Служебный поставщик: имя — то, как его узнают во всех списках.
       self.fields['name'].disabled = True
     self.helper = FormHelper(self)

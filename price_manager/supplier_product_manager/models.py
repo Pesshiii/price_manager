@@ -1,10 +1,10 @@
 from django.db import models
 from django.core.validators import FileExtensionValidator
 from django.conf import settings
-from django.db.models.signals import pre_delete
+from django.db.models.signals import post_delete, pre_delete
 from django.dispatch import receiver
 
-from main_product_manager.models import MainProduct
+from main_product_manager.models import MainProduct, MainProductLog
 from supplier_manager.models import Supplier, Discount
 
 from decimal import Decimal
@@ -214,6 +214,27 @@ class SupplierFile(models.Model):
 def document_pre_delete(sender, instance, **kwargs):
     """Clean up file before model deletion"""
     instance.file.delete(save=False)
+
+
+@receiver(post_delete, sender=SupplierProduct)
+def zero_stock_of_unsourced_row(sender, instance, **kwargs):
+    """Строка прайса удалена — остаток её строки ГП становится 0 сразу.
+
+    update_stocks не трогает строку ГП без строки прайса: такой остаток ввели
+    руками. Строка, у которой прайс был и пропал, — не ручная: застывший
+    остаток продавал бы то, чего у поставщика больше нет. Раньше её обнулял
+    ночной update_stocks; теперь — само удаление (вьюха, админка, каскад).
+    Миграции удаляют историческими моделями, сигнал их не видит — так 0010
+    снимает подставные строки «Своего склада», не трогая остаток.
+    """
+    if instance.main_product_id is None:
+        return
+    from django.utils import timezone
+    rows = MainProduct.objects.filter(pk=instance.main_product_id).exclude(stock=0)
+    if not rows.exists():
+        return
+    MainProductLog.objects.create(main_product_id=instance.main_product_id, stock=0)
+    rows.update(stock=0, stock_updated_at=timezone.now())
 
 
 @receiver(pre_delete, sender=Setting)

@@ -34,7 +34,7 @@ column per selected supplier column times supplier was replaced with this:
 - **One sheet per supplier** that actually has a `MainProduct` row among the
   exported products, in `Supplier.price_priority` order (`ranked_suppliers`,
   `export.py:150-162`; ascending, unranked last by name/pk, `supplier=NULL`
-  rows always last as «Без поставщика»). Header is `IDENTITY_TITLES`
+  rows (set rows only) always last as «Наборы»). Header is `IDENTITY_TITLES`
   (`export.py:71`, «Артикул», «Название» — so the sheet reads standalone) +
   every selected supplier-row column under its plain `COLUMN_LABELS` label,
   built by `supplier_titles` (`export.py:293-295`). A supplier's sheet
@@ -47,7 +47,7 @@ column per selected supplier column times supplier was replaced with this:
   names **case-insensitively** — a name colliding with `MAIN_SHEET` or with
   another (possibly truncated) supplier name gets a `" (n)"` suffix that
   itself respects the 31-char limit. An empty/all-forbidden name becomes
-  `NO_SUPPLIER` = «Без поставщика». `SheetNamesTests`
+  `NO_SUPPLIER` = «Наборы». `SheetNamesTests`
   (`test_export.py:66`) is the guard, including a supplier literally named
   «товары» colliding with «Товары».
 - **Main values are by supplier *levels*** (`Supplier.price_priority` /

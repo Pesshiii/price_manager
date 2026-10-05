@@ -139,16 +139,10 @@ class MainProduct(models.Model):
     def has_supplier_price_list(self) -> bool:
         """Строка пришла из прайса поставщика: её поставщика и артикул держит импорт.
 
-        У «Без поставщика» строка прайса есть и у строк, заведённых руками
-        (supplier_product_manager.unsupplied), — из прайса там только строка,
-        которую поставляет настройка загрузки.
+        У строки, заведённой руками, строки прайса нет — и остаток её не
+        трогает update_stocks.
         """
-        if self.supplier_id is None:
-            return False
-        rows = self.supplierproducts.all()
-        if self.supplier.is_unsupplied:
-            rows = rows.filter(source_settings__isnull=False)
-        return rows.exists()
+        return self.supplier_id is not None and self.supplierproducts.exists()
     def save(self, *args, **kwargs):
         super().save(*args, **kwargs)
   
