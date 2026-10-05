@@ -124,20 +124,20 @@ class SupplierListViewTests(TestCase):
         self.assertEqual(self._count_queries(), one)
 
     def test_priority_sort_puts_unranked_last_both_ways(self):
-        Supplier.unsupplied()
+        Supplier.own_stock()
         _supplier('Б', price_priority=2)
         _supplier('А')
         _supplier('В', price_priority=1)
         for direction, expected in (('asc', ['В', 'Б', 'А']), ('desc', ['Б', 'В', 'А'])):
             response = self._get(sort='price_priority', dir=direction)
-            # «Без поставщика» (из миграции) — всегда первой, остальные по уровню.
+            # «Свой склад» (из миграции) — всегда первой, остальные по уровню.
             names = [row['name'] for row in response.context['suppliers']]
-            self.assertEqual(names, [Supplier.unsupplied().name, *expected])
+            self.assertEqual(names, [Supplier.own_stock().name, *expected])
 
     def test_price_cells_follow_header_order(self):
-        # Ячейки ищутся по всей странице — «Без поставщика» (из миграции, если
+        # Ячейки ищутся по всей странице — «Свой склад» (из миграции, если
         # её не стёр TransactionTestCase) добавил бы свою строку.
-        Supplier.objects.filter(is_unsupplied=True).delete()
+        Supplier.objects.filter(is_own_stock=True).delete()
         s = _supplier('Цены')
         MainProduct.objects.create(supplier=s, article='A', name='A', basic_price=10, prime_cost=None)
         response = self._get()
@@ -342,29 +342,29 @@ class DeliveryDaysNullStockTests(TestCase):
         self.assertEqual(self.supplier.get_delivery_days_for_stock(None), 30)
 
 
-class UnsuppliedSupplierTests(TestCase):
-    """«Без поставщика» — служебный поставщик: один, первым, не удаляется и не переименовывается."""
+class OwnStockSupplierTests(TestCase):
+    """«Свой склад» — служебный поставщик: один, первым, не удаляется и не переименовывается."""
 
     def setUp(self):
-        self.client.force_login(User.objects.create_user(username='unsupplied', password='pw'))
-        self.unsupplied = Supplier.unsupplied()
+        self.client.force_login(User.objects.create_user(username='own-stock', password='pw'))
+        self.own_stock = Supplier.own_stock()
 
     def test_there_is_exactly_one(self):
-        self.assertEqual(Supplier.unsupplied(), self.unsupplied)
-        self.assertEqual(Supplier.objects.filter(is_unsupplied=True).count(), 1)
+        self.assertEqual(Supplier.own_stock(), self.own_stock)
+        self.assertEqual(Supplier.objects.filter(is_own_stock=True).count(), 1)
 
     def test_listed_first_whatever_the_sort(self):
         _supplier('А')
         for params in ({}, {'sort': 'name', 'dir': 'desc'}, {'sort': 'total', 'dir': 'desc'}):
             response = self.client.get(reverse('supplier'), params)
-            self.assertEqual(response.context['suppliers'][0]['pk'], self.unsupplied.pk)
+            self.assertEqual(response.context['suppliers'][0]['pk'], self.own_stock.pk)
 
     def test_cannot_be_deleted(self):
-        response = self.client.post(reverse('supplier-delete', kwargs={'id': self.unsupplied.pk}))
+        response = self.client.post(reverse('supplier-delete', kwargs={'id': self.own_stock.pk}))
         self.assertEqual(response.status_code, 404)
-        self.assertTrue(Supplier.objects.filter(pk=self.unsupplied.pk).exists())
+        self.assertTrue(Supplier.objects.filter(pk=self.own_stock.pk).exists())
 
     def test_name_is_locked_in_the_form(self):
         from .forms import SupplierForm
-        form = SupplierForm(instance=self.unsupplied, url='/x')
+        form = SupplierForm(instance=self.own_stock, url='/x')
         self.assertTrue(form.fields['name'].disabled)

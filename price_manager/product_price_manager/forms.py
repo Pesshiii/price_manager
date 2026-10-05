@@ -46,7 +46,7 @@ class PriceManagerForm(forms.ModelForm):
     label='Поставщик',
     required=False,
     # Пусто — правило на строки наборов (у них поставщика нет). Возвраты,
-    # бонусы и остатки — у служебного поставщика «Без поставщика», он в списке.
+    # бонусы и остатки — у поставщика «Свой склад», он в списке.
     empty_label='Наборы — строки наборов',
   )
   price_fixed = forms.BooleanField(widget=forms.widgets.CheckboxInput(), label='Фиксированная цена', required=False)
@@ -68,7 +68,7 @@ class PriceManagerForm(forms.ModelForm):
 
   def __init__(self, *args, lock_supplier=False, **kwargs):
     super().__init__(*args, **kwargs)
-    self.fields['supplier'].queryset = Supplier.objects.select_related('currency').order_by('-is_unsupplied', 'name')
+    self.fields['supplier'].queryset = Supplier.objects.select_related('currency').order_by('-is_own_stock', 'name')
     self.fields['supplier'].disabled = lock_supplier
     self.rule_supplier = self._current_supplier()
     supplier = self.rule_supplier

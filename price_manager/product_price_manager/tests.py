@@ -608,7 +608,9 @@ class PriceTagListTests(TestCase):
         pm = PriceManager.objects.create(name='Правило карточки', supplier=self.supplier,
                                          source='basic_price', dest='prime_cost',
                                          markup=Decimal('0'), increase=Decimal('0'))
-        from_rule = PriceTag.objects.create(mp=self.mp, p_manager=pm, source='basic_price', dest='prime_cost')
+        # Строка ручная (без строки прайса) — правило её поставщика строит
+        # наценку на неё само, при сохранении.
+        from_rule = pm.pricetags.get(mp=self.mp, dest='prime_cost')
 
         response = self.get_list()
 
@@ -929,7 +931,7 @@ class PriceManagerCleanTests(TestCase):
     def test_supplier_rule_may_use_the_price_list(self):
         self.rule(supplier=self.supplier, source='rrp', has_rrp=True).full_clean()
 
-    def test_update_refuses_to_switch_an_unsupplied_rule_to_the_price_list(self):
+    def test_update_refuses_to_switch_a_set_rule_to_the_price_list(self):
         from django.contrib.auth.models import User
         from django.urls import reverse
         rule = self.rule()
@@ -963,8 +965,9 @@ class PriceTagPageTests(TestCase):
                                               markup=Decimal('20'), increase=Decimal('0'))
         pm = PriceManager.objects.create(name='Правило', supplier=self.supplier, source='basic_price',
                                          dest='prime_cost', markup=Decimal('0'), increase=Decimal('0'))
-        self.from_rule = PriceTag.objects.create(mp=self.row, p_manager=pm, source='basic_price',
-                                                 dest='prime_cost')
+        # Строка ручная (без строки прайса) — правило её поставщика строит
+        # наценку на неё само, при сохранении.
+        self.from_rule = pm.pricetags.get(mp=self.row, dest='prime_cost')
         self.client.force_login(User.objects.create_user(username='fixed', password='pw'))
 
     def get_page(self, **params):
@@ -1189,40 +1192,108 @@ class RuleScopeTests(TestCase):
         self.assertEqual(options['Дрели']['path'], 'Инструмент')
 
 
-class UnsuppliedMigrationTests(TestCase):
-    """0009: строки без поставщика (кроме наборов) — к «Без поставщика», правила — пополам."""
+class OwnStockMigrationTests(TestCase):
+    """0010: «Без поставщика» → «Свой склад», подставные строки прайса из 0009 — прочь.
+
+    Состояние до неё — то, что оставила 0009: строка ГП у служебного поставщика
+    с подставной строкой прайса и копия правила с суффиксом.
+    """
 
     def run_migration(self):
         import importlib
         from django.apps import apps
-        importlib.import_module('product_price_manager.migrations.0009_unsupplied_supplier').forwards(apps, None)
+        importlib.import_module('product_price_manager.migrations.0010_own_stock').forwards(apps, None)
 
-    def test_rows_move_with_their_stock_and_rules_split_without_changing_prices(self):
+    def setUp(self):
+        self.own_stock = Supplier.own_stock()
+        Supplier.objects.filter(pk=self.own_stock.pk).update(name='Без поставщика')
+        self.returned = MainProduct.objects.create(supplier=self.own_stock, sku='RET-1', article='RET-1',
+                                                   name='Возврат', stock=4, prime_cost=Decimal('100'))
+        self.price_row = SupplierProduct.objects.create(supplier=self.own_stock, main_product=self.returned,
+                                                        article='RET-1', name='Возврат', stock=4)
+        self.clone = PriceManager.objects.create(name='Склад +10% (без поставщика)', supplier=self.own_stock,
+                                                 source='prime_cost', dest='basic_price', markup=10)
+
+    def test_renames_drops_the_synthetic_row_and_keeps_price_and_stock(self):
         from main_product_manager.utils import update_stocks
-        unsupplied = Supplier.unsupplied()
-        returned = MainProduct.objects.create(sku='RET-1', article='RET-1', name='Возврат', stock=4,
-                                              prime_cost=Decimal('100'))
-        kit = MainProduct.objects.create(sku='KIT-1', article='KIT-1', name='Набор', is_set=True,
-                                         prime_cost=Decimal('200'))
-        rule = PriceManager.objects.create(name='Склад +10%', supplier=None, source='prime_cost',
-                                           dest='basic_price', markup=10)
-        self.assertEqual(set(rule.pricetags.values_list('mp_id', flat=True)), {returned.pk, kit.pk})
+        self.assertEqual(list(self.clone.pricetags.values_list('mp_id', flat=True)), [self.returned.pk])
 
         self.run_migration()
 
-        returned.refresh_from_db()
-        kit.refresh_from_db()
-        self.assertEqual(returned.supplier, unsupplied)
-        self.assertIsNone(kit.supplier_id)
-        price_row = SupplierProduct.objects.get(main_product=returned)
-        self.assertEqual((price_row.supplier, price_row.article, price_row.stock), (unsupplied, 'RET-1', 4))
-        clone = PriceManager.objects.get(supplier=unsupplied)
-        self.assertEqual((clone.name, clone.source, clone.dest, clone.markup),
-                         ('Склад +10% (без поставщика)', 'prime_cost', 'basic_price', Decimal('10')))
-        self.assertEqual(list(clone.pricetags.values_list('mp_id', flat=True)), [returned.pk])
-        self.assertEqual(list(rule.pricetags.values_list('mp_id', flat=True)), [kit.pk])
+        self.own_stock.refresh_from_db()
+        self.clone.refresh_from_db()
+        self.assertEqual(self.own_stock.name, 'Свой склад')
+        self.assertEqual(self.clone.name, 'Склад +10% (свой склад)')
+        self.assertFalse(SupplierProduct.objects.filter(pk=self.price_row.pk).exists())
 
+        # Правило по-прежнему видит строку — по её поставщику, без строки прайса.
+        self.assertEqual(list(self.clone.get_fitting_mps().values_list('pk', flat=True)), [self.returned.pk])
         update_prices()
         update_stocks()
-        returned.refresh_from_db()
-        self.assertEqual((returned.basic_price, returned.stock), (Decimal('110'), 4))
+        self.returned.refresh_from_db()
+        self.assertEqual((self.returned.basic_price, self.returned.stock), (Decimal('110'), 4))
+
+    def test_with_an_upload_setting_no_price_row_is_deleted(self):
+        from supplier_product_manager.models import Setting
+        Setting.objects.create(name='Склад', supplier=self.own_stock, sheet_name='Лист1')
+
+        self.run_migration()
+
+        self.assertTrue(SupplierProduct.objects.filter(pk=self.price_row.pk).exists())
+
+    def test_a_supplier_merely_named_so_is_not_taken_over(self):
+        Supplier.objects.filter(pk=self.own_stock.pk).update(is_own_stock=False, name='Бывший')
+        stranger = Supplier.objects.create(name='Свой склад')
+
+        own_stock = Supplier.own_stock()
+
+        self.assertNotEqual(own_stock.pk, stranger.pk)
+        self.assertEqual(own_stock.name, 'Свой склад 2')
+        stranger.refresh_from_db()
+        self.assertFalse(stranger.is_own_stock)
+
+
+class HandMadeRowRuleTests(TestCase):
+    """Правило поставщика находит строки ГП по их поставщику, а не по прайсу.
+
+    Строка, заведённая руками, строки прайса не имеет; для фильтров по прайсу
+    она — как строка с пустым прайсом.
+    """
+
+    def setUp(self):
+        self.supplier = Supplier.objects.create(name='Поставщик')
+        self.priced = MainProduct.objects.create(supplier=self.supplier, sku='P-1', article='P-1', name='Из прайса',
+                                                 prime_cost=Decimal('100'))
+        SupplierProduct.objects.create(supplier=self.supplier, main_product=self.priced, article='P-1',
+                                       name='Из прайса', supplier_price=Decimal('50'), rrp=Decimal('0'))
+        self.hand = MainProduct.objects.create(supplier=self.supplier, sku='H-1', article='H-1', name='Ручная',
+                                               prime_cost=Decimal('100'), basic_price=Decimal('777'))
+
+    def fitting(self, **fields):
+        defaults = dict(name='Правило', supplier=self.supplier, source='prime_cost', dest='basic_price', markup=10)
+        defaults.update(fields)
+        return set(PriceManager.objects.create(**defaults).get_fitting_mps().values_list('pk', flat=True))
+
+    def test_a_ground_price_rule_covers_the_hand_made_row(self):
+        self.assertEqual(self.fitting(), {self.priced.pk, self.hand.pk})
+
+    def test_a_price_list_rule_skips_the_hand_made_row_and_keeps_its_price(self):
+        self.assertEqual(self.fitting(source='supplier_price'), {self.priced.pk})
+        update_prices()
+        clear_unsourced_prices()
+        self.hand.refresh_from_db()
+        self.assertEqual(self.hand.basic_price, Decimal('777'))
+
+    def test_rrp_and_discount_filters_treat_no_price_row_as_an_empty_one(self):
+        self.assertEqual(self.fitting(name='Без РРЦ', has_rrp=False), {self.priced.pk, self.hand.pk})
+        self.assertEqual(self.fitting(name='С РРЦ', has_rrp=True), set())
+        discount = Discount.objects.create(name='Группа', supplier=self.supplier)
+        rule = PriceManager.objects.create(name='Со скидкой', supplier=self.supplier, source='prime_cost',
+                                           dest='basic_price', markup=10)
+        rule.discounts.add(discount)
+        self.assertEqual(set(rule.get_fitting_mps().values_list('pk', flat=True)), set())
+
+    def test_rows_of_another_supplier_stay_out(self):
+        other = Supplier.objects.create(name='Другой')
+        MainProduct.objects.create(supplier=other, sku='O-1', article='O-1', name='Чужая', prime_cost=Decimal('1'))
+        self.assertEqual(self.fitting(), {self.priced.pk, self.hand.pk})

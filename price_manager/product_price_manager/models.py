@@ -43,8 +43,8 @@ class PriceManager(models.Model):
   name = models.CharField(verbose_name='Название',
                           unique=True)
   # Пусто — правило на строки наборов: только у них поставщика нет
-  # (_fitting_unsupplied_mps). Возвраты, бонусы, остатки — у служебного
-  # поставщика «Без поставщика» (Supplier.is_unsupplied), правило на них — его.
+  # (_fitting_unsupplied_mps). Возвраты, бонусы, остатки — у поставщика
+  # «Свой склад» (Supplier.is_own_stock), правило на них — его.
   supplier = models.ForeignKey(Supplier,
                                on_delete=models.CASCADE,
                                verbose_name='Поставщик',
@@ -221,35 +221,44 @@ class PriceManager(models.Model):
     price_manager = self
     if price_manager.supplier_id is None:
       return price_manager._fitting_unsupplied_mps(get_price_querry)
-    products = SupplierProduct.objects.filter(
-      supplier=price_manager.supplier
-    ).prefetch_related('main_product')
+    # Строки правила — строки ГП его поставщика, а не строки его прайса: у
+    # строки, заведённой руками («Свой склад» и любой поставщик), строки прайса
+    # нет, и для фильтров по прайсу она — как строка с пустым прайсом (без
+    # РРЦ, без группы скидок, без цены поставщика). Каждый фильтр по прайсу —
+    # Exists, а не join: mps дальше и обновляется, и сам себя коррелирует в
+    # calc_qs, и join тянулся бы туда же.
+    mps = MainProduct.objects.filter(supplier_id=price_manager.supplier_id)
+    def price_rows(**lookups):
+      return Exists(SupplierProduct.objects.filter(main_product=OuterRef('pk'), **lookups))
     if not price_manager.has_rrp is None:
       if price_manager.has_rrp:
-        products = products.filter(rrp__gt=0)
+        mps = mps.filter(price_rows(rrp__gt=0))
       else:
-        products = products.filter(Q(rrp=0)|Q(rrp__isnull=True))
+        mps = mps.filter(Exists(SupplierProduct.objects.filter(
+          Q(rrp=0) | Q(rrp__isnull=True), main_product=OuterRef('pk'))) | ~price_rows())
     if price_manager.discounts.exists():
-      products = products.filter(discount__in=price_manager.discounts.all())
-
+      mps = mps.filter(price_rows(discount__in=price_manager.discounts.all()))
 
     if price_manager.source in SP_PRICES:
-      products = products.filter(get_price_querry(
+      # Считать от прайса можно только у строки с прайсом: строка, заведённая
+      # руками, под такое правило не подходит, как и строка набора
+      # (_fitting_unsupplied_mps), — иначе её введённую цену каждую ночь
+      # стирал бы clear_unsourced_prices.
+      mps = mps.filter(Exists(SupplierProduct.objects.filter(
+        get_price_querry(price_manager.price_from, price_manager.price_to, price_manager.source),
+        main_product=OuterRef('pk'))))
+    elif price_manager.source in MP_PRICES:
+      mps = mps.filter(get_price_querry(
         price_manager.price_from,
         price_manager.price_to,
         price_manager.source))
-    elif price_manager.source in MP_PRICES:
-      products = products.filter(get_price_querry(
-        price_manager.price_from,
-        price_manager.price_to,
-        f'''main_product__{price_manager.source}'''))
-    
-    mps = MainProduct.objects.filter(pk__in=products.values_list('main_product', flat=True))
+
+    mps = MainProduct.objects.filter(pk__in=mps.values('pk'))
     mps = price_manager._in_scope(mps)
     source = price_manager.source
     if price_manager.source in SP_PRICES:
       filtered_source_price = (
-        products.filter(main_product=OuterRef('pk'))
+        SupplierProduct.objects.filter(main_product=OuterRef('pk'))
         .order_by('-updated_at')
         .values(price_manager.source)[:1]
       )
@@ -317,8 +326,8 @@ class PriceManager(models.Model):
   def _fitting_unsupplied_mps(self, get_price_querry):
     """get_fitting_mps правила без поставщика: строки ГП без поставщика.
 
-    Это строки наборов — возвраты, бонусы и остатки ушли к служебному
-    поставщику «Без поставщика» (миграция 0009). Прайса поставщика у них
+    Это строки наборов — возвраты, бонусы и остатки ушли к поставщику
+    «Свой склад» (миграция 0009). Прайса поставщика у них
     нет, поэтому РРЦ, группы скидок и источники из ПП к ним неприменимы:
     правило с таким источником не подходит ни одной строке, а не считает от
     пустого. Себестоимость строки набора — сумма комплектующих

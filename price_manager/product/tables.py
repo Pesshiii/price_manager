@@ -447,7 +447,7 @@ class SupplierRowTable(tables.Table):
             return record.supplier.name
         if record.is_set:
             return format_html('<span class="set-row-label">Набор</span>')
-        return 'Без поставщика'
+        return '—'
 
     def render_name(self, record):
         return format_html('<a href="{}">{}</a>',
