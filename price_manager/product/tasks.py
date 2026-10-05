@@ -6,6 +6,7 @@ from core.task_runner import dispatch_after_commit, execute_locked_task
 
 from .services.pim_sync import (
     iter_unsynced_product_pk_batches,
+    stale_product_pks,
     sync_product_from_pim,
     sync_products,
 )
@@ -73,6 +74,36 @@ def sync_products_batch_task(pks: list[int], delay: float = 0.5) -> dict:
         atomic=False,
     )
 
+
+@shared_task(name='product.refresh_products_from_pim', time_limit=None, soft_time_limit=None)
+def refresh_products_from_pim_task(delay: float = 0.5, batch_size: int = 500) -> dict:
+    """Ночью: забирает из PIM контент товаров, у которых он разошёлся с зеркалом.
+
+    Бэкфилл берёт только строки без raw_data и сам не запускается, поэтому
+    PMP, привязанные к товару PIM уже после него, и описания, дописанные в PIM,
+    до зеркала не доезжали. Здесь устаревшие строки находит
+    stale_product_pks (сверка списком), а забирают их те же партии, что у
+    бэкфилла. Первый прогон после долгого перерыва забирает весь накопившийся
+    хвост и надолго занимает воркеры — его лучше запустить вручную вечером.
+    """
+    def _runner():
+        pks = stale_product_pks()
+        dispatched = 0
+        for start in range(0, len(pks), batch_size):
+            dispatch_after_commit(sync_products_batch_task, pks=pks[start:start + batch_size],
+                                  delay=delay)
+            dispatched += 1
+        logger.info('refresh_products_from_pim: устаревших строк %s, разослано партий %s',
+                    len(pks), dispatched)
+        return len(pks)
+
+    return execute_locked_task(
+        task_name='product.refresh_products_from_pim',
+        lock_ttl=60 * 60,
+        runner=_runner,
+        # Сверка — сотни списочных запросов к PIM подряд, без записей в базу.
+        atomic=False,
+    )
 
 
 @shared_task(name='product.sync_product_sets')

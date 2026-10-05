@@ -3,6 +3,8 @@ from __future__ import annotations
 import logging
 import time
 
+from django.db.models.fields.json import KT
+from django.utils.dateparse import parse_datetime
 from pim_api import Entity, EntityList, Where, fetch_list
 
 from .. import pim_client
@@ -194,14 +196,20 @@ def iter_unsynced_product_pk_batches(batch_size: int = 500, refresh: bool = Fals
 
 
 def sync_products(pks: list[int], delay: float = 0.5) -> int:
-    """Синхронизирует партию Product-ов, возвращает число успешных.
+    """Синхронизирует партию Product-ов, возвращает число строк с контентом PIM.
 
     Ошибка на одном товаре не роняет партию: PIM отвечает по товару за раз, и
     один 404 или таймаут не повод потерять остальные 499. Та же логика, что у
     _ensure_pim_category с битым id категории. Сбойные строки останутся с
     пустым raw_data и попадут в следующий прогон — бэкфилл идемпотентен.
+
+    PMP без productId — не успех: sync_product_from_pim сохраняет тогда одну
+    связь, и raw_data остаётся пустым. Раньше такие считались синхронизированными,
+    и история задач показывала успехом партии, в которых контент не получил
+    почти никто.
     """
     synced = 0
+    without_product = 0
     failed = 0
     for pim_id in (
         Product.objects.filter(pk__in=pks)
@@ -209,15 +217,95 @@ def sync_products(pks: list[int], delay: float = 0.5) -> int:
         .values_list('pim_id', flat=True)
     ):
         try:
-            sync_product_from_pim(pim_id)
-            synced += 1
+            product = sync_product_from_pim(pim_id)
         except Exception:
             failed += 1
             logger.warning('pim_sync: не удалось синхронизировать PMP %s', pim_id, exc_info=True)
+        else:
+            if product.raw_data:
+                synced += 1
+            else:
+                without_product += 1
         if delay:
             time.sleep(delay)
-    logger.info('pim_sync: партия завершена — синхронизировано %s, с ошибкой %s', synced, failed)
+    logger.info(
+        'pim_sync: партия завершена — с контентом %s, PMP без товара PIM %s, с ошибкой %s',
+        synced, without_product, failed,
+    )
     return synced
+
+
+def _fetch_complete(query: EntityList, page_size: int) -> list[dict]:
+    """fetch_list, который не терпит обрезанного ответа (как _fetch_all в sets)."""
+    result = fetch_list(pim_client.site, query, page_size=page_size, timeout=120)
+    if result.truncated:
+        raise RuntimeError(
+            f'pim_sync: PIM отдал {len(result.items)} из {result.total} строк {query.name} — '
+            'список неполный, сверка остановлена')
+    return result.items
+
+
+def _changed_since(mirrored: str | None, current: str | None) -> bool:
+    """Сдвинулось ли modifiedAt товара PIM с того, что лежит в зеркале.
+
+    Строки сравниваются как даты: список и карточка PIM могут отдать одно
+    время в разной записи. Без modifiedAt в списке сравнивать не с чем — это
+    «не знаем», а не «изменился»: списочный режим PIM молча теряет поля, и
+    тогда весь каталог каждую ночь уходил бы на перезагрузку.
+    """
+    if not current or mirrored == current:
+        return False
+    if not mirrored:
+        return True
+    parsed = parse_datetime(mirrored)
+    return parsed is None or parsed != parse_datetime(current)
+
+
+def stale_product_pks(page_size: int = 1000) -> list[int]:
+    """pk товаров, чей контент в зеркале разошёлся с PIM.
+
+    Бэкфилл берёт только raw_data={} и сам не запускается, поэтому зеркало
+    застывает: PMP, которые сотрудники PIM привязали к товару позже, остаются
+    без контента навсегда, а описание, дописанное в PIM, не доезжает никогда.
+    Здесь вместо этого две выборки списком — все PMP (id → productId) и все
+    товары PIM (id → modifiedAt), несколько сотен запросов, — и сравнение с тем,
+    что лежит в raw_data. Устарела строка, у которой:
+
+    - PMP теперь указывает на товар PIM, а в raw_data другой (или никакого) id —
+      сюда попадают и ни разу не синхронизированные строки;
+    - modifiedAt товара PIM не совпадает с тем, что мы сохранили.
+
+    PMP без productId пропускается: забирать пока нечего, и ходить за ним
+    каждую ночь — пустые запросы. Товары без pim_id (наборы, ещё не
+    отправленные в PIM) сюда не попадают: наборы пишет services/sets.py.
+    """
+    product_ids = {
+        row['id']: row.get('productId')
+        for row in _fetch_complete(
+            EntityList(name='PriceManagerProduct', select=['id', 'productId']), page_size)
+    }
+    modified = {
+        row['id']: row.get('modifiedAt')
+        for row in _fetch_complete(EntityList(name='Product', select=['id', 'modifiedAt']), page_size)
+    }
+    if modified and not any(modified.values()):
+        logger.warning('pim_sync: список товаров PIM пришёл без modifiedAt — '
+                       'правки в PIM этой ночью не сверяются, только новые привязки PMP')
+
+    stale = []
+    rows = (
+        Product.objects.filter(pim_id__isnull=False)
+        .annotate(mirrored_id=KT('raw_data__id'), mirrored_at=KT('raw_data__modifiedAt'))
+        .order_by('pk')
+        .values_list('pk', 'pim_id', 'mirrored_id', 'mirrored_at')
+    )
+    for pk, pim_id, mirrored_id, mirrored_at in rows.iterator(chunk_size=5000):
+        product_id = product_ids.get(pim_id)
+        if not product_id:
+            continue
+        if mirrored_id != product_id or _changed_since(mirrored_at, modified.get(product_id)):
+            stale.append(pk)
+    return stale
 
 
 def sync_category_tree_from_pim(page_size: int = 200) -> dict:

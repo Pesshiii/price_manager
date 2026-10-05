@@ -56,6 +56,12 @@ CELERY_BEAT_SCHEDULE = {
         'task': 'product.sync_product_sets',
         'schedule': crontab(hour=4, minute=0),
     },
+    # После reindex_pim_ids: заведённые им этой ночью PMP с productId
+    # получают контент в тот же прогон.
+    'refresh-products-from-pim': {
+        'task': 'product.refresh_products_from_pim',
+        'schedule': crontab(hour=5, minute=0),
+    },
     'cleanup-persistent-notifications': {
         'task': 'core.cleanup_persistent_notifications',
         'schedule': CELERY_NOTIFICATION_CLEANUP_MINUTES * 60,
