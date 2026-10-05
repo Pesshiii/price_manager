@@ -1,6 +1,6 @@
 ---
 title: Syncing content from PIM
-summary: sync_product_from_pim, the production backfill, the phantom-field trap, load_pim_mirror.
+summary: sync_product_from_pim, the production backfill and why the mirror froze, the nightly refresh, the phantom-field trap, load_pim_mirror.
 code: price_manager/product/services/pim_sync.py, price_manager/product/tasks.py
 ---
 # Syncing content from PIM
@@ -81,11 +81,56 @@ between calls) and calls `sync_products(pks)` (`services/pim_sync.py:193-217`),
 which calls the **plain** `sync_product_from_pim` function per pk (not the
 Celery task) and tolerates individual failures — a failed row just stays
 eligible for the next pass (`test_failed_rows_stay_eligible_for_the_next_run`,
-`product/tests/test_backfill.py`). **Not in `CELERY_BEAT_SCHEDULE`**
-(`price_manager/settings/celery.py`) — unlike `reindex_pim_ids`, which runs
-nightly, this has to be triggered manually, same `manage.py run_task
-product.backfill_products_from_pim` pattern as the deploy note in
-[[product/migrations]].
+`product/tests/test_backfill.py`). The backfill itself is **not** in
+`CELERY_BEAT_SCHEDULE`; `run_task` doesn't know it either (that command only
+lists `main_product_manager` tasks) — start it from `manage.py shell` with
+`backfill_products_from_pim_task.delay()`.
+
+**`sync_products` counts content, not calls.** A PMP with no `productId`
+makes `sync_product_from_pim` save the link only, leaving `raw_data={}`.
+It used to count as synced, so `TaskRunHistory` showed whole backfill passes
+as successful while most rows got nothing. Now only rows that end up with
+`raw_data` count, and the link-only ones are logged separately.
+
+### Why the mirror froze, and the nightly refresh — `product.refresh_products_from_pim`
+
+The backfill selects only `raw_data={}`, and nobody re-ran it. So two things
+never reached the mirror: a PMP that PIM staff linked to a Product **after**
+the backfill (most PMPs had no `productId` when it ran — reindex sets one only
+when the number search finds exactly one Product), and any edit made in PIM
+afterwards (descriptions filled in later). The «Без данных PIM» counter on
+`/products/` (`Product.raw_data={}`) is exactly that frozen tail. It is not a
+count of unlinked PMPs, and it is not wrong.
+
+`refresh_products_from_pim_task` (beat `refresh-products-from-pim`, 05:00,
+after `reindex_pim_ids` at 03:00 and sets at 04:00) runs
+`stale_product_pks()` (`services/pim_sync.py`). That function makes two
+**list** passes, `PriceManagerProduct` `id→productId` and `Product`
+`id→modifiedAt`, a few hundred requests in total. A row is stale when its
+PMP's `productId` differs from `raw_data['id']` (this includes never-synced
+rows) or when PIM's `modifiedAt` differs from `raw_data['modifiedAt']`.
+Stale rows go to the same `sync_products_batch_task` fan-out, so `raw_data`
+keeps the full single-GET shape. A list `select` would cut it to
+the selected keys and silently blank photos (`mainImageId`), `ean`, `status`
+and `categoriesNames` in the vector.
+
+- PMPs without `productId` are skipped, not fetched nightly.
+- Rows without `pim_id` (sets) are never touched; `services/sets.py` owns them.
+- `modifiedAt` is compared as a datetime, so one notation in the list and
+  another in the single GET doesn't make the whole catalogue look stale every
+  night. A listing row **without** `modifiedAt` means "can't tell", not
+  "changed" (`_changed_since`), for the same reason — list mode drops fields
+  silently. If every row lacks it, a warning is logged and only new PMP links
+  get refreshed.
+- If something in PIM rewrites every Product nightly (`price`, `rrp`,
+  `quantity` live on it), `modifiedAt` moves for all of them and every night
+  becomes a full refetch. `updated_count` of
+  `product.refresh_products_from_pim` in `TaskRunHistory` is the number to
+  watch.
+- A truncated listing raises instead of reading as "not linked".
+- The first run after a long gap fetches the whole tail. A batch of 500 is
+  1,000 GETs plus 250 s of sleep on one worker process, so a tail as large as
+  the catalogue keeps workers busy for hours.
 
 ### The phantom-field trap (fixed; the shape can recur)
 

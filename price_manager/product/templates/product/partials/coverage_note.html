@@ -15,7 +15,7 @@
   <div class="coverage-note">
     <i class="bi bi-info-circle" aria-hidden="true"></i>
     {% if unsynced_products %}
-      <span title="У них пока нет названия, категорий и бренда из PIM — поиск по ним ограничен артикулом и названием у поставщика.">
+      <span title="У них пока нет названия, категорий и бренда из PIM — поиск по ним ограничен артикулом и названием у поставщика. Обычно это товары, которые ещё не связаны с карточкой товара в PIM. Данные из PIM подтягиваются каждую ночь.">
         Без данных PIM: <strong>{{ unsynced_products|floatformat:"g" }}</strong>
       </span>
     {% endif %}
