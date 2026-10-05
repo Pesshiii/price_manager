@@ -1200,8 +1200,14 @@ class OwnStockMigrationTests(TestCase):
     """
 
     def run_migration(self):
+        # Исторические модели, как у настоящей миграции: на них не висят
+        # сигналы — удаление строки прайса здесь не обнуляет остаток.
         import importlib
-        from django.apps import apps
+        from django.db import connection
+        from django.db.migrations.executor import MigrationExecutor
+        apps = MigrationExecutor(connection).loader.project_state(
+            [('product_price_manager', '0009_unsupplied_supplier'),
+             ('supplier_manager', '0016_supplier_is_own_stock')]).apps
         importlib.import_module('product_price_manager.migrations.0010_own_stock').forwards(apps, None)
 
     def setUp(self):

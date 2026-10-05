@@ -1310,6 +1310,21 @@ class OwnStockRowTests(TestCase):
         row.refresh_from_db()
         self.assertEqual(row.stock, 0)
 
+    def test_deleting_the_price_row_zeroes_the_stock_at_once(self):
+        # Строка была из прайса — без него она не ручная: застывший остаток
+        # продавал бы то, чего у поставщика нет.
+        from django.urls import reverse
+        row = MainProduct.objects.create(supplier=self.other, sku='D-1', article='D-1', name='Из прайса', stock=6)
+        price_row = SupplierProduct.objects.create(supplier=self.other, main_product=row, article='D-1',
+                                                   name='Из прайса', stock=6)
+
+        self.client.get(reverse('supplier-product-delete', kwargs={'id': price_row.pk}))
+        update_stocks()
+
+        row.refresh_from_db()
+        self.assertEqual(row.stock, 0)
+        self.assertTrue(MainProductLog.objects.filter(main_product=row, stock=0).exists())
+
     def test_stock_written_outside_the_modal_survives_update_stocks(self):
         # Админка и её импорт пишут строку ГП напрямую, мимо модалки: раньше
         # такой остаток откатывался к подставной строке прайса или обнулялся.

@@ -52,6 +52,10 @@ def forwards(apps, schema_editor):
         rule.save(update_fields=['name'])
 
     if Setting.objects.filter(supplier=supplier).exists():
+        # Молча оставить нельзя: подставные строки прайса снова откатывали бы
+        # остаток, введённый руками.
+        print(f'\n  0010_own_stock: у «{supplier.name}» есть настройки загрузки — '
+              'строки прайса без настройки не удалены, разберите их руками.')
         return
     synthetic = SupplierProduct.objects.filter(
         supplier=supplier, source_settings__isnull=True, discount__isnull=True,
