@@ -1,183 +1,239 @@
 # CLAUDE.md
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+Guidance for Claude Code in this repository. This file holds repo-wide
+invariants; how each app works inside lives in `.claude/knowledge/<app>/` (see
+*Per-app knowledge keepers*).
 
 ## Commands
 
-**Start everything:**
 ```bash
-docker compose up --build
+docker compose up --build    # app at http://localhost:8000 (or $WEB_PORT); everything requires login
 ```
-App runs at `http://localhost:8000` (or `$WEB_PORT`, if you are running a second stack — see below). Everything behind `/` requires login (see `core.middleware.LoginRequiredMiddleware`).
 
-**Run tests (local venv is broken — always use Docker):**
+**Tests — the local venv is broken, always use Docker:**
 ```bash
 docker compose exec -T celery_worker python manage.py test <app_label> --keepdb
-# Example: single app
-docker compose exec -T celery_worker python manage.py test main_product_manager --keepdb
-# Example: single test
 docker compose exec -T celery_worker python manage.py test main_product_manager.tests.MyTestCase.test_method --keepdb
 ```
 
-**Django management inside Docker:**
-```bash
-docker compose exec web python manage.py <command>
-docker compose exec web python manage.py makemigrations
-docker compose exec web python manage.py migrate
-```
+**Management:** `docker compose exec web python manage.py <command>` (`makemigrations`, `migrate`, …).
 
-**Django root:** `price_manager/` (contains `manage.py`, all apps, `requirements.txt`).
+**Django root:** `price_manager/` (`manage.py`, all apps, `requirements.txt`).
 
-**Settings:** `DJANGO_SETTINGS_MODULE` is **`price_manager.settings.prod`** (set in `manage.py`, `wsgi.py`, `asgi.py`, `celery.py`). Settings is a *package*, not a module — `price_manager/price_manager/settings/`:
-
-- `__init__.py` is empty. Pointing Django at `price_manager.settings` loads **no settings at all**.
-- `prod.py` is the entry point: it star-imports `base`, `api`, `project`, `celery`, `databases`, `messages`, `storages`, `third_party`, then concatenates `INSTALLED_APPS` and `MIDDLEWARE`.
-- To change a setting, edit the *topic file* that owns it — `base.py` (core Django, `SECRET_KEY`), `databases.py`, `celery.py`, `storages.py` (S3), `third_party.py`, `messages.py`, `api.py` (DRF), `project.py` (`PROJECT_INSTALLED_APPS`, `PROJECT_MIDDLEWARE`, `PIM_TOKEN`/`PIM_HOST`).
+**Settings:** `DJANGO_SETTINGS_MODULE` is **`price_manager.settings.prod`** (set
+in `manage.py`, `wsgi.py`, `asgi.py`, `celery.py`). `price_manager/price_manager/settings/`
+is a *package* with an empty `__init__.py`, so pointing Django at
+`price_manager.settings` loads **no settings at all**. `prod.py` star-imports the
+topic files and concatenates `INSTALLED_APPS`/`MIDDLEWARE`. To change a setting,
+edit the file that owns it: `base.py` (core Django, `SECRET_KEY`),
+`databases.py`, `celery.py` (beat schedule), `storages.py` (S3, static),
+`third_party.py` (crispy, Bitrix24), `messages.py` (login exemptions), `api.py`
+(DRF), `project.py` (`PROJECT_INSTALLED_APPS`, `PROJECT_MIDDLEWARE`,
+`PIM_TOKEN`/`PIM_HOST`).
 
 ## Running more than one agent
 
-Two Claude sessions in one checkout are not two workers — they are one working
-tree with two writers. They have to be kept apart on two axes, and only one of
-them is the obvious one.
+Two sessions in one checkout are one working tree with two writers. Keep them
+apart on two axes.
 
-**Files — a worktree per agent, including the first.** The main checkout is not
-the privileged tree that gets to keep branching; it is the *shared* one, and a
-`git checkout` there re-points every file under whoever else is working mid-edit.
-Use `EnterWorktree`, which branches from `origin/main` into
-`.claude/worktrees/<name>/`. Run it from the repo root: a worktree belongs at
-`<repo>/.claude/worktrees/`, and `EnterWorktree` invoked from the inner
-`price_manager/` Django directory nests one a level too deep, which is how
-`price_manager/price_manager/.claude/worktrees/lucid-kowalevski-a5c256` got there.
-`git worktree list` is the check; `git worktree remove` plus `prune` is the fix.
-
+**Files — a worktree per agent, including the first.** The main checkout is the
+*shared* tree: a `git checkout` there re-points every file under whoever is
+mid-edit. Use `EnterWorktree` (branches from `origin/main` into
+`.claude/worktrees/<name>/`) **from the repo root**, because run from the inner
+`price_manager/` it nests the worktree a level too deep. Check with
+`git worktree list`, fix with `git worktree remove` + `prune`.
 `.claude/hooks/guard_branch_switch.py` asks before a branch switch or an
-unaddressed stash lands in shared state — deliberately making the shared tree the
-awkward one to work in. The stash stack is shared across every worktree too, so
-create with `git stash push -u -m "<tag>"` and restore with
-`git stash apply <sha>` — never a bare `pop`.
+unaddressed stash lands in shared state. All worktrees share one stash stack:
+`git stash push -u -m "<tag>"`, restore with `git stash apply <sha>`, never a bare
+`pop`.
 
 **Containers — one agent owns the stack, and a worktree does not divide it.**
-`docker-compose.yml` defaults `PROJECT_NAME` to `price_manager`, so every worktree
-resolves to the *same* containers, the same `postgres_data` volume and the same
-`test_price_manager_db`. A second `docker compose up` recreates the containers
-against its own bind mount and silently re-points the first agent's running app;
-a migration from the other branch lands in the shared database. Nothing errors —
-that is what makes this the worse of the two. Run `docker compose ps` and ask
-before starting the stack or the test suite.
+`docker-compose.yml` defaults `PROJECT_NAME` to `price_manager`, so every
+worktree resolves to the same containers, the same `postgres_data` volume and the
+same `test_price_manager_db`. A second `docker compose up` silently re-points the
+first agent's app at its own bind mount, and the other branch's migrations land
+in the shared database. Nothing errors. Run `docker compose ps` and ask before
+starting the stack or the test suite. A second stack is possible (`PROJECT_NAME`,
+`WEB_PORT`, `DB_PORT`, `REDIS_PORT`), but `.env` is gitignored, so a fresh
+worktree falls back to the shared defaults unless *every command* names its
+stack. Serializing is the safe default; read "Which stack you are talking to" in
+the `run-price-manager` skill before isolating.
 
-A second stack *is* workable: the compose file is parameterized (`PROJECT_NAME`,
-`WEB_PORT`, `DB_PORT`, `REDIS_PORT`), and `run-price-manager` and `ui-review`
-derive their polling and `BASE_URL` from `WEB_PORT` instead of hardcoding 8000.
+**Once per fresh worktree**, or tests fail for reasons that are not yours:
 
-It is not automatic, and the trap is that the failure is silent. `.env` is
-gitignored, so a fresh worktree has none and every one of those vars falls back
-to the shared default — `docker compose up` there drives the main checkout's
-containers against your bind mount. Naming a stack is therefore a *per-command*
-act (`PROJECT_NAME=… WEB_PORT=… docker compose …`), since shell state does not
-survive between tool calls. Serializing stays the safe default; isolate when you
-genuinely need two stacks at once, and read "Which stack you are talking to" in
-`run-price-manager` first.
-
-`media/` is gitignored on the same principle, and that one costs more because it
-looks like a regression. A fresh worktree gets its own empty `media/`, and it
-does not inherit the main checkout's mode — inside the container it is 0755
-where the shared tree's is 0777, and the worker runs as uid 1011. Every
-`supplier_product_manager` test that creates a `SupplierFile` then dies with
-`PermissionError: [Errno 13] ... '/app/media/setting_<pk>'`: 16 errors in an
-otherwise-green suite, belonging to neither the branch nor the code under test.
-Once per worktree:
-
-```bash
-docker compose run --rm --no-deps --user root -T celery_worker sh -c 'mkdir -p /app/media && chmod -R 777 /app/media'
-```
-
-`chmod` from Git Bash on the host does not change the mode the container sees —
-that only works from inside a container. And it has to be `run --no-deps` (so it
-does not start the shared `db`/`redis`), not `exec`: `exec` attaches to the
-running container, whose `/app` is whichever tree last ran `up`.
-
-`staticfiles/` is the same trap from another angle. Static storage is whitenoise's
-`CompressedManifestStaticFilesStorage`, which needs a collected manifest, and only
-the `web` service runs `collectstatic` (in its start command; CI runs it
-explicitly). Start just `db`/`redis`/`celery_worker` in a fresh worktree and every
-test that renders `base.html` fails with `ValueError: Missing staticfiles manifest
-entry for 'js/htmx.min.js'` — 10 errors, none of them yours. Once per worktree:
-
-```bash
-docker compose exec -T celery_worker python manage.py collectstatic --noinput
-```
+- `media/` is gitignored, and a new worktree's is 0755 inside the container while
+  the worker runs as uid 1011. Every `supplier_product_manager` test that creates
+  a `SupplierFile` then dies with `PermissionError … '/app/media/setting_<pk>'`.
+  Fix it from inside a container (a host `chmod` does not reach it), and with
+  `run --no-deps`, not `exec`, because `exec` attaches to whichever tree last ran `up`:
+  ```bash
+  docker compose run --rm --no-deps --user root -T celery_worker sh -c 'mkdir -p /app/media && chmod -R 777 /app/media'
+  ```
+- `staticfiles/`: static storage is whitenoise's `CompressedManifestStaticFilesStorage`,
+  and only `web` runs `collectstatic` (CI runs it explicitly). Without it, every
+  test that renders `base.html` fails with `Missing staticfiles manifest entry for 'js/htmx.min.js'`:
+  ```bash
+  docker compose exec -T celery_worker python manage.py collectstatic --noinput
+  ```
 
 ## Direction of travel — read this before adding code
 
-There are two product catalogs in the tree. **They are not peers, and the newer one is not the future.**
+There are two product catalogs in the tree. **They are not peers, and the newer
+one is not the future.**
 
 **The legacy, supplier-centric stack is the live system. Build here.**
 
-- `core` → the UI hub and the shopping-tab/cart feature (see below)
-- `supplier_manager` → `Supplier`, `Currency`, `Discount`. Its `Category` and `Manufacturer`/`ManufacturerDict` were retired in the product shift's Phase 2b — categories are `product.Category`, brands `product.Brand`, both from PIM
-- `supplier_product_manager` → `SupplierProduct` (supplier's raw price row), `Setting`/`Link` (column-mapping config for Excel imports), `SupplierFile` (upload queue)
-- `main_product_manager` → `MainProduct` — since the product shift's Phase 2b, a **per-supplier stock + price row** hanging off `product.Product` (multiple price fields, `stock`, logs, the PIM link push). Its own search vector, description, categories, manufacturer and dimensions are gone; search, name, brand and categories live on `product.Product`
-- `product_price_manager` → `PriceManager` (markup rules: source price → dest price, with formula), `PriceTag` (per-product-per-rule snapshot), `update_prices()` (bulk apply). `PriceManager.supplier` may be NULL: such a rule («Наборы» in the UI) prices **set rows** — the only ГП rows without a supplier (`_fitting_unsupplied_mps`) — only from ГП prices or a fixed price, never from the supplier price list, and never the prime cost of a set row. In the UI a `PriceManager` is «менеджер цен» and a `PriceTag` is «наценка». All rules, of suppliers and without, are listed at «Менеджеры цен» (`/price-manager/`). The rule form is live: the supplier (or «Наборы») is a field of the form, and discount groups, sources and the price-range unit re-render as it changes (`?refresh=1`, never saves); a saved rule's supplier is locked. A rule may be scoped by the `categories` (a chosen category covers its descendants) and `brands` of the row's `product.Product` — AND between the two, OR within each, empty = every row, a row without a Product never matches a scoped rule; a category or brand in some rule's scope cannot be deleted (PROTECT). Tag-building order and pruning: `.claude/knowledge/product_price_manager/models-and-lifecycle.md`. A markup on **one ГП row** is a `PriceTag` with no rule (`p_manager` NULL) — «фиксированная наценка»: a fixed price or a formula from a ГП/supplier price, applied by `update_prices` after the rules, so it overrides them. Added from the tag button of a row on the product card, edited and deleted in one modal (`PriceTagUpdate` refuses rule tags with a 404). Every `PriceTag` — of rules and fixed — is listed at «Наценки» (`/price-manager/pricetags/`, a tab next to «Менеджеры цен»), filtered by rule with `?rule=<pk>|none` (none = fixed); a rule tag's edit button opens its rule's modal. The old `/price-manager/fixed/` redirects there with `rule=none`.
-- **«Свой склад»** (until 0010 «Без поставщика») is a real `Supplier` with `is_own_stock=True` — one, created by `product_price_manager/0009_unsupplied_supplier` (renamed by `supplier_manager/0016` + `product_price_manager/0010_own_stock`; `Supplier.own_stock()` on a clean database, looked up by the flag only — a supplier merely named so is never taken over), pinned first on `/supplier/`, not deletable, not renamable. It holds leftover stock, returns and bonuses and behaves exactly like any supplier: upload, copy to ГП, its own `PriceManager`s, levels, delivery days. The flag means only that: the modal's default supplier and where retired/stray set rows go. **A hand-made ГП row has no `SupplierProduct`, for any supplier**, and two general rules keep it working: `update_stocks` skips a row with no `SupplierProduct` at all (its stock was typed in — modal, admin or admin import — and stays), while a row whose `SupplierProduct` lost its stock still goes to 0, and deleting a `SupplierProduct` zeroes its row's stock at once (`post_delete` signal `zero_stock_of_unsourced_row`, so a real supplier's row never freezes); and a supplier rule (`get_fitting_mps`) selects ГП rows by `MainProduct.supplier`, with every price-list filter (`has_rrp`, discount groups, a supplier-price source) as an `Exists` — a row with no price-list row is like one with an empty price list, and a rule computing from a supplier price never matches it (so `clear_unsourced_prices` does not wipe its typed prices). 0009 used to give such rows synthetic `SupplierProduct`s; 0010 deletes them (only when «Свой склад» has no upload `Setting`). A row is «from the price list» (supplier/article locked in the modal) when it has a `SupplierProduct`.
-- **ГП rows with `supplier` NULL are set rows only.** Rows are created and fully edited (all prices and stock) in the «Строка ГП» modal (`MainProductForm`, supplier preselected to «Свой склад»), from the toolbar of «Товары» or from the product card (`?product=<pk>`, sku = the product's number). **A ГП row never exists without a Product**: every hand-written path (the modal, the admin and its import) goes through `main_product_manager.utils.ensure_product`/`product_for_sku` (case-insensitive, creates the Product), and the copy-to-main import runs `link_unlinked_main_products(main_product_ids=…)`, which creates missing Products too. Changing a row's sku moves it to the Product of the new sku. **Every set has one set row** (`MainProduct.is_set`, one per Product): no supplier; `prime_cost` = Σ amount × component's main prime cost, `stock` = how many sets the components' main stocks make, `set_delivery_days` = the longest of the components' delivery days (each from the supplier of that component's main stock row) — all written only by `product/services/set_rows`, each left NULL while any component lacks it. `update_stocks` skips NULL rows and then recounts set stock (`sync_set_stocks`); a product that stops being a set has its row moved to «Свой склад». `MainProduct.get_delivery_days()` is the one way to read a row's delivery days. It runs at the end of `update_prices` — sets last, after the rules that change component costs — followed by one more pass of supplier-less rules and the set rows' own tags; and after `sync_product_sets`.
-- `file_manager`, `blogapp`, `api_auth`, `pim_api` → supporting
-- `releases` («Обновления», «Что нового» in the navbar) → `Release`: a version, a short `summary` and an article for managers, at `/releases/<version>/`. The article is stored as sanitized HTML (`article_html`, cleaned by `nh3` on every save) and duplicated as `article_markdown`, rebuilt from the HTML on every save (`markdownify`) and served at `/releases/<version>/markdown/` — never edit the Markdown by hand. Saving a release with `is_published=True` and no `notified_at` dispatches `releases.notify_release`, which puts the summary plus a link to the article into every active user's `PersistentNotification` once, then sets `notified_at`. Those notifications are `kind='release'` and are deleted only by the user; the article page is still the durable record. Authoring is in the admin; drafts are visible to staff only.
-- `developers` («Разработчикам») → `Feedback`: the navbar feedback modal. Each message is its own Bitrix24 task (`tasks.task.add` via the inbound webhook `BITRIX24_FEEDBACK_WEBHOOK`, responsible `BITRIX24_FEEDBACK_RESPONSIBLE_ID`), sent by `developers.send_feedback` with a lock *per message*; the row stays in the admin whether or not the task got created, with a «resend» action. The webhook is separate from the OAuth login app in `core/bitrix24.py`.
+- `core` — the UI hub, the shopping tab and cart, the task runner, auth (see below).
+- `supplier_manager` — `Supplier`, `Currency`, `Discount`. Categories and brands
+  are `product.Category`/`product.Brand` from PIM since Phase 2b. **«Свой склад»**
+  is a real `Supplier` (`is_own_stock=True`) for leftover stock, returns and bonuses.
+- `supplier_product_manager` — `SupplierProduct` (a supplier's raw price row),
+  `Setting`/`Link` (Excel column mapping), `SupplierFile` (upload queue), `ImportRun`.
+- `main_product_manager` — `MainProduct` («ГП»): a **per-supplier stock + price
+  row** hanging off `product.Product`, with its logs and the PIM link push. Name,
+  brand, categories and search live on `product.Product`.
+- `product_price_manager` — `PriceManager` («менеджер цен», a markup rule: source
+  price → dest price), `PriceTag` («наценка», per-row snapshot), `update_prices()`.
+- Supporting: `releases`, `developers` (below), `file_manager`, `blogapp`, `api_auth`, `pim_api`.
+
+Invariants that cross these apps (the mechanics are in the keepers' topics):
+
+- **A ГП row never exists without a Product.** Every write path (the «Строка ГП»
+  modal, the admin and its import) goes through `main_product_manager.utils.ensure_product`/`product_for_sku`
+  (case-insensitive, creates the Product). The copy-to-main import runs
+  `link_unlinked_main_products(main_product_ids=…)`. Changing a row's sku moves it
+  to the new sku's Product.
+- **A ГП row with `supplier` NULL is a set row** (`MainProduct.is_set`, one per
+  set). A stray non-set one, such as an admin import with an empty supplier, is
+  moved to «Свой склад» by the next `sync_set_rows`. Only `product/services/set_rows` writes its `prime_cost`, `stock` and
+  delivery days. Read any row's delivery days through `MainProduct.get_delivery_days()`.
+  A `PriceManager` without a supplier («Наборы») prices only these rows.
+- **A hand-made ГП row has no `SupplierProduct`, for any supplier.** `update_stocks`
+  skips it, so typed stock stays. Deleting a `SupplierProduct` zeroes its row's
+  stock (`post_delete` signal). A rule that computes from a supplier price never
+  matches such a row.
 
 **The API-driven stack is being retired. Do not build new features here.**
+`pricing`, `supplier`, `supplier_feed`, `dataframe`. No live app imports them,
+and they are reachable only under `/api/` and in the Django admin, where each
+registers its models. Apart from each other they touch only
+`product`: `supplier_feed` imports it and holds FKs into `product.Product`. **Nothing outside this repo calls
+them, as the owner confirmed on 2026-09-19 (don't ask again)**, so they can be
+removed. **Deleting the directories is not enough:**
+`product/migrations/0007_product_pim_id_is_price_manager_product.py` depends on
+`('supplier_feed', '0001_initial')` and loads two of its models in `RunPython`,
+while `supplier_feed.0001` depends on `dataframe`, `pricing`, `supplier` and
+`product.0001`. Cut that edge first (drop
+the dependency and the two `get_model` calls, or squash `product`'s migrations),
+or every `migrate` fails, including on CI's fresh database. Production has
+already applied `0007`, so the edit only has to keep a fresh database migrating.
+`.claude/hooks/guard_retiring_stack.py` turns edits under the four into a
+permission prompt (`supplier` and `supplier_manager` are one keystroke apart). It
+is a net, not a gate: `Bash` rewrites bypass it.
 
-- `pricing`, `supplier`, `supplier_feed`, `dataframe`
+**`product` is the exception.** The API-first rewrite did not work out, and
+`product` was recreated as a **PIM-linked mirror** reconnected to the legacy
+stack: `pim_id`, `number` (= `MainProduct.sku`), `name`, MPTT `categories`,
+`brand`, `raw_data`, a local `search_vector`. It is the **root of search and
+filtering**: `/products/` and the card at `/products/<pk>/` (`/mainproduct/`
+redirects there). The design and its decisions are in
+`.claude/shift-to-product-brief.md`. Build there when the work serves that shift,
+but do not grow it into anything independent of PIM and the legacy stack.
+`MainProduct.product` is an FK to it. It has no embeddings, no characteristics
+JSONB and no `ImportJob`/`CharacteristicMutationJob`; docs that say otherwise are stale.
 
-**`product` is the exception, and it has moved further than the other four.** The API-first rewrite did not work out, and `product` was recreated as a **PIM-linked mirror** reconnected to the legacy stack: `pim_id`, `number` (= `MainProduct.sku`), `name`, `categories` as MPTT, `brand`, `raw_data` JSON, and a local `search_vector`. Since the product-shift Phase 1 it is the **root of search and filtering**, served at `/products/`, with a card at `/products/<pk>/` (fixed markups of its ГП rows, ГП rows, set composition; edit, delete, relink ГП). Card edits follow two constraints from the code: a Product with PIM content (`raw_data`) has name/brand/categories read-only, since `apply_pim_product` overwrites them; and ГП rows are only ever *moved* between Products, never merely unlinked, and a Product is deletable only with no ГП rows — `link_unlinked_main_products` re-links an unlinked row nightly to the Product numbered by its sku, recreating it if missing, while it never touches an existing link (hand-created and imported rows are linked at once, see ГП rows without a supplier above); Phase 2b retired the old main page (`/mainproduct/` redirects there) — the design and every decision behind it are in `.claude/shift-to-product-brief.md`. Build there when the work serves that shift; do not grow it into anything independent of PIM and the legacy stack. There is no embedding, no characteristics JSONB, and no `ImportJob`/`CharacteristicMutationJob` — earlier revisions of this file described those; they no longer exist.
+**Supporting apps without a keeper:**
 
-**Nothing outside this repo calls them — confirmed by the owner on 2026-09-19.** They are wired into `api_urls.py` (`/api/dataframe/`, `/api/supplier-feed/`, `/api/suppliers/`, `/api/pricing/`) behind session auth, and those routes have no external consumer, so the four apps can be removed. That used to be an open question; it is not any more, so don't ask again.
-
-**Removing them is not just deleting directories — `product`'s migrations depend on them.** `product/migrations/0007_product_pim_id_is_price_manager_product.py` declares `('supplier_feed', '0001_initial')` as a dependency and loads `SupplierFeedEntry`/`SupplierLink` in its `RunPython`, while `supplier_feed.0001` depends on `dataframe.0001`, `pricing.0001`, `product.0001` and `supplier.0001` and holds FKs into `product.Product`. Delete the apps without first cutting that edge — drop the dependency and the two `get_model` calls from `0007`, or squash `product`'s migrations — and every `migrate` fails on a missing parent node, including CI's fresh database. Production has already applied `0007`, so editing it changes nothing there; the edit only has to keep a fresh database migrating.
-
-Retirement status of the other four is clean: nothing in the legacy apps imports `pricing`, `supplier`, `supplier_feed` or `dataframe`; they reference only each other and are reachable only via `/api/`. `product` differs on both counts — `MainProduct.product` is an FK to it, and it is served at `/products/`.
-
-A `PreToolUse` hook (`.claude/hooks/guard_retiring_stack.py`) turns an edit under `pricing`, `supplier`, `supplier_feed` or `dataframe` into a permission prompt — `supplier` and `supplier_manager` are one keystroke apart and that is the usual way code lands in a dead app. It is a net, not a gate: `product` is excluded on purpose (it is where the product shift lives), and a file rewritten through `Bash` does not pass through it.
+- `releases` («Обновления», «Что нового» in the navbar). A `Release` has a
+  version, a short `summary` and an article at `/releases/<version>/`.
+  `article_html` is sanitized by `nh3` on every save. `article_markdown` is
+  rebuilt from it (`markdownify`) and served at `/releases/<version>/markdown/`;
+  never edit it by hand. Saving with `is_published=True` and no `notified_at`
+  dispatches `releases.notify_release`, which sends one `PersistentNotification`
+  (`kind='release'`, deleted only by the user) per active user, then sets
+  `notified_at`. Releases are authored in the admin, and drafts are staff-only.
+- `developers` («Разработчикам»). `Feedback` comes from the navbar modal, and each
+  message becomes its own Bitrix24 task (`tasks.task.add` via the inbound webhook
+  `BITRIX24_FEEDBACK_WEBHOOK`, responsible `BITRIX24_FEEDBACK_RESPONSIBLE_ID`).
+  `developers.send_feedback` sends it with a lock *per message*. The row stays in
+  the admin whether or not the task was created, with a «resend» action. This
+  webhook is separate from the login app in `core/bitrix24.py`.
 
 ## Where the UI lives: `core`
 
-`core` is the largest and most active app, and holds most of the front end:
+Over half of the repo's templates are under `core/templates/`, including ones
+rendered by other apps' views (`supplier/`, `currency/`, `main/`, `upload/`,
+`registration/`). Look there for a template you cannot find. `core` owns:
 
-- **81 of the repo's 123 templates** are under `core/templates/`, including templates owned by other apps' views (`supplier/`, `currency/`, `main/`, `upload/`, `registration/`).
-- `core/views.py` (~710 lines) owns the **shopping-tab / cart** feature — `ShoppingTab*` (list, detail, delete, export, import + preview/run) and `CartItem*` (detail, quick-add, product select, add, confirm/unconfirm, remove). Templates in `core/templates/shopping_tab/`.
-- `core/models.py` → `CartItem`, `ShoppingTab`, `ShoppingTabExport`, `PersistentNotification`, `TaskRunHistory`.
-- **`PersistentNotification` has lifetimes by `kind`** — read through `.visible()`. A supplier-import confirmation never expires on its own: anything that moves an `ImportRun` out of `STATUS_NEEDS_CONFIRMATION` must call `supplier_product_manager.tasks.dismiss_confirmations`. Details in `.claude/knowledge/core/models-and-notifications.md`.
-- `core/middleware.py` → `LoginRequiredMiddleware` (global login gate; anonymous requests under `/api/` get 401 JSON instead of a redirect) and `toaster_middleware`.
-- `core/utils.py` → shopping-tab spreadsheet reading (pandas) and export helpers.
-- `core/viewmixins.py` → `HtmxMixin` is **dead code**; don't use it.
-- `core/bitrix24.py` + `bitrix24_login`/`bitrix24_callback` in `core/views.py` → **login with Bitrix24** (OAuth of a local Bitrix24 app, hand-rolled on `requests`: `social-core` has no Bitrix24 backend, and Bitrix's flow — code exchanged by GET at `oauth.bitrix.info`, no `redirect_uri` — does not fit a generic one). Off unless `BITRIX24_PORTAL`/`BITRIX24_CLIENT_ID`/`BITRIX24_CLIENT_SECRET` are all set (`settings/third_party.py`). No tokens are stored. **Identity is the Bitrix user ID**, kept in `core.Bitrix24Account` (one-to-one both ways); Bitrix-inactive or non-`employee` users are always refused. An anonymous callback logs in: (1) by linked ID — staff included, e-mail irrelevant; else (2) by e-mail, case-insensitive, auto-linking **only** a non-staff user with no usable password (one Bitrix itself created) — anyone else gets «войдите по паролю» and links afterwards, because an employee can edit their own Bitrix e-mail; else (3) a new user, linked. A logged-in callback is **link mode**: it only ever ties the Bitrix ID to the current user, never switches users, and refuses if either side is already linked elsewhere. `BITRIX24_LINK_REQUIRED` (default `false`) turns on `core.middleware.Bitrix24LinkRequiredMiddleware`, which sends any logged-in, unlinked, non-superuser to `accounts/bitrix24/link/`; the password stays a fallback login. `BITRIX24_AUTO_CREATE_USERS` (default `true`) is the admission policy: while PM is young every employee gets a user on first login, and PM has no roles, so that user can do everything. Expected to narrow — `false` admits only existing PM users. If *every* first-time employee is refused with «не указан e-mail», the app card has scope `user_brief`, which silently drops `EMAIL` from `user.current` (no error) — raise it to `user_basic`. The e-mail-takeover hole remains only for Bitrix-created users not yet linked, and closes on each one's first login after this change.
+- the **shopping tab / cart**: `ShoppingTab*` and `CartItem*` views in
+  `core/views.py`, templates in `core/templates/shopping_tab/`, spreadsheet
+  helpers in `core/utils.py`;
+- `LoginRequiredMiddleware` (the global login gate; anonymous `/api/` requests get
+  401 JSON, not a redirect) and `toaster_middleware`;
+- `PersistentNotification`, whose lifetime depends on its `kind`
+  (`.claude/knowledge/core/models-and-notifications.md`); read it through
+  `.visible()`. A supplier-import confirmation never expires on its own, so
+  anything that moves an `ImportRun` out of `STATUS_NEEDS_CONFIRMATION` must call
+  `supplier_product_manager.tasks.dismiss_confirmations`;
+- **login with Bitrix24** (`core/bitrix24.py`), hand-rolled OAuth that is off
+  unless `BITRIX24_PORTAL`/`BITRIX24_CLIENT_ID`/`BITRIX24_CLIENT_SECRET` are all
+  set. Identity is the Bitrix user ID. `BITRIX24_AUTO_CREATE_USERS` (default
+  `true`) admits every employee on first login, and PM has no roles. The full
+  policy and its traps are in `.claude/knowledge/core/bitrix24-login.md`.
+
+`core/viewmixins.py` → `HtmxMixin` is dead code; don't use it.
 
 ## Shared infrastructure
 
-**`core/task_runner.py` — `execute_locked_task()`**: Every Celery task should go through this. It provides Redis-based distributed locking (via `cache.add`), wraps the runner in `transaction.atomic()`, and writes a `TaskRunHistory` record with duration and updated-count for every run (success, error, or lock-skipped). Pass `atomic=False` to skip only the transaction — the lock and history still apply. That is for runners that make network calls or sleep between their DB writes (the PIM scans in `main_product_manager`), where an open transaction would idle for the whole scan; it requires the runner to be idempotent, since a partial run's writes stay committed.
+**Every new Celery task should go through `core/task_runner.py: execute_locked_task()`**
+(a few older `supplier_product_manager` tasks still run inline, a known
+exception — see its `tasks-and-imports` topic). It takes a Redis lock (`cache.add`), runs the runner inside `transaction.atomic()`,
+and writes a `TaskRunHistory` row for every run (success, error or
+lock-skipped). `atomic=False` drops only the transaction. Use it for runners
+that make network calls or sleep between their writes, so no transaction idles
+across them; such a runner must be idempotent. The worker is the `celery_worker`
+container with Redis as broker, and tasks are `@shared_task` in each app's `tasks.py`.
 
-**Dispatching a subtask from inside a task — use `dispatch_after_commit()`, not `.delay()`.** Because `execute_locked_task()` wraps the runner in `transaction.atomic()`, a bare `.delay()` inside a runner hands the subtask to Redis while the enclosing transaction can still roll back, so the subtask can start against state that never committed. `core/task_runner.py` provides `dispatch_after_commit(task, *args, **kwargs)` (a `transaction.on_commit` wrapper) for this; outside a transaction it dispatches immediately, so it is safe from views too. The `reindex_pim_ids` fan-out is the standing example (an earlier one, `_queue_pim_population`, went with Phase 2b): it dispatches batches that select the local `product.Product` rows its own transaction just created or numbered — dispatched early, a batch finds none of them, and after a rollback the already-dispatched batches keep running against a parent run recorded as failed.
+**Dispatching a subtask from inside a task: use `dispatch_after_commit(task, *args, **kwargs)`,
+not `.delay()`.** A bare `.delay()` inside the runner's transaction can start the
+subtask against state that never commits. Outside a transaction it dispatches
+immediately, so it is safe from views too. The why and the `reindex_pim_ids`
+example are in `.claude/knowledge/core/task-runner.md`.
 
-**Celery:** Worker runs as the `celery_worker` container, broker/backend via Redis. Tasks are `@shared_task` in each app's `tasks.py`.
+**REST API:** DRF at `/api/` (`api_urls.py`), session auth only
+(`SessionAuthentication` + `IsAuthenticated`, `settings/api.py`). `api_auth` logs
+in with `django.contrib.auth.login` behind a CSRF cookie. There is no token auth.
+Apart from `api_auth`, only the retiring apps expose routes.
 
-**REST API:** DRF, mounted at `/api/` via `api_urls.py`. Auth via `api_auth` is session-based — DRF `SessionAuthentication` + `IsAuthenticated` (`settings/api.py`), and `api_auth/views.py` logs in with `django.contrib.auth.login` behind a CSRF cookie. There is no token auth: `rest_framework.authtoken` isn't installed and nothing uses `TokenAuthentication`. Only the retiring apps expose API routes.
+## Frontend
 
-**Frontend:** Django templates + HTMX for partial updates, django-tables2 for tables, django-crispy-forms + Bootstrap, django-autocomplete-light for select widgets.
+Django templates + HTMX for partial updates, django-tables2, django-crispy-forms
++ Bootstrap, django-autocomplete-light.
 
-**The Bootstrap version is split — know this before touching a form.** `settings/third_party.py:29-30` sets `CRISPY_TEMPLATE_PACK = 'bootstrap4'` (and pins `CRISPY_ALLOWED_TEMPLATE_PACKS` to the same), while `core/templates/base.html:12,62` loads Bootstrap **5.3.0** from jsdelivr. So the ~30 crispy-rendered templates emit BS4 markup into a BS5 stylesheet.
+**The Bootstrap version is split.** `settings/third_party.py` sets
+`CRISPY_TEMPLATE_PACK = 'bootstrap4'`, while `core/templates/base.html` loads
+Bootstrap **5.3.0**, so crispy forms emit BS4 markup into a BS5 stylesheet. BS5
+kept `form-control`, so most forms look right, and dead `form-group` wrappers are
+harmless. Visible breakage comes only from `custom-select` (an unstyled
+dropdown), `form-row` (a collapsed two-column row) and `form-control-file` (a file
+input rendered as bare text). Count them on the screen before blaming this for a
+layout bug: `document.querySelectorAll('.custom-select, .form-row, .form-control-file').length`.
+Do not "fix" it by flipping the pack to `bootstrap5`: only `crispy-bootstrap4` is
+installed, so that is a dependency migration with markup churn across every
+crispy template, not a settings change.
 
-This is less dramatic than it sounds, and the nuance is the useful part: BS5 dropped `form-group`, `form-row`, `custom-select` and `form-control-file`, but kept `form-control`. Inputs therefore stay styled and most forms look right — the «Новый товар» modal renders 8 dead `.form-group` wrappers alongside 10 live `.form-control`s and looks fine. Visible breakage is confined to the four dropped classes: an unstyled dropdown, a collapsed two-column row, a file input rendered as bare text. **Count them on the screen before blaming this mismatch for a layout bug** — `document.querySelectorAll('.custom-select, .form-row, .form-control-file').length`.
+There are **two HTMX response conventions**, each a skill under `.claude/skills/`:
 
-Do not "fix" it by flipping the pack to `bootstrap5`: only `crispy-bootstrap4` is in `requirements.txt` and `INSTALLED_APPS`, so that is a dependency migration with markup churn across 30 templates, not a settings change.
-
-There are **two HTMX response conventions**, both documented as skills under `.claude/skills/`:
-
-- **`htmx-modal-crud`** — list + Bootstrap modal form, success returns `HttpResponseClientRefresh()` (full reload). The default for ordinary CRUD screens.
-- **`htmx-oob-fragments`** — one action updates several regions in place via `hx-swap-oob`, no reload. Used throughout `core/templates/shopping_tab/`. Reach for it when a reload would lose state the user cares about (scroll position, an open modal, a filled filter).
+- **`htmx-modal-crud`**: a list plus a Bootstrap modal form, where success
+  returns `HttpResponseClientRefresh()` (a full reload). The default for ordinary CRUD.
+- **`htmx-oob-fragments`**: one action updates several regions via `hx-swap-oob`
+  with no reload, as in `core/templates/shopping_tab/`. Use it when a reload
+  would lose scroll position, an open modal or a filled filter.
 
 ## Per-app knowledge keepers
 
-Each significant app has a **keeper agent** and a knowledge directory it owns —
-one markdown file per topic:
+Each significant app has a **keeper agent** that owns a knowledge directory, one
+markdown file per topic:
 
 | App | Agent | Directory |
 |---|---|---|
@@ -189,73 +245,91 @@ one markdown file per topic:
 | `product_price_manager` | `price-rules-keeper` | `.claude/knowledge/product_price_manager/` |
 | `pricing` `supplier` `supplier_feed` `dataframe` | `retiring-stack-keeper` | `.claude/knowledge/retiring_stack/` |
 
-**Consult the keeper before working in its app.** It reads its directory's
-index and the topics the question touches, verifies the claims against current
-code, and answers with `file:line` refs.
+**Consult the keeper before working in its app.** It reads its index and the
+relevant topics, verifies them against current code, and answers with
+`file:line` refs. **Record back afterwards** with `/record-insight <app>` (the
+`Stop` hook `.claude/hooks/suggest_record.py` nudges). Keepers have no shell, so
+the caller regenerates the index. Without that step the topics freeze and rot.
 
-**Layout.** Every topic starts with front matter — `title`, `summary`, `code`
-(the repo paths it covers). `.claude/knowledge/README.md` and each
-`<app>/README.md` are **generated** from that front matter by
-`.claude/tools/knowledge_index.py`; never edit them by hand. CI runs it with
-`--check`, which fails on a stale index, a topic without front matter, a
-flat `.claude/knowledge/<app>.md`, or a `[[app/topic]]` link that points
-nowhere. `.claude/knowledge/glossary.md` is hand-written: Russian UI terms
-(«ГП», «Набор», «уровень по цене») mapped to models, fields and PIM entities.
+**Layout.** Every topic opens with front matter (`title`, `summary`, `code`).
+`.claude/knowledge/README.md` and each `<app>/README.md` are **generated** from
+it by `.claude/tools/knowledge_index.py`; never edit them by hand. CI runs it
+with `--check`, which fails on a stale index, a topic without front matter, a flat
+`.claude/knowledge/<app>.md`, or a `[[app/topic]]` link that points nowhere.
+`.claude/knowledge/glossary.md` is hand-written: Russian UI terms («ГП», «Набор»,
+«уровень по цене») mapped to models, fields and PIM entities.
 
-**Record back afterwards** with `/record-insight <app>` — a `Stop` hook
-(`.claude/hooks/suggest_record.py`) nudges when a session touched an app dir.
-The keeper picks or starts the topic; keepers have no shell, so the caller
-regenerates the index afterwards (the skill says how). Without that step the
-topics freeze and rot; recording is what makes the system worth having.
+**The boundary.** Keep these three from drifting into each other:
+- `CLAUDE.md` / `AGENTS.md` hold repo-wide invariants, architecture and the
+  direction of travel. They are the source of truth, and keepers must not restate them.
+- `.claude/knowledge/<app>/<topic>.md` holds app-local mechanism and traps.
+- The user's memory dir holds workflow preferences, not code facts.
 
-**The boundary — keep these three from drifting into each other:**
+Apps with no keeper (`file_manager`, `api_auth`, `pim_api`, `blogapp`,
+`releases`, `developers`) are too small for one; what matters about them goes in
+this file.
 
-- `CLAUDE.md` / `AGENTS.md` — repo-wide invariants, architecture, direction of
-  travel. The source of truth. **Keepers must not restate this.**
-- `.claude/knowledge/<app>/<topic>.md` — app-local mechanism and traps found by
-  working in that app: surprising side effects, cache keys that don't cover what
-  you'd assume, deliberate convention exceptions. Cross-linked with `[[app]]`
-  (the directory) and `[[app/topic]]`.
-- The user's memory dir — workflow preferences, not code facts.
-
-Apps with no keeper (`file_manager`, `api_auth`, `pim_api`, `blogapp`) are too
-small to justify one; anything important about them belongs in this file.
-
-**The PIM itself has a consultant, not a keeper.** `pim-docs` answers what
-AtroCore/AtroPIM *documents* and what *our instance's* schema says: it reads
-help.atrocore.com as markdown from the public GitHub mirror, pinned to
-`DOCS_REF` in `.claude/tools/pim_docs.py`, and makes read-only GETs of the
-instance's `/api/metadata` and `/openapi.json`. It keeps no knowledge directory.
-What we learn about *our* integration still goes to `main-product-keeper` /
-`product-keeper`. **When the PIM is upgraded, bump `DOCS_REF`.**
-`pim_docs.py instance version` reports a mismatch.
+**The PIM has a consultant, not a keeper.** `pim-docs` answers what
+AtroCore/AtroPIM *documents* and what *our instance's* schema says. It reads
+help.atrocore.com from its GitHub mirror, pinned to `DOCS_REF` in
+`.claude/tools/pim_docs.py`, and makes read-only GETs of the instance's
+`/api/metadata` and `/openapi.json`. It keeps no knowledge directory; lessons
+about our integration go to `main-product-keeper`/`product-keeper`. **When the
+PIM is upgraded, bump `DOCS_REF`**; `pim_docs.py instance version` reports a mismatch.
 
 ## Conventions
 
-- **UI strings are Russian.** Model `verbose_name`s, `Meta.verbose_name`, form labels, and template copy are all Russian — match that when adding models or screens. Code identifiers and comments are English.
-- **Routes are registered centrally** in `price_manager/price_manager/urls.py`, not in per-app `urls.py`. Only `main_product_manager`, `blogapp` and `api_urls` (the retiring stack's `/api/` mount) are `include()`d — `api_urls` currently appears twice in that file, which looks like an uncleaned duplicate rather than a deliberate double-mount.
-- **Always commit migrations.** They are tracked normally. (`.gitignore` used to carry a `*/migrations/*.py` line; it was a no-op — it matched only depth-2 paths while migrations sit at depth 3 — and has been removed.)
+- **UI strings are Russian**: model and `Meta` `verbose_name`s, form labels and
+  template copy. Code identifiers and comments are English.
+- **Routes are registered centrally** in `price_manager/price_manager/urls.py`.
+  Only `main_product_manager`, `blogapp` and `api_urls` are `include()`d.
+  `api_urls` appears twice, which looks like an uncleaned duplicate.
+- **Always commit migrations.**
 
 ## Key cross-app dependencies
 
-- `product_price_manager` imports from both `main_product_manager` and `supplier_product_manager` — pricing logic bridges them.
-- Nothing on the `MainProduct` save path calls PIM any more — `_build_searchvector()` and its network call went with the search vector in Phase 2b. PIM is reached from `main_product_manager/utils.py` (card views' `get_pim_data`, the photo proxy `fetch_pim_image`, `push_pim_links`) and from `product/services/pim_sync.py`.
-- **`main_product_manager/pim_client.py` instantiates `SiteAPI(token=settings.PIM_TOKEN, host=settings.PIM_HOST)` at import time**, and the root URLconf reaches it transitively — `supplier_product_manager/views.py` (imported by `price_manager/urls.py`) imports `.tasks`, which imports `main_product_manager.utils`, which imports `.pim_client` (`supplier_product_manager/admin.py` does **not** reach it — it only imports `.models`/`.functions`). If `PIM_TOKEN`/`PIM_HOST` are unset, the *entire app* fails to boot with a pydantic `ValidationError` — not just PIM features. `docker-compose.yml` supplies placeholder defaults.
+- `product_price_manager` imports from both `main_product_manager` and
+  `supplier_product_manager`; the pricing logic bridges them. Those two import
+  each other too.
+- **`main_product_manager/pim_client.py` and `product/pim_client.py` instantiate
+  `SiteAPI(token=settings.PIM_TOKEN, host=settings.PIM_HOST)` at import time**,
+  and the root URLconf reaches both through ordinary views. If
+  `PIM_TOKEN`/`PIM_HOST` are unset, the *entire app* fails to boot with a
+  pydantic `ValidationError`, not just the PIM features. `docker-compose.yml`
+  supplies placeholder defaults.
+- PIM is called from `main_product_manager/utils.py` (card data, the photo
+  proxy, `push_pim_links`), from `product` (`services/pim_sync.py`,
+  `services/sets.py`, `pim_content.py`, `satu_export.py`) and from a few
+  management commands (`check_pim`, `probe_pim_category_size`). Nothing on the
+  `MainProduct` save path calls it.
 
 ## Database
 
-PostgreSQL 17 (`pgvector/pgvector:pg17` image). One full-text index type is in use:
-
-- `GinIndex` on `product.Product.search_vector`, built with `config='russian'`. (There used to be two more, on `MainProduct` and `supplier_manager.Category`; both went with Phase 2b.) Rank against a stored vector with `SearchRank(F('search_vector'), …)`, never the string `'search_vector'` — the string makes Django re-tokenize the stored vector on every row, with the default config and without the index.
-
-There is **no pgvector/HNSW/embedding usage anywhere in the Python code** — semantic search went away with the API rewrite. The image still ships the extension; nothing depends on it.
+PostgreSQL 17 on the `pgvector/pgvector:pg17` image. The extension ships but
+nothing uses it: there is no pgvector, HNSW or embedding code. There is one
+full-text index, a `GinIndex` on `product.Product.search_vector`, whose vector is
+built with `config='russian'`. Rank against it with `SearchRank(F('search_vector'), …)`,
+never the string `'search_vector'`. The string makes Django re-tokenize the stored
+vector on every row, with the default config and without the index.
 
 ## Production snapshots — `backups/`
 
-`backups/` holds pg_dump custom-format snapshots of the production database (`pricemanager_YYYYMMDD_HHMMSS.dump`). The dev database is empty, so these are the only real data on the machine: 156k `MainProduct`, 168k `SupplierProduct`, 527k `PriceTag`, 816 categories, 85 supplier column-mapping `Setting`s. **The `prod-snapshot` skill is the way in** — it carries the verified restore procedure and the traps (a bare `manage.py migrate` fails on the snapshot; migrating `supplier_product_manager` deletes every `PriceTag` and zeroes every price field).
+`backups/` holds pg_dump custom-format snapshots of the production database
+(`pricemanager_YYYYMMDD_HHMMSS.dump`). The dev database is empty, so these are
+the only real data on the machine. **The `prod-snapshot` skill is the way in.**
+It carries the verified restore procedure and the traps: a bare `migrate` fails
+on the snapshot, and migrating `supplier_product_manager` deletes every
+`PriceTag` and zeroes every price field. Three rules govern their use, and they
+are not the skill's to relax:
 
-Three rules govern their use, and they are not the skill's to relax:
-
-- **Investigation only, never a test dependency.** `backups/` is gitignored and `.github/workflows/ci.yml` runs the suite against an empty pgvector service. A test that needs a snapshot passes locally and fails or silently skips in CI. Turn every finding into a committed fixture before it becomes a test.
-- **Never restore over `price_manager_db`.** Always a separate database — `pricemanager_snapshot`. `.claude/hooks/guard_prod_data.py` refuses the obvious ways to break this (`pg_restore -d price_manager_db`, `dropdb`/`DROP DATABASE` on it); it is a net, not a gate.
-- **Nothing derived from a snapshot leaves the machine.** No dump-derived values in commits, PR bodies, GitHub issues, or Telegram messages — `.claude/telegram-bot/` posts to a group chat and the `tg-*` skills file public issues. The dump holds `auth_user` (real accounts, emails and password hashes), `core_cartitem` and supplier pricing. Aggregates and row counts only.
+- **Investigation only, never a test dependency.** `backups/` is gitignored and
+  CI runs against an empty database, so a test that needs a snapshot passes
+  locally and fails or skips in CI. Turn every finding into a committed fixture first.
+- **Never restore over `price_manager_db`.** Always use a separate database,
+  `pricemanager_snapshot`. `.claude/hooks/guard_prod_data.py` refuses the obvious
+  ways to break this; it is a net, not a gate.
+- **Nothing derived from a snapshot leaves the machine.** No dump-derived values
+  go in commits, PR bodies, GitHub issues or Telegram messages
+  (`.claude/telegram-bot/` posts to a group chat, and the `tg-*` skills file
+  public issues). The dump holds real accounts (emails, password hashes), carts
+  and supplier pricing. Share aggregates and row counts only.

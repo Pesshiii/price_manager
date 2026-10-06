@@ -11,11 +11,12 @@ that explains it rather than explaining it here.
 | Term (UI) | Code | Notes |
 |---|---|---|
 | Товар, «Товары» (`/products/`) | `product.Product` | The root of search and filtering since the product shift. Mirrors a PIM product. [[product/overview]] |
-| Карточка товара | `product.views.ProductDetailView`, `/products/<pk>/` | Prices with their rules, ГП rows (attach/move), set composition; edit and delete. See CLAUDE.md on why ГП rows are moved, never unlinked. |
+| Карточка товара | `product.views.ProductDetailView`, `/products/<pk>/` | Prices with their rules, ГП rows (attach/move), set composition; edit and delete. ГП rows are moved, never unlinked. [[product/product-card]] |
 | ГП, главный прайс, «Главный продукт», строка поставщика | `main_product_manager.MainProduct` | One supplier's stock and prices for one `Product`. `/mainproduct/` redirects to `/products/`. [[main_product_manager/overview]] |
-| «Свой склад» (was «Без поставщика») | `Supplier` with `is_own_stock=True` | Supplier for leftover stock, returns, bonuses; behaves like any supplier, default of the «Строка ГП» modal. See CLAUDE.md. |
-| Строка набора, «Наборы» (правило без поставщика) | `MainProduct` with `supplier` NULL (`is_set`); `PriceManager.supplier` NULL | Only set rows have no supplier. See CLAUDE.md. |
-| Строка набора | `MainProduct.is_set` | One per set; `prime_cost` from components, `product/services/set_rows.py`. |
+| «Строка ГП» (модалка) | `main_product_manager.forms.MainProductForm` | Create and fully edit a ГП row by hand, from «Товары» or the card. [[main_product_manager/gp-rows-by-hand]] |
+| «Свой склад» (was «Без поставщика») | `Supplier` with `is_own_stock=True` | Supplier for leftover stock, returns, bonuses; behaves like any supplier, default of the «Строка ГП» modal. [[supplier_manager/own-stock]] |
+| Строка набора, «Наборы» (правило без поставщика) | `MainProduct` with `supplier` NULL (`is_set`); `PriceManager.supplier` NULL | Only set rows have no supplier. [[product/set-rows]], [[product_price_manager/pages-and-fixed-markups]] |
+| Строка набора | `MainProduct.is_set` | One per set; `prime_cost`, stock and delivery days from components. [[product/set-rows]] |
 | Артикул | `Product.number` = `MainProduct.sku` | Local match key; unique case-insensitively. [[product/pim-link]] |
 | Артикул поставщика | `MainProduct.article`, `SupplierProduct.article` | The supplier's own code; `sku` is built from it (`compute_supplier_sku`). [[main_product_manager/sku-and-linking]] |
 | Категория, Бренд | `product.Category` (MPTT), `product.Brand` | Both come from PIM; supplier-side categories and manufacturers were retired. [[supplier_manager/retired-models]] |
@@ -34,8 +35,8 @@ that explains it rather than explaining it here.
 | Основная цена / основной остаток | `product.main_values` | The value by supplier levels, used by the export and by set cost. [[product/export]] |
 | «Менеджеры цен» (`/price-manager/`) | `PriceManagerPage` | All `PriceManager`s; «Наборы» = `supplier` NULL. Was «Наценки ГП». |
 | Менеджер цен / наценка | `PriceManager` (rule, «Менеджер цен»), `PriceTag` («Наценка») | Applying a rule rewrites prices catalog-wide. [[product_price_manager/overview]] |
-| «Наценки» (`/price-manager/pricetags/`) | every `PriceTag`, `PriceTagPage` | Filter `?rule=<pk>\|none`. |
-| Фиксированная наценка (`?rule=none`) | `PriceTag` with `p_manager` NULL | Set on one ГП row; applied after the rules, so it overrides them. `/price-manager/fixed/` redirects to `?rule=none`. |
+| «Наценки» (`/price-manager/pricetags/`) | every `PriceTag`, `PriceTagPage` | Filter `?rule=<pk>\|none`. [[product_price_manager/pages-and-fixed-markups]] |
+| Фиксированная наценка (`?rule=none`) | `PriceTag` with `p_manager` NULL | Set on one ГП row; applied after the rules, so it overrides them. `/price-manager/fixed/` redirects to `?rule=none`. [[product_price_manager/pages-and-fixed-markups]] |
 | ПП, прайс поставщика (в наценках) | `SupplierProduct.supplier_price` / `rrp` / `discount_price` | Sources «РРЦ / Цена поставщика в валюте поставщика» in the rule form; converted by the supplier currency. |
 
 ## Suppliers and import

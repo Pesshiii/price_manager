@@ -5,7 +5,43 @@ code: price_manager/core/bitrix24.py, price_manager/core/views.py
 ---
 # Bitrix24 login — mechanism
 
-## Bitrix24 login — mechanism (CLAUDE.md's `core` bullet covers purpose/policy)
+## Why hand-rolled, and the policy
+
+OAuth of a **local Bitrix24 app**, written on `requests`: `social-core` has no
+Bitrix24 backend, and Bitrix's flow (the code is exchanged by GET at
+`oauth.bitrix.info`, no `redirect_uri`) does not fit a generic one. Off unless
+`BITRIX24_PORTAL`, `BITRIX24_CLIENT_ID` and `BITRIX24_CLIENT_SECRET` are all
+set (`settings/third_party.py`). **No tokens are stored.** This app is separate
+from the inbound webhook `developers` uses for feedback tasks.
+
+**Identity is the Bitrix user ID**, kept in `core.Bitrix24Account` (one-to-one
+both ways). A Bitrix-inactive or non-`employee` user is always refused.
+
+An **anonymous** callback logs in:
+1. by linked ID — staff included, e-mail irrelevant; else
+2. by e-mail, case-insensitive, auto-linking **only** a non-staff user with no
+   usable password (one Bitrix itself created). Anyone else gets «войдите по
+   паролю» and links afterwards — an employee can edit their own Bitrix e-mail,
+   so an e-mail match is not proof of identity; else
+3. a new user, linked — if `BITRIX24_AUTO_CREATE_USERS` (default `true`).
+
+A **logged-in** callback is *link mode*: it only ties the Bitrix ID to the
+current user, never switches users, and refuses if either side is already
+linked elsewhere.
+
+- `BITRIX24_AUTO_CREATE_USERS` is the admission policy: while PM is young every
+  employee gets a user on first login, and PM has no roles, so that user can do
+  everything. Expected to narrow; `false` admits only existing PM users.
+- `BITRIX24_LINK_REQUIRED` (default `false`) turns on
+  `Bitrix24LinkRequiredMiddleware`, which sends any logged-in, unlinked,
+  non-superuser to `accounts/bitrix24/link/`. The password stays a fallback.
+- **Every first-time employee refused with «не указан e-mail»** means the app
+  card has scope `user_brief`, which silently drops `EMAIL` from `user.current`
+  — raise it to `user_basic`.
+- The e-mail-takeover hole remains only for Bitrix-created users not yet linked,
+  and closes on each one's first login.
+
+## Mechanism
 
 `core/bitrix24.py` + `bitrix24_login`/`bitrix24_callback` (`core/views.py:133`,`:151`).
 
