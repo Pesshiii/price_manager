@@ -24,5 +24,5 @@ Settings is a package under `price_manager/price_manager/settings/`. Its `__init
 - **Routes are registered centrally** in `price_manager/price_manager/urls.py`. Only `main_product_manager` and `blogapp` are `include()`d.
 - **Always commit migrations.** They are tracked normally.
 - **Each app has a knowledge keeper.** Consult `<app>`'s keeper agent before working in it (e.g. `core-keeper`, `main-product-keeper`), and record what you learn back with `/record-insight <app>`. Notes live in `.claude/knowledge/<app>/`, one file per topic; start from `.claude/knowledge/README.md` (generated — never edit it) and `glossary.md` for Russian UI terms. See CLAUDE.md for the full table.
-- **Most of the front end is in `core`** — 81 of 123 templates, and the whole shopping-tab/cart feature in `core/views.py`.
+- **Most of the front end is in `core`** — over half of the templates, and the whole shopping-tab/cart feature in `core/views.py`.
 - **`backups/` holds production dumps.** Use the `prod-snapshot` skill; never restore over `price_manager_db`; never let a dump-derived value reach a commit, issue or Telegram message. They are for investigation, not for tests — `backups/` is gitignored, so CI cannot see them and a test that needs one fails there.

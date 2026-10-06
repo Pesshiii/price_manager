@@ -71,6 +71,10 @@ Three consequences worth remembering:
   (backfill numbers, link/create `product.Product` rows) before dispatching.
 - A runner that `.delay()`s subtasks inside the transaction queues them on
   Redis **immediately**, while its own DB writes can still roll back. Use
-  `dispatch_after_commit()` (`task_runner.py:24`) instead — CLAUDE.md's
-  "Dispatching a subtask" paragraph has the why. The `reindex_pim_ids_task`
+  `dispatch_after_commit()` (`task_runner.py:24`, a `transaction.on_commit`
+  wrapper) instead. Dispatched early, a subtask can start against state that
+  never committed: a batch selecting the rows its parent just created finds
+  none of them, and after a rollback the already-dispatched batches keep
+  running against a parent run recorded as failed. Outside a transaction it
+  dispatches at once, so it is safe from views too. The `reindex_pim_ids_task`
   fan-out in `main_product_manager/tasks.py:145-150` is the worked example.

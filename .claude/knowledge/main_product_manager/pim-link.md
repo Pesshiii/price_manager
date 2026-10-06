@@ -63,7 +63,7 @@ the nightly reindex, no error anywhere. Canary:
 
 `push_pim_links(pks)` (`utils.py:789-850`), run per-batch as
 `reindex_pim_ids_batch_task` (`tasks.py:166-175`, `atomic=False` — see
-CLAUDE.md's shared-infra note; wrapping this in a transaction would turn
+[[core/task-runner]]; wrapping this in a transaction would turn
 "skip this chunk on error" into "lose everything since the last commit"):
 
 - Per local Product `pim_id__isnull=True` with a `number`: search PIM by

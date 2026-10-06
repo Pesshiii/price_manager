@@ -5,7 +5,7 @@ Keeper: `core-keeper`. Start with [overview](overview.md). Back to the [knowledg
 
 | Topic | What it covers | Code |
 |---|---|---|
-| [core — overview](overview.md) | What core holds (the UI hub, 81 of 123 templates) and the dead code to avoid. | `price_manager/core/` |
+| [core — overview](overview.md) | What core holds (the UI hub, most of the repo's templates) and the dead code to avoid. | `price_manager/core/` |
 | [Bitrix24 login — mechanism](bitrix24-login.md) | How the hand-rolled Bitrix24 OAuth login links, matches and creates users. | `price_manager/core/bitrix24.py`, `price_manager/core/views.py` |
 | [Sets in the cart](cart-sets.md) | add_set_to_cart, CartItem.source_set, CartItemAddSetView and the «Набор» export column. | `price_manager/core/utils.py`, `price_manager/core/views.py` |
 | [Middleware](middleware.md) | LoginRequiredMiddleware, toaster_middleware and the Bitrix24 link-required gate. | `price_manager/core/middleware.py` |

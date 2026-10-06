@@ -1,6 +1,6 @@
 ---
 title: Applying prices
-summary: get_fitting_mps (starts from the supplier's MainProducts, price-list filters as Exists), empty source means no price, update_prices.
+summary: get_fitting_mps (starts from the supplier's MainProducts, price-list filters as Exists), empty source means no price, update_prices and its order (fixed markups after rules, sets last).
 code: price_manager/product_price_manager/models.py
 ---
 # Applying prices
@@ -125,6 +125,15 @@ by product pk**: when several pricetags touch the same `MainProduct` with
 different `dest` fields, it accumulates each `dest` onto one instance so a
 single write carries all of them. Keep that merge if you refactor — dropping
 it means later tags clobber earlier ones.
+
+**Order of a run:** deprecate expired rules; apply active rules by source
+(`SP_PRICES`, then `MP_PRICES`, then fixed); deprecate expired fixed markups and
+apply the active ones in the same source order — **after the rules, so a fixed
+markup overrides them** ([[product_price_manager/pages-and-fixed-markups]]).
+Then **sets last**: `sync_set_rows` rewrites set rows' `prime_cost` from the
+components the rules just repriced, followed by one more pass of the
+supplier-less rules (non-`SP_PRICES`) and of the set rows' own fixed markups
+(`models.py:763-775`, see [[product/set-rows]]).
 
 `clear_unsourced_prices()` runs once at the very end (`models.py:777`), after
 every rule and every manual tag had its chance to write a real price.

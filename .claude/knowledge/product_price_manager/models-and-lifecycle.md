@@ -18,7 +18,8 @@ repo, and [[product_price_manager/pricing]] for `get_fitting_mps()` and
 (`product.Category`) and `brands` (`product.Brand`), applied in
 `_in_scope()` to both `get_fitting_mps()` and `_fitting_unsupplied_mps()`.
 A chosen category covers its descendants (`get_queryset_descendants`); the
-two narrow together (AND). The filter is a `product__in=<Product subquery>`,
+two narrow together (AND), the choices within each are OR, and an empty field
+means every row. A ГП row without a Product never matches a scoped rule. The filter is a `product__in=<Product subquery>`,
 not a join: a product in two chosen categories would otherwise yield its row
 twice, and the PriceTag upsert (`bulk_create(update_conflicts=True)`) fails
 when one statement updates the same row twice. The M2M go through

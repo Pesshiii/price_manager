@@ -7,4 +7,5 @@ Keeper: `price-rules-keeper`. Start with [overview](overview.md). Back to the [k
 |---|---|---|
 | [product_price_manager — overview](overview.md) | The markup engine, its blast radius, and what to know before touching it. | `price_manager/product_price_manager/` |
 | [PriceManager, PriceTag and their lifecycle](models-and-lifecycle.md) | The two models and the catalog-wide side effects of save/apply/delete/deprecate. | `price_manager/product_price_manager/models.py` |
-| [Applying prices](pricing.md) | get_fitting_mps (starts from the supplier's MainProducts, price-list filters as Exists), empty source means no price, update_prices. | `price_manager/product_price_manager/models.py` |
+| [«Менеджеры цен», «Наценки», «Наборы» rules and fixed markups](pages-and-fixed-markups.md) | The two list pages and their filters, supplier-less («Наборы») rules, and the per-row fixed markup (PriceTag without a rule) with its single modal. | `price_manager/product_price_manager/views.py`, `price_manager/product_price_manager/models.py`, `price_manager/product_price_manager/templates/price_manager/` |
+| [Applying prices](pricing.md) | get_fitting_mps (starts from the supplier's MainProducts, price-list filters as Exists), empty source means no price, update_prices and its order (fixed markups after rules, sets last). | `price_manager/product_price_manager/models.py` |

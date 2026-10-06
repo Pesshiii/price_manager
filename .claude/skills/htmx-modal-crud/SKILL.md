@@ -14,7 +14,7 @@ convention below. See [REFERENCE.md](REFERENCE.md) for full copy-paste templates
 **This is the live convention — build new screens this way.** The apps it names
 (`core`, `product_price_manager`, `main_product_manager`, `supplier_manager`,
 `supplier_product_manager`) are the system under active development; the
-API-driven apps are being retired. See CLAUDE.md, "Direction of travel".
+API-driven apps have been removed. See CLAUDE.md, "Direction of travel".
 
 **Related:** this skill covers success-by-reload (`HttpResponseClientRefresh`).
 When one interaction must update *several regions in place* without a reload —

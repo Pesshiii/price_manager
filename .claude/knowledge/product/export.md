@@ -95,10 +95,11 @@ column per selected supplier column times supplier was replaced with this:
 - **Chunked `pk__in` loses order; the pk list restores it.** `rows()`
   (`export.py:391-416`) walks `_chunks(pks)`, looks up `products` and
   `main_products` per chunk by `pk__in`, then re-emits rows in the original
-  chunk order — `IN` itself does not preserve order. Don't switch to
-  iterating the ordered queryset with `.iterator()`: without an explicit
-  `chunk_size` it silently drops `prefetch_related` (the categories N+1 would
-  come back).
+  chunk order — `IN` itself does not preserve order. Iterating the ordered
+  queryset with `.iterator()` instead is not a drop-in swap: on Django 5.2
+  `iterator()` after `prefetch_related()` **raises** `ValueError` unless given a
+  `chunk_size` (older Djangos silently dropped the prefetch, bringing the
+  categories N+1 back).
 - **openpyxl rejects model instances and tz-aware datetimes.** `self.cell()`
   (`export.py:259-269`) can yield a `Supplier` object (the `supplier__*`
   columns) or a tz-aware `*_updated_at`. `_excel_value` (`export.py:190-200`)
