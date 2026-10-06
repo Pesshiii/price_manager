@@ -78,7 +78,10 @@ services:
       sh -c "python manage.py collectstatic --noinput &&
              gunicorn --bind 0.0.0.0:8000 --workers 3 --no-control-socket price_manager.wsgi:application"
 
-  celery_worker:
+  # The default queue (`celery`): imports, exports, update_prices/stocks and
+  # every beat task except the PIM ones. The PIM scans are routed off it
+  # (CELERY_TASK_ROUTES in settings/celery.py) to `celery_worker_pim` below.
+  celery_worker: &celery-worker
     build:
       context: .
       dockerfile: Dockerfile
@@ -121,7 +124,20 @@ services:
       # Cleanup tasks (settings/celery.py).
       SUPPLIER_FILES_KEEP_LAST: ${SUPPLIER_FILES_KEEP_LAST:-1}
       PERSISTENT_NOTIFICATION_TTL_HOURS: ${PERSISTENT_NOTIFICATION_TTL_HOURS:-72}
-    command: celery -A price_manager worker -l info
+    command: celery -A price_manager worker -l info -Q celery
+
+  # The `pim` queue only: backfill/refresh/reindex fan out hundreds of batches,
+  # each minutes of HTTP and sleeps. On the shared worker they took every slot
+  # and imports, exports and update_prices waited behind them. Same image and
+  # environment as celery_worker (the merge above); low concurrency on purpose,
+  # it also caps how many parallel scans hit PIM. Prefetch 1: tasks are long,
+  # a process must not hold a second one in reserve.
+  # Without this service PIM tasks queue up and never run — no error anywhere.
+  celery_worker_pim:
+    <<: *celery-worker
+    command: >-
+      celery -A price_manager worker -l info -Q pim -n pim@%h
+      -c ${CELERY_PIM_CONCURRENCY:-2} --prefetch-multiplier 1
 
   # Sends CELERY_BEAT_SCHEDULE (settings/celery.py) to the worker; runs nothing
   # itself. Exactly one per stack — two beats send every periodic task twice.

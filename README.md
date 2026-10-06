@@ -8,7 +8,9 @@ Manage prices, stocks and more in the Price Manager web app
 - `db` — PostgreSQL 16
 - `redis` — Redis 7 (кэш Django + брокер Celery)
 - `web` — Django + Gunicorn
-- `celery_worker` — Celery worker
+- `celery_worker` — Celery worker, очередь `celery`: импорт прайсов, выгрузки, пересчёт цен и остатков
+- `celery_worker_pim` — Celery worker, очередь `pim`: синхронизация с PIM (`CELERY_TASK_ROUTES`); параллельность — `CELERY_PIM_CONCURRENCY`, по умолчанию 2
+- `celery_beat` — расписание периодических задач
 
 ### Быстрый старт
 
@@ -42,6 +44,7 @@ docker compose up --build
 - `REDIS_URL` — URL Redis для Django cache (например: `redis://redis:6379/1`).
 - `CELERY_BROKER_URL` — брокер Celery (например: `redis://redis:6379/0`).
 - `CELERY_RESULT_BACKEND` — backend результатов Celery (обычно тот же Redis).
+- `CELERY_PIM_CONCURRENCY` — сколько задач синхронизации с PIM идёт одновременно (`celery_worker_pim`, по умолчанию `2`). Больше — синхронизация быстрее, но и нагрузка на PIM выше.
 
 ### Порты docker compose
 
