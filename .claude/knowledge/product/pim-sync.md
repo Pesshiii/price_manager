@@ -130,7 +130,9 @@ and `categoriesNames` in the vector.
 - A truncated listing raises instead of reading as "not linked".
 - The first run after a long gap fetches the whole tail. A batch of 500 is
   1,000 GETs plus 250 s of sleep on one worker process, so a tail as large as
-  the catalogue keeps workers busy for hours.
+  the catalogue keeps workers busy for hours — the `pim` queue's worker only
+  (`CELERY_TASK_ROUTES`, `celery_worker_pim`), not the one imports, exports
+  and `update_prices` run on.
 
 ### The phantom-field trap (fixed; the shape can recur)
 

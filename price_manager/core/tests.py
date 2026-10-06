@@ -5,6 +5,7 @@ from unittest import mock
 from urllib.parse import parse_qs, urlencode, urlparse
 
 import requests
+from celery.schedules import crontab
 from django.conf import settings
 from django.contrib.auth.models import User
 from django.contrib.messages import get_messages
@@ -157,6 +158,79 @@ class CeleryBeatScheduleTests(SimpleTestCase):
         for key, entry in settings.CELERY_BEAT_SCHEDULE.items():
             with self.subTest(entry=key):
                 self.assertIn(entry['task'], celery_app.tasks)
+
+    def test_every_entry_expires_by_its_next_firing(self):
+        # Otherwise a busy worker comes back to a queue of stale copies of the
+        # same periodic task, run one after another.
+        for key, entry in settings.CELERY_BEAT_SCHEDULE.items():
+            with self.subTest(entry=key):
+                expires = entry.get('options', {}).get('expires')
+                self.assertIsNotNone(expires, 'no options.expires')
+                schedule = entry['schedule']
+                if isinstance(schedule, crontab):
+                    # The bound below assumes a daily crontab; one that fires
+                    # more often needs a shorter expiry than a day.
+                    self.assertEqual((len(schedule.hour), len(schedule.minute)), (1, 1))
+                    period = 24 * 60 * 60
+                else:
+                    period = schedule
+                self.assertLessEqual(expires, period)
+
+
+class CeleryTaskRoutesTests(SimpleTestCase):
+    """PIM scans run on the `pim` queue, everything users wait on on `celery`.
+
+    Both directions fail silently: a name in CELERY_TASK_ROUTES that is not a
+    registered task routes nothing, and the scan lands back on the shared
+    worker; a user-facing task routed to `pim` waits behind a sync's batches.
+    """
+
+    def _queue(self, task):
+        return celery_app.amqp.router.route({}, task.name)['queue'].name
+
+    def test_every_route_names_a_registered_task(self):
+        celery_app.loader.import_default_modules()
+        for name in settings.CELERY_TASK_ROUTES:
+            with self.subTest(task=name):
+                self.assertIn(name, celery_app.tasks)
+
+    def test_pim_scans_go_to_the_pim_queue(self):
+        from main_product_manager import tasks as mp_tasks
+        from product import tasks as product_tasks
+
+        for task in (
+            product_tasks.backfill_products_from_pim_task,
+            product_tasks.refresh_products_from_pim_task,
+            product_tasks.sync_products_batch_task,
+            product_tasks.sync_product_from_pim_task,
+            product_tasks.sync_product_sets_task,
+            mp_tasks.reindex_pim_ids_task,
+            mp_tasks.reindex_pim_ids_batch_task,
+        ):
+            with self.subTest(task=task.name):
+                self.assertEqual(self._queue(task), settings.PIM_QUEUE)
+
+    def test_user_facing_tasks_stay_on_the_default_queue(self):
+        from core import tasks as core_tasks
+        from main_product_manager import tasks as mp_tasks
+        from product import tasks as product_tasks
+        from supplier_product_manager import tasks as sp_tasks
+
+        for task in (
+            sp_tasks.process_supplier_file_import,
+            sp_tasks.copy_supplier_products_to_main_task,
+            sp_tasks.refresh_catalog_after_import,
+            product_tasks.export_products_task,
+            product_tasks.export_products_full_csv_task,
+            product_tasks.export_products_satu_task,
+            core_tasks.export_shopping_tab_task,
+            mp_tasks.update_prices_task,
+            mp_tasks.update_stocks_task,
+        ):
+            with self.subTest(task=task.name):
+                # Literal on purpose: `celery` is what celery_worker consumes
+                # (`-Q celery` in docker-compose.yml), whatever the default is.
+                self.assertEqual(self._queue(task), 'celery')
 
 
 BITRIX24_SETTINGS = dict(

@@ -3,7 +3,7 @@ name: run-price-manager
 description: Build, run, and drive the price_manager Django app (web UI + Celery worker) in Docker. Use when asked to start price_manager, bring up the stack, run its tests, take a screenshot of the UI, or interact with the running app (login, search, HTMX filters).
 ---
 
-price_manager is a Django + HTMX app served by Gunicorn behind Docker Compose (`db`, `redis`, `web`, `celery_worker`). For agent/automated use, drive the running app with the Playwright REPL at `.claude/skills/run-price-manager/driver.mjs` — pipe it commands via a heredoc or tmux `send-keys`.
+price_manager is a Django + HTMX app served by Gunicorn behind Docker Compose (`db`, `redis`, `web`, `celery_worker`, `celery_worker_pim` for the `pim` queue, `celery_beat`). For agent/automated use, drive the running app with the Playwright REPL at `.claude/skills/run-price-manager/driver.mjs` — pipe it commands via a heredoc or tmux `send-keys`.
 
 All paths below are relative to the repo root.
 
