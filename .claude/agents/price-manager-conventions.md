@@ -1,6 +1,6 @@
 ---
 name: price-manager-conventions
-description: Reviews changed Django code against price_manager's repo invariants — legacy-vs-retiring app placement, the settings package layout, central URL registration, Russian UI strings, committed migrations, and execute_locked_task routing for new Celery tasks. Use after adding a model, view, route, or Celery task, and before committing.
+description: Reviews changed Django code against price_manager's repo invariants — app placement (legacy stack vs the product mirror), the settings package layout, central URL registration, Russian UI strings, committed migrations, and execute_locked_task routing for new Celery tasks. Use after adding a model, view, route, or Celery task, and before committing.
 tools: Read, Grep, Glob
 model: sonnet
 ---
@@ -15,43 +15,42 @@ for untracked files. If the user named specific files, review those instead.
 
 ## 1. Stack placement — the expensive one
 
-There are two product catalogs. They are not peers.
-
 **Live stack — new features belong here:**
 `core`, `supplier_manager`, `supplier_product_manager`, `main_product_manager`,
-`product_price_manager`, plus `file_manager`, `blogapp`, `api_auth`, `pim_api`.
+`product_price_manager`, plus `file_manager`, `blogapp`, `developers`,
+`releases`, `pim_api`.
 
-**Retiring stack — no new features:**
-`product`, `pricing`, `supplier`, `supplier_feed`, `dataframe`.
+`product` is the PIM-linked mirror (`pim_id`, `number`, `name`, MPTT
+`categories`, `raw_data`) reconnected to the legacy stack — the root of search
+and filtering. Changes that serve the product shift are fine — changes that
+grow `product` into an independent catalog are not.
 
-Flag as a **blocker**:
-- A new model, view, serializer, or endpoint added to a retiring app.
-- A live app importing from a retiring app. (Today nothing in the legacy apps
-  imports `product`, `pricing`, `supplier`, `supplier_feed`, or `dataframe` —
-  verify with grep before claiming a new import is the first one.)
-- **Deletion** of any retiring app **by just removing its directory**. The owner
-  confirmed on 2026-09-19 that nothing outside the repo calls their `/api/`
-  routes, so removal itself is allowed. But `product/migrations/0007_…` depends on
-  `supplier_feed.0001`, so deleting the apps without first cutting that migration
-  edge breaks every `migrate`, CI included. Flag a removal that doesn't handle it.
+The API-first stack (`pricing`, `supplier`, `supplier_feed`, `dataframe`,
+`api_auth`, the `/api/` mount, DRF) was removed. Flag as a **blocker**:
+- Anything that brings back a REST/JSON API layer — `rest_framework`, a
+  serializer, an `/api/` route — without the owner asking for it.
+- A new app named `supplier` (or `pricing`): the live supplier model is
+  `supplier_manager.Supplier`, and the old name is the usual way to confuse
+  the two.
 
-Exception: `product` is being deliberately recreated as a PIM-linked mirror
-(`pim_id`, `number`, `name`, MPTT `categories`, `raw_data`) and reconnected to the
-legacy stack. Changes that serve that reconnection are fine — changes that grow
-`product` into an independent catalog are not.
+**Removing an app** follows `product/migrations/0015` and `0018`: cut every
+migration dependency on it first, then drop its tables, `django_migrations`
+rows and content types in a `RunPython`. Flag a removal that only deletes the
+directory — leftover FK tables block deletes, and a broken dependency fails
+every `migrate`, CI included.
 
 ## 2. Settings is a package, not a module
 
 `DJANGO_SETTINGS_MODULE` is `price_manager.settings.prod`. Under
 `price_manager/price_manager/settings/`: `__init__.py` is **empty**, `prod.py`
-star-imports `base`, `api`, `project`, `celery`, `databases`, `messages`,
+star-imports `base`, `project`, `celery`, `databases`, `messages`,
 `storages`, `third_party` and concatenates `INSTALLED_APPS` / `MIDDLEWARE`.
 
 Flag:
 - Anything pointing Django at `price_manager.settings` (loads no settings at all).
 - A new setting added to `prod.py` instead of the topic file that owns it —
   `base.py` (core Django, `SECRET_KEY`), `databases.py`, `celery.py`,
-  `storages.py` (S3), `third_party.py`, `messages.py`, `api.py` (DRF),
+  `storages.py` (S3), `third_party.py`, `messages.py`,
   `project.py` (`PROJECT_INSTALLED_APPS`, `PROJECT_MIDDLEWARE`, `PIM_TOKEN`/`PIM_HOST`).
 - A new app added to `INSTALLED_APPS` anywhere other than
   `project.PROJECT_INSTALLED_APPS`.
@@ -93,7 +92,6 @@ success, error, and lock-skipped.
 Flag a **new** `@shared_task` that does its work inline. Known pre-existing
 exceptions — do not re-report them as new findings:
 - `supplier_product_manager/tasks.py` (4 tasks)
-- `supplier_feed/tasks.py` (1 task, retiring stack)
 
 One caveat worth raising if relevant: `transaction.atomic()` cannot span an HTTP
 call. If a new task's runner makes PIM calls, check it follows the pattern noted

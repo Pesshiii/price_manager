@@ -11,24 +11,26 @@ The worked example for tightening/loosening a constraint on `Product` against
 a populated database (`0006` used to be it — same step-ordering shape, plus a
 cross-app dependency wrinkle here):
 
-1. `AlterField pim_id → nullable` (`:55`) first — the next step can't write
+1. `AlterField pim_id → nullable` (`:51`) first — the next step can't write
    NULLs into a NOT-NULL column.
-2. `RunPython(reset_pim_ids)` (`:27`) nulls **every** `pim_id` unconditionally
+2. `RunPython(reset_pim_ids)` (`:28`) nulls **every** `pim_id` unconditionally
    — the old values are PIM `Product` ids, meaningless under the new schema
    (see [[product/pim-link]]). `reindex_pim_ids` re-derives them by `number`
    search.
 3. Same RunPython deletes "residue": `Product`s with `number IS NULL` that
-   nothing references — checked against `MainProduct.product`,
-   `supplier_feed.SupplierFeedEntry.product` **and**
-   `supplier_feed.SupplierLink.product` (`:36-41`). `SupplierLink.product` is
-   `on_delete=CASCADE`; skipping that exclusion would silently take a
-   supplier link down with its "orphan" `Product`.
+   no `MainProduct.product` references (`:35-38`). As applied in production it
+   also excluded rows referenced by `supplier_feed.SupplierFeedEntry`/
+   `SupplierLink` (`SupplierLink.product` was `on_delete=CASCADE`); those
+   checks, and `0009`'s matching rebinds, were cut when the API stack was
+   removed — see `0018` below.
 4. Then `AlterField` on `number` (verbose name only) and `name` (drops
    `unique=True`).
 
-Depends on `main_product_manager.0011` and `supplier_feed.0001` (`:48-51`)
-because the `RunPython` reads those apps' models — a real cross-app migration
-dependency, not just ordering. Not reversible on data (reverse is noop).
+Depends on `main_product_manager.0011` (`:45-48`) because the `RunPython`
+reads its model — a real cross-app migration dependency, not just ordering.
+(It also depended on `supplier_feed.0001` until that app was deleted; editing
+an applied migration changes nothing in production, it only has to keep a
+fresh database migrating.) Not reversible on data (reverse is noop).
 **CI migrates an empty database**, so this data step never meets a row there
 — `product/tests/test_migration_0007.py` (imports the module via `importlib`
 since its name starts with a digit, calls `reset_pim_ids` directly against
@@ -56,6 +58,17 @@ GIN index) — no data migration, nothing to trap here.
 [[product/overview]]). `0010_product_export` adds `ProductExport` — purely
 additive, see [[product/export]]. `0011_productsetitem` adds
 `ProductSetItem` — purely additive, see [[product/sets]].
+
+`0015_remove_product_pricing` and `0018_drop_api_stack` are the pattern for
+**removing a whole app**: the app leaves `INSTALLED_APPS`, and a `RunPython`
+here drops its tables (`DROP TABLE IF EXISTS … CASCADE` — a fresh database
+never had them), deletes its `django_migrations` rows (so a future app of the
+same name — `supplier`, `pricing` — does not find its `0001` "applied"), and
+its content types with their permissions, their grants to users and groups,
+and the admin log's references. Leftover tables are not harmless: the API
+apps' tables held FKs into `product_product`/`product_category`, which would
+have blocked deleting those rows at commit. `product/tests/test_migration_0018.py`
+recreates such a table to cover the step.
 
 ### Migration-graph trap — a cross-app FK can silently reorder old migrations
 

@@ -5,7 +5,7 @@ Keeper: `supplier-manager-keeper`. Start with [overview](overview.md). Back to t
 
 | Topic | What it covers | Code |
 |---|---|---|
-| [supplier_manager — overview](overview.md) | The reference-data app, and not to be confused with the retiring supplier app. | `price_manager/supplier_manager/` |
+| [supplier_manager — overview](overview.md) | The reference-data app — suppliers, currencies, discount groups. | `price_manager/supplier_manager/` |
 | [Models and the /supplier/ list](models-and-list.md) | Currency, Supplier (sku, delivery days, stock messages, priorities), Discount; SupplierList. | `price_manager/supplier_manager/models.py`, `price_manager/supplier_manager/views.py` |
 | [«Свой склад» — the own-stock supplier](own-stock.md) | Supplier.is_own_stock: one real supplier for leftover stock, returns and bonuses; how it is found, protected, and what the flag does and does not mean. | `price_manager/supplier_manager/models.py`, `price_manager/supplier_manager/views.py`, `price_manager/supplier_manager/forms.py`, `price_manager/product_price_manager/migrations/0009_unsupplied_supplier.py`, `price_manager/product_price_manager/migrations/0010_own_stock.py` |
 | [Retired in Phase 2b-3](retired-models.md) | Category, Manufacturer and ManufacturerDict: what went where. | `price_manager/supplier_manager/migrations/0011_retire_category_and_manufacturer.py` |

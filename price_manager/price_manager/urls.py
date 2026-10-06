@@ -18,7 +18,6 @@ from releases import views as releases_views
 
 urlpatterns = [
     path('admin/', admin.site.urls),
-    path('api/', include('api_urls')),
     path('accounts/login/', views.AppLoginView.as_view(), name='login'),
     path('accounts/logout/', views.AppLogoutView.as_view(), name='logout'),
     path('accounts/bitrix24/login/', views.bitrix24_login, name='bitrix24-login'),
@@ -133,7 +132,6 @@ urlpatterns = [
     path('cart-items/<int:pk>/unconfirm/', views.CartItemUnconfirmView.as_view(), name='cart-item-unconfirm'),
     path('cart-items/<int:pk>/products/<int:product_pk>/remove/', views.CartItemRemoveProductView.as_view(), name='cart-item-product-remove'),
     path('blog/', include('blogapp.urls')),
-    path('api/', include('api_urls')),
 
     path("toasts/", views.toast_messages, name="toast-messages"),
     path('notifications/<int:pk>/delete/', views.PersistentNotificationDeleteView.as_view(), name='persistent-notification-delete'),

@@ -301,9 +301,6 @@ Rank by whether a user is blocked, not by how bad it looks.
 - **Do not edit templates during a review.** Capture and critique are one job;
   fixing is another, and mixing them means the screenshots no longer match the
   code they describe.
-- **Do not review the `product`, `pricing`, `supplier`, `supplier_feed` or
-  `dataframe` apps' surfaces.** They are the retiring API-first stack and have
-  no UI worth improving — see CLAUDE.md's *Direction of travel*.
 - **Do not file issues from this skill.** See the top.
 
 $ARGUMENTS

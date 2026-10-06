@@ -54,9 +54,9 @@ code: price_manager/product/services/pim_sync.py, price_manager/product/tasks.py
   (`sync_product_from_pim_task`, via `execute_locked_task`, per-`pim_id`
   lock) wraps the function as a task but nothing dispatches that task
   (`.delay()`/`.apply_async()`) — the production caller goes through the
-  plain function instead, from inside `sync_products()` (below). The other
-  caller is the retiring-stack `supplier_feed` create-product endpoint
-  ([[retiring_stack]] owns it) — expects a PMP id in its request body.
+  plain function instead, from inside `sync_products()` (below). (The
+  `supplier_feed` create-product endpoint that also called it went with the
+  API stack.)
 - **Tests:** `product/tests/test_pim_sync.py` mocks `_fetch_pim_link` and
   `_fetch_pim_product` at two separate seams (`LINK_PATCH`/`PRODUCT_PATCH`),
   plus a `PimClientWiringTests` class that patches only `SiteAPI.get` to
@@ -130,7 +130,9 @@ and `categoriesNames` in the vector.
 - A truncated listing raises instead of reading as "not linked".
 - The first run after a long gap fetches the whole tail. A batch of 500 is
   1,000 GETs plus 250 s of sleep on one worker process, so a tail as large as
-  the catalogue keeps workers busy for hours.
+  the catalogue keeps workers busy for hours — the `pim` queue's worker only
+  (`CELERY_TASK_ROUTES`, `celery_worker_pim`), not the one imports, exports
+  and `update_prices` run on.
 
 ### The phantom-field trap (fixed; the shape can recur)
 

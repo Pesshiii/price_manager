@@ -7,8 +7,6 @@ from django.test import TestCase
 
 from main_product_manager.models import MainProduct
 from product.models import Product
-from supplier.models import Supplier as FeedSupplier
-from supplier_feed.models import SupplierLink
 from supplier_manager.models import Currency, Supplier
 
 from .test_migration_0016 import NumberlessProductsMixin
@@ -37,14 +35,6 @@ class ResetPimIdsTests(NumberlessProductsMixin, TestCase):
         numbered = Product.objects.create(pim_id='old-1', number='N-1')
         linked_placeholder = Product.objects.create(pim_id='old-2', number=None)
         MainProduct.objects.create(supplier=self.supplier, article='A', name='A', product=linked_placeholder)
-        # SupplierLink.product is on_delete=CASCADE: deleting this "orphan"
-        # would silently take the supplier link with it.
-        feed_placeholder = Product.objects.create(pim_id='old-3', number=None)
-        SupplierLink.objects.create(
-            supplier=FeedSupplier.objects.create(name='Feed supplier'),
-            supplier_sku='FEED-1',
-            product=feed_placeholder,
-        )
         orphan = Product.objects.create(pim_id='old-4', number=None)
 
         with contextlib.redirect_stdout(io.StringIO()):
@@ -53,7 +43,6 @@ class ResetPimIdsTests(NumberlessProductsMixin, TestCase):
         self.assertFalse(Product.objects.exclude(pim_id__isnull=True).exists())
         self.assertEqual(
             set(Product.objects.values_list('pk', flat=True)),
-            {numbered.pk, linked_placeholder.pk, feed_placeholder.pk},
+            {numbered.pk, linked_placeholder.pk},
         )
         self.assertFalse(Product.objects.filter(pk=orphan.pk).exists())
-        self.assertTrue(SupplierLink.objects.filter(supplier_sku='FEED-1').exists())

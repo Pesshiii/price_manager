@@ -4,7 +4,6 @@ from django.conf import settings
 from django.contrib.auth.views import redirect_to_login
 from django.shortcuts import redirect, resolve_url
 from django.urls import NoReverseMatch, reverse
-from django.http import HttpResponse, JsonResponse
 from django_htmx.http import HttpResponseClientRedirect, reswap, trigger_client_event
 from django.contrib import messages
 
@@ -23,7 +22,7 @@ class Bitrix24LinkRequiredMiddleware:
         'bitrix24-link', 'bitrix24-login', 'bitrix24-callback',
         'login', 'logout', 'toast-messages',
     )
-    EXEMPT_PREFIXES = ('/admin/', '/api/')
+    EXEMPT_PREFIXES = ('/admin/',)
 
     def __init__(self, get_response):
         self.get_response = get_response
@@ -88,10 +87,6 @@ class LoginRequiredMiddleware:
             if prefix
         )
 
-        self.api_exempt_prefixes = tuple(
-            getattr(settings, "LOGIN_EXEMPT_API_PREFIXES", ())
-        )
-
     def __call__(self, request):
         if request.user.is_authenticated:
             return self.get_response(request)
@@ -100,9 +95,6 @@ class LoginRequiredMiddleware:
 
         if self._is_exempt(path):
             return self.get_response(request)
-
-        if path.startswith("/api/"):
-            return JsonResponse({"detail": "Authentication required."}, status=401)
 
         return redirect_to_login(request.get_full_path(), settings.LOGIN_URL)
 
@@ -118,9 +110,6 @@ class LoginRequiredMiddleware:
 
         # Allow access to the admin authentication views so the default admin login works.
         if path.startswith("/admin/login") or path.startswith("/admin/logout"):
-            return True
-
-        if any(path.startswith(prefix) for prefix in self.api_exempt_prefixes):
             return True
 
         return False

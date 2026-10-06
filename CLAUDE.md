@@ -27,8 +27,8 @@ is a *package* with an empty `__init__.py`, so pointing Django at
 topic files and concatenates `INSTALLED_APPS`/`MIDDLEWARE`. To change a setting,
 edit the file that owns it: `base.py` (core Django, `SECRET_KEY`),
 `databases.py`, `celery.py` (beat schedule), `storages.py` (S3, static),
-`third_party.py` (crispy, Bitrix24), `messages.py` (login exemptions), `api.py`
-(DRF), `project.py` (`PROJECT_INSTALLED_APPS`, `PROJECT_MIDDLEWARE`,
+`third_party.py` (crispy, Bitrix24), `messages.py` (login exemptions),
+`project.py` (`PROJECT_INSTALLED_APPS`, `PROJECT_MIDDLEWARE`,
 `PIM_TOKEN`/`PIM_HOST`).
 
 ## Running more than one agent
@@ -78,9 +78,6 @@ the `run-price-manager` skill before isolating.
 
 ## Direction of travel — read this before adding code
 
-There are two product catalogs in the tree. **They are not peers, and the newer
-one is not the future.**
-
 **The legacy, supplier-centric stack is the live system. Build here.**
 
 - `core` — the UI hub, the shopping tab and cart, the task runner, auth (see below).
@@ -94,7 +91,7 @@ one is not the future.**
   brand, categories and search live on `product.Product`.
 - `product_price_manager` — `PriceManager` («менеджер цен», a markup rule: source
   price → dest price), `PriceTag` («наценка», per-row snapshot), `update_prices()`.
-- Supporting: `releases`, `developers` (below), `file_manager`, `blogapp`, `api_auth`, `pim_api`.
+- Supporting: `releases`, `developers` (below), `file_manager`, `blogapp`, `pim_api`.
 
 Invariants that cross these apps (the mechanics are in the keepers' topics):
 
@@ -113,27 +110,22 @@ Invariants that cross these apps (the mechanics are in the keepers' topics):
   stock (`post_delete` signal). A rule that computes from a supplier price never
   matches such a row.
 
-**The API-driven stack is being retired. Do not build new features here.**
-`pricing`, `supplier`, `supplier_feed`, `dataframe`. No live app imports them,
-and they are reachable only under `/api/` and in the Django admin, where each
-registers its models. Apart from each other they touch only
-`product`: `supplier_feed` imports it and holds FKs into `product.Product`. **Nothing outside this repo calls
-them, as the owner confirmed on 2026-09-19 (don't ask again)**, so they can be
-removed. **Deleting the directories is not enough:**
-`product/migrations/0007_product_pim_id_is_price_manager_product.py` depends on
-`('supplier_feed', '0001_initial')` and loads two of its models in `RunPython`,
-while `supplier_feed.0001` depends on `dataframe`, `pricing`, `supplier` and
-`product.0001`. Cut that edge first (drop
-the dependency and the two `get_model` calls, or squash `product`'s migrations),
-or every `migrate` fails, including on CI's fresh database. Production has
-already applied `0007`, so the edit only has to keep a fresh database migrating.
-`.claude/hooks/guard_retiring_stack.py` turns edits under the four into a
-permission prompt (`supplier` and `supplier_manager` are one keystroke apart). It
-is a net, not a gate: `Bash` rewrites bypass it.
+**The API-first stack is gone — do not bring it back unasked.** `pricing`,
+`supplier`, `supplier_feed`, `dataframe`, `api_auth`, the `/api/` mount, DRF and
+`django-cors-headers` were removed (the owner had confirmed on 2026-09-19 that
+nothing outside the repo called `/api/`). There is no REST/JSON API now, and
+suppliers are only `supplier_manager.Supplier`. `product.0018_drop_api_stack`
+drops the four apps' tables, their `django_migrations` rows and their content
+types; `product.0007`/`0009` no longer depend on `supplier_feed`.
 
-**`product` is the exception.** The API-first rewrite did not work out, and
-`product` was recreated as a **PIM-linked mirror** reconnected to the legacy
-stack: `pim_id`, `number` (= `MainProduct.sku`), `name`, MPTT `categories`,
+**Removing an app** follows `product.0015` and `0018`: cut every migration
+dependency on it, then drop its tables, migration rows and content types in a
+`RunPython`. Deleting only the directory leaves FK tables that block deletes,
+and a dangling dependency fails every `migrate`, CI included.
+
+**`product` is the PIM-linked mirror on top of it.** The API-first rewrite did
+not work out, and `product`, its one surviving app, was recreated as a
+**PIM-linked mirror** reconnected to the legacy stack: `pim_id`, `number` (= `MainProduct.sku`), `name`, MPTT `categories`,
 `brand`, `raw_data`, a local `search_vector`. It is the **root of search and
 filtering**: `/products/` and the card at `/products/<pk>/` (`/mainproduct/`
 redirects there). The design and its decisions are in
@@ -168,8 +160,7 @@ rendered by other apps' views (`supplier/`, `currency/`, `main/`, `upload/`,
 - the **shopping tab / cart**: `ShoppingTab*` and `CartItem*` views in
   `core/views.py`, templates in `core/templates/shopping_tab/`, spreadsheet
   helpers in `core/utils.py`;
-- `LoginRequiredMiddleware` (the global login gate; anonymous `/api/` requests get
-  401 JSON, not a redirect) and `toaster_middleware`;
+- `LoginRequiredMiddleware` (the global login gate) and `toaster_middleware`;
 - `PersistentNotification`, whose lifetime depends on its `kind`
   (`.claude/knowledge/core/models-and-notifications.md`); read it through
   `.visible()`. A supplier-import confirmation never expires on its own, so
@@ -191,19 +182,31 @@ exception — see its `tasks-and-imports` topic). It takes a Redis lock (`cache.
 and writes a `TaskRunHistory` row for every run (success, error or
 lock-skipped). `atomic=False` drops only the transaction. Use it for runners
 that make network calls or sleep between their writes, so no transaction idles
-across them; such a runner must be idempotent. The worker is the `celery_worker`
-container with Redis as broker, and tasks are `@shared_task` in each app's `tasks.py`.
+across them; such a runner must be idempotent. Tasks are `@shared_task` in each
+app's `tasks.py`, with Redis as broker and backend.
+
+**Two workers, two queues.** `celery_worker` consumes the default queue `celery`:
+imports, exports, `update_prices`/`update_stocks`, every user-triggered task.
+`celery_worker_pim` consumes `pim`: the PIM scans listed in `CELERY_TASK_ROUTES`
+(`settings/celery.py`) — backfill/refresh/reindex and their batches,
+`sync_product_sets`, `sync_product_from_pim`. Those fan out hundreds of
+minutes-long batches, and on one shared queue they took every worker slot while
+uploads, exports and price updates waited. So **a new task that spends minutes on
+PIM, or fans out batches that do, goes into `CELERY_TASK_ROUTES`**; anything a
+user waits on stays off it (the Satu export is long and PIM-bound but stays on
+`celery` for that reason). `core.tests.CeleryTaskRoutesTests` pins both directions
+and catches a misspelt route name, which would otherwise route nothing. A stack
+started without `celery_worker_pim` (e.g. only `db`/`redis`/`celery_worker` for
+tests) never runs PIM tasks — they wait in `pim`, no error. Every
+`CELERY_BEAT_SCHEDULE` entry carries `options.expires` no longer than its period,
+so a busy worker never comes back to a queue of stale copies; a new entry needs
+one too (a test checks).
 
 **Dispatching a subtask from inside a task: use `dispatch_after_commit(task, *args, **kwargs)`,
 not `.delay()`.** A bare `.delay()` inside the runner's transaction can start the
 subtask against state that never commits. Outside a transaction it dispatches
 immediately, so it is safe from views too. The why and the `reindex_pim_ids`
 example are in `.claude/knowledge/core/task-runner.md`.
-
-**REST API:** DRF at `/api/` (`api_urls.py`), session auth only
-(`SessionAuthentication` + `IsAuthenticated`, `settings/api.py`). `api_auth` logs
-in with `django.contrib.auth.login` behind a CSRF cookie. There is no token auth.
-Apart from `api_auth`, only the retiring apps expose routes.
 
 ## Frontend
 
@@ -243,7 +246,6 @@ markdown file per topic:
 | `supplier_product_manager` | `supplier-product-keeper` | `.claude/knowledge/supplier_product_manager/` |
 | `supplier_manager` | `supplier-manager-keeper` | `.claude/knowledge/supplier_manager/` |
 | `product_price_manager` | `price-rules-keeper` | `.claude/knowledge/product_price_manager/` |
-| `pricing` `supplier` `supplier_feed` `dataframe` | `retiring-stack-keeper` | `.claude/knowledge/retiring_stack/` |
 
 **Consult the keeper before working in its app.** It reads its index and the
 relevant topics, verifies them against current code, and answers with
@@ -265,8 +267,8 @@ with `--check`, which fails on a stale index, a topic without front matter, a fl
 - `.claude/knowledge/<app>/<topic>.md` holds app-local mechanism and traps.
 - The user's memory dir holds workflow preferences, not code facts.
 
-Apps with no keeper (`file_manager`, `api_auth`, `pim_api`, `blogapp`,
-`releases`, `developers`) are too small for one; what matters about them goes in
+Apps with no keeper (`file_manager`, `pim_api`, `blogapp`, `releases`,
+`developers`) are too small for one; what matters about them goes in
 this file.
 
 **The PIM has a consultant, not a keeper.** `pim-docs` answers what
@@ -282,8 +284,7 @@ PIM is upgraded, bump `DOCS_REF`**; `pim_docs.py instance version` reports a mis
 - **UI strings are Russian**: model and `Meta` `verbose_name`s, form labels and
   template copy. Code identifiers and comments are English.
 - **Routes are registered centrally** in `price_manager/price_manager/urls.py`.
-  Only `main_product_manager`, `blogapp` and `api_urls` are `include()`d.
-  `api_urls` appears twice, which looks like an uncleaned duplicate.
+  Only `main_product_manager` and `blogapp` are `include()`d.
 - **Always commit migrations.**
 
 ## Key cross-app dependencies

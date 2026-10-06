@@ -8,8 +8,6 @@ from django.test import TestCase
 
 from main_product_manager.models import MainProduct
 from product.models import Brand, Product
-from supplier.models import Supplier as FeedSupplier
-from supplier_feed.models import SupplierLink
 from supplier_manager.models import Currency, Supplier
 
 migration = importlib.import_module('product.migrations.0009_product_number_case_insensitive')
@@ -69,22 +67,6 @@ class MergeCaseDuplicateNumbersTests(TestCase):
         mp.refresh_from_db()
         self.assertEqual(mp.product_id, lower.pk)
         self.assertEqual(Product.objects.get(pk=lower.pk).number, 'abc123')
-
-    def test_relinks_supplier_link_before_deleting_cascade_fk(self):
-        # SupplierLink.product is on_delete=CASCADE: deleting the losing row
-        # without repointing this first would silently take the link with it.
-        lower = Product.objects.create(number='abc123')
-        upper = Product.objects.create(number='ABC123')
-        link = SupplierLink.objects.create(
-            supplier=FeedSupplier.objects.create(name='Feed supplier'),
-            supplier_sku='FEED-1',
-            product=upper,
-        )
-
-        self._run()
-
-        link.refresh_from_db()
-        self.assertEqual(link.product_id, lower.pk)
 
     def test_no_lowercase_variant_picks_lowest_pk_and_swaps_it(self):
         first = Product.objects.create(number='ABC123')
