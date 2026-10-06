@@ -42,10 +42,6 @@ KEEPERS = {
     "supplier_product_manager": "supplier-product-keeper",
     "supplier_manager": "supplier-manager-keeper",
     "product_price_manager": "price-rules-keeper",
-    "pricing": "retiring-stack-keeper",
-    "supplier": "retiring-stack-keeper",
-    "supplier_feed": "retiring-stack-keeper",
-    "dataframe": "retiring-stack-keeper",
 }
 
 

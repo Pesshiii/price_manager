@@ -1,5 +1,4 @@
 from .base import *
-from .api import *
 from .project import *
 from .celery import *
 from .databases import *

@@ -83,9 +83,7 @@ git grep -n -E ">[[:space:]]*[А-Яа-яЁё]" -- '*/shopping_tab/*.html'
 >
 > Directory names are not all as convenient as `shopping_tab/`, which is unique
 > in the tree. Currency templates are at `'*/templates/currency/*.html'`, and
-> supplier ones at `'*/templates/supplier/*.html'` — where `supplier` is also the
-> name of a retiring app, so include `templates/` in the pathspec to stay out of
-> it. **A zero from any of these means "check the pathspec", not "no strings
+> supplier ones at `'*/templates/supplier/*.html'`. **A zero from any of these means "check the pathspec", not "no strings
 > here"**, until you have seen it return nonzero once.
 
 **Model `verbose_name`s** — scope to `models.py` and nothing else:
@@ -262,11 +260,6 @@ eval document.querySelectorAll('.custom-select, .form-row, .form-control-file').
 
 Nonzero means BS4 markup in a BS5 stylesheet — CLAUDE.md owns the explanation.
 Zero means the layout is fine and the copy really is too long.
-
-**The retiring five have no UI worth reviewing.** `product`, `pricing`,
-`supplier`, `supplier_feed`, `dataframe` are API-only. Their 39 `verbose_name`s
-are noise here — exclude them, and do not confuse `supplier` with the live
-`supplier_manager`.
 
 ## Handing off to `design:ux-copy`
 

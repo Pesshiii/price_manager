@@ -77,23 +77,12 @@ run the `## Проверка` command *first* and watch it fail. If it passes, t
 is already fixed — report which PR fixed it and stop. Closing it is the
 maintainer's call, not yours.
 
-**4. It does not build in the retiring five.** `CLAUDE.md` is unambiguous:
-`product`, `pricing`, `supplier`, `supplier_feed`, `dataframe` are being retired
-and take no new features. If the brief asks for one there, stop and say so.
-
-Two caveats on that gate, both real:
-
-- `product` is the exception — it is being actively **recreated** as a PIM-linked
-  mirror. Fixes and reconnection work there are legitimate; new API surface is
-  not. Ask `product-keeper` if the line is unclear.
-- **A hook backs this up, but only partly.**
-  `.claude/hooks/guard_retiring_stack.py` turns an `Edit`/`Write` under
-  `pricing`, `supplier`, `supplier_feed` or `dataframe` into a permission
-  prompt, which is what `/agent-brief` is relying on when it omits the boundary
-  from every brief. It does **not** cover `product` (deliberately — that app is
-  being recreated), and it does not see a file rewritten through `Bash`. It also
-  fires one file at a time, so it catches the slip and not the plan. Deciding
-  *before* you start is still your job; the hook is the net, not the gate.
+**4. It does not bring back an API layer.** The API-first stack (`pricing`,
+`supplier`, `supplier_feed`, `dataframe`, `api_auth`, `/api/`, DRF) was removed.
+If the brief asks for a REST endpoint or a serializer, stop and say so.
+`product` is the PIM-linked mirror the product shift reconnected to the legacy
+stack: fixes and shift work there are legitimate, growing it into a catalog
+independent of PIM is not. Ask `product-keeper` if the line is unclear.
 
 ## 2. Ask the keeper — in ASK mode
 
@@ -109,7 +98,6 @@ against the issue, and you are about to write against the file.
 | `supplier_product_manager` | `supplier-product-keeper` |
 | `supplier_manager` | `supplier-manager-keeper` |
 | `product_price_manager` | `price-rules-keeper` |
-| `pricing`, `supplier`, `supplier_feed`, `dataframe` | `retiring-stack-keeper` |
 
 **Ask, do not record.** Say *"answer with `file:line`; do not record anything"*
 in the prompt. Recording happens in §9, after there is something learned to

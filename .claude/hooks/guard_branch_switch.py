@@ -25,7 +25,7 @@ memory, a `reset --hard` reached for while cleaning up.
     can restore another session's work into your tree. Only the addressable forms
     are safe: `push -m <tag>` to create, `apply <sha>` to restore.
 
-Both rules `ask` rather than `deny`, matching `guard_retiring_stack.py`. Switching
+Both rules `ask` rather than `deny`. Switching
 branches in the main checkout is completely legitimate when no one else is
 working — and a hook cannot see who else is working. Asking puts that judgement
 back with the person who can answer it.

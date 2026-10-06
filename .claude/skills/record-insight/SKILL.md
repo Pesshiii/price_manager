@@ -31,9 +31,8 @@ code. Links between topics are `[[app]]` and `[[app/topic]]`.
 | `supplier_product_manager` | `supplier-product-keeper` | `.claude/knowledge/supplier_product_manager/` |
 | `supplier_manager` | `supplier-manager-keeper` | `.claude/knowledge/supplier_manager/` |
 | `product_price_manager` | `price-rules-keeper` | `.claude/knowledge/product_price_manager/` |
-| `pricing`, `supplier`, `supplier_feed`, `dataframe` | `retiring-stack-keeper` | `.claude/knowledge/retiring_stack/` |
 
-Apps with no keeper (`file_manager`, `api_auth`, `pim_api`, `blogapp`) are too
+Apps with no keeper (`file_manager`, `pim_api`, `blogapp`) are too
 small to carry one. If something there genuinely matters, it belongs in
 `CLAUDE.md`, not in a new knowledge directory.
 

@@ -153,7 +153,7 @@ runs on real categories and brands with no PIM load.
 **Mode D — the product page (`/products/`) on real data.** Mode B plus the recreated
 `product` app. Needed because the product page reads `product.Product`, and the dump's
 `product` app is the dead API-first lineage (see Traps). Verified 2026-09-19; prices and
-`PriceTag`s stay intact. **It destroys the retiring apps' tables** (`pricing`,
+`PriceTag`s stay intact. **It destroys the removed API apps' tables** (`pricing`,
 `supplier_feed`, `dataframe`, `supplier`), which is fine in a throwaway copy and exactly why
 it must never touch `price_manager_db`.
 
@@ -167,9 +167,9 @@ DROP TABLE IF EXISTS product_category_contenttypes, product_characteristictype_c
   product_stocktype, product_manufacturer, product_brand, product_product, product_category
 CASCADE;"
 
-# D2. The retiring apps' migrations are INTERLEAVED into product's own chain
-#     (migrate product --plan shows dataframe/pricing/supplier/supplier_feed inside it),
-#     so their tables must go too, or product.0001 collides with them.
+# D2. Forget product's old migration rows, or product.0001 is skipped as "applied".
+#     The removed API apps' tables go too (product.0018 would drop them anyway, but
+#     on an old dump they hold FKs into the product tables D1 just dropped).
 docker compose exec -T db psql -U priceuser -d pricemanager_snapshot -v ON_ERROR_STOP=1 -c "
 DROP TABLE IF EXISTS dataframe_link, dataframe_dictitem, dataframe_filemodel,
   dataframe_dataframe, pricing_productprice, pricing_stock, pricing_pricingrule,
@@ -179,7 +179,7 @@ DROP TABLE IF EXISTS dataframe_link, dataframe_dictitem, dataframe_filemodel,
 DELETE FROM django_migrations
  WHERE app IN ('product','pricing','supplier_feed','dataframe','supplier');"
 
-# D3. Now product migrates cleanly, together with the retiring apps it drags in.
+# D3. Now product migrates cleanly.
 docker compose exec -T -e POSTGRES_DB=pricemanager_snapshot web python manage.py migrate product
 
 # D4. Link stragglers — LOCALLY. Do NOT run the reindex_pim_ids task: its
@@ -260,7 +260,8 @@ MSYS_NO_PATHCONV=1 docker compose exec -T db rm -f /tmp/snap.dump
   after any production upgrade rather than assuming it keeps working.
 - The snapshot carries tables no current model owns — `product_importjob`,
   `product_characteristicmutationjob`, `pricing_*`, `supplier_feed_*`,
-  `dataframe_*`. Expected; they are the retired lineage.
+  `dataframe_*`. Expected; they are the retired lineage (`product.0018` drops the
+  API apps' ones when `product` is migrated).
 
 ## What is in there (2026-09-03 dump, verified 2026-09-07)
 

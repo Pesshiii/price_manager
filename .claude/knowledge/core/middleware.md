@@ -7,21 +7,20 @@ code: price_manager/core/middleware.py
 
 ## Middleware (`core/middleware.py`)
 
-`LoginRequiredMiddleware` (class starts `:72`) — global login gate;
+`LoginRequiredMiddleware` (class starts `:71`) — global login gate;
 **everything behind `/` requires login**. Exemptions: `STATIC_URL`/`MEDIA_URL`
-prefixes, `settings.LOGIN_URL`, `LOGIN_EXEMPT_URLS`,
-`LOGIN_EXEMPT_API_PREFIXES`, and `/admin/login`, `/admin/logout` (hardcoded,
-so the stock admin login still works). Requests under `/api/` get a **401
-JSON** response rather than a redirect (`middleware.py:104-105`) — worth
-knowing when an API client reports a redirect loop.
+prefixes, `settings.LOGIN_URL`, `LOGIN_EXEMPT_URLS`, and `/admin/login`,
+`/admin/logout` (hardcoded, so the stock admin login still works). Every other
+anonymous request is redirected to the login page — there is no JSON 401
+branch any more: it served the `/api/` routes, removed with the API stack.
 
 `LOGIN_EXEMPT_URLS` entries are **URL names**, not raw paths: `__init__`
-(`:75-93`) resolves each via `resolve_url()` once, into a path set
-(`:80-83`), then `_is_exempt` does an exact `path in self.exempt_paths` check
-per request (`:116`). `'bitrix24-login'`/`'bitrix24-callback'` were added
+(`:74-88`) resolves each via `resolve_url()` once, into a path set
+(`:79-82`), then `_is_exempt` does an exact `path in self.exempt_paths` check
+per request (`:108`). `'bitrix24-login'`/`'bitrix24-callback'` were added
 here (`settings/messages.py:19-20`) alongside `'login'`/`'logout'`/`'admin:*'`.
 
-`toaster_middleware` (`:149-165`) — if `django.contrib.messages` storage is
+`toaster_middleware` (`:138-154`) — if `django.contrib.messages` storage is
 non-empty, adds `HX-Trigger-After-Settle: toasts:fetch` to the response via
 `trigger_client_event(..., after="settle")`. Adapted from Josh Karamuth's
 django-messages-toast-htmx pattern (credited in the docstring). The listener
