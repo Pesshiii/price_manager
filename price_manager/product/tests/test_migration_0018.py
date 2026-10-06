@@ -59,6 +59,11 @@ class DropApiStackTests(TestCase):
         product = Product.objects.create(number='SKU-1')
         with connection.cursor() as cursor:
             cursor.execute('INSERT INTO supplier_feed_supplierlink (product_id) VALUES (%s)', [product.pk])
+            # The insert queues a deferred FK check, and Postgres refuses to
+            # DROP a table with pending trigger events. In production the
+            # migration's transaction writes nothing there before the DROP.
+            cursor.execute('SET CONSTRAINTS ALL IMMEDIATE')
+            cursor.execute('SET CONSTRAINTS ALL DEFERRED')
 
         self._run()
 
