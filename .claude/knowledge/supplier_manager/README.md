@@ -5,6 +5,6 @@ Keeper: `supplier-manager-keeper`. Start with [overview](overview.md). Back to t
 
 | Topic | What it covers | Code |
 |---|---|---|
-| [supplier_manager — overview](overview.md) | The reference-data app, and not to be confused with the retiring supplier app. | `price_manager/supplier_manager/` |
+| [supplier_manager — overview](overview.md) | The reference-data app — suppliers, currencies, discount groups. | `price_manager/supplier_manager/` |
 | [Models and the /supplier/ list](models-and-list.md) | Currency, Supplier (sku, delivery days, stock messages, priorities), Discount; SupplierList. | `price_manager/supplier_manager/models.py`, `price_manager/supplier_manager/views.py` |
 | [Retired in Phase 2b-3](retired-models.md) | Category, Manufacturer and ManufacturerDict: what went where. | `price_manager/supplier_manager/migrations/0011_retire_category_and_manufacturer.py` |

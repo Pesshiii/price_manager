@@ -13,14 +13,11 @@ THIRD_PARTY_INSTALLED_APPS = [
     'crispy_forms',
     'mptt',
     'storages',
-    'rest_framework',
-    'corsheaders',
 ]
 
 THIRD_PARTY_MIDDLEWARE = [
     'django_htmx.middleware.HtmxMiddleware',
     'whitenoise.middleware.WhiteNoiseMiddleware',
-    'corsheaders.middleware.CorsMiddleware',
 ]
 
 

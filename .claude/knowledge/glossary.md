@@ -42,7 +42,7 @@ that explains it rather than explaining it here.
 
 | Term (UI) | Code | Notes |
 |---|---|---|
-| Поставщик | `supplier_manager.Supplier` | Not the retiring `supplier` app. [[supplier_manager/overview]] |
+| Поставщик | `supplier_manager.Supplier` | [[supplier_manager/overview]] |
 | Валюта, Группа скидок | `Currency` (rate in tenge), `Discount` | |
 | Прайс поставщика, строка прайса | `supplier_product_manager.SupplierProduct` | The supplier's raw row, one per `MainProduct`. |
 | Настройка (импорта) | `Setting` + `Link` + `DictItem` | Column mapping for one supplier file. [[supplier_product_manager/import-config]] |

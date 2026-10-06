@@ -54,9 +54,9 @@ code: price_manager/product/services/pim_sync.py, price_manager/product/tasks.py
   (`sync_product_from_pim_task`, via `execute_locked_task`, per-`pim_id`
   lock) wraps the function as a task but nothing dispatches that task
   (`.delay()`/`.apply_async()`) — the production caller goes through the
-  plain function instead, from inside `sync_products()` (below). The other
-  caller is the retiring-stack `supplier_feed` create-product endpoint
-  ([[retiring_stack]] owns it) — expects a PMP id in its request body.
+  plain function instead, from inside `sync_products()` (below). (The
+  `supplier_feed` create-product endpoint that also called it went with the
+  API stack.)
 - **Tests:** `product/tests/test_pim_sync.py` mocks `_fetch_pim_link` and
   `_fetch_pim_product` at two separate seams (`LINK_PATCH`/`PRODUCT_PATCH`),
   plus a `PimClientWiringTests` class that patches only `SiteAPI.get` to

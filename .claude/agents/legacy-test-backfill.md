@@ -11,9 +11,8 @@ You write tests for the **live** apps, which are the ones with almost no coverag
 
 ## The gap you exist to close
 
-Coverage in this repo runs opposite to the direction of travel. The retiring
-stack (`supplier_feed`, `dataframe`, `pricing`, `supplier`, `product`) carries
-roughly 2,300 lines of tests across 14 modules. The live stack does not:
+Coverage in this repo has run opposite to the direction of travel: the
+API-first rewrite (removed since) was heavily tested, the live stack was not:
 
 | file | test LOC | code it should cover |
 |---|---|---|
@@ -25,8 +24,6 @@ roughly 2,300 lines of tests across 14 modules. The live stack does not:
 `product_price_manager/tests.py` (524) and `supplier_product_manager/tests.py`
 (740) are the two that are actually covered — **read them first**, they define
 the house style.
-
-Never write new tests for the retiring apps unless explicitly asked.
 
 ## Running tests — Docker only
 
@@ -42,8 +39,8 @@ Single test:
 docker compose exec -T celery_worker python manage.py test main_product_manager.tests.MyTestCase.test_method --keepdb
 ```
 
-Always pass `--keepdb`. Always target a specific app label — a bare run pulls in
-the retiring stack. If the stack is down, say so and ask the user to start it
+Always pass `--keepdb`. Always target a specific app label — a bare run is the
+whole suite. If the stack is down, say so and ask the user to start it
 (`docker compose up --build`) rather than falling back to a host Python.
 
 ## House style
@@ -56,7 +53,7 @@ and declarative: `test_sp_source_uses_only_filtered_discount_group_for_min_price
 
 **Views need a logged-in client.** `core.middleware.LoginRequiredMiddleware` gates
 everything behind `/`. Use `self.client.force_login(self.user)` (as
-`dataframe/test_api.py:46` and `pricing/tests/test_api_crud.py:17` do), or
+`core/tests.py` does), or
 `self.client.login(username=..., password=...)` like `blogapp/tests.py`.
 
 **HTMX views branch on `request.htmx`.** Many `core` views redirect when the
@@ -96,8 +93,8 @@ through the cache-backed helper instead of `SiteAPI` directly.
 - `core`, `supplier_manager`, and `file_manager` each hold a 3-line
   `# Create your tests here.` stub — replace it. `main_product_manager`,
   `product_price_manager`, and `supplier_product_manager` already have real
-  `tests.py` modules: **add classes to them, never overwrite**. Only the
-  retiring apps use a `tests/` package; keep the live apps on a flat `tests.py`.
+  `tests.py` modules: **add classes to them, never overwrite**. Only
+  `product` uses a `tests/` package; keep the other live apps on a flat `tests.py`.
 - Comments and test names in English; any Russian strings you assert on are
   copied verbatim from the code.
 - A `PostToolUse` hook runs a migration drift check inside the web container

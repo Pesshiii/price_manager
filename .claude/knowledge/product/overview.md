@@ -1,6 +1,6 @@
 ---
 title: product — overview and status
-summary: What product is now and is not, and where it stands between the live and retiring stacks.
+summary: What product is now and is not, and how far it may grow beyond the legacy stack.
 code: price_manager/product/models.py
 ---
 # product — overview and status
@@ -67,14 +67,12 @@ haven't found yet.
 
 ## Status boundary — the subtle part
 
-Unlike `pricing`, `supplier`, `supplier_feed` and `dataframe` (the four apps
-CLAUDE.md marks as retiring, no new features — see [[retiring_stack]]),
-CLAUDE.md gives `product` its own paragraph: it is the exception the product
-shift reconnected to the legacy stack, not part of that retiring list. `Product`
+`product` is the one survivor of the API-first rewrite: its siblings
+`pricing`, `supplier`, `supplier_feed` and `dataframe` were removed together
+with the `/api/` mount (`product.0018` drops their tables), while `product` was
+reconnected to the legacy stack by the product shift. `Product`
 is the root of search and filtering, with its own page, and now also carries a
 second concept (sets) entirely native to this app — not mirrored from
 `MainProduct`. Work that serves that shift — decided by the user and specified
 in `.claude/shift-to-product-brief.md` — is in scope. Growing `product` into
-something *independent of PIM and the legacy stack* is still not. It remains
-the only one of these five apps with no `api/` package — not mounted in
-`api_urls.py`.
+something *independent of PIM and the legacy stack* is still not.

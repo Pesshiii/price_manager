@@ -1,7 +1,6 @@
 import os
 
-PROJECT_INSTALLED_APPS = [    
-    'api_auth',
+PROJECT_INSTALLED_APPS = [
     'core',
     'file_manager',
     'supplier_product_manager',
@@ -11,11 +10,7 @@ PROJECT_INSTALLED_APPS = [
     'blogapp',
     'developers',
     'releases',
-    'dataframe',
     'product',
-    'supplier_feed',
-    'supplier',
-    'pricing',
 ]
 
 PROJECT_MIDDLEWARE = [

@@ -75,7 +75,6 @@ Route by the app the issue names:
 | `supplier_product_manager` | `supplier-product-keeper` | `.claude/knowledge/supplier_product_manager/` |
 | `supplier_manager` | `supplier-manager-keeper` | `.claude/knowledge/supplier_manager/` |
 | `product_price_manager` | `price-rules-keeper` | `.claude/knowledge/product_price_manager/` |
-| `pricing`, `supplier`, `supplier_feed`, `dataframe` | `retiring-stack-keeper` | `.claude/knowledge/retiring_stack/` |
 
 **Ask, do not record.** Keepers can write their knowledge topics and will if told
 to. Briefing is a read: say *"answer with `file:line`; do not record anything"*
@@ -204,9 +203,8 @@ that greens one app and stops can still redden `main`. Say what green means —
 and if a currently-failing test should start passing, name it.
 
 **`## Чего НЕ делать` is behavioural.** #142's is *"не менять поведение, задача
-документационная; не откатывать уникальность"*. It is not a list of paths — the
-retiring-stack boundary from `CLAUDE.md` is enforced by a hook, not restated in
-every brief.
+документационная; не откатывать уникальность"*. It is not a list of paths — repo-wide
+boundaries live in `CLAUDE.md` and are not restated in every brief.
 
 **Split out adjacent findings.** If the investigation turned up something real
 but separate, give it its own `## Заодно` and say plainly that triage can cut it

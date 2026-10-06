@@ -5,7 +5,7 @@ Keeper: `product-keeper`. Start with [overview](overview.md). Back to the [knowl
 
 | Topic | What it covers | Code |
 |---|---|---|
-| [product — overview and status](overview.md) | What product is now and is not, and where it stands between the live and retiring stacks. | `price_manager/product/models.py` |
+| [product — overview and status](overview.md) | What product is now and is not, and how far it may grow beyond the legacy stack. | `price_manager/product/models.py` |
 | [Export — xlsx from the page and full CSV](export.md) | The «Экспорт» button, main values by supplier levels, supplier sheets, FullCsvExporter. | `price_manager/product/export.py`, `price_manager/product/tasks.py` |
 | [Dynamic facet narrowing](facets.md) | Filters that narrow to the current results and show counts, as a separate OOB request. | `price_manager/product/filters.py`, `price_manager/product/views.py` |
 | [Migrations — 0007 and the migration-graph trap](migrations.md) | The pim_id meaning-change migration, the seed migrations, and cross-app ordering traps. | `price_manager/product/migrations/` |

@@ -1,6 +1,6 @@
 ---
 title: supplier_manager — overview
-summary: The reference-data app, and not to be confused with the retiring supplier app.
+summary: The reference-data app — suppliers, currencies, discount groups.
 code: price_manager/supplier_manager/
 ---
 # supplier_manager — overview
@@ -12,6 +12,6 @@ remain (`Currency`, `Supplier`, `Discount`) — see
 
 ## Note
 
-There is a *separate, retiring* `supplier` app — similarly named, not this
-one. This app is the live one for suppliers; categories and brands are
-[[product]]'s. See [[retiring_stack]].
+This is the only supplier app: the similarly named API-era `supplier` app was
+removed with the rest of the API stack (`product.0018`). Categories and brands
+are [[product]]'s.

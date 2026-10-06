@@ -9,9 +9,8 @@ UniqueConstraint(Lower('number')), поэтому сначала нужно св
 
 Для каждой группы дублей (несколько строк с одинаковым Lower(number)):
   - если среди них уже есть строка, чей number целиком в нижнем регистре —
-    она становится «победителем»: все MainProduct/SupplierFeedEntry/
-    SupplierLink, ссылающиеся на остальные строки группы, перевязываются на
-    неё, а сами остальные строки удаляются;
+    она становится «победителем»: все MainProduct, ссылающиеся на остальные
+    строки группы, перевязываются на неё, а сами остальные строки удаляются;
   - если такой строки нет — победителем становится первая по pk строка
     группы (к ней так же перевязываются и удаляются остальные), после чего
     её number приводится к нижнему регистру.
@@ -19,10 +18,10 @@ UniqueConstraint(Lower('number')), поэтому сначала нужно св
 Строки, у которых нет регистро-дубля, не трогаем — только реально
 конфликтующие группы.
 
-SupplierLink.product — on_delete=CASCADE (см. product.0007): удаление
-проигравшей строки без перевязки SupplierLink молча унесло бы связь
-поставщика, поэтому проверяем все три ссылки на Product, а не только
-MainProduct.
+Пока существовал supplier_feed, так же перевязывались его SupplierFeedEntry и
+SupplierLink (SupplierLink.product — on_delete=CASCADE, см. product.0007); с
+удалением API-стека эти шаги убраны — в проде миграция давно применена, а на
+свежей базе строк нет.
 
 pim_id уникален по всей таблице, и на реальных данных (проверено через
 prod-snapshot) КАЖДАЯ из 189 конфликтующих групп держит два разных pim_id —
@@ -51,8 +50,6 @@ from django.db.models.functions import Lower
 def merge_case_duplicate_numbers(apps, schema_editor):
     Product = apps.get_model('product', 'Product')
     MainProduct = apps.get_model('main_product_manager', 'MainProduct')
-    SupplierFeedEntry = apps.get_model('supplier_feed', 'SupplierFeedEntry')
-    SupplierLink = apps.get_model('supplier_feed', 'SupplierLink')
 
     colliding_numbers = list(
         Product.objects.filter(number__isnull=False)
@@ -93,8 +90,6 @@ def merge_case_duplicate_numbers(apps, schema_editor):
 
             winner.categories.add(*loser.categories.all())
             MainProduct.objects.filter(product_id=loser.pk).update(product_id=winner.pk)
-            SupplierFeedEntry.objects.filter(product_id=loser.pk).update(product_id=winner.pk)
-            SupplierLink.objects.filter(product_id=loser.pk).update(product_id=winner.pk)
             loser.delete()
             rows_deleted += 1
 
@@ -123,7 +118,6 @@ class Migration(migrations.Migration):
     dependencies = [
         ('product', '0008_brand_and_product_search_vector'),
         ('main_product_manager', '0011_mainproduct_product_fk'),
-        ('supplier_feed', '0001_initial'),
     ]
 
     operations = [

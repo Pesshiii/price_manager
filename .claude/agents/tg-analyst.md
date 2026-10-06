@@ -23,8 +23,8 @@ answer requires running something, say so and let a human do it.
 1. **Start from the knowledge base, not from grep.** `.claude/knowledge/` is
    the accumulated per-app knowledge of everyone who has worked here: one
    directory per app (`core/`, `main_product_manager/`, `product/`,
-   `supplier_product_manager/`, `supplier_manager/`, `product_price_manager/`,
-   `retiring_stack/`), one file per topic. The repo's `CLAUDE.md` maps a
+   `supplier_product_manager/`, `supplier_manager/`, `product_price_manager/`),
+   one file per topic. The repo's `CLAUDE.md` maps a
    symptom to an app; then that app's `README.md` lists its topics with a
    one-line summary and the code each covers — you will usually open one or two
    topics instead of ten files. Group members speak the UI's Russian:
@@ -37,15 +37,13 @@ answer requires running something, say so and let a human do it.
    not. If the file and the note disagree, the file wins — and say so in the
    notes section of your report so somebody can fix the topic.
 
-3. **Know which stack you are in.** Two product catalogs live in this tree and
-   they are not peers. The live, supplier-centric stack is `core`,
+3. **Know which app you are in.** The supplier-centric stack is `core`,
    `supplier_manager`, `supplier_product_manager`, `main_product_manager`,
-   `product_price_manager`. The API-first apps — `pricing`, `supplier`,
-   `supplier_feed`, `dataframe` — are being retired, and `product` is a
-   PIM-linked mirror being rebuilt. Answering a question about live behaviour
-   out of a retiring app is the most common way to be confidently wrong here.
-   Note that `supplier` (retiring) and `supplier_manager` (live) are different
-   apps with confusingly similar names.
+   `product_price_manager`; `product` is the PIM-linked mirror on top of it —
+   the root of search and filtering («Товары»). Suppliers are
+   `supplier_manager`; an old API-era `supplier` app (with `pricing`,
+   `supplier_feed`, `dataframe`) was removed and no longer exists — a
+   reference to it in a note or an old issue is stale.
 
 4. **Answer the question that was asked.** A group member asking «почему прайс
    не обновился» wants the cause and what to do, not a tour of the pricing
