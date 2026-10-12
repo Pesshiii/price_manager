@@ -171,6 +171,42 @@ class Product(models.Model):
         Product.objects.filter(pk=self.pk).update(search_vector=self._build_searchvector())
 
 
+class ProductPhoto(models.Model):
+    """Одно фото товара — зеркало связи PIM ProductFile и публичной ссылки на файл.
+
+    В raw_data товара PIM кладёт только mainImageId; все остальные файлы и их
+    публичные ссылки (сущность Sharing) приходят отдельными списками. Пишет
+    только ночной refresh_product_photos (services/photos.py), руками не правится.
+
+    public_url пуст, когда у файла нет действующей публичной ссылки, — тогда
+    фото идёт через наш прокси (pim_image_url), как раньше. Ссылка, которую
+    PIM успел отозвать после скана, ловится в браузере: img[data-fallback-src]
+    переключается на прокси (static/js/pim-photo-fallback.js).
+    """
+
+    product = models.ForeignKey(
+        Product, on_delete=models.CASCADE, related_name='photos', verbose_name='Товар',
+    )
+    pim_file_id = models.CharField('Id файла в PIM', max_length=64, db_index=True)
+    # Порядок показа, 0 — первое фото. Считается при скане: главное фото PIM
+    # (isMainImage) первым, дальше по sorting, а при равном sorting — по имени
+    # файла: PIM раздаёт одинаковый sorting целым пачкам фото одного товара.
+    position = models.PositiveIntegerField('Порядок', default=0)
+    is_main = models.BooleanField('Главное', default=False)
+    public_url = models.URLField('Публичная ссылка', max_length=500, blank=True, default='')
+
+    class Meta:
+        verbose_name = 'Фото товара'
+        verbose_name_plural = 'Фото товаров'
+        ordering = ['position', 'pk']
+        constraints = [
+            models.UniqueConstraint(fields=['product', 'pim_file_id'], name='product_photo_file_uniq'),
+        ]
+
+    def __str__(self) -> str:
+        return f'{self.product_id}: {self.pim_file_id}'
+
+
 class ProductSetItem(models.Model):
     """Одна позиция состава набора — зеркало ассоциации PIM «Состав набора».
 

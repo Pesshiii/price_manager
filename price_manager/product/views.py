@@ -12,7 +12,7 @@ from django_htmx.http import HttpResponseClientRedirect, HttpResponseClientRefre
 from django_tables2 import SingleTableMixin
 
 from main_product_manager.models import MainProduct
-from main_product_manager.utils import fetch_pim_image, pim_image_url
+from main_product_manager.utils import fetch_pim_image
 from product_price_manager.models import PriceTag
 from supplier_product_manager.models import SupplierProduct
 
@@ -24,6 +24,7 @@ from .pim_content import (
     PimUnavailable, characteristics, clean_description, fetch_flat_product, other_fields,
     pim_product_url, description_html,
 )
+from .services.photos import product_photos
 from .set_costs import attach_set_info, set_totals_for
 from .tasks import export_products_task
 from .tables import (
@@ -46,12 +47,13 @@ def _base_queryset(by_category=False):
     без этого страница даёт N+1 на обеих связях. Категории предзагружаются
     вместе с предками: из них строится путь в заголовке группы
     (tables.category_path), и без select_related каждый шаг к корню был бы
-    запросом.
+    запросом. photos — колонка «Фото» (ProductTable.render_photo), по той же
+    причине: один запрос на страницу, а не на строку.
     """
     categories = Category.objects.select_related(CATEGORY_LABEL_DEPTH)
     return annotate_product_rows(
         Product.objects.select_related('brand')
-        .prefetch_related(Prefetch('categories', queryset=categories)),
+        .prefetch_related(Prefetch('categories', queryset=categories), 'photos'),
         by_category=by_category,
     )
 
@@ -344,7 +346,7 @@ class ProductDetailView(DetailView):
     def get_queryset(self):
         categories = Category.objects.select_related(CATEGORY_LABEL_DEPTH)
         return Product.objects.select_related('brand').prefetch_related(
-            Prefetch('categories', queryset=categories))
+            Prefetch('categories', queryset=categories), 'photos')
 
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
@@ -372,7 +374,9 @@ class ProductDetailView(DetailView):
                                 .order_by('mp__supplier__name', 'mp__article', 'dest')),
             'set_totals': set_totals_for([product.pk]).get(product.pk),
             'in_sets': Product.objects.filter(set_items__component=product).distinct().order_by('name'),
-            'photo_url': pim_image_url(data.get('mainImageId') or data.get('imageId')),
+            # Все фото товара, главное первым — карусель в шапке и окно
+            # увеличения (detail.html). Пусто — блока фото нет.
+            'photos': product_photos(product),
         })
         return context
 

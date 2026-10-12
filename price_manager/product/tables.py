@@ -358,29 +358,33 @@ class ProductTable(tables.Table):
     # --- необязательные колонки из данных PIM -------------------------------
 
     def render_photo(self, record):
-        """Фото товара — ссылка на наш прокси; отрисовка в сеть не ходит.
+        """Главное фото товара; отрисовка в сеть не ходит.
 
-        Прямая ссылка на PIM не годится: PIM отдаёт картинки только с токеном,
-        и браузер получал 401 (см. main_product_manager.utils.fetch_pim_image).
-        За байтами в PIM ходит уже прокси — по запросу <img>, с кэшем на сутки.
-        Колонка по-прежнему выключена по умолчанию: на холодном кэше каждое
-        фото — два запроса к PIM через воркер приложения.
+        Есть публичная ссылка PIM (ProductPhoto.public_url) — браузер берёт
+        фото прямо у PIM, наш сервер в этом не участвует. Нет — наш прокси
+        (pim_image_url): PIM без токена отдаёт картинки только по публичным
+        ссылкам, на всё остальное браузер получает 401. Прокси же — запасной
+        адрес публичной ссылки (data-fallback-src): если PIM её отозвал,
+        static/js/pim-photo-fallback.js переключает картинку на него.
+
+        Фото — из предзагрузки photos (_base_queryset), без запроса на строку.
+        Пока ночной проход фото товара не завёл, — raw_data['mainImageId'].
 
         data-zoom-src — крупный размер для увеличения при наведении (скрипт в
         product/list.html). Его грузит только наведение, а не отрисовка
         страницы.
         """
-        from main_product_manager.utils import pim_image_url
+        from .services.photos import product_photos
 
-        data = record.raw_data or {}
-        file_id = data.get('mainImageId') or data.get('imageId')
-        url = pim_image_url(file_id)
-        if not url:
+        photos = product_photos(record)
+        if not photos:
             return '—'
+        photo = photos[0]
         return format_html(
-            '<img src="{}" data-zoom-src="{}" alt="" class="product-photo"'
+            '<img src="{}" data-fallback-src="{}" data-zoom-src="{}" data-zoom-fallback-src="{}"'
+            ' alt="" class="product-photo"'
             ' style="max-height:50px;max-width:80px;object-fit:contain" loading="lazy">',
-            url, pim_image_url(file_id, 'large'),
+            photo['src'], photo['fallback'], photo['zoom'], photo['zoom_fallback'],
         )
 
     def render_tags(self, record):

@@ -421,6 +421,10 @@ def get_file_url(file_id: str | None, size: str = 'medium') -> str | None:
 # остальных фото «не отображалось». Поэтому браузер ходит к нам
 # (product.views.PimImageView, за LoginRequiredMiddleware), а мы — в PIM с
 # токеном.
+#
+# Исключение — публичные ссылки PIM (сущность Sharing, /sharings/<id>.<ext>):
+# они открываются анонимно (проверено 2026-10-12), и такие фото браузер берёт
+# у PIM сам, прокси для них — только запасной путь (product.ProductPhoto).
 
 PIM_IMAGE_SIZES = ('small', 'medium', 'large')
 _PIM_FILE_ID = re.compile(r'[A-Za-z0-9-]{1,64}')
@@ -443,6 +447,20 @@ def pim_image_url(file_id: str | None, size: str = 'medium') -> str | None:
         return None
     from django.urls import reverse
     return reverse('pim-image', kwargs={'file_id': file_id, 'size': size})
+
+
+def pim_public_url(link) -> str | None:
+    """Публичная ссылка PIM (Sharing.link) в виде, пригодном для <img src>, либо None.
+
+    PIM отдаёт её без схемы («pim.tirado.kz/sharings/…»), как и downloadUrl.
+    Принимается только https на хосте PIM: адрес приходит из данных PIM и
+    уходит в разметку как есть, и чужой хост здесь — это картинка с чужого
+    сервера в нашем интерфейсе.
+    """
+    url = _absolute_pim_url(link)
+    if not url or not _on_pim_host(url) or len(url) > 500:
+        return None
+    return url
 
 
 def fetch_pim_image(file_id: str | None, size: str = 'medium') -> tuple[bytes, str] | None:

@@ -201,6 +201,7 @@ class CeleryTaskRoutesTests(SimpleTestCase):
         for task in (
             product_tasks.backfill_products_from_pim_task,
             product_tasks.refresh_products_from_pim_task,
+            product_tasks.refresh_product_photos_task,
             product_tasks.sync_products_batch_task,
             product_tasks.sync_product_from_pim_task,
             product_tasks.sync_product_sets_task,

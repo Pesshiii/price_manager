@@ -15,7 +15,7 @@ notification (`core.tasks._notify`) with a download link to `ProductExport`
 (`task_name=f'product.export_products:{user_id}'`, `lock_ttl=EXPORT_TIME_LIMIT`)
 and runs `atomic=False` (`tasks.py:117-124`) — reading + one file upload + one
 insert, no reason to hold a transaction for up to an hour. `ProductExport` rows
-(`product/models.py:212-234`, `upload_to='product_exports/'`) are **never
+(`product/models.py:257-279`, `upload_to='product_exports/'`) are **never
 cleaned up** — a known gap, not a bug.
 
 **The workbook is one sheet per supplier, not one wide sheet.** A user asked
@@ -89,9 +89,11 @@ column per selected supplier column times supplier was replaced with this:
   sheets and in what order. A product-page supplier filter still produces
   sheets for every supplier that appears in the filtered rows — not narrowed
   further.
-- **`export_columns()`** (`export.py:132-138`) still splits `selected` into
+- **`export_columns()`** (`export.py:138-144`) still splits `selected` into
   product columns vs. `SUPPLIER_ROW_COLUMNS`, dropping `NOT_EXPORTED =
-  {'actions', 'photo'}` (`export.py:64`) from either.
+  {'actions', 'photo'}` (`export.py:67`) from either. «Фото» became a default
+  column of the page ([[product/photos]]) without touching a file: it is
+  dropped here, whatever the saved selection holds.
 - **Chunked `pk__in` loses order; the pk list restores it.** `rows()`
   (`export.py:391-416`) walks `_chunks(pks)`, looks up `products` and
   `main_products` per chunk by `pk__in`, then re-emits rows in the original
@@ -120,13 +122,15 @@ column per selected supplier column times supplier was replaced with this:
   for now writes nothing instead of an empty cell pair. Re-measure again if
   `DEFAULT_COLUMNS` or the supplier count changes materially — the 60-minute
   task time limit is headroom, not a guarantee, as catalogue growth continues.
-- **`ordered_product_pks(params)`** (`export.py:108-129`) — the page-ordering
+- **`ordered_product_pks(params)`** (`export.py:114-135`) — the page-ordering
   contract this export must stay in lockstep with: reproduces `ProductPage`'s
   `sort` param (captured as `SORT_PARAM`, `export.py:51`) → `by_category=True`
   when no sort → `ProductFilter` → invalid filterset returns `[]` →
   `best_match_groups_first` when `by_category` and a search term →
   `ProductTable(qs, order_by=…)`. `ExportOrderTests` (`test_export.py:175`)
-  still pins it against the page's own `product_rows`.
+  still pins it against the page's own `product_rows`. It reads
+  `values_list('pk')` from `views._base_queryset`, so that queryset's
+  `prefetch_related` (categories, photos) is never evaluated here.
 - **Test trap: openpyxl `read_only` `iter_rows` drops trailing empty cells.**
   A row ending in `None`/`None` (e.g. a supplier sheet where the last
   selected column is blank for that row) comes back shorter than the header
