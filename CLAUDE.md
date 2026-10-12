@@ -31,6 +31,20 @@ edit the file that owns it: `base.py` (core Django, `SECRET_KEY`),
 `project.py` (`PROJECT_INSTALLED_APPS`, `PROJECT_MIDDLEWARE`,
 `PIM_TOKEN`/`PIM_HOST`).
 
+## Production deploy — a merge is a deploy
+
+A systemd timer on the server runs `deploy/pm-deploy.sh` every two minutes. Once
+the `Django test suite` check on the new `main` commit is green, it
+fast-forwards the production checkout, runs `manage.py check`, HUPs gunicorn and
+restarts the workers. The code is bind-mounted, so only `requirements.txt`,
+`Dockerfile` or `docker-compose.yml` changes rebuild the image. **A commit with
+migrations stops it**, and a human deploys that one. A failed step rolls back
+and the SHA is skipped. `deploy/README.md` has the procedure and everything it
+never does on its own. The server runs an *installed copy* of the scripts, so
+editing `deploy/` changes nothing there until someone reinstalls it.
+`docker-compose.yml` publishes every port on `127.0.0.1` only, because ports
+Docker publishes bypass ufw. Keep it that way.
+
 ## Running more than one agent
 
 Two sessions in one checkout are one working tree with two writers. Keep them

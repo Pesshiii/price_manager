@@ -1,0 +1,158 @@
+# Автодеплой на прод
+
+Прод — git-чекаут, запущенный через `docker compose`; код подключён в контейнеры
+томом (`./price_manager:/app`), образ несёт только зависимости. Поэтому обычный
+коммит не требует пересборки: достаточно обновить чекаут и мягко перезапустить
+процессы.
+
+`pm-deploy.timer` раз в две минуты запускает `pm-deploy` (копию
+[pm-deploy.sh](pm-deploy.sh)). Он выкатывает `origin/main`, только когда на этом
+коммите зелёный CI («Django test suite»).
+
+| Что изменилось | Что делает автодеплой | Простой |
+|---|---|---|
+| только `.md`, тесты, `.claude/`, `.github/`, `deploy/` | `git merge`, без перезапуска | нет |
+| только статика (`static/`) | `manage.py check` → `collectstatic` → HUP gunicorn | нет |
+| Python, шаблоны | то же + перезапуск beat и воркеров (выгрузки рендерят шаблоны) | нет у сайта; задачи ждут в Redis, пока воркер доделывает текущие (до 60 мин) |
+| `requirements.txt`, `Dockerfile`, `docker-compose.yml` | `build` → `check` → пересоздание web, затем воркеров | несколько секунд у сайта |
+| миграции | **ничего**: останавливается и пишет в Telegram | — |
+
+После переключения скрипт проверяет страницу входа. Если `check`, сборка,
+`collectstatic` или проверка не прошли, он возвращает чекаут на прежний коммит,
+запоминает плохой SHA в `/var/lib/pm-deploy/skipped` (дальше не пробует, пока
+main не уйдёт вперёд) и сообщает в Telegram.
+
+**Никогда не автоматически:** миграции, `db` и `redis` (перезапуск базы — только
+руками), `.env`, nginx и сами скрипты деплоя (после их правки — снова шаг 5).
+
+**В чекауте прода нельзя `git clean`:** `media/` (загруженные прайсы) и
+`staticfiles/` лежат внутри него и попадают под gitignore.
+
+## Подключение (один раз, по порядку)
+
+Порядок важен:
+- Django должен узнать домен (шаги 1 и 3) раньше, чем nginx начнёт его
+  передавать (шаг 4), иначе каждый запрос получит 400.
+- nginx должен ходить на `127.0.0.1` (шаг 2) раньше, чем web перестанет слушать
+  все адреса (шаг 3).
+
+### 1. `.env` в чекауте
+
+```
+ALLOWED_HOSTS=pm.example.kz,localhost,127.0.0.1
+CSRF_TRUSTED_ORIGINS=https://pm.example.kz
+```
+
+`localhost,127.0.0.1` пока оставить: на них держится откат nginx в шаге 4.
+
+### 2. nginx: `proxy_pass` на `127.0.0.1`
+
+После шага 3 web слушает только IPv4-loopback, а `localhost` может сначала
+разрешиться в `::1` (`getent ahosts localhost`). Если в `proxy_pass` стоит
+`localhost`, заменить его на `127.0.0.1`. Остальное в конфиге пока не трогать.
+Сейчас это безопасно: web пока слушает все адреса.
+
+```bash
+sudo grep -nE 'proxy_pass|proxy_set_header' /etc/nginx/sites-enabled/*
+sudo nginx -t && sudo systemctl reload nginx
+```
+
+### 3. Первый деплой этой версии — вручную, в нерабочее время
+
+Автодеплой его не применит: у старых контейнеров нет `exec` и 10 с на остановку,
+а смена портов пересоздаёт `db` и `redis` (перезапуск Postgres).
+
+```bash
+git status --short                      # должно быть пусто
+docker compose exec -T celery_worker celery -A price_manager inspect active   # задач нет
+# свежий дамп — той же командой, что в cron-задаче бэкапа
+git fetch && git merge --ff-only origin/main
+docker compose build && docker compose up -d
+```
+
+Засечь, через сколько секунд после `up -d` страница входа отвечает 200. После
+пересборки автодеплой ждёт 45 с, затем ещё до минуты. Если web поднимается
+дольше, увеличьте `smoke 45` в скрипте, иначе каждое обновление зависимостей
+будет откатываться.
+
+Проверка:
+
+```bash
+docker compose exec web cat /proc/1/cmdline | tr '\0' ' '   # gunicorn …, не sh
+docker compose kill -s HUP web && docker compose logs --since 1m web   # Handling signal: hup, Booting worker
+sudo ss -ltnp | grep docker-proxy        # все порты только на 127.0.0.1
+```
+
+Сайт по домену должен работать как раньше. Откат: `git reset --hard <прежний SHA>`
+и `docker compose up -d`.
+
+### 4. nginx: заголовки
+
+Добавить заголовки из [nginx.conf.example](nginx.conf.example) в `location` сайта,
+остальное оставить как есть.
+
+```bash
+sudo cp /etc/nginx/sites-enabled/<сайт> ~/nginx-site.bak
+sudo nginx -t && sudo systemctl reload nginx      # reload — без простоя
+```
+
+Проверка: `curl -sI https://pm.example.kz/accounts/login/` → `200`; в
+`/var/log/nginx/access.log` нет новых 400 (неизвестный Host) и 403 (CSRF); вход по
+паролю и через Bitrix24, корзина, ссылка из формы «Разработчикам» работают.
+Откат: вернуть копию, `nginx -t`, `reload`.
+
+### 5. Таймер
+
+Нужны `jq` и `curl`; пользователь сервиса — владелец чекаута, в группе `docker`.
+
+```bash
+sudo install -m 755 deploy/pm-deploy.sh /usr/local/bin/pm-deploy
+sudo install -m 755 deploy/pm-notify.sh /usr/local/bin/pm-notify
+sudo install -m 644 deploy/systemd/* /etc/systemd/system/
+sudo install -m 640 deploy/pm-deploy.env.example /etc/pm-deploy.env
+```
+
+Затем: в `/etc/pm-deploy.env` вписать `APP_DIR`, `DOMAIN`, `WEB_PORT` и токен
+личного бота с чатом; в `/etc/systemd/system/pm-deploy.service` заменить
+`User=CHANGE_ME`; `sudo chgrp <группа пользователя> /etc/pm-deploy.env`.
+
+```bash
+sudo systemctl daemon-reload
+pm-notify "PM: проверка уведомлений"
+sudo systemctl start pm-deploy.service && journalctl -u pm-deploy -n 20   # нового нет — ничего не делает
+sudo systemctl enable --now pm-deploy.timer
+```
+
+Первые реальные проверки: PR только с `.md` (в журнале «перезапуск не нужен»),
+затем правка шаблона (в `docker compose logs web` виден HUP, сайт не моргнул).
+
+## Деплой с миграциями
+
+Автодеплой встал и прислал сообщение. Вручную, в нерабочее время:
+
+1. Прочитать миграции и описание PR: бывают обязательные шаги после
+   (например, `manage.py run_task reindex_pim_ids`).
+2. `docker compose exec -T celery_worker celery -A price_manager inspect active` — задач нет.
+3. Свежий дамп.
+4. ```bash
+   git merge --ff-only origin/main
+   docker compose stop celery_beat celery_worker celery_worker_pim
+   docker compose run --rm --no-deps -T web python manage.py migrate --noinput
+   docker compose exec -T web python manage.py collectstatic --noinput
+   docker compose kill -s HUP web       # или build + up -d, если менялись зависимости
+   docker compose start celery_beat celery_worker celery_worker_pim
+   ```
+5. Шаги после миграции, затем `sudo rm /var/lib/pm-deploy/skipped`.
+
+Пока идёт миграция, сайт работает на старом коде с новой схемой. Без простоя это
+только для обратно совместимых миграций: колонку добавить в одном PR, удалить в
+следующем.
+
+## Откат, пауза, журнал
+
+- **Плохой коммит прошёл все проверки:** revert в GitHub — автодеплой выкатит его
+  как обычный коммит. Срочно: `sudo systemctl stop pm-deploy.timer`,
+  `git reset --hard <SHA>`, `docker compose kill -s HUP web`.
+- **Пауза:** `sudo systemctl stop pm-deploy.timer`; вернуть — `start`.
+- **Журнал:** `journalctl -u pm-deploy -f`.
+- **Снова попробовать пропущенный SHA:** `sudo rm /var/lib/pm-deploy/skipped`.
