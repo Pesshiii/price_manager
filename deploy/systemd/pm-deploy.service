@@ -1,0 +1,17 @@
+[Unit]
+Description=price_manager: автодеплой main
+Wants=network-online.target
+After=network-online.target docker.service
+OnFailure=pm-deploy-failed.service
+
+[Service]
+Type=oneshot
+# The owner of the checkout, a member of the docker group: git must be able to
+# write the working tree. Replace on install (deploy/README.md).
+User=CHANGE_ME
+EnvironmentFile=/etc/pm-deploy.env
+# /var/lib/pm-deploy: the lock and the skipped SHA, owned by User.
+StateDirectory=pm-deploy
+ExecStart=/usr/local/bin/pm-deploy
+# A Celery worker finishes its running tasks before it restarts (stop_grace_period: 60m).
+TimeoutStartSec=3h

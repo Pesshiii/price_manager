@@ -1,0 +1,7 @@
+[Unit]
+Description=price_manager: сообщение о сбое автодеплоя
+
+[Service]
+Type=oneshot
+EnvironmentFile=/etc/pm-deploy.env
+ExecStart=/usr/local/bin/pm-notify --failed

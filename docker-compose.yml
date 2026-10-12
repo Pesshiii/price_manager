@@ -8,8 +8,11 @@ services:
       POSTGRES_DB: ${POSTGRES_DB:-price_manager_db}
       POSTGRES_USER: ${POSTGRES_USER:-priceuser}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
+    # Loopback only, like every published port here: Docker writes its own
+    # iptables rules, so a port published on 0.0.0.0 is open to the internet
+    # whatever ufw says.
     ports:
-      - "${DB_PORT:-5432}:5432"
+      - "127.0.0.1:${DB_PORT:-5432}:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
@@ -22,7 +25,7 @@ services:
     image: redis:7-alpine
     restart: unless-stopped
     ports:
-      - "${REDIS_PORT:-6379}:6379"
+      - "127.0.0.1:${REDIS_PORT:-6379}:6379"
     volumes:
       - redis_data:/data
     healthcheck:
@@ -45,7 +48,9 @@ services:
     environment:
       SECRET_KEY: ${SECRET_KEY:-django-insecure-dev-only-set-SECRET_KEY-in-.env}
       DEBUG: ${DEBUG:-true}
-      ALLOWED_HOSTS: localhost,127.0.0.1
+      # Production sets the public domain here (deploy/README.md): once nginx
+      # forwards Host, Django sees the domain instead of 127.0.0.1:8000.
+      ALLOWED_HOSTS: ${ALLOWED_HOSTS:-localhost,127.0.0.1}
       POSTGRES_DB: ${POSTGRES_DB:-price_manager_db}
       POSTGRES_USER: ${POSTGRES_USER:-priceuser}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
@@ -67,16 +72,23 @@ services:
       BITRIX24_LINK_REQUIRED: ${BITRIX24_LINK_REQUIRED:-false}
       # Only for the task links in the admin; the webhook is worker-only.
       BITRIX24_FEEDBACK_RESPONSIBLE_ID: ${BITRIX24_FEEDBACK_RESPONSIBLE_ID:-}
+    # In production nginx on the host is the only way in. Published on 0.0.0.0,
+    # 8000 would let anyone skip TLS and send their own X-Forwarded-Proto.
     ports:
-      - "${WEB_PORT:-8000}:8000"
+      - "127.0.0.1:${WEB_PORT:-8000}:8000"
     volumes:
       - ./price_manager:/app
     # --no-control-socket: gunicorn >=25.1 opens a `gunicornc` control socket
     # under $HOME/.gunicorn. Nothing here uses gunicornc, and the socket errors
     # out whenever HOME is not writable, so turn it off.
+    # `exec` makes gunicorn PID 1. As a child of sh it never sees HUP or TERM:
+    # sh is PID 1 then, and the kernel drops signals PID 1 has no handler for.
+    # With exec, `docker compose kill -s HUP web` reloads the
+    # workers on new code without dropping a request (deploy/pm-deploy.sh), and
+    # `stop` shuts gunicorn down gracefully instead of SIGKILLing it after 10 s.
     command: >
       sh -c "python manage.py collectstatic --noinput &&
-             gunicorn --bind 0.0.0.0:8000 --workers 3 --no-control-socket price_manager.wsgi:application"
+             exec gunicorn --bind 0.0.0.0:8000 --workers 3 --no-control-socket price_manager.wsgi:application"
 
   # The default queue (`celery`): imports, exports, update_prices/stocks and
   # every beat task except the PIM ones. The PIM scans are routed off it
@@ -86,6 +98,11 @@ services:
       context: .
       dockerfile: Dockerfile
     restart: unless-stopped
+    # On SIGTERM Celery stops taking tasks and finishes the running ones. The
+    # default 10 s would SIGKILL an export (EXPORT_TIME_LIMIT, an hour): the
+    # task is lost (no acks_late) and its task-lock stays in Redis for lock_ttl,
+    # so every run until then is skipped. celery_worker_pim inherits this.
+    stop_grace_period: 60m
     user: "1011:1011"
     depends_on:
       db:

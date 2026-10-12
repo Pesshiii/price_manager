@@ -1,0 +1,10 @@
+[Unit]
+Description=price_manager: проверять main каждые две минуты
+
+[Timer]
+OnBootSec=3min
+# Counted from the end of the previous run, so a long worker restart never overlaps the next one.
+OnUnitInactiveSec=2min
+
+[Install]
+WantedBy=timers.target
