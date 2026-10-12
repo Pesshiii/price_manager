@@ -11,7 +11,7 @@ from django.db import migrations, models
 class Migration(migrations.Migration):
 
     dependencies = [
-        ('product', '0019_brand_code_active_brandalias'),
+        ('product', '0020_brand_code_active_brandalias'),
         ('supplier_product_manager', '0019_setting_has_header'),
     ]
 

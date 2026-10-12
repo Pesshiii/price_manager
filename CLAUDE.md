@@ -313,9 +313,14 @@ PIM is upgraded, bump `DOCS_REF`**; `pim_docs.py instance version` reports a mis
   supplies placeholder defaults.
 - PIM is called from `main_product_manager/utils.py` (card data, the photo
   proxy, `push_pim_links`), from `product` (`services/pim_sync.py`,
-  `services/sets.py`, `pim_content.py`, `satu_export.py`) and from a few
-  management commands (`check_pim`, `probe_pim_category_size`). Nothing on the
-  `MainProduct` save path calls it.
+  `services/sets.py`, `services/photos.py`, `pim_content.py`, `satu_export.py`)
+  and from a few management commands (`check_pim`, `probe_pim_category_size`).
+  Nothing on the `MainProduct` save path calls it.
+- **Product photos have two sources.** A photo with a PIM public link
+  (`Sharing`, mirrored nightly into `product.ProductPhoto.public_url`) is
+  loaded by the browser straight from PIM. Every other PIM image URL answers
+  401 to anyone without the token, so those photos go through the proxy
+  (`pim_image_url`), which is also the `data-fallback-src` of a public link.
 
 ## Database
 

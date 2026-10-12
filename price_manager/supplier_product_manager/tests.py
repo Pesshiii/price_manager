@@ -2778,7 +2778,7 @@ class SupplierBrandImportTests(TestCase):
         self.makita = Brand.objects.create(pim_id="br-makita", name="Makita")
         self.dewalt = Brand.objects.create(pim_id="br-dewalt", name="DeWALT")
         BrandAlias.objects.create(name="ДеВолт", brand=self.dewalt)
-        # Засев миграции 0019 тест не берёт: TransactionTestCase очищает таблицы,
+        # Засев миграции product.0020 тест не берёт: TransactionTestCase очищает таблицы,
         # и с --keepdb его в тестовой базе может не быть.
         BrandAlias.objects.get_or_create(name_key="безбренда", defaults={"name": "Без бренда", "brand": None})
 

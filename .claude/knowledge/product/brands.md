@@ -30,7 +30,7 @@ alias. Resolution order:
 3. Otherwise unresolved: the name waits in the window.
 
 A spelling whose key is empty («-», «.») counts as no brand, not as unresolved.
-Migration `0019` seeds ignore-aliases: «Без бренда», «Нет бренда», «Noname»,
+Migration `0020` seeds ignore-aliases: «Без бренда», «Нет бренда», «Noname»,
 «Russia», «Россия». A country «brand» would glue different makers' products by
 article.
 

@@ -80,10 +80,12 @@ COLUMN_LABELS = {key: label for _, choices in PRODUCT_COLUMN_GROUPS for key, lab
 
 # То, что строки поставщиков показывали до переноса, плюс то, что старая
 # главная показывала по умолчанию: действия, статус наличия, срок поставки.
-# Фото по умолчанию выключено — см. ProductTable.render_photo. Порядок —
+# Фото включено с тех пор, как браузер берёт его по публичной ссылке PIM, а
+# не через наш прокси (см. ProductTable.render_photo). Сохранённый выбор
+# пользователя это не меняет — новое умолчание видно только без него. Порядок —
 # каталожный, как и у любого сохранённого выбора (см. normalize_columns).
 _DEFAULT = {
-    'actions', 'supplier', 'article', 'sku', 'prime_cost', 'basic_price', 'm_price',
+    'photo', 'actions', 'supplier', 'article', 'sku', 'prime_cost', 'basic_price', 'm_price',
     'stock', 'stock_msg', 'delivery_days',
 }
 DEFAULT_COLUMNS = [key for key in COLUMN_LABELS if key in _DEFAULT]

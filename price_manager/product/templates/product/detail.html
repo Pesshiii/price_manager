@@ -19,7 +19,22 @@
   .pd-crumbs a:hover { color: var(--bs-body-color); }
   .pd-crumbs .bi { font-size: .625rem; margin: 0 .25rem; }
   .pd-head { display: flex; gap: 1rem; align-items: flex-start; margin-bottom: 1.5rem; }
-  .pd-photo { width: 72px; height: 72px; object-fit: contain; border-radius: .5rem; background: var(--bs-tertiary-bg); flex: none; }
+  .pd-gallery { width: 240px; flex: none; }
+  .pd-gallery-main { position: relative; width: 240px; height: 240px; border-radius: .5rem; background: var(--bs-tertiary-bg); overflow: hidden; }
+  .pd-gallery-main .carousel-inner, .pd-gallery-main .carousel-item,
+  .pd-zoom .carousel-inner, .pd-zoom .carousel-item { height: 100%; }
+  .pd-gallery-open { display: block; width: 100%; height: 100%; padding: 0; border: 0; background: none; cursor: zoom-in; }
+  .pd-gallery-open img, .pd-zoom img { display: block; width: 100%; height: 100%; object-fit: contain; }
+  .pd-gallery-nav { position: absolute; top: 50%; z-index: 2; transform: translateY(-50%); display: flex; align-items: center; justify-content: center; width: 2rem; height: 2rem; padding: 0; color: var(--bs-body-color); background: var(--bs-body-bg); border: 1px solid var(--bs-border-color); border-radius: 50%; opacity: .9; }
+  .pd-gallery-nav:hover { opacity: 1; }
+  .pd-gallery-nav.is-prev { left: .375rem; }
+  .pd-gallery-nav.is-next { right: .375rem; }
+  .pd-gallery-count { position: absolute; right: .375rem; bottom: .375rem; z-index: 2; font-size: .75rem; font-variant-numeric: tabular-nums; padding: 0 .375rem; background: var(--bs-body-bg); border: 1px solid var(--bs-border-color); border-radius: .375rem; }
+  .pd-gallery-thumbs { display: flex; flex-wrap: wrap; gap: .25rem; margin-top: .375rem; }
+  .pd-gallery-thumb { width: 2.75rem; height: 2.75rem; padding: 0; overflow: hidden; background: var(--bs-tertiary-bg); border: 2px solid transparent; border-radius: .375rem; }
+  .pd-gallery-thumb.active { border-color: var(--bs-primary); }
+  .pd-gallery-thumb img { width: 100%; height: 100%; object-fit: contain; }
+  .pd-zoom { position: relative; height: min(75vh, 48rem); }
   .pd-title { font-size: 1.375rem; font-weight: 600; margin: 0 0 .25rem; }
   .pd-meta { font-size: .875rem; color: var(--bs-secondary-color); display: flex; flex-wrap: wrap; gap: .25rem .75rem; align-items: center; }
   .pd-meta code { color: var(--bs-body-color); font-size: .875rem; }
@@ -60,6 +75,8 @@
   @media (max-width: 767.98px) {
     .pd-head { flex-wrap: wrap; }
     .pd-actions { margin-left: 0; width: 100%; }
+    .pd-gallery, .pd-gallery-main { width: 100%; }
+    .pd-gallery-main { height: auto; aspect-ratio: 1; max-height: 20rem; }
   }
 </style>
 {% endblock %}
@@ -72,7 +89,49 @@
   </nav>
 
   <header class="pd-head">
-    {% if photo_url %}<img class="pd-photo" src="{{ photo_url }}" alt="">{% endif %}
+    {% if photos %}
+      {% comment %}
+        Все фото товара (services/photos.product_photos), главное первым. Клик по
+        фото — окно #pd-photos-modal с крупными. data-fallback-src — прокси на
+        случай, если PIM отозвал публичную ссылку (static/js/pim-photo-fallback.js).
+        Стрелки свои, а не carousel-control-*: белые значки Bootstrap не видны
+        на белом фоне фото.
+      {% endcomment %}
+      <div class="pd-gallery">
+        <div id="pd-carousel" class="carousel slide pd-gallery-main" data-bs-interval="false"
+             role="group" aria-label="Фото товара">
+          <div class="carousel-inner">
+            {% for photo in photos %}
+              <div class="carousel-item{% if forloop.first %} active{% endif %}">
+                <button type="button" class="pd-gallery-open" data-bs-toggle="modal" data-bs-target="#pd-photos-modal"
+                        aria-label="Увеличить фото{% if photos|length > 1 %} {{ forloop.counter }}{% endif %}">
+                  <img src="{{ photo.src }}"{% if photo.fallback %} data-fallback-src="{{ photo.fallback }}"{% endif %}
+                       alt="{{ product.display_name }}"{% if not forloop.first %} loading="lazy"{% endif %}>
+                </button>
+              </div>
+            {% endfor %}
+          </div>
+          {% if photos|length > 1 %}
+            <button type="button" class="pd-gallery-nav is-prev" data-bs-target="#pd-carousel" data-bs-slide="prev"
+                    aria-label="Предыдущее фото"><i class="bi bi-chevron-left" aria-hidden="true"></i></button>
+            <button type="button" class="pd-gallery-nav is-next" data-bs-target="#pd-carousel" data-bs-slide="next"
+                    aria-label="Следующее фото"><i class="bi bi-chevron-right" aria-hidden="true"></i></button>
+            <span class="pd-gallery-count"><span data-pd-current>1</span> / {{ photos|length }}</span>
+          {% endif %}
+        </div>
+        {% if photos|length > 1 %}
+          <div class="pd-gallery-thumbs">
+            {% for photo in photos %}
+              <button type="button" class="pd-gallery-thumb{% if forloop.first %} active{% endif %}"
+                      data-bs-target="#pd-carousel" data-bs-slide-to="{{ forloop.counter0 }}"
+                      aria-label="Фото {{ forloop.counter }}"{% if forloop.first %} aria-current="true"{% endif %}>
+                <img src="{{ photo.src }}"{% if photo.fallback %} data-fallback-src="{{ photo.fallback }}"{% endif %} alt="" loading="lazy">
+              </button>
+            {% endfor %}
+          </div>
+        {% endif %}
+      </div>
+    {% endif %}
     <div class="min-w-0">
       <h1 class="pd-title">{{ product.display_name }}</h1>
       <div class="pd-meta">
@@ -323,6 +382,44 @@
     </div>
   </div>
 </div>
+
+{% if photos %}
+  {% comment %}
+    Своё окно, не #modal-container: тот — для HTMX-форм, его содержимое
+    подменяют кнопки «Изменить» и «Удалить». Крупные фото ленивые — грузятся,
+    только когда окно открыто и слайд показан.
+  {% endcomment %}
+  <div class="modal fade" id="pd-photos-modal" tabindex="-1" aria-labelledby="pd-photos-title" aria-hidden="true">
+    <div class="modal-dialog modal-xl modal-dialog-centered">
+      <div class="modal-content">
+        <div class="modal-header">
+          <h2 class="modal-title fs-6 text-truncate" id="pd-photos-title">{{ product.display_name }}</h2>
+          {% if photos|length > 1 %}<span class="pd-muted small ms-3 text-nowrap"><span data-pd-current>1</span> / {{ photos|length }}</span>{% endif %}
+          <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Закрыть"></button>
+        </div>
+        <div class="modal-body">
+          <div id="pd-photos-carousel" class="carousel slide pd-zoom" data-bs-interval="false"
+               role="group" aria-label="Фото товара крупно">
+            <div class="carousel-inner">
+              {% for photo in photos %}
+                <div class="carousel-item{% if forloop.first %} active{% endif %}">
+                  <img src="{{ photo.zoom }}"{% if photo.zoom_fallback %} data-fallback-src="{{ photo.zoom_fallback }}"{% endif %}
+                       alt="{{ product.display_name }}" loading="lazy">
+                </div>
+              {% endfor %}
+            </div>
+            {% if photos|length > 1 %}
+              <button type="button" class="pd-gallery-nav is-prev" data-bs-target="#pd-photos-carousel" data-bs-slide="prev"
+                      aria-label="Предыдущее фото"><i class="bi bi-chevron-left" aria-hidden="true"></i></button>
+              <button type="button" class="pd-gallery-nav is-next" data-bs-target="#pd-photos-carousel" data-bs-slide="next"
+                      aria-label="Следующее фото"><i class="bi bi-chevron-right" aria-hidden="true"></i></button>
+            {% endif %}
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+{% endif %}
 {% endblock %}
 
 {% block script %}
@@ -341,6 +438,45 @@
       toggle.textContent = clamped ? 'Показать полностью' : 'Свернуть';
       toggle.setAttribute('aria-expanded', String(!clamped));
     });
+  })();
+
+  // Фото: счётчик и миниатюры следуют за каруселью, окно открывается на том
+  // же фото, а закрытое возвращает шапку на то, что листали в нём. Слайд
+  // переключается классом active, без Carousel.to(): у скрытой карусели
+  // переход не анимируется, а Bootstrap берёт текущий слайд из разметки.
+  (function () {
+    var main = document.getElementById('pd-carousel');
+    var zoom = document.getElementById('pd-photos-carousel');
+    var modal = document.getElementById('pd-photos-modal');
+    if (!main || !zoom || !modal) return;
+    var gallery = main.closest('.pd-gallery');
+    var activeIndex = function (carousel) {
+      var items = carousel.querySelectorAll('.carousel-item');
+      for (var i = 0; i < items.length; i++) {
+        if (items[i].classList.contains('active')) return i;
+      }
+      return 0;
+    };
+    var mark = function (carousel, index) {
+      var scope = carousel === main ? gallery : modal;
+      scope.querySelectorAll('[data-pd-current]').forEach(function (el) { el.textContent = index + 1; });
+      if (carousel !== main) return;
+      gallery.querySelectorAll('.pd-gallery-thumb').forEach(function (thumb, i) {
+        thumb.classList.toggle('active', i === index);
+        if (i === index) thumb.setAttribute('aria-current', 'true');
+        else thumb.removeAttribute('aria-current');
+      });
+    };
+    var show = function (carousel, index) {
+      carousel.querySelectorAll('.carousel-item').forEach(function (item, i) {
+        item.classList.toggle('active', i === index);
+      });
+      mark(carousel, index);
+    };
+    main.addEventListener('slide.bs.carousel', function (event) { mark(main, event.to); });
+    zoom.addEventListener('slide.bs.carousel', function (event) { mark(zoom, event.to); });
+    modal.addEventListener('show.bs.modal', function () { show(zoom, activeIndex(main)); });
+    modal.addEventListener('hidden.bs.modal', function () { show(main, activeIndex(zoom)); });
   })();
 </script>
 {% endblock %}

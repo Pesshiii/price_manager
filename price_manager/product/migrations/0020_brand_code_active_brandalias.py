@@ -31,7 +31,7 @@ def unseed_ignored(apps, schema_editor):
 class Migration(migrations.Migration):
 
     dependencies = [
-        ('product', '0018_drop_api_stack'),
+        ('product', '0019_productphoto'),
         migrations.swappable_dependency(settings.AUTH_USER_MODEL),
     ]
 

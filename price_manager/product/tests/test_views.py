@@ -11,7 +11,7 @@ from django.urls import reverse
 from main_product_manager.models import MainProduct
 from supplier_manager.models import Supplier
 
-from product.models import Brand, Category, Product
+from product.models import Brand, Category, Product, ProductPhoto
 from product.tables import ProductTable
 
 
@@ -325,12 +325,59 @@ class ProductCategoryGroupingTests(TestCase):
 
 
 class ProductPhotoTests(TestCase):
+    PUBLIC = 'https://pim.example.kz/sharings/s-1.jpg'
+
     def test_photo_carries_a_large_size_for_hover_zoom(self):
         html = ProductTable([]).render_photo(Product(raw_data={'mainImageId': 'img-1'}))
 
         self.assertIn('src="/products/pim-image/img-1/medium/"', html)
         self.assertIn('data-zoom-src="/products/pim-image/img-1/large/"', html)
         self.assertIn('class="product-photo"', html)
+
+    def test_public_link_is_the_source_and_the_proxy_its_fallback(self):
+        product = Product.objects.create(number='SKU-1', raw_data={'id': 'p-1', 'mainImageId': 'img-1'})
+        ProductPhoto.objects.create(product=product, pim_file_id='img-1', is_main=True, public_url=self.PUBLIC)
+
+        html = ProductTable([]).render_photo(Product.objects.prefetch_related('photos').get(pk=product.pk))
+
+        self.assertIn(f'src="{self.PUBLIC}"', html)
+        self.assertIn('data-fallback-src="/products/pim-image/img-1/medium/"', html)
+        self.assertIn(f'data-zoom-src="{self.PUBLIC}"', html)
+        self.assertIn('data-zoom-fallback-src="/products/pim-image/img-1/large/"', html)
+
+    def test_first_mirrored_photo_wins_over_main_image_id(self):
+        product = Product.objects.create(number='SKU-1', raw_data={'mainImageId': 'old'})
+        ProductPhoto.objects.create(product=product, pim_file_id='second', position=1)
+        ProductPhoto.objects.create(product=product, pim_file_id='first', position=0, is_main=True)
+
+        html = ProductTable([]).render_photo(product)
+
+        self.assertIn('src="/products/pim-image/first/medium/"', html)
+        self.assertNotIn('data-fallback-src="/', html)
+
+    def test_no_photo_at_all_is_a_dash(self):
+        self.assertEqual(ProductTable([]).render_photo(Product(raw_data={})), '—')
+
+    def test_page_shows_photos_by_default_with_one_query_for_all_rows(self):
+        user = User.objects.create_user(username='tester', password='pw')
+        self.client.force_login(user)
+
+        def add_product(number):
+            product = Product.objects.create(number=number, name=number, raw_data={'id': f'p-{number}'})
+            ProductPhoto.objects.create(product=product, pim_file_id=f'f-{number}', public_url=self.PUBLIC)
+
+        add_product('SKU-1')
+        with CaptureQueriesContext(connection) as one_row:
+            response = self.client.get(reverse('products'))
+        self.assertContains(response, f'<img src="{self.PUBLIC}"')
+
+        add_product('SKU-2')
+        add_product('SKU-3')
+        with CaptureQueriesContext(connection) as three_rows:
+            response = self.client.get(reverse('products'))
+
+        self.assertEqual(response.content.decode().count(f'<img src="{self.PUBLIC}"'), 3)
+        self.assertEqual(len(three_rows), len(one_row))
 
 
 class ProductFragmentTests(TestCase):

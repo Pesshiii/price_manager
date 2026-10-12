@@ -30,7 +30,7 @@ def _listing(rows, total=None):
 
 
 def ensure_ignored(name='Без бренда'):
-    """Синоним «игнорировать», как его засевает миграция 0019.
+    """Синоним «игнорировать», как его засевает миграция product.0020.
 
     Заводится в тесте, а не берётся из засева: TransactionTestCase (тесты
     миграций) очищает таблицы, и с --keepdb засева в тестовой базе уже нет.
@@ -80,7 +80,7 @@ class ResolutionTests(_BrandFixture):
         self.assertEqual((stats.unresolved_rows, stats.unresolved_names), (1, ['Bosh']))
 
     def test_ignored_spelling_resolves_to_no_brand(self):
-        """«Без бренда» — синоним без бренда (засевается миграцией 0019): в очередь не попадает."""
+        """«Без бренда» — синоним без бренда (засевается миграцией product.0020): в очередь не попадает."""
         row = self._row('без  бренда')
 
         stats = service.apply_brand_resolution(SupplierProduct.objects.all())

@@ -4,6 +4,8 @@ from celery import shared_task
 
 from core.task_runner import dispatch_after_commit, execute_locked_task
 
+from .services.photos import TASK_NAME as PHOTOS_TASK_NAME
+from .services.photos import last_successful_run, refresh_product_photos
 from .services.pim_sync import (
     iter_unsynced_product_pk_batches,
     stale_product_pks,
@@ -104,6 +106,29 @@ def refresh_products_from_pim_task(delay: float = 0.5, batch_size: int = 500) ->
         lock_ttl=60 * 60,
         runner=_runner,
         # Сверка — сотни списочных запросов к PIM подряд, без записей в базу.
+        atomic=False,
+    )
+
+
+@shared_task(name=PHOTOS_TASK_NAME, time_limit=None, soft_time_limit=None)
+def refresh_product_photos_task(full: bool = False) -> dict:
+    """Ночью: все фото товаров зеркала и их публичные ссылки (services/photos.py).
+
+    По будням — ссылки инкрементально, от прошлого успешного прогона; по
+    воскресеньям (full=True) — полным проходом, который заодно стирает
+    отозванные. Полный идёт около часа: ~41 минута на ссылки и ~12 на файлы.
+    """
+    def _runner():
+        stats = refresh_product_photos(full=full, since=last_successful_run())
+        return stats['created'] + stats['updated'] + stats['deleted'] + stats['links']
+
+    return execute_locked_task(
+        task_name=PHOTOS_TASK_NAME,
+        lock_ttl=2 * 60 * 60,
+        runner=_runner,
+        # До часа списочных запросов к PIM. Запись — своей транзакцией, когда
+        # всё уже прочитано (refresh_product_photos); общая держала бы
+        # соединение открытым весь скан.
         atomic=False,
     )
 

@@ -12,6 +12,7 @@ that explains it rather than explaining it here.
 |---|---|---|
 | Товар, «Товары» (`/products/`) | `product.Product` | The root of search and filtering since the product shift. Mirrors a PIM product. [[product/overview]] |
 | Карточка товара | `product.views.ProductDetailView`, `/products/<pk>/` | Prices with their rules, ГП rows (attach/move), set composition; edit and delete. ГП rows are moved, never unlinked. [[product/product-card]] |
+| Фото товара, колонка «Фото», карусель | `product.ProductPhoto`, `services/photos.py`, `ProductTable.render_photo` | PIM image files of a product plus their anonymous public links, mirrored nightly. [[product/photos]] |
 | ГП, главный прайс, «Главный продукт», строка поставщика | `main_product_manager.MainProduct` | One supplier's stock and prices for one `Product`. `/mainproduct/` redirects to `/products/`. [[main_product_manager/overview]] |
 | «Строка ГП» (модалка) | `main_product_manager.forms.MainProductForm` | Create and fully edit a ГП row by hand, from «Товары» or the card. [[main_product_manager/gp-rows-by-hand]] |
 | «Свой склад» (was «Без поставщика») | `Supplier` with `is_own_stock=True` | Supplier for leftover stock, returns, bonuses; behaves like any supplier, default of the «Строка ГП» modal. [[supplier_manager/own-stock]] |
@@ -75,3 +76,4 @@ that explains it rather than explaining it here.
 | Classification | PIM's product type with its own attributes | Not mirrored locally. |
 | Association, `AssociatedProduct` | Typed product-to-product link with `amount` | Sets use code `set_components`; its reverse `part_of_set` has no amount. [[product/sets]] |
 | Бэкфилл | `product.backfill_products_from_pim` | Pulls PIM content onto `Product`s that have a `pim_id`. [[product/pim-sync]] |
+| `ProductFile`, `Sharing`, публичная ссылка | A product's file link (`productId`, `fileId`, `isMainImage`, `sorting`); the entity whose `link` opens a file anonymously | The only PIM image URL that needs no token. Mirrored as `ProductPhoto` / `public_url`. [[product/photos]] |

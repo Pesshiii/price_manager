@@ -32,7 +32,7 @@ browser, not by measurement) live in [[product/products-page-rendering]].
   `{% recursetree %}`, shared — see [[product/facets]]). A flat list was 668
   rows with paths up to 126 chars.
 - **`ProductPage.get_template_names()` must return the table fragment for
-  HTMX** (`views.py:95-111`). Filter and search both `hx-get` back to
+  HTMX** (`views.py:103-119`). Filter and search both `hx-get` back to
   `products`, not a separate fragment endpoint — so `hx-push-url` keeps the
   address bar correct. Without the `request.htmx` branch the whole page
   renders inside `#products-table`.
@@ -58,13 +58,15 @@ browser, not by measurement) live in [[product/products-page-rendering]].
   PR #197 redesign, no surprise mechanism, just note it exists if you're
   looking for "cost" and don't see a field on `Product`.
 - **Column preferences (`columns.py`) are cached per user under
-  `product_page:columns:user:<id>`** (`columns.py:95`) — a separate key from
+  `product_page:columns:user:<id>`** (`columns.py:97`) — a separate key from
   the supplier-detail page's `supplierdetail:selected_columns:user:<id>`
   ([[supplier_product_manager]]). `normalize_columns` keeps catalog order and
   turns an empty choice into `DEFAULT_COLUMNS`, never zero columns. The
   picker's hidden empty `columns=` (`columns_picker.html:32`) is there so
   that «снял всё» still sends the key: with no `columns` in the request the
-  view loads the saved choice instead of saving (`views.py:149-153`).
+  view loads the saved choice instead of saving (`views.py:150-162`). A new
+  default column (`'photo'` joined `_DEFAULT` with [[product/photos]]) shows
+  only for users with **no** saved choice — the cache is not migrated.
 
 ### Default order is by category — `annotate_product_rows(by_category=True)`
 
@@ -110,7 +112,7 @@ The key is chosen by measurement on the snapshot:
   `name`, which unsynced rows may lack.
 - Header paths come from the categories prefetch, now
   `Prefetch(..., Category.objects.select_related(CATEGORY_LABEL_DEPTH))` in
-  `_base_queryset` (`views.py:35-50`). Walking `parent` without it is a query per level.
+  `_base_queryset` (`views.py:42-58`). Walking `parent` without it is a query per level.
 - **Time the SQL Django actually emits** (`CaptureQueriesContext`), not a hand-written
   count — the paginator's `count()` once carried a stock subquery in its inner select
   unnoticed for exactly that reason.
