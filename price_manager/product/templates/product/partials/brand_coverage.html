@@ -1,0 +1,53 @@
+{% comment %}
+  Покрытие брендами (services.brands.coverage) — по нему решают, когда
+  переходить к ключу (бренд, артикул). oob=True — фрагмент ответа сопоставления.
+{% endcomment %}
+<div id="brand-coverage" class="br-coverage"{% if oob %} hx-swap-oob="true"{% endif %}>
+  <div class="br-card">
+    <div class="br-card-title">Строки ГП поставщиков с брендом</div>
+    <div class="br-card-value">{{ coverage.mp_with_brand_pct }}%</div>
+    <div class="progress" role="progressbar" aria-label="Строки ГП с брендом"
+         aria-valuenow="{{ coverage.mp_with_brand_pct }}" aria-valuemin="0" aria-valuemax="100">
+      <div class="progress-bar" style="width: {{ coverage.mp_with_brand_pct }}%"></div>
+    </div>
+    <div class="br-card-note">
+      {{ coverage.mp_with_brand }} из {{ coverage.mp_total }} — бренд PIM у товара или сопоставленный бренд строки прайса
+    </div>
+  </div>
+  <div class="br-card">
+    <div class="br-card-title">Строки прайсов с брендом поставщика</div>
+    <div class="br-card-value">{{ coverage.sp_with_name_pct }}%</div>
+    <div class="progress" role="progressbar" aria-label="Строки прайсов с брендом"
+         aria-valuenow="{{ coverage.sp_with_name_pct }}" aria-valuemin="0" aria-valuemax="100">
+      <div class="progress-bar bg-secondary" style="width: {{ coverage.sp_with_name_pct }}%"></div>
+    </div>
+    <div class="br-card-note">{{ coverage.sp_with_name }} из {{ coverage.sp_total }}</div>
+  </div>
+  <div class="br-card">
+    <div class="br-card-title">Из них сведены к бренду PIM</div>
+    <div class="br-card-value">{{ coverage.sp_mapped_pct }}%</div>
+    <div class="progress" role="progressbar" aria-label="Сведены к бренду PIM"
+         aria-valuenow="{{ coverage.sp_mapped_pct }}" aria-valuemin="0" aria-valuemax="100">
+      <div class="progress-bar bg-success" style="width: {{ coverage.sp_mapped_pct }}%"></div>
+    </div>
+    <div class="br-card-note">
+      сведено {{ coverage.sp_mapped }}, без бренда {{ coverage.sp_ignored }}, ждут {{ coverage.sp_unmapped }}
+    </div>
+  </div>
+  <div class="br-card">
+    <div class="br-card-title">Настройки загрузки без колонки бренда</div>
+    <div class="br-card-value">{{ coverage.settings_without_brand|length }}</div>
+    {% if coverage.settings_without_brand %}
+      <details class="br-card-note">
+        <summary>Показать</summary>
+        <ul class="ps-3 mb-0 mt-1">
+          {% for setting in coverage.settings_without_brand %}
+            <li><a href="{% url 'setting-update' setting.pk %}">{{ setting.supplier.name }} — {{ setting.name }}</a></li>
+          {% endfor %}
+        </ul>
+      </details>
+    {% else %}
+      <div class="br-card-note">Колонка бренда сопоставлена во всех настройках</div>
+    {% endif %}
+  </div>
+</div>

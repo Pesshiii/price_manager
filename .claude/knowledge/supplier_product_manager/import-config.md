@@ -47,7 +47,10 @@ SP_NUMBERS = ['supplier_price', 'rrp', 'stock', 'discount_price']
 ```
 `manufacturer` used to be in `SP_TABLE_FIELDS`; it was dropped with the rest of
 the catalog fields in Phase 2b-2 (see checklist below) — don't re-add it from
-memory. `SP_PRICES` is imported by [[product_price_manager]] as the
+memory. The brand came back on 2026-10-12 under a different shape: `LINKS` key
+`brand_name`, raw text on `SupplierProduct.brand_name` and a resolved
+`SupplierProduct.brand`. It is not in `SP_TABLE_FIELDS` and not in
+`clearable_fields`; see [[product/brands]]. `SP_PRICES` is imported by [[product_price_manager]] as the
 source-price vocabulary. Adding a price field here means checking that app too.
 
 ## Removing a mapped field — the checklist 2b-2 needed

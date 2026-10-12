@@ -19,7 +19,10 @@ that explains it rather than explaining it here.
 | Строка набора | `MainProduct.is_set` | One per set; `prime_cost`, stock and delivery days from components. [[product/set-rows]] |
 | Артикул | `Product.number` = `MainProduct.sku` | Local match key; unique case-insensitively. [[product/pim-link]] |
 | Артикул поставщика | `MainProduct.article`, `SupplierProduct.article` | The supplier's own code; `sku` is built from it (`compute_supplier_sku`). [[main_product_manager/sku-and-linking]] |
-| Категория, Бренд | `product.Category` (MPTT), `product.Brand` | Both come from PIM; supplier-side categories and manufacturers were retired. [[supplier_manager/retired-models]] |
+| Категория, Бренд | `product.Category` (MPTT), `product.Brand` | Both come from PIM; supplier-side categories were retired. `Product.brand` is PIM's. [[supplier_manager/retired-models]] |
+| Бренд поставщика, колонка «Бренд» прайса | `SupplierProduct.brand_name` (raw), `SupplierProduct.brand` (resolved PIM brand), `Link` key `brand_name` | Returned 2026-10-12, step 1 of «товар = бренд + артикул». A claim resolved to a PIM brand, not the product's brand. [[product/brands]] |
+| Синоним бренда | `product.BrandAlias` | A supplier spelling → PIM brand (or «без бренда»). [[product/brands]] |
+| «Бренды» (`/brands/`) | `product.brand_views` | Coverage, the queue of unresolved spellings, PIM brands, aliases; «Создать в PIM». [[product/brands]] |
 | Набор, «Состав набора», «Позиция набора» | `product.ProductSetItem` | A `Product` with composition rows. [[product/sets]] |
 | «Из комплектующих» | `product.set_costs` | Set cost and buildable count computed from the components. [[product/sets]] |
 

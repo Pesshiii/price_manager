@@ -1,0 +1,26 @@
+{% comment %}
+  Правка синонима (BrandAliasUpdateView): другой бренд, «без бренда» или
+  удаление. Успех — HttpResponseClientRefresh.
+{% endcomment %}
+<div class="modal-header">
+  <h5 class="modal-title fw-semibold">Синоним «{{ alias.name }}»</h5>
+  <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Закрыть"></button>
+</div>
+<form hx-post="{% url 'brand-alias-update' alias.pk %}" hx-target="#modal-container .modal-content" hx-swap="innerHTML">
+  {% csrf_token %}
+  <button type="submit" disabled hidden aria-hidden="true"></button>
+  <div class="modal-body">
+    {% if error %}<div class="alert alert-danger py-2">{{ error }}</div>{% endif %}
+    <p class="small text-body-secondary">
+      Сейчас: {% if alias.brand %}«{{ alias.brand.name }}»{% else %}без бренда{% endif %}.
+      Строки прайсов с этим написанием пересопоставятся сразу.
+    </p>
+    {% include 'product/partials/picker.html' with name='brand' options=brand_options single=True placeholder='Найти бренд PIM' all_label='Бренд не выбран' %}
+  </div>
+  <div class="modal-footer">
+    <button type="submit" name="delete" value="true" class="btn btn-outline-danger me-auto"
+            onclick="return confirm('Удалить синоним? Строки с этим написанием вернутся в очередь.')">Удалить</button>
+    <button type="submit" name="ignore" value="true" class="btn btn-outline-secondary">Без бренда</button>
+    <button type="submit" class="btn btn-primary">Сохранить</button>
+  </div>
+</form>

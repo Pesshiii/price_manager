@@ -1,4 +1,4 @@
-from io import BytesIO
+from io import BytesIO, StringIO
 from decimal import Decimal
 from unittest import mock
 
@@ -7,6 +7,7 @@ from django import forms
 from django.contrib.auth import get_user_model
 from django.core.cache import cache
 from django.core.files.uploadedfile import SimpleUploadedFile
+from django.core.management import call_command
 from django.db import IntegrityError, transaction
 from django.http import QueryDict
 from django.test import TestCase, override_settings
@@ -14,13 +15,14 @@ from django.urls import reverse
 from django.utils import timezone
 
 from main_product_manager.models import MainProduct
-from product.models import Product
+from product.models import Brand, BrandAlias, Product
 from supplier_manager.models import Currency, Discount, Supplier
 from supplier_product_manager.filters import SupplierProductFilter
 from core.models import PersistentNotification
 from supplier_product_manager.functions import (
     SupplierImportError,
     auto_detect_link_keys,
+    backfill_brands,
     get_sps,
     get_sps_result,
     get_df,
@@ -635,12 +637,24 @@ class AutoDetectLinkKeysTests(TestCase):
             ["article", "name", "supplier_price", "rrp", "stock"],
         )
 
-    def test_brand_and_category_columns_are_left_unmapped(self):
-        """AUTO_LINK_ALIASES живёт отдельно от LINKS: оставь там «производитель»
-        и «категория» — экран сопоставления пересоздавал бы ровно те Link,
-        которые удаляет миграция 0010."""
+    def test_brand_column_is_detected_and_category_is_not(self):
+        """Бренд вернулся (шаг 1 «товар = бренд + артикул») ключом brand_name;
+        категорий в прайсе по-прежнему нет. Ключ назначается одному столбцу."""
         detected = auto_detect_link_keys(["Артикул", "Производитель", "Бренд", "Категория", "Группа"])
-        self.assertEqual(detected, ["article", None, None, None, None])
+        self.assertEqual(detected, ["article", "brand_name", None, None, None])
+
+    def test_brand_column_alone(self):
+        self.assertEqual(auto_detect_link_keys(["Бренд"]), ["brand_name"])
+        self.assertEqual(auto_detect_link_keys(["Торговая марка"]), ["brand_name"])
+
+    def test_manufacturer_article_is_not_a_brand(self):
+        """В подстрочном проходе побеждает самый длинный алиас: без исключения
+        «Артикул производителя» ушёл бы в бренд («производитель» длиннее
+        «артикул»), и бренды заполнились бы кодами."""
+        self.assertEqual(
+            auto_detect_link_keys(["Артикул", "Артикул производителя", "Код производителя", "Производитель"]),
+            ["article", None, None, "brand_name"],
+        )
 
     def test_does_not_duplicate_same_target_key(self):
         detected = auto_detect_link_keys(["Цена", "Цена со скидкой"])
@@ -2747,3 +2761,144 @@ class BulkUploadTests(_SupplierFixtureMixin, TestCase):
         self.assertContains(from_page, f'hx-target="#bulk-row-{self.supplier.pk}"')
         self.assertContains(from_supplier, reverse("import-run-apply", kwargs={"pk": run.pk}))
         self.assertNotContains(from_supplier, "bulk-row")
+
+
+@override_settings(SUPPLIER_IMPORT_GUARD_MIN_HISTORY=0)
+class SupplierBrandImportTests(TestCase):
+    """Бренд поставщика из прайса (шаг 1 «товар = бренд + артикул»): пишется
+    сырым написанием и сводится к бренду PIM названием или синонимом;
+    несведённое называется в уведомлении импорта."""
+
+    _create_supplier_file = BasicLoadTests._create_supplier_file
+    _setting = ImportRefusalReasonTests._setting
+
+    def setUp(self):
+        BasicLoadTests.setUp(self)
+        self.user = get_user_model().objects.create_user(username="brands", password="x")
+        self.makita = Brand.objects.create(pim_id="br-makita", name="Makita")
+        self.dewalt = Brand.objects.create(pim_id="br-dewalt", name="DeWALT")
+        BrandAlias.objects.create(name="ДеВолт", brand=self.dewalt)
+        # Засев миграции 0019 тест не берёт: TransactionTestCase очищает таблицы,
+        # и с --keepdb его в тестовой базе может не быть.
+        BrandAlias.objects.get_or_create(name_key="безбренда", defaults={"name": "Без бренда", "brand": None})
+
+    def _branded_setting(self, **extra):
+        return self._setting(create_new=True, article="Артикул", name="Название", stock="Остаток",
+                             brand_name="Бренд", **extra)
+
+    def test_import_writes_and_resolves_the_brand(self):
+        setting = self._branded_setting()
+        self._create_supplier_file(setting, pd.DataFrame([
+            {"Артикул": "A-1", "Название": "Дрель", "Остаток": "1", "Бренд": "MAKITA"},
+            {"Артикул": "A-2", "Название": "Пила", "Остаток": "1", "Бренд": "ДЕВОЛТ"},
+            {"Артикул": "A-3", "Название": "Шуруповёрт", "Остаток": "1", "Бренд": "Bosh"},
+            {"Артикул": "A-4", "Название": "Ключ", "Остаток": "1", "Бренд": "Без бренда"},
+            {"Артикул": "A-5", "Название": "Отвёртка", "Остаток": "1", "Бренд": None},
+        ]))
+
+        result = process_supplier_file_import(setting.pk, self.user.pk)
+
+        self.assertEqual(result["status"], "ok")
+        rows = {sp.article: sp for sp in SupplierProduct.objects.filter(supplier=self.supplier)}
+        self.assertEqual([(rows[a].brand_name, rows[a].brand) for a in ("A-1", "A-2", "A-3", "A-4", "A-5")], [
+            ("MAKITA", self.makita), ("ДЕВОЛТ", self.dewalt), ("Bosh", None), ("Без бренда", None), (None, None),
+        ])
+        notification = PersistentNotification.objects.get(user=self.user)
+        self.assertEqual(notification.level, "warning")
+        self.assertIn("бренд не сопоставлен с брендом PIM: строк 1, написаний 1 (например: «Bosh»)",
+                      notification.message)
+
+    def test_vanished_row_loses_stock_but_keeps_its_brand(self):
+        old = SupplierProduct.objects.create(supplier=self.supplier, article="OLD", name="Старый", stock=5,
+                                             brand_name="Makita", brand=self.makita)
+        setting = self._branded_setting()
+        self._create_supplier_file(setting, pd.DataFrame([
+            {"Артикул": "A-1", "Название": "Дрель", "Остаток": "1", "Бренд": "Makita"},
+        ]))
+
+        load_setting(setting.pk)
+
+        old.refresh_from_db()
+        self.assertEqual((old.stock, old.brand_name, old.brand), (None, "Makita", self.makita))
+
+    def test_setting_without_a_brand_column_leaves_the_brand_alone(self):
+        row = SupplierProduct.objects.create(supplier=self.supplier, article="A-1", name="Дрель",
+                                             brand_name="Makita", brand=self.makita)
+        setting = self._setting(article="Артикул", name="Название", stock="Остаток")
+        self._create_supplier_file(setting, pd.DataFrame([{"Артикул": "A-1", "Название": "Дрель", "Остаток": "3"}]))
+
+        load_setting(setting.pk)
+
+        row.refresh_from_db()
+        self.assertEqual((row.stock, row.brand_name, row.brand), (3, "Makita", self.makita))
+
+    def test_a_brand_alone_is_not_a_value(self):
+        """Строка, где есть только бренд, — строка без цены и остатка: она не загружается."""
+        setting = self._branded_setting()
+        self._create_supplier_file(setting, pd.DataFrame([
+            {"Артикул": "A-1", "Название": "Дрель", "Остаток": None, "Бренд": "Makita"},
+            {"Артикул": "A-2", "Название": "Пила", "Остаток": "2", "Бренд": "Makita"},
+        ]))
+
+        _, stats = get_sps_result(setting.pk)
+
+        self.assertEqual((stats["rows_with_values"], stats["covered"]), (1, 1))
+
+
+class BackfillBrandsTests(TestCase):
+    """backfill_brands: бренд по последнему файлу настройки, без импорта цен и остатков."""
+
+    _create_supplier_file = BasicLoadTests._create_supplier_file
+    _setting = ImportRefusalReasonTests._setting
+
+    def setUp(self):
+        BasicLoadTests.setUp(self)
+        self.makita = Brand.objects.create(pim_id="br-makita", name="Makita")
+        self.row = SupplierProduct.objects.create(supplier=self.supplier, article="A-1", name="Дрель",
+                                                  stock=7, supplier_price=Decimal("100"))
+        self.setting = self._setting(article="Артикул", name="Название", stock="Остаток")
+
+    def _file_with_brand(self):
+        self._create_supplier_file(self.setting, pd.DataFrame([
+            {"Артикул": "A-1", "Название": "Дрель", "Остаток": "99", "Производитель": "MAKITA"},
+        ]))
+
+    def test_detects_the_column_and_writes_only_the_brand(self):
+        self._file_with_brand()
+
+        result = backfill_brands(self.setting)
+
+        self.assertEqual((result.status, result.column, result.detected, result.rows),
+                         ("filled", "Производитель", True, 1))
+        self.row.refresh_from_db()
+        self.assertEqual((self.row.brand_name, self.row.brand, self.row.stock, self.row.supplier_price),
+                         ("MAKITA", self.makita, 7, Decimal("100")))
+        self.assertEqual(self.setting.links.get(key="brand_name").value, "Производитель")
+
+    def test_dry_run_writes_nothing(self):
+        self._file_with_brand()
+
+        result = backfill_brands(self.setting, dry_run=True)
+
+        self.assertEqual((result.status, result.rows), ("filled", 1))
+        self.row.refresh_from_db()
+        self.assertIsNone(self.row.brand_name)
+        self.assertFalse(self.setting.links.filter(key="brand_name").exists())
+
+    def test_no_brand_column(self):
+        self._create_supplier_file(self.setting, pd.DataFrame([{"Артикул": "A-1", "Название": "Дрель", "Остаток": "9"}]))
+
+        self.assertEqual(backfill_brands(self.setting).status, "no_column")
+        self.assertFalse(self.setting.links.filter(key="brand_name").exists())
+
+    def test_no_file(self):
+        self.assertEqual(backfill_brands(self.setting).status, "no_file")
+
+    def test_command(self):
+        self._file_with_brand()
+        out = StringIO()
+
+        call_command("backfill_supplier_brands", "--dry-run", stdout=out)
+
+        self.assertIn("заполнено столбец «Производитель» (найден сейчас), строк 1", out.getvalue())
+        self.assertIn("Проверка (ничего не записано)", out.getvalue())

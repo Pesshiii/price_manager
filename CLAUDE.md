@@ -134,6 +134,19 @@ but do not grow it into anything independent of PIM and the legacy stack.
 `MainProduct.product` is an FK to it. It has no embeddings, no characteristics
 JSONB and no `ImportJob`/`CharacteristicMutationJob`; docs that say otherwise are stale.
 
+**Product = (brand, article) is the adopted policy (2026-10-12), and only its first
+step — brands — has shipped.** PIM stays the source of brands: `product.Brand`
+mirrors PIM's whole list (`product.sync_brands`, nightly and from the window), and
+PM creates a PIM brand only from the «Создать в PIM» button. A price list's brand
+column (`Link` key `brand_name`) is stored raw on `SupplierProduct.brand_name` and
+resolved to a PIM brand (`SupplierProduct.brand`) by name key or a
+`product.BrandAlias`. Whatever does not resolve waits in «Бренды» (`/brands/`).
+`Product.brand` is still PIM's, and `Product.number` is still unique on its own.
+Identity moves to (brand, article) only once most brands are filled. The order of
+the remaining steps and their traps are in `.claude/shift-to-product-brief.md` §0.6:
+`PriceManagerProduct.number` is unique in PIM, the data needs splits as well as
+merges, and stripping supplier suffixes is risky.
+
 **Supporting apps without a keeper:**
 
 - `releases` («Обновления», «Что нового» in the navbar). A `Release` has a

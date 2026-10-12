@@ -263,6 +263,75 @@ the enrichment before Phase 2 deletes it.
 
 ---
 
+## 0.6 Product = (brand, article) — D3 and D11 reopened (2026-10-12)
+
+**New policy, decided by the user:** a product is unique by the pair (brand, manufacturer
+article); any number of products may share an article with an *empty* brand. PIM already
+merged its duplicates on (number, brand) and stripped the `mi`/`_tor` supplier suffixes on
+2026-10-06.
+
+**What this reverses, and what it keeps.**
+- **D11 is reversed.** The brand column of a supplier price list is back, as `Link` key
+  `brand_name` → `SupplierProduct.brand_name` (the raw text).
+- **D3 is reversed for supplier text only.** `product.BrandAlias` maps a supplier's spelling to
+  a PIM brand. Brands themselves are still never merged locally — duplicate PIM brands are
+  merged in PIM.
+- **D1 holds in substance.** PIM is still the single source of brands: `product.Brand` mirrors
+  PIM's whole list, and a supplier's brand is only a claim that gets resolved to a PIM brand
+  (`SupplierProduct.brand`). `Product.brand` is still PIM's.
+
+**Step 1 — shipped first, on its own:** brands from supplier uploads, PIM↔PM brand
+correspondence, and the «Бренды» window (`/brands/`). It covers coverage figures, the queue of
+unresolved spellings (map / ignore / «Создать в PIM»), PIM brands and aliases.
+`backfill_supplier_brands` maps the brand column of existing settings from their latest file.
+The code is in `product/services/brands.py`. **Later steps wait until most brands are filled** —
+the window's coverage panel is the gauge.
+
+**Later steps (order matters — found by reviewing the code, not decided yet in detail):**
+1. **Fill empty brands of linked PIM cards** from the resolved supplier brand. This only adds
+   data and reduces conflicts in step 3.
+2. **PIM: drop `unique` from `PriceManagerProduct.number`** (keep `platformID`). Match the PMP
+   push on `platformID` only and remove `_take_over_pim_link`. Without this, two Products with
+   one number and different brands take one PMP from each other every night. Do not bind a
+   brandless Product to a branded PIM card by number alone.
+3. **Identity in PM.**
+   - Swap `product_product_number_lower_uniq` for `UniqueConstraint(Lower('number'), 'brand',
+     condition=Q(brand__isnull=False))`. It is strictly weaker, so it is a pure schema migration,
+     safe for CI.
+   - One resolver replaces `product_for_sku`. Its key comes from `manufacturer_article(row)`:
+     - price-list row: the supplier article;
+     - hand-made row: the sku;
+     - set row: the number.
+   - Take an advisory lock per article: brandless Products have no DB guard.
+   - Add `MainProduct.link_source` (auto / by rule / manual). Manual moves leave no trace today.
+   - Delete `_link_to_local_product` and `link_to_local_products`.
+   - `apply_pim_product` must stop clearing a local brand; brand conflicts go to a queue.
+   - Sets must select `brandId`.
+   - Search must also cover `MainProduct.sku`.
+   - Check what Satu matches «Код_товара» on.
+4. **Data, by management command, not migration** (`--dry-run`, beat paused). The command:
+   - merges Products sharing a PIM `productId`;
+   - **splits** Products whose suppliers name different brands;
+   - renumbers to the clean article, per supplier, once that supplier's brands are resolved.
+   
+   Hand-edited numbers are never recomputed, and categories are copied on a split. Run a
+   PriceTag dry-run diff before and `sync_pricetags` after. Take a fresh snapshot first,
+   later than PIM's 10-06/10-07 cleanups.
+5. **Draft PIM cards for pairs without one.** Match against the bulk (id, number, brandId)
+   list, about 180 requests. Check for near-misses first — Cyrillic look-alikes, DeWALT
+   region suffixes, `RF-` (the tssp load found ~9% "new" cards already in PIM). Add a kill
+   switch and a pilot supplier.
+
+**Known weaknesses of the policy itself:**
+- A supplier article is not always the manufacturer article (internal codes) — a «Артикул
+  производителя» column may be needed.
+- «Any number of brandless products» is a hole in uniqueness, and those never reach PIM.
+- Variants sold under one article become one product.
+- Stripping `mi`/`_tor` is the riskiest step: a brandless short article lands on another
+  brand's product under «the only one → link to it». It needs a minimum article length.
+
+---
+
 ## 1. The target state
 
 `product.Product` becomes the catalog: it owns identity, content, search and filtering.
@@ -285,7 +354,7 @@ Filtering on the new page draws on exactly three sources:
 |---|---|---|
 | D1 | **CONFIRMED TWICE — final.** Both `MainProduct` and `SupplierProduct` lose `category`/`categories` and `manufacturer`. Brand comes from PIM alone; the gap is closed by **enriching PIM**, not by keeping supplier data. | Reaffirmed 2026-09-19 with the per-product cost measured (§0.5): **96,725 products (62%) lose their only brand**. **Do not reopen this** — it has been decided on full evidence. What it *does* impose is **P2-G4**: the manufacturer data must be exported for the enrichment before Phase 2 deletes it. |
 | D2 | `product.Category` survives. `supplier_manager.Category` is **retired**. | Two MPTT trees mirror the same PIM tree: `main_product_manager/utils.py:441-449` writes one, `product/services/pim_sync.py` the other. |
-| D3 | New `product.Brand`, **keyed by PIM `brandId`**. No alias/normalisation layer. | ✅ Built. PIM returns `brandId`/`brandName` as **scalars**, so FK not M2M — confirmed against `_resolve_manufacturer` (`utils.py:362-374`), which does the same shape against the supplier-side Manufacturer this replaces. |
+| D3 | New `product.Brand`, **keyed by PIM `brandId`**. No alias/normalisation layer. **The «no alias layer» half is reopened 2026-10-12 for supplier spellings (`BrandAlias`) — see §0.6.** | ✅ Built. PIM returns `brandId`/`brandName` as **scalars**, so FK not M2M — confirmed against `_resolve_manufacturer` (`utils.py:362-374`), which does the same shape against the supplier-side Manufacturer this replaces. |
 | D4 | `PriceManager` rules scope via `product__categories`. ✅ **No-op in practice — G4 = 0.** | `product_price_manager/models.py:187-188` currently filters on `MainProduct.categories`. |
 | D5 | MainProducts with `product_id IS NULL` are **invisible** on the new page. Accepted. | ✅ Counter shipped (P1-G3). Cheaper than assumed post-`#184`: linking is local, see §0.1. |
 | D6 | New page at a **new route**, parallel to the existing one. | ✅ Built at `/products/` with its own reverse names (`products`, `product-filter`, `product-suppliers`). |
@@ -293,7 +362,7 @@ Filtering on the new page draws on exactly three sources:
 | D8 | Category migration maps **by `pim_id` only**; non-PIM categories dropped. | Safe per F2. Keeps `product.Category` a pure PIM mirror — see R6. |
 | D9 | Search by raw supplier `article` is **dropped**. `sku` is covered by `Product.number`. | **Now confirmed in code**, not inferred: `product/models.py` documents `number` as the `MainProduct.sku` match key. `article` is the *unprefixed* article (`sku = prefix + article + suffix`) and is not covered. See R4. |
 | D10 | **Phased**: new page ships first, MainProduct field drops after cutover. | ✅ Honoured — Phase 1 touches no existing app except one `urls.py` insertion. |
-| D11 | **CONFIRMED after measurement** (85/85 map `manufacturer`, 75 map `category` — 160 Links deleted). | Also removes the `'brand'/'бренд'/'производитель'` column auto-detection at `functions.py:72`. |
+| D11 | **CONFIRMED after measurement** (85/85 map `manufacturer`, 75 map `category` — 160 Links deleted). **Brand half reversed 2026-10-12: the column is back as `brand_name` — see §0.6.** | Also removes the `'brand'/'бренд'/'производитель'` column auto-detection at `functions.py:72`. |
 | D12 | `MainProduct` **keeps**: `sku`, `article`, `name`, `supplier` FK, all price fields, `stock`, `price_updated_at`, `stock_updated_at`, `MainProductLog`. | `sku` cannot go — it is the link key to `Product.number`. |
 | D13 | `MainProduct` **drops**: `search_vector`, `description`, `categories`, `manufacturer`, `weight`, `length`, `width`, `depth`. No data migration for description. | Safe per F4, with the 2-row residue named. |
 | D14 | **No category sidebar.** Flat product list; categories are a filter facet only. | ✅ Built. `tables_bycat.html`, `CategoryFilter`, `Paginator(cat_filter.qs, 5)`, `has_nulled`/`nulled_mp_count` **not ported**. Consequence: `product.Category` needs **no** `search_vector`/GIN — and none was added. |

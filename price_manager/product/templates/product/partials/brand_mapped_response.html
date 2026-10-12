@@ -1,0 +1,7 @@
+{% comment %}
+  Ответ BrandMapView после сопоставления: только фрагменты hx-swap-oob, на
+  верхнем уровне. Модалку закрывает событие brand-mapped (brands.html).
+{% endcomment %}
+{% include 'product/partials/brand_coverage.html' with oob=True %}
+{% include 'product/partials/brand_unmapped_count.html' with oob=True %}
+{% include 'product/partials/brand_unmapped_list.html' with oob=True %}

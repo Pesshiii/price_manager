@@ -93,7 +93,7 @@ class SupplierDetail(SingleTableMixin, FilterView):
       messages.error(request, 'Не удалось сохранить настройки поставщика')
     return redirect(f"{reverse('supplier-detail', kwargs={'pk': self.supplier.pk})}#supplier-settings")
   def get_table_data(self):
-    return super().get_table_data().filter(supplier=self.supplier)
+    return super().get_table_data().filter(supplier=self.supplier).select_related('brand')
   def _resolve_selected_columns(self):
     if hasattr(self, '_selected_columns'):
       return self._selected_columns

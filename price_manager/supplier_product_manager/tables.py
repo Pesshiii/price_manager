@@ -8,6 +8,7 @@ from .models import *
 from .forms import *
 
 from core.utils import get_field_details
+from product.models import BrandAlias, brand_key
 
 import pandas as pd
 
@@ -29,6 +30,7 @@ SP_AVAILABLE_COLUMN_GROUPS = [
       ('actions', 'Действия'),
       ('article', 'Артикул поставщика'),
       ('name', 'Название'),
+      ('brand_name', 'Бренд'),
       ('description', 'Описание'),
       ('discount', 'Группа скидок'),
       ('stock', 'Остаток'),
@@ -186,12 +188,34 @@ class SupplierProductListTable(tables.Table):
     sequence.append('...')
     self.sequence = sequence
 
+  def render_brand_name(self, value, record):
+    """Написание поставщика; если оно сведено к бренду PIM с другим названием — и сам бренд.
+
+    Несведённое помечено: его ждут в окне «Бренды». Проигнорированное
+    («Без бренда») — нет. brand подгружен select_related в
+    SupplierDetail.get_table_data.
+    """
+    if record.brand_id:
+      if brand_key(record.brand.name) == brand_key(value):
+        return value
+      return format_html('{} <span class="text-body-secondary">→ {}</span>', value, record.brand.name)
+    if not hasattr(self, '_ignored_brand_keys'):
+      self._ignored_brand_keys = set(
+        BrandAlias.objects.filter(brand__isnull=True).values_list('name_key', flat=True))
+    key = brand_key(value)
+    if not key or key in self._ignored_brand_keys:
+      return format_html('{} <span class="text-body-secondary">(без бренда)</span>', value)
+    return format_html(
+      '{} <span class="badge text-bg-warning-subtle text-warning-emphasis border" '
+      'title="Не сопоставлен с брендом PIM — раздел «Бренды»">не сопоставлен</span>', value)
+
   class Meta:
     model = SupplierProduct
     fields = [
       'actions',
       'article',
       'name',
+      'brand_name',
       'description',
       'discount',
       'stock',
