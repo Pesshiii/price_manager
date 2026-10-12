@@ -36,7 +36,7 @@ decisions: `.claude/shift-to-product-brief.md`.
   merged the numberless placeholders left over from `0011` into the
   Products of their rows' sku). **Not `unique=True` on the field** —
   uniqueness is a `Meta.constraints` `UniqueConstraint(Lower('number'),
-  name='product_product_number_lower_uniq')` (`models.py:113-115`, added by
+  name='product_product_number_lower_uniq')` (`models.py:116`, added by
   migration `0009_product_number_case_insensitive`), i.e. **case-insensitive**:
   `sync_product_from_pim` matches with `number__iexact`, and so does
   `services/sets.py`'s `_candidates` — any new code matching a PIM number to a
@@ -45,16 +45,19 @@ decisions: `.claude/shift-to-product-brief.md`.
   (nullable — PIM returns `brandId` as a **scalar**, hence FK not M2M),
   `raw_data` JSON, `search_vector` + GIN (`product_search_vector_gin`,
   `config='russian'`), timestamps. `ordering = ['-updated_at']`.
-- `Product.display_name` (`models.py:120-133`) — `name`, else the first linked
+- `Product.display_name` (`models.py:123-136`) — `name`, else the first linked
   MainProduct's name, else (none linked) `number`, else `pim_id`. Needed because
   `name` comes from PIM and most Products (still true as of the last measured
   pass — see coverage in [[product/pim-sync]]) have no PIM content at all.
-- `Product._build_searchvector()` (`models.py:135-158`) builds **only from
+- `Product._build_searchvector()` (`models.py:138-167`) builds **only from
   `raw_data`** — no network call. Joins with `' '`, not `''`: the old
   `MainProduct` version glued category names into one token, so neither word
   was searchable.
-- `ProductSetItem` (`models.py:165-209`) — see [[product/sets]].
-- `ProductExport` (`models.py:212-234`) — `user` FK (`related_name=
+- `ProductPhoto` (`models.py:174-207`) — one PIM image file of a Product
+  (`related_name='photos'`) with its anonymous public link; written only by the
+  nightly photo pass — see [[product/photos]].
+- `ProductSetItem` (`models.py:210-254`) — see [[product/sets]].
+- `ProductExport` (`models.py:257-279`) — `user` FK (`related_name=
   'product_exports'`), `file` (`upload_to='product_exports/'`), `rows_count`,
   `created_at`. One row per completed export run; see [[product/export]].
 

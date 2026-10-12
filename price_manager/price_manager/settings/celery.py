@@ -40,6 +40,7 @@ CELERY_TASK_ROUTES = {
     for name in (
         'product.backfill_products_from_pim',
         'product.refresh_products_from_pim',
+        'product.refresh_product_photos',
         'product.sync_products_batch',
         'product.sync_product_from_pim',
         'product.sync_product_sets',
@@ -97,6 +98,21 @@ CELERY_BEAT_SCHEDULE = {
     'refresh-products-from-pim': {
         'task': 'product.refresh_products_from_pim',
         'schedule': crontab(hour=5, minute=0),
+        'options': {'expires': _DAY},
+    },
+    # Фото товаров и их публичные ссылки — после refresh-products-from-pim:
+    # товары, впервые получившие raw_data этой ночью, если их партии успели.
+    # По будням ссылки берутся инкрементально, в воскресенье — полным
+    # проходом (около часа), который стирает отозванные PIM.
+    'refresh-product-photos': {
+        'task': 'product.refresh_product_photos',
+        'schedule': crontab(hour=5, minute=30, day_of_week='1-6'),
+        'options': {'expires': _DAY},
+    },
+    'refresh-product-photos-full': {
+        'task': 'product.refresh_product_photos',
+        'schedule': crontab(hour=5, minute=30, day_of_week='0'),
+        'kwargs': {'full': True},
         'options': {'expires': _DAY},
     },
     'cleanup-persistent-notifications': {

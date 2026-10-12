@@ -1141,12 +1141,15 @@
       const showZoom = function (thumb) {
         current = thumb;
         zoomImage.src = thumb.currentSrc || thumb.src;
-        const large = thumb.dataset.zoomSrc;
-        if (large) {
+        // Не загрузился крупный по публичной ссылке — тот же размер через
+        // прокси (data-zoom-fallback-src, см. static/js/pim-photo-fallback.js).
+        const loadLarge = function (url, fallback) {
           const loader = new Image();
-          loader.onload = function () { if (current === thumb) zoomImage.src = large; };
-          loader.src = large;
-        }
+          loader.onload = function () { if (current === thumb) zoomImage.src = url; };
+          if (fallback) loader.onerror = function () { if (current === thumb) loadLarge(fallback, ''); };
+          loader.src = url;
+        };
+        if (thumb.dataset.zoomSrc) loadLarge(thumb.dataset.zoomSrc, thumb.dataset.zoomFallbackSrc);
         placeZoom(thumb);
         zoom.classList.add('is-visible');
       };

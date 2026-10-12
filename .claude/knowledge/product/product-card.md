@@ -5,10 +5,12 @@ code: price_manager/product/views.py, price_manager/product/forms.py, price_mana
 ---
 # The product card — `/products/<pk>/`
 
-`ProductDetailView` (`views.py:333`): the Product's ГП rows with their fixed
+`ProductDetailView` (`views.py:335`): the Product's ГП rows with their fixed
 markups, set composition, and a lazily loaded PIM panel ([[product/pim-content]]).
+The header carries a photo carousel with an enlarge modal ([[product/photos]]).
 Every action is a modal in `#modal-container`; success reloads the card (a
-delete redirects to `/products/`).
+delete redirects to `/products/`). The photo modal is a separate
+`#pd-photos-modal`, because HTMX forms swap `#modal-container`'s content.
 
 - **Add a ГП row** — the «Строка ГП» modal with `?product=<pk>`, sku preset to
   the Product's number ([[main_product_manager/gp-rows-by-hand]]).
@@ -29,7 +31,7 @@ sends it — and is the key new ГП rows link by.
 
 `MainProductAttachView` («Привязать строку ГП», pull a row from another Product)
 and `MainProductMoveView` («Перенести в другой товар») both just set
-`MainProduct.product` (`_relinked`, `views.py:448`). There is deliberately no
+`MainProduct.product` (`_relinked`, `views.py:452`). There is deliberately no
 "unlink": `link_unlinked_main_products` re-links an unlinked row **nightly** to
 the Product numbered by its sku, **recreating** that Product if missing — while
 it never touches an existing link, so a hand-made move sticks.

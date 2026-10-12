@@ -49,7 +49,7 @@ them.
   **only** at `list.html:137,147,217` — the old main page carried the rules
   and Phase 2b-1 deleted it, leaving the shared markup with none. The tree
   keeps its own inline `max-height` (`category_tree_field.html:24`); the
-  «Добавить товар» modal (`#modal-container`, `list.html:942`) sits outside
+  «Добавить товар» modal (`#modal-container`, `list.html:999`) sits outside
   `.products-sidebar` and needs none of this. Unbounded facet list? Check the
   page still carries these rules before debugging the markup.
 - **A multi-line `{# … #}` is not a comment in Django — it renders as text.**
@@ -62,20 +62,22 @@ them.
   `test_fragment_does_not_leak_template_comments_into_the_response`
   (`test_views.py:158-167`).
 - **The name column cannot sort — by construction — and there is no sort by
-  brand.** `ProductTable.display_name` is `orderable=False` (`tables.py:200`):
+  brand.** `ProductTable.display_name` is `orderable=False` (`tables.py:222`):
   `Product.display_name` is a `@property`, not a column, so the database
   can't order by it (a sortable name would need an annotation reproducing the
   fallback — `Coalesce`, untried). Sort links come from `column.orderable`
-  (`partials/table.html:33`): only `number`, `supplier_count`, `main_stock`
+  (`partials/table.html:47`): only `number`, `supplier_count`, `main_stock`
   sort. Brand and categories render as a `brand · category · …` line under
-  the name (`tables.py:286-288`), not columns — hence no brand sort.
-  `_base_queryset` (`views.py:35-50`) keeps `select_related('brand')` and the
+  the name (`tables.py:308-310`), not columns — hence no brand sort.
+  `_base_queryset` (`views.py:42-58`) keeps `select_related('brand')` and the
   categories prefetch for that cell; drop either and it's N+1, unguarded by
-  `assertNumQueries`.
+  `assertNumQueries`. The `photos` prefetch beside them *is* guarded: a query
+  count that must not grow with the number of rows
+  (`test_views.ProductPhotoTests`, see [[product/photos]]).
 - **Known gap, not fixed — the mobile filter drawer stays open after a
   checkbox tick.** Below `lg` the filters sit in an offcanvas
-  (`#products-filters`, `list.html:811`) closed only by a `submit` listener
-  on `#product-filter` (`list.html:1175-1180`), i.e. by «Применить». A tick
+  (`#products-filters`, `list.html:868`) closed only by a `submit` listener
+  on `#product-filter` (`list.html:1235-1240`), i.e. by «Применить». A tick
   auto-applies via `hx-trigger` `change delay:600ms` (`filters.py:456`),
   which fires no `submit`, so the drawer stays open over the refreshed
   results.

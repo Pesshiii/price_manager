@@ -58,6 +58,10 @@ GIN index) — no data migration, nothing to trap here.
 [[product/overview]]). `0010_product_export` adds `ProductExport` — purely
 additive, see [[product/export]]. `0011_productsetitem` adds
 `ProductSetItem` — purely additive, see [[product/sets]].
+`0019_productphoto` adds `ProductPhoto` — purely additive, and an FK to
+`Product` only, so it adds no cross-app edge (depends on `0018` alone); see
+[[product/photos]]. Another worktree may also be numbering a `0019`: check
+`git log origin/main -- price_manager/product/migrations` before merging.
 
 `0015_remove_product_pricing` and `0018_drop_api_stack` are the pattern for
 **removing a whole app**: the app leaves `INSTALLED_APPS`, and a `RunPython`

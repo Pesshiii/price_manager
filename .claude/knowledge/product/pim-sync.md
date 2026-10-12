@@ -133,6 +133,12 @@ and `categoriesNames` in the vector.
   the catalogue keeps workers busy for hours — the `pim` queue's worker only
   (`CELERY_TASK_ROUTES`, `celery_worker_pim`), not the one imports, exports
   and `update_prices` run on.
+- **Photos are a separate pass at 05:30**, not part of this one: `raw_data`
+  has only `mainImageId`, and `ProductPhoto` is filled from PIM's
+  `ProductFile`/`Sharing` lists by a keyset scan that does *not* use
+  `fetch_list` (so no `truncated` check) — see [[product/photos]]. It reads
+  `raw_data['id']`, so a Product this night's refresh batches have not reached
+  yet is photographed the next night.
 
 ### The phantom-field trap (fixed; the shape can recur)
 

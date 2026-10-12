@@ -1,3 +1,4 @@
+import re
 from decimal import Decimal
 
 from django.contrib.auth.models import User
@@ -9,7 +10,7 @@ from product_price_manager.models import PriceTag
 from supplier_manager.models import Supplier
 
 from product.filters import matching_product_pks
-from product.models import Brand, Category, Product
+from product.models import Brand, Category, Product, ProductPhoto
 
 
 class DetailTestCase(TestCase):
@@ -41,6 +42,69 @@ class ProductDetailPageTests(DetailTestCase):
     def test_products_table_links_to_the_card(self):
         response = self.client.get(reverse('products'))
         self.assertContains(response, reverse('product-detail', kwargs={'pk': self.product.pk}))
+
+
+class ProductGalleryTests(DetailTestCase):
+    """Карусель фото в шапке карточки и окно увеличения."""
+
+    def page(self):
+        return self.client.get(reverse('product-detail', kwargs={'pk': self.product.pk})).content.decode()
+
+    def slide_sources(self, html, carousel_id):
+        """src картинок слайдов одной карусели (не миниатюр и не другой карусели)."""
+        block = html.split(f'id="{carousel_id}"', 1)[1]
+        if carousel_id == 'pd-carousel':
+            block = block.split('id="pd-photos-carousel"', 1)[0]
+        return re.findall(r'class="carousel-item[^"]*">\s*(?:<button[^>]*>\s*)?<img src="([^"]+)"', block)
+
+    def test_every_photo_is_a_slide_main_first(self):
+        ProductPhoto.objects.create(product=self.product, pim_file_id='f-2', position=1,
+                                    public_url='https://pim.example.kz/sharings/s-2.jpg')
+        ProductPhoto.objects.create(product=self.product, pim_file_id='f-3', position=2)
+        ProductPhoto.objects.create(product=self.product, pim_file_id='f-1', position=0, is_main=True)
+
+        html = self.page()
+
+        self.assertEqual(self.slide_sources(html, 'pd-carousel'), [
+            '/products/pim-image/f-1/medium/',
+            'https://pim.example.kz/sharings/s-2.jpg',
+            '/products/pim-image/f-3/medium/',
+        ])
+        self.assertEqual(self.slide_sources(html, 'pd-photos-carousel'), [
+            '/products/pim-image/f-1/large/',
+            'https://pim.example.kz/sharings/s-2.jpg',
+            '/products/pim-image/f-3/large/',
+        ])
+        self.assertIn('data-fallback-src="/products/pim-image/f-2/medium/"', html)
+        self.assertIn('data-fallback-src="/products/pim-image/f-2/large/"', html)
+        self.assertEqual(html.count('data-bs-slide-to='), 3)
+        self.assertIn('<span data-pd-current>1</span> / 3', html)
+        self.assertIn('data-bs-target="#pd-photos-modal"', html)
+
+    def test_one_photo_has_no_arrows_counter_or_thumbs_but_still_enlarges(self):
+        ProductPhoto.objects.create(product=self.product, pim_file_id='f-1', is_main=True)
+
+        html = self.page()
+
+        # CSS и скрипт карточки упоминают эти классы всегда — ищется разметка.
+        self.assertIn('id="pd-carousel"', html)
+        self.assertIn('id="pd-photos-modal"', html)
+        self.assertNotIn('class="pd-gallery-nav', html)
+        self.assertNotIn('data-bs-slide-to=', html)
+        self.assertNotIn('<span data-pd-current>', html)
+
+    def test_until_photos_are_mirrored_the_main_image_shows_through_the_proxy(self):
+        Product.objects.filter(pk=self.product.pk).update(raw_data={'id': 'p-1', 'mainImageId': 'img-1'})
+
+        html = self.page()
+
+        self.assertEqual(self.slide_sources(html, 'pd-carousel'), ['/products/pim-image/img-1/medium/'])
+
+    def test_no_photos_no_gallery(self):
+        html = self.page()
+
+        self.assertNotIn('id="pd-carousel"', html)
+        self.assertNotIn('id="pd-photos-modal"', html)
 
 
 class ProductEditTests(DetailTestCase):
