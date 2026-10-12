@@ -1,0 +1,82 @@
+{% comment %}
+  Сопоставление одного написания (BrandMapView): с брендом PIM, «без бренда»
+  или созданием бренда в PIM. Успех — ответ фрагментами
+  (brand_mapped_response.html) и закрытие модалки; ошибка — эта же модалка
+  с error.
+{% endcomment %}
+<div class="modal-header">
+  <h5 class="modal-title fw-semibold">Бренд «{{ item.name }}»</h5>
+  <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Закрыть"></button>
+</div>
+<form hx-post="{% url 'brand-map' %}" hx-target="#modal-container .modal-content" hx-swap="innerHTML">
+  {% csrf_token %}
+  {# Кнопка по умолчанию, выключенная: Enter в поиске бренда или в названии не отправляет форму первой кнопкой формы, то есть подсказкой. #}
+  <button type="submit" disabled hidden aria-hidden="true"></button>
+  <input type="hidden" name="name" value="{{ item.name }}">
+  <input type="hidden" name="q" value="{{ query }}">
+  <div class="modal-body">
+    {% if error %}<div class="alert alert-danger py-2">{{ error }}</div>{% endif %}
+
+    {% if item.rows %}
+      <p class="small text-body-secondary mb-3">
+        Строк прайсов: <strong>{{ item.rows }}</strong> · {{ item.suppliers|join:", " }}.
+        Решение запомнится синонимом и сработает для всех поставщиков и следующих загрузок.
+      </p>
+    {% else %}
+      <p class="small text-body-secondary mb-3">Строк с этим написанием без бренда уже нет — его могли сопоставить только что.</p>
+    {% endif %}
+
+    {% if same_key %}
+      <div class="alert alert-warning py-2 small">
+        В PIM несколько брендов с таким названием:
+        {% for brand in same_key %}«{{ brand.name }}»{% if not forloop.last %}, {% endif %}{% endfor %}.
+        Лучше слить их в PIM; пока не слиты — выберите один ниже.
+      </div>
+    {% endif %}
+
+    <h6 class="fw-semibold">Сопоставить с брендом PIM</h6>
+    {% if suggestions %}
+      <div class="d-flex flex-wrap gap-2 align-items-center mb-2">
+        <span class="small text-body-secondary">Похоже на:</span>
+        {% for brand in suggestions %}
+          <button type="submit" class="btn btn-sm btn-outline-primary" name="suggested" value="{{ brand.pk }}"
+                  onclick="this.form.querySelector('[name=action]').value='map'">
+            {{ brand.name }}
+          </button>
+        {% endfor %}
+      </div>
+    {% endif %}
+    {% include 'product/partials/picker.html' with name='brand' options=brand_options single=True placeholder='Найти бренд PIM' all_label='Бренд не выбран' %}
+    <div class="d-flex justify-content-end mt-2">
+      <button type="submit" class="btn btn-primary btn-sm"
+              onclick="this.form.querySelector('[name=action]').value='map'">Сопоставить с выбранным</button>
+    </div>
+
+    <hr>
+    <div class="d-flex flex-wrap gap-3 align-items-start">
+      <div class="flex-grow-1">
+        <h6 class="fw-semibold mb-1">Это не бренд</h6>
+        <p class="small text-body-secondary mb-2">«Без бренда», страна, мусор в колонке — строки останутся без бренда и уйдут из очереди.</p>
+        <button type="submit" class="btn btn-outline-secondary btn-sm"
+                onclick="this.form.querySelector('[name=action]').value='ignore'">Без бренда</button>
+      </div>
+      <div class="flex-grow-1">
+        <h6 class="fw-semibold mb-1">Создать бренд в PIM</h6>
+        <p class="small text-body-secondary mb-2">
+          Если такого бренда в PIM действительно нет.{% if suggestions %} Проверьте похожие выше.{% endif %}
+        </p>
+        <div class="input-group input-group-sm">
+          <input type="text" name="new_name" value="{{ item.name }}" class="form-control" aria-label="Название нового бренда">
+          <button type="submit" class="btn btn-outline-primary"
+                  onclick="if (!confirm('Создать бренд «' + this.form.new_name.value + '» в PIM?')) return false; this.form.querySelector('[name=action]').value='create'">
+            Создать в PIM
+          </button>
+        </div>
+      </div>
+    </div>
+    <input type="hidden" name="action" value="map">
+  </div>
+  <div class="modal-footer">
+    <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Отмена</button>
+  </div>
+</form>

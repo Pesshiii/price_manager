@@ -44,6 +44,21 @@ class SupplierProduct(models.Model):
     verbose_name="Описание",
     null=True,
     blank=True)
+  # Бренд, как его пишет поставщик, и бренд PIM, к которому это написание
+  # сведено синонимом (product.services.brands). Сопоставленный бренд — заявка
+  # поставщика, а не бренд товара: Product.brand остаётся брендом PIM.
+  # Не очищается у строк, пропавших из файла (Setting.clearable_fields): это
+  # данные о товаре, а не остаток или цена.
+  brand_name = models.CharField(verbose_name='Бренд поставщика',
+                                null=True,
+                                blank=True,
+                                db_index=True)
+  brand = models.ForeignKey('product.Brand',
+                            verbose_name='Бренд',
+                            related_name='supplier_products',
+                            on_delete=models.SET_NULL,
+                            null=True,
+                            blank=True)
   discount = models.ForeignKey(Discount,
                                 verbose_name='Группа скидок',
                                 related_name='supplierproducts',
@@ -96,6 +111,9 @@ class SupplierProduct(models.Model):
 LINKS = {'': 'Не включать',
          'article': 'Артикул поставщика',
          'name': 'Название',
+         # The raw text; SupplierProduct.brand is resolved from it after the
+         # upsert (every LINKS key goes straight into SupplierProduct(**data)).
+         'brand_name': 'Бренд',
          'description': 'Описание',
          'discount': 'Группа скидок',
          'stock': 'Остаток',

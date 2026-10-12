@@ -1,0 +1,26 @@
+{% comment %}
+  Перенос с бренда, которого больше нет в PIM (BrandMergeView →
+  services.brands.merge_brands): товары, строки прайсов, синонимы и охваты
+  менеджеров цен — на выбранный живой бренд; сам бренд удаляется.
+{% endcomment %}
+<div class="modal-header">
+  <h5 class="modal-title fw-semibold">Перенести «{{ brand.name }}»</h5>
+  <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Закрыть"></button>
+</div>
+<form hx-post="{% url 'brand-merge' brand.pk %}" hx-target="#modal-container .modal-content" hx-swap="innerHTML">
+  {% csrf_token %}
+  <button type="submit" disabled hidden aria-hidden="true"></button>
+  <div class="modal-body">
+    {% if error %}<div class="alert alert-danger py-2">{{ error }}</div>{% endif %}
+    <p class="small text-body-secondary">
+      Бренда «{{ brand.name }}» больше нет в PIM — обычно его слили там с другим. Товары, строки прайсов,
+      синонимы и менеджеры цен перейдут на выбранный бренд, а «{{ brand.name }}» станет его синонимом.
+    </p>
+    {% include 'product/partials/picker.html' with name='brand' options=brand_options single=True placeholder='Найти бренд PIM' all_label='Бренд не выбран' %}
+  </div>
+  <div class="modal-footer">
+    <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Отмена</button>
+    <button type="submit" class="btn btn-primary"
+            onclick="return confirm('Перенести всё с «{{ brand.name|escapejs }}» на выбранный бренд?')">Перенести</button>
+  </div>
+</form>

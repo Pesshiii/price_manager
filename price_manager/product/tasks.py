@@ -12,6 +12,7 @@ from .services.pim_sync import (
     sync_product_from_pim,
     sync_products,
 )
+from .services.brands import sync_brands_from_pim
 from .services.set_rows import sync_set_rows
 from .services.sets import sync_product_sets
 
@@ -153,6 +154,23 @@ def sync_product_sets_task() -> dict:
         # sync_product_sets идемпотентна.
         atomic=False,
     )
+
+@shared_task(name='product.sync_brands')
+def sync_brands_task() -> dict:
+    """Список брендов PIM целиком и пересопоставление строк ПП (services/brands.py).
+
+    Ночью и по кнопке «Обновить из PIM» в окне «Бренды». Не в очереди pim:
+    это несколько списочных запросов, а кнопку человек ждёт.
+    """
+    return execute_locked_task(
+        task_name='product.sync_brands',
+        lock_ttl=60 * 15,
+        runner=sync_brands_from_pim,
+        # Список брендов читается из PIM до записей; запись брендов идёт в
+        # своей транзакции, пересопоставление строк идемпотентно.
+        atomic=False,
+    )
+
 
 # Весь каталог — ~158 тыс. товаров: общего лимита воркера (30 мин) на него
 # впритык, а lock_ttl должен пережить самый долгий прогон.

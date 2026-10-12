@@ -25,10 +25,14 @@ def category_picker_options(selected) -> list[dict]:
     return options
 
 
-def brand_picker_options(selected) -> list[dict]:
+def brand_picker_options(selected, active_only: bool = False) -> list[dict]:
+    """active_only — только бренды, что есть в PIM: сопоставлять написания и
+    переносить слитое можно лишь на живой бренд. Формы товара и наценки
+    показывают все, чтобы выбранный ранее бренд не пропал из выбора."""
+    brands = Brand.objects.filter(is_active=True) if active_only else Brand.objects.all()
     return [
         {'pk': pk, 'name': name, 'level': 0, 'path': '', 'selected': str(pk) in selected}
-        for pk, name in Brand.objects.order_by('name').values_list('pk', 'name')
+        for pk, name in brands.order_by('name').values_list('pk', 'name')
     ]
 
 

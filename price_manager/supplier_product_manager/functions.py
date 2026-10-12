@@ -10,6 +10,7 @@ from .models import (SupplierFile, Setting, Link,
                      SP_NUMBERS, SP_PRICES)
 from .tables import SP_AVAILABLE_COLUMN_MAP, SP_DEFAULT_VISIBLE_COLUMNS
 from main_product_manager.models import MainProduct
+from product.services.brands import UNRESOLVED_EXAMPLES, BrandIndex, apply_brand_resolution
 from supplier_manager.models import Supplier
 
 from .forms import (DictFormset, LinkFormset,
@@ -36,7 +37,8 @@ CACHE_TTL = 60 * 60 * 24 * 30  # 30 дней
 #      пробелов, possible_renames, whitespace_ambiguous.
 # 1.6: значения ячеек без пробелов по краям (get_df).
 # 1.7: _parse_number вместо pd.to_numeric; missing_columns и unparsed_numbers в stats.
-SPS_JSON_SCHEMA_VERSION = "1.7"
+# 1.8: brand_name — бренд поставщика (товар = бренд + артикул, шаг 1).
+SPS_JSON_SCHEMA_VERSION = "1.8"
 # Счётчики разбора, которые get_sps_result отдаёт вместе с payload, по этапам.
 SPS_STAT_FIELDS = (
     "rows_in_sheet",      # непустые строки листа
@@ -57,6 +59,7 @@ SPS_STAT_FIELDS = (
 SPS_JSON_FIELDS = (
     "article",
     "name",
+    "brand_name",
     "description",
     "discount",
     "stock",
@@ -94,12 +97,21 @@ def load_user_sp_columns(user):
 AUTO_LINK_ALIASES = {
     "article": ("article", "артикул", "код", "sku", "vendorcode"),
     "name": ("name", "название", "наименование", "товар"),
+    "brand_name": ("brand", "бренд", "производитель", "manufacturer", "торговая марка"),
     "description": ("description", "описание"),
     "discount": ("discount", "скидка", "группа скидок"),
     "stock": ("stock", "остаток", "количество", "наличие", "qty"),
     "supplier_price": ("supplierprice", "supplier_price", "цена", "цена поставщика", "закупочная цена", "price"),
     "rrp": ("rrp", "ррц", "розничная цена"),
     "discount_price": ("discountprice", "discount_price", "цена со скидкой", "скидочная цена"),
+}
+
+# A column whose header contains one of these is never auto-detected as the key.
+# In the substring pass the longest alias wins, so «Артикул производителя» would
+# go to brand_name («производитель», 13 letters) rather than article
+# («артикул», 7) — a column of codes taken for brands.
+AUTO_LINK_EXCLUDE = {
+    "brand_name": ("артикул", "код", "article", "sku", "номер"),
 }
 
 
@@ -163,11 +175,19 @@ def auto_detect_link_keys(columns) -> list[str | None]:
     alias_map.setdefault(key, set()).add(_normalize_column_name(verbose_name))
     alias_map[key].add(_normalize_column_name(key))
 
+  exclude_map = {
+    key: {_normalize_column_name(word) for word in words}
+    for key, words in AUTO_LINK_EXCLUDE.items()
+  }
+
+  def excluded(key: str, column_name: str) -> bool:
+    return any(word in column_name for word in exclude_map.get(key, ()))
+
   for idx, column_name in enumerate(normalized_columns):
     if not column_name:
       continue
     for key, aliases in alias_map.items():
-      if key in used_keys:
+      if key in used_keys or excluded(key, column_name):
         continue
       if column_name in aliases:
         detected_keys[idx] = key
@@ -182,7 +202,7 @@ def auto_detect_link_keys(columns) -> list[str | None]:
     # claim a "Цена со скидкой, руб" column ahead of discount_price.
     best_key, best_alias_length = None, 0
     for key, aliases in alias_map.items():
-      if key in used_keys:
+      if key in used_keys or excluded(key, column_name):
         continue
       longest = max((len(alias) for alias in aliases if alias and alias in column_name), default=0)
       if longest > best_alias_length:
@@ -478,7 +498,7 @@ def get_sps(setting_or_pk: Setting | int, recache: bool = False) -> list[dict]:
     """
     Возвращает каноничные товары поставщика в JSON-виде:
     required: article(str), name(str)
-    optional: description(str|null), discount(str|null),
+    optional: brand_name(str|null), description(str|null), discount(str|null),
               stock(int|null), supplier_price(str|null), rrp(str|null), discount_price(str|null)
 
     Никогда не возвращает пустой результат: если импортировать нечего,
@@ -598,8 +618,11 @@ def _parse_sps(setting: Setting, links, stats: dict) -> list[dict]:
 
     df = df.dropna(subset=['article'])
     rows_with_article = stats['rows_with_article'] = len(df)
+    # The brand says what the product is, not that the supplier has it: a row
+    # with nothing but a brand is still a row without values.
     df = df.dropna(
-        subset=[link.key for link in links if not link.key == 'article' and not link.key == 'name' and link.key in df.columns],
+        subset=[link.key for link in links
+                if link.key not in ('article', 'name', 'brand_name') and link.key in df.columns],
         how='all'
     )
     rows_with_values = stats['rows_with_values'] = len(df)
@@ -937,6 +960,14 @@ def duplicate_warning(stats: dict) -> str:
             + _examples(stats.get('possible_rename_examples'))
             + ' — загружены как новые, старые обнулятся. Если это переименования, '
               'включите в настройке «Артикул уникален»')
+    unresolved = stats.get('brands_unresolved') or 0
+    if unresolved:
+        examples = stats.get('brands_unresolved_examples') or []
+        parts.append(
+            f'бренд не сопоставлен с брендом PIM: строк {unresolved}, '
+            f'написаний {stats.get("brands_unresolved_names") or len(examples)}'
+            + (' (например: ' + ', '.join(f'«{name}»' for name in examples) + ')' if examples else '')
+            + ' — сопоставьте их в разделе «Бренды»')
     return ('Внимание: ' + '; '.join(parts) + '.') if parts else ''
 
 
@@ -1139,6 +1170,8 @@ def _apply(setting: Setting, links, sps_payload: list[dict], stats: dict) -> Imp
         unique_fields=['supplier', 'article', 'name'])
 
     written_pks = [sp.pk for sp in sps]
+    if 'brand_name' in df.columns:
+        _resolve_brands(setting, df['brand_name'], stats)
     # Only this setting's own rows count as missing. Rows another setting of the
     # same supplier loads are not in this file by design, and clearing them used
     # to make two settings wipe each other's stock and prices on every import.
@@ -1177,6 +1210,24 @@ def _apply(setting: Setting, links, sps_payload: list[dict], stats: dict) -> Imp
     return ImportOutcome(sps=sps, stats=stats)
 
 
+def _resolve_brands(setting: Setting, file_brands: pd.Series, stats: dict) -> None:
+    """Свести написания бренда к брендам PIM; несведённые из файла — в stats для уведомления.
+
+    Сводятся строки всего поставщика, а не только записанные: отбор по
+    brand_name идёт по индексу, а список pk записанных (десятки тысяч) лёг бы
+    в каждый UPDATE на бренд. Сведение одно для всех строк, так что чужие
+    строки поставщика оно не портит. Уведомление же считает строки файла.
+    """
+    index = BrandIndex()
+    apply_brand_resolution(SupplierProduct.objects.filter(supplier_id=setting.supplier_id), index)
+    names = file_brands.dropna()
+    unresolved = names[~names.map(lambda name: index.lookup(name)[0]).astype(bool)]
+    spellings = sorted(set(unresolved))
+    stats['brands_unresolved'] = int(len(unresolved))
+    stats['brands_unresolved_names'] = len(spellings)
+    stats['brands_unresolved_examples'] = spellings[:UNRESOLVED_EXAMPLES]
+
+
 def _rename_rows(setting: Setting, payload: list[dict]) -> None:
     """Переименовать строки базы, которые payload обновляет под новым ключом (RENAME_FROM).
 
@@ -1210,3 +1261,77 @@ def _stamp_supplier(supplier_id: int, stamps: dict) -> None:
     """
     if stamps:
         Supplier.objects.filter(pk=supplier_id).update(**stamps)
+
+
+@dataclass
+class BrandBackfill:
+    """Итог backfill_brands для одной настройки."""
+    status: str  # filled | no_file | no_column | error
+    column: str | None = None
+    detected: bool = False  # столбец бренда найден сейчас, а не был сопоставлен раньше
+    rows: int = 0
+    message: str = ''
+
+
+def _detect_brand_column(setting: Setting, df: pd.DataFrame) -> str | None:
+    columns = [str(column) for column in df.columns]
+    taken = set(setting.links.exclude(value__isnull=True).exclude(value='').values_list('value', flat=True))
+    for column, key in zip(columns, auto_detect_link_keys(columns)):
+        if key == 'brand_name' and column not in taken:
+            return column
+    return None
+
+
+def backfill_brands(setting: Setting, dry_run: bool = False) -> BrandBackfill:
+    """Бренд поставщика по последнему файлу настройки — без импорта цен и остатков.
+
+    Колонку производителя у всех настроек удалили в Phase 2b (миграция 0010),
+    и ждать, пока каждую перенастроят и перезагрузят, долго. Здесь: если у
+    настройки нет столбца бренда, он ищется автоопределением в последнем файле
+    и сопоставляется (только этот ключ — остальное сопоставление не трогается);
+    затем файл разбирается обычным get_sps_result, и строкам ПП с совпавшим
+    ключом (с учётом переименований разбора) пишутся только brand_name и
+    brand. Цены, остатки, source_settings и очистка пропавших строк — нет.
+
+    dry_run — ничего не записывать, но посчитать строки: всё идёт в
+    транзакции, которая откатывается.
+    """
+    link = setting.links.filter(key='brand_name').first()
+    has_column = bool(link and (link.value or link.initial))
+    if not setting.supplierfiles.exists():
+        return BrandBackfill('no_file', message='нет загруженного файла')
+    try:
+        with transaction.atomic():
+            column = link.value if has_column else None
+            detected = False
+            if not has_column:
+                df = get_df(setting.pk)
+                if df is None:
+                    return BrandBackfill('no_file', message=f'лист «{setting.sheet_name}» пуст')
+                column = _detect_brand_column(setting, df)
+                if column is None:
+                    return BrandBackfill('no_column', message='столбец бренда не найден — сопоставьте вручную')
+                Link.objects.update_or_create(setting=setting, key='brand_name', defaults={'value': column})
+                detected = True
+            payload, _ = get_sps_result(setting, recache=True)
+            values = {}
+            for row in payload:
+                if row.get('brand_name') is None:
+                    continue
+                key = tuple(row[RENAME_FROM]) if row.get(RENAME_FROM) else (row['article'], row['name'])
+                values[key] = row['brand_name']
+            rows = []
+            articles = {article for article, _ in values}
+            for sp in SupplierProduct.objects.filter(supplier_id=setting.supplier_id, article__in=articles).only(
+                    'pk', 'article', 'name', 'brand_name'):
+                value = values.get((sp.article, sp.name))
+                if value is not None and sp.brand_name != value:
+                    sp.brand_name = value
+                    rows.append(sp)
+            SupplierProduct.objects.bulk_update(rows, ['brand_name'], batch_size=1000)
+            apply_brand_resolution(SupplierProduct.objects.filter(supplier_id=setting.supplier_id))
+            if dry_run:
+                transaction.set_rollback(True)
+            return BrandBackfill('filled', column=column, detected=detected, rows=len(rows))
+    except (SupplierImportError, SupplierFileStorageMissingError) as exc:
+        return BrandBackfill('error', message=str(exc) or 'файл недоступен')

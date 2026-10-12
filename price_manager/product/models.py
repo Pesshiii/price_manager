@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import re
+
+from django.conf import settings
 from django.contrib.postgres.indexes import GinIndex
 from django.contrib.postgres.search import SearchVector, SearchVectorField
 from django.db import models
@@ -49,19 +52,38 @@ class Category(MPTTModel):
         super().save(*args, **kwargs)
 
 
+def brand_key(name: str | None) -> str:
+    """Ключ написания бренда: «De-Walt», «DEWALT» и «dewalt» — одно и то же.
+
+    Регистр, ё/е, пробелы и разделители - _ . не различают бренды. Кириллицу и
+    латиницу не сводит: «Зубр» и «Zubr» — разные написания, их связывает
+    синоним (BrandAlias), а не ключ.
+    """
+    return re.sub(r'[\s\-_.]+', '', (name or '').lower().replace('ё', 'е'))
+
+
 class Brand(models.Model):
     """Бренд из PIM. Ключ — brandId, как его отдаёт PIM.
 
-    Словаря вариаций написания намеренно нет (D3): brandId из PIM — ссылка на
-    сущность, и дубль написания здесь — это дубль СУЩНОСТИ в PIM, а не
-    вариация текста. Такие есть (R5, 2026-09-21: 14 групп вида STAYER/Stayer
-    на 321 бренд); их сливают в PIM, а не склеивают здесь. Бывший
-    supplier_manager.ManufacturerDict решал похожую задачу для названий от
-    поставщиков, не использовался (0 строк на проде) и удалён в Phase 2b-3.
+    PIM — источник брендов: локальный бренд всегда зеркало бренда PIM (pim_id
+    обязателен), список целиком тянет sync_brands_from_pim. Дубль написания у
+    самих брендов (R5, 2026-09-21: STAYER/Stayer) — дубль СУЩНОСТИ в PIM, его
+    сливают в PIM, а не склеивают здесь (D3).
+
+    Написания же из прайсов поставщиков («DeWalt», «ДеВолт») сводятся к бренду
+    PIM синонимами (BrandAlias). Их ввёл первый шаг перехода на «товар =
+    (бренд, артикул)», 2026-10-12, — он отменил «словаря вариаций нет» из D3
+    для текста поставщиков; бренды по-прежнему не склеиваются.
     """
 
     pim_id = models.CharField('Id бренда в PIM', max_length=64, unique=True)
     name = models.CharField('Название', max_length=255)
+    code = models.CharField('Код в PIM', max_length=255, null=True, blank=True)
+    # False — бренда нет в полном списке PIM (удалён или слит с другим там)
+    # или он выключен в PIM. Не удаляется: на него могут смотреть менеджеры
+    # цен (PROTECT), товары и синонимы — их переносят на живой бренд в окне
+    # «Бренды» (merge_brands).
+    is_active = models.BooleanField('Действует в PIM', default=True)
 
     class Meta:
         verbose_name = 'Бренд'
@@ -70,6 +92,44 @@ class Brand(models.Model):
 
     def __str__(self) -> str:
         return self.name
+
+
+class BrandAlias(models.Model):
+    """Написание бренда в прайсах поставщиков → бренд PIM.
+
+    Ключ — brand_key(написания), так что один синоним покрывает и регистр, и
+    пробелы. brand NULL — «игнорировать»: написание означает отсутствие бренда
+    («без бренда», «noname»), такие строки ПП не ждут сопоставления.
+
+    Название бренда PIM — неявный синоним самого себя, строки для него не
+    нужно (services/brands.resolve_brands).
+    """
+
+    name_key = models.CharField('Ключ написания', unique=True)
+    name = models.CharField('Написание')
+    brand = models.ForeignKey(
+        Brand, verbose_name='Бренд', related_name='aliases',
+        # PROTECT: синоним, молча пропавший с брендом, вернул бы строки ПП в
+        # очередь без следа. Слияние брендов переносит синонимы сначала.
+        on_delete=models.PROTECT, null=True, blank=True,
+    )
+    created_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, verbose_name='Кто добавил', related_name='+',
+        on_delete=models.SET_NULL, null=True, blank=True,
+    )
+    created_at = models.DateTimeField('Добавлен', auto_now_add=True)
+
+    class Meta:
+        verbose_name = 'Синоним бренда'
+        verbose_name_plural = 'Синонимы брендов'
+        ordering = ['name']
+
+    def __str__(self) -> str:
+        return f'{self.name} → {self.brand or "без бренда"}'
+
+    def save(self, *args, **kwargs):
+        self.name_key = brand_key(self.name)
+        super().save(*args, **kwargs)
 
 
 class Product(models.Model):

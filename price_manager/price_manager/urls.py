@@ -12,6 +12,7 @@ from main_product_manager import views as mp_views
 from supplier_manager import views as sm_views
 from product_price_manager import views as ppm_views
 from product import views as product_views
+from product import brand_views
 from developers import views as developers_views
 from releases import views as releases_views
 
@@ -51,6 +52,13 @@ urlpatterns = [
          name='product-attach-main-product'),
     path('products/main-product/<int:pk>/move/', product_views.MainProductMoveView.as_view(),
          name='main-product-move'),
+
+    # Бренды: бренды PIM, синонимы написаний поставщиков, очередь несопоставленных.
+    path('brands/', brand_views.BrandPage.as_view(), name='brands'),
+    path('brands/map/', brand_views.BrandMapView.as_view(), name='brand-map'),
+    path('brands/sync/', brand_views.BrandSyncView.as_view(), name='brands-sync'),
+    path('brands/alias/<int:pk>/', brand_views.BrandAliasUpdateView.as_view(), name='brand-alias-update'),
+    path('brands/<int:pk>/merge/', brand_views.BrandMergeView.as_view(), name='brand-merge'),
 
     # SUPPLIER WORKFRAME
 

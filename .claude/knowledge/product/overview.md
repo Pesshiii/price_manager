@@ -25,10 +25,11 @@ decisions: `.claude/shift-to-product-brief.md`.
 - `Brand` — `pim_id` (unique, PIM `brandId`), `name`. **Keyed on the id, never
   the name**: a PIM rename would otherwise fork one brand into two (real: R5,
   2026-09-21, 14 groups like STAYER/Stayer across 321 brands, merged in PIM
-  not here). No alias layer by design — `supplier_manager.ManufacturerDict`
-  solved that for supplier names, had 0 rows in prod, retired in Phase 2b-3.
-  Added later than the rest of the model, in migration `0008`, alongside
-  `search_vector`.
+  not here). Added in migration `0008`, alongside `search_vector`; `code` and
+  `is_active` (present in PIM's full list) in `0020`. Supplier spellings map to
+  it through `BrandAlias` since 2026-10-12 — brands themselves are still never
+  merged here except via the window's «Перенести в…» for a brand gone from
+  PIM. See [[product/brands]].
 - `Product` — `pim_id` (nullable, unique — see [[product/pim-link]] for what
   it identifies), `number` (the local match key = `MainProduct.sku`, never
   overwritten from PIM; **NOT NULL and never `''`** since `0017`, the latter

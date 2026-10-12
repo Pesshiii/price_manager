@@ -83,6 +83,13 @@ CELERY_BEAT_SCHEDULE = {
         'schedule': CELERY_SUPPLIER_FILES_CLEANUP_MINUTES * 60,
         'options': {'expires': CELERY_SUPPLIER_FILES_CLEANUP_MINUTES * 60},
     },
+    # До reindex_pim_ids: бренды, заведённые в PIM за день, сводят написания
+    # прайсов к утру (окно «Бренды»).
+    'sync-brands': {
+        'task': 'product.sync_brands',
+        'schedule': crontab(hour=2, minute=30),
+        'options': {'expires': _DAY},
+    },
     'reindex-pim-ids': {
         'task': 'main_product_manager.reindex_pim_ids',
         'schedule': crontab(hour=3, minute=0),

@@ -5,8 +5,34 @@ from django.urls import path
 from django.views.decorators.http import require_POST
 from mptt.admin import DraggableMPTTAdmin
 
-from .models import Category, Product, ProductSetItem
+from .models import Brand, BrandAlias, Category, Product, ProductSetItem
 from .tasks import export_products_full_csv_task, export_products_satu_task
+
+
+@admin.register(Brand)
+class BrandAdmin(admin.ModelAdmin):
+    """Только смотреть: бренды — зеркало PIM (sync_brands_from_pim), правятся там.
+    Синонимы и перенос со слитого бренда — в окне «Бренды» (/brands/)."""
+    list_display = ('name', 'code', 'pim_id', 'is_active')
+    list_filter = ('is_active',)
+    search_fields = ('name', 'code', 'pim_id')
+    readonly_fields = ('pim_id', 'name', 'code', 'is_active')
+
+    def has_add_permission(self, request):
+        return False
+
+    def has_delete_permission(self, request, obj=None):
+        return False
+
+
+@admin.register(BrandAlias)
+class BrandAliasAdmin(admin.ModelAdmin):
+    """Правка здесь не пересопоставляет строки прайсов — для этого окно «Бренды»
+    или ночная синхронизация брендов."""
+    list_display = ('name', 'brand', 'created_by', 'created_at')
+    search_fields = ('name', 'brand__name')
+    autocomplete_fields = ('brand',)
+    readonly_fields = ('name_key', 'created_by', 'created_at')
 
 
 @admin.register(Category)

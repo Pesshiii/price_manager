@@ -122,8 +122,10 @@ next time that Setting's mapping screen is saved with no explicit
 selection — silently recreating orphan `Link` rows a cleanup migration just
 deleted. **Removing a key from `LINKS` alone is not enough; its
 `AUTO_LINK_ALIASES` entry has to go too.** Phase 2b-2 did both for
-`category`/`manufacturer`, and current `AUTO_LINK_ALIASES`
-(`functions.py:94-103`) has no entries for either — confirmed clean.
+`category`/`manufacturer`. The brand is back since 2026-10-12 as `brand_name`,
+in both `LINKS` and `AUTO_LINK_ALIASES`, with an `AUTO_LINK_EXCLUDE` entry so
+that «Артикул производителя» is never taken for the brand — see
+[[product/brands]]. `category` stays absent from both.
 
 ## `get_sps` never returns nothing — it refuses with a reason
 

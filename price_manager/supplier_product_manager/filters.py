@@ -11,11 +11,38 @@ from supplier_manager.models import Discount
 
 from .models import SupplierProduct
 
+# Состояние бренда строки ПП: сведён ли бренд поставщика к бренду PIM.
+# «Не сопоставлен» включает и проигнорированные написания («Без бренда»):
+# ключ написания в SQL не посчитать, а окно «Бренды» их и так отделяет.
+BRAND_STATES = [
+  ('mapped', 'Сопоставлен'),
+  ('unmapped', 'Не сопоставлен'),
+  ('empty', 'Нет в прайсе'),
+]
+
+
+def brand_state_filter(queryset, value):
+  if value == 'mapped':
+    return queryset.filter(brand__isnull=False)
+  if value == 'unmapped':
+    return queryset.filter(brand__isnull=True, brand_name__isnull=False)
+  if value == 'empty':
+    return queryset.filter(brand_name__isnull=True)
+  return queryset
+
 
 class SupplierProductFilter(FilterSet):
   article = filters.CharFilter(field_name='article', lookup_expr='icontains', label='Артикул')
   name = filters.CharFilter(field_name='name', lookup_expr='icontains', label='Название')
   description = filters.CharFilter(field_name='description', lookup_expr='icontains', label='Описание')
+  brand_name = filters.CharFilter(field_name='brand_name', lookup_expr='icontains', label='Бренд')
+  brand_state = filters.ChoiceFilter(
+    label='Бренд PIM',
+    choices=BRAND_STATES,
+    method='filter_brand_state',
+    empty_label='---------',
+    widget=forms.Select(attrs={'class': 'form-select'}),
+  )
 
   discount = filters.ModelMultipleChoiceFilter(
     field_name='discount',
@@ -54,6 +81,8 @@ class SupplierProductFilter(FilterSet):
     fields = [
       'article',
       'name',
+      'brand_name',
+      'brand_state',
       'description',
       'discount',
       'stock_min',
@@ -99,6 +128,7 @@ class SupplierProductFilter(FilterSet):
       Div(
         Field('article', label_class='mt-2'),
         Field('name', label_class='mt-2'),
+        Field('brand_name', label_class='mt-2'),
         Field('description', label_class='mt-2'),
         css_class='mb-3',
       ),
@@ -106,6 +136,7 @@ class SupplierProductFilter(FilterSet):
       HTML('<details class="mb-3" open><summary class="fw-semibold mb-2">Справочники</summary>'),
       Div(
         Field('discount', template='core/includes/checkbox_field.html'),
+        Field('brand_state', css_class='form-select'),
         Field('is_tied', css_class='form-select'),
         css_class='mb-3',
       ),
@@ -142,6 +173,9 @@ class SupplierProductFilter(FilterSet):
       ),
     )
 
+  def filter_brand_state(self, queryset, name, value):
+    return brand_state_filter(queryset, value)
+
   def _setup_related_queryset(self, filter_name, model, ids_key, queryset):
     selected_ids = self.data.getlist(ids_key)
     base_queryset = model.objects.filter(pk__in=queryset.values(ids_key)).distinct().order_by('name')
@@ -163,10 +197,12 @@ class SupplierProductFilter(FilterSet):
         return []
       return [value for value in data.getlist(name) if value]
 
-    for field_name in ('article', 'name', 'description'):
+    for field_name in ('article', 'name', 'brand_name', 'description'):
       value = get_value(field_name)
       if value:
         queryset = queryset.filter(**{f'{field_name}__icontains': value})
+
+    queryset = brand_state_filter(queryset, get_value('brand_state'))
 
     for relation in ('discount',):
       ids = get_list(relation)

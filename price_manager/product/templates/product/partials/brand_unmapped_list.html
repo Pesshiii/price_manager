@@ -1,0 +1,56 @@
+{% comment %}
+  Очередь окна «Бренды»: написания из прайсов, не сведённые к бренду PIM
+  (services.brands.unmapped_names). oob=True — фрагмент ответа сопоставления;
+  query — поиск, который был на странице, чтобы список вернулся тем же.
+{% endcomment %}
+<div id="brand-unmapped"{% if oob %} hx-swap-oob="true"{% endif %}>
+  {% if unmapped %}
+    <div class="table-responsive">
+      <table class="table br-table align-middle">
+        <thead>
+          <tr>
+            <th>Написание в прайсе</th>
+            <th class="br-num">Строк</th>
+            <th>Поставщики</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for item in unmapped %}
+            <tr>
+              <td>
+                {{ item.name }}
+                {% if item.ambiguous %}
+                  <span class="badge text-bg-warning-subtle text-warning-emphasis border ms-1"
+                        title="В PIM несколько брендов с таким названием — слейте их в PIM или выберите один">дубль в PIM</span>
+                {% endif %}
+              </td>
+              <td class="br-num">{{ item.rows }}</td>
+              <td class="br-suppliers">{{ item.suppliers|join:", " }}</td>
+              <td class="text-end">
+                <button type="button" class="btn btn-sm btn-outline-primary"
+                        data-bs-toggle="modal" data-bs-target="#modal-container"
+                        hx-get="{% url 'brand-map' %}?name={{ item.name|urlencode }}&q={{ query|urlencode }}"
+                        hx-target="#modal-container .modal-content" hx-swap="innerHTML">
+                  Сопоставить
+                </button>
+              </td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% if unmapped_total > unmapped_limit %}
+      <p class="text-body-secondary small">Показаны первые {{ unmapped_limit }} из {{ unmapped_total }} — остальные найдутся поиском.</p>
+    {% endif %}
+  {% else %}
+    <div class="br-empty">
+      {% if query %}
+        Среди несопоставленных нет «{{ query }}»
+      {% else %}
+        Все бренды из прайсов сведены к брендам PIM. Новые написания появятся здесь после загрузок
+        с колонкой «Бренд».
+      {% endif %}
+    </div>
+  {% endif %}
+</div>

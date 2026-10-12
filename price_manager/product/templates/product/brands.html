@@ -1,0 +1,198 @@
+{% extends "base.html" %}
+{% comment %}
+  «Бренды» (product.brand_views.BrandPage): насколько заполнены бренды строк
+  прайсов, очередь написаний поставщиков, которые не свелись к бренду PIM,
+  бренды PIM и синонимы. Первый шаг перехода на «товар = (бренд, артикул)».
+
+  Сопоставление — из модалки; её ответ обновляет покрытие и очередь фрагментами
+  hx-swap-oob, а событие brand-mapped закрывает модалку (скрипт внизу).
+{% endcomment %}
+
+{% block title %}Бренды{% endblock %}
+
+{% block style %}
+<style>
+  .br-page { max-width: 1400px; }
+  .br-coverage { display: grid; grid-template-columns: repeat(auto-fit, minmax(16rem, 1fr)); gap: .75rem; margin: 1rem 0; }
+  .br-card { border: 1px solid var(--bs-border-color); border-radius: .5rem; padding: .75rem 1rem; background: var(--bs-body-bg); }
+  .br-card-title { font-size: .8125rem; color: var(--bs-secondary-color); margin-bottom: .25rem; }
+  .br-card-value { font-size: 1.5rem; font-weight: 600; font-variant-numeric: tabular-nums; }
+  .br-card-note { font-size: .8125rem; color: var(--bs-secondary-color); }
+  .br-card .progress { height: .375rem; margin: .375rem 0; }
+  .br-table { font-size: .875rem; }
+  .br-table th { font-weight: 500; font-size: .8125rem; color: var(--bs-secondary-color); white-space: nowrap; }
+  .br-table td { vertical-align: middle; }
+  .br-num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+  .br-suppliers { font-size: .8125rem; color: var(--bs-secondary-color); }
+  .br-row-inactive td { color: var(--bs-secondary-color); }
+  .br-empty { border: 1px dashed var(--bs-border-color); border-radius: .5rem; padding: 2rem; text-align: center; color: var(--bs-secondary-color); }
+  .br-search { max-width: 22rem; }
+</style>
+{% endblock %}
+
+{% block body %}
+<div class="container-fluid br-page py-3">
+  <div class="d-flex flex-wrap align-items-start gap-2">
+    <div class="me-auto">
+      <h1 class="h4 mb-1">Бренды</h1>
+      <p class="text-body-secondary small mb-0">
+        Бренды берутся из PIM. Бренд из прайса поставщика сводится к бренду PIM — по названию или синонимом.
+      </p>
+    </div>
+    <form method="post" action="{% url 'brands-sync' %}">
+      {% csrf_token %}
+      <input type="hidden" name="tab" value="{{ tab }}">
+      <button type="submit" class="btn btn-outline-secondary btn-sm" title="Загрузить список брендов из PIM и заново сопоставить прайсы">
+        <i class="bi bi-arrow-repeat me-1" aria-hidden="true"></i>Обновить из PIM
+      </button>
+    </form>
+  </div>
+
+  {% include 'product/partials/brand_coverage.html' %}
+
+  <ul class="nav nav-underline">
+    <li class="nav-item">
+      <a class="nav-link{% if tab == 'unmapped' %} active{% endif %}" href="?tab=unmapped"{% if tab == 'unmapped' %} aria-current="page"{% endif %}>
+        Несопоставленные
+        {% include 'product/partials/brand_unmapped_count.html' %}
+      </a>
+    </li>
+    <li class="nav-item">
+      <a class="nav-link{% if tab == 'brands' %} active{% endif %}" href="?tab=brands"{% if tab == 'brands' %} aria-current="page"{% endif %}>Бренды PIM</a>
+    </li>
+    <li class="nav-item">
+      <a class="nav-link{% if tab == 'aliases' %} active{% endif %}" href="?tab=aliases"{% if tab == 'aliases' %} aria-current="page"{% endif %}>Синонимы</a>
+    </li>
+  </ul>
+
+  <form method="get" class="d-flex flex-wrap gap-2 align-items-center my-3">
+    <input type="hidden" name="tab" value="{{ tab }}">
+    <div class="input-group input-group-sm br-search">
+      <span class="input-group-text"><i class="bi bi-search" aria-hidden="true"></i></span>
+      <input type="search" name="q" value="{{ query }}" class="form-control"
+             placeholder="{% if tab == 'brands' %}Найти бренд{% else %}Найти написание{% endif %}"
+             aria-label="Поиск">
+    </div>
+    {% if tab == 'brands' %}
+      <div class="form-check form-switch mb-0">
+        <input class="form-check-input" type="checkbox" role="switch" id="br-inactive" name="inactive" value="1"
+               {% if show_inactive %}checked{% endif %} onchange="this.form.submit()">
+        <label class="form-check-label small" for="br-inactive">Показать все удалённые в PIM</label>
+      </div>
+    {% endif %}
+    <button type="submit" class="btn btn-sm btn-outline-secondary">Найти</button>
+  </form>
+
+  {% if tab == 'unmapped' %}
+    {% include 'product/partials/brand_unmapped_list.html' %}
+  {% elif tab == 'brands' %}
+    {% if brands %}
+      <div class="table-responsive">
+        <table class="table br-table align-middle">
+          <thead>
+            <tr>
+              <th>Бренд</th>
+              <th>Код в PIM</th>
+              <th class="br-num" title="Товаров с этим брендом из PIM">Товаров</th>
+              <th class="br-num" title="Строк прайсов, сведённых к этому бренду">Строк прайсов</th>
+              <th class="br-num">Синонимов</th>
+              <th class="br-num">Менеджеров цен</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for brand in brands %}
+              <tr class="{% if not brand.is_active %}br-row-inactive{% endif %}">
+                <td>
+                  {{ brand.name }}
+                  {% if not brand.is_active %}<span class="badge text-bg-secondary ms-1">нет в PIM</span>{% endif %}
+                </td>
+                <td>{{ brand.code|default:"" }}</td>
+                <td class="br-num">{{ brand.products_count }}</td>
+                <td class="br-num">{{ brand.rows_count }}</td>
+                <td class="br-num">
+                  {% if brand.aliases_count %}<a href="?tab=aliases&brand={{ brand.pk }}" class="text-decoration-none">{{ brand.aliases_count }}</a>{% else %}0{% endif %}
+                </td>
+                <td class="br-num">{{ brand.rules_count }}</td>
+                <td class="text-end">
+                  {% if not brand.is_active and brand.in_use %}
+                    <button type="button" class="btn btn-sm btn-outline-primary"
+                            data-bs-toggle="modal" data-bs-target="#modal-container"
+                            hx-get="{% url 'brand-merge' brand.pk %}"
+                            hx-target="#modal-container .modal-content" hx-swap="innerHTML">
+                      Перенести в…
+                    </button>
+                  {% endif %}
+                </td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    {% else %}
+      <div class="br-empty">
+        {% if query %}Брендов не найдено{% else %}Брендов ещё нет — нажмите «Обновить из PIM»{% endif %}
+      </div>
+    {% endif %}
+  {% else %}
+    {% if aliases %}
+      <div class="table-responsive">
+        <table class="table br-table align-middle">
+          <thead>
+            <tr><th>Написание у поставщиков</th><th>Бренд PIM</th><th>Добавил</th><th>Когда</th><th></th></tr>
+          </thead>
+          <tbody>
+            {% for alias in aliases %}
+              <tr>
+                <td>{{ alias.name }}</td>
+                <td>
+                  {% if alias.brand %}
+                    {{ alias.brand.name }}{% if not alias.brand.is_active %} <span class="badge text-bg-secondary">нет в PIM</span>{% endif %}
+                  {% else %}
+                    <span class="text-body-secondary">без бренда</span>
+                  {% endif %}
+                </td>
+                <td>{% if alias.created_by %}{{ alias.created_by.get_full_name|default:alias.created_by.username }}{% else %}—{% endif %}</td>
+                <td class="text-nowrap">{{ alias.created_at|date:"d.m.Y" }}</td>
+                <td class="text-end">
+                  <button type="button" class="btn btn-sm btn-outline-secondary"
+                          data-bs-toggle="modal" data-bs-target="#modal-container"
+                          hx-get="{% url 'brand-alias-update' alias.pk %}"
+                          hx-target="#modal-container .modal-content" hx-swap="innerHTML"
+                          aria-label="Изменить синоним «{{ alias.name }}»">
+                    <i class="bi bi-pencil"></i>
+                  </button>
+                </td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    {% else %}
+      <div class="br-empty">
+        {% if query %}Синонимов не найдено{% else %}Синонимов пока нет — они появляются, когда написание из прайса сопоставляют с брендом{% endif %}
+      </div>
+    {% endif %}
+  {% endif %}
+</div>
+
+<div id="modal-container" class="modal modal-lg fade" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <div class="container d-flex justify-content-center mb-4 mt-4">
+        <div class="spinner-grow" role="status"></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+  // BrandMapView отвечает событием brand-mapped: покрытие и очередь уже
+  // обновлены фрагментами, модалку остаётся закрыть.
+  document.body.addEventListener('brand-mapped', () => {
+    const modal = document.getElementById('modal-container');
+    const instance = window.bootstrap && bootstrap.Modal.getInstance(modal);
+    if (instance) instance.hide();
+  });
+</script>
+{% endblock %}
