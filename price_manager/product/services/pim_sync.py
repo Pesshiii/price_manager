@@ -4,6 +4,7 @@ import logging
 import time
 
 from django.db.models.fields.json import KT
+from django.db.models.functions import Lower
 from django.utils.dateparse import parse_datetime
 from pim_api import Entity, EntityList, Where, fetch_list
 from supplier_product_manager.models import SupplierProduct
@@ -441,14 +442,33 @@ def load_products_by_number(page_size: int = 1000, limit: int | None = None,
     Но только для номера, который у нас один: с 2026-10-13 товар — пара
     (артикул, бренд), и номер нескольких товаров не говорит, какой из них
     этот товар PIM (а чужой бренд на нём нарушил бы уникальность пары).
+    Регистр не важен ни здесь, ни при сравнении: «ABC-1» и «abc-1» у нас —
+    один номер, как и в уникальности пары.
+
+    В PIM номер не уникален — уникальна пара. Если на один локальный товар
+    ложатся несколько товаров PIM, побеждает тот, чей бренд совпал с брендом
+    товара, затем — точное совпадение регистра, затем — первый; порядок
+    страниц не важен. Проигравшие идут в skipped, вместе с товарами PIM без
+    локальной пары.
+
+    Бренд — по правилам _pim_brand_for: PIM не стирает бренд товара и не
+    отбирает бренд, пришедший не из PIM.
     """
-    by_number, shared = {}, set()
-    for pk, number in Product.objects.values_list('pk', 'number'):
-        if number in by_number:
-            shared.add(number)
-        by_number[number] = pk
-    for number in shared:
-        del by_number[number]
+    # Номер приводит к нижнему регистру Postgres, а не Python: так ключ
+    # совпадает с ключом уникальности пары. Номер PIM опускает Python — где
+    # они разойдутся, совпадение просто потеряется, а не ляжет не туда.
+    held, shared = {}, set()
+    for pk, lower_number, number, brand_pk, brand_pim_id, previous_pim_brand_id in (
+        Product.objects.annotate(lower_number=Lower('number'), previous_pim_brand_id=KT('raw_data__brandId'))
+        .values_list('pk', 'lower_number', 'number', 'brand_id', 'brand__pim_id', 'previous_pim_brand_id')
+    ):
+        if lower_number in held:
+            shared.add(lower_number)
+        held[lower_number] = (pk, number, brand_pk, brand_pim_id, previous_pim_brand_id)
+    for lower_number in shared:
+        del held[lower_number]
+    # pk -> место товара PIM, который его наполнил: (бренд совпал, регистр совпал).
+    filled = {}
     categories = {c.pim_id: c.pk for c in Category.objects.exclude(pim_id__isnull=True)}
     brands = {b.pim_id: b.pk for b in Brand.objects.all()}
     through = Product.categories.through
@@ -490,31 +510,47 @@ def load_products_by_number(page_size: int = 1000, limit: int | None = None,
         if not batch:
             break
 
-        updates, links = [], []
+        # По pk: товар, попавший на страницу дважды, попал бы в bulk_update
+        # дважды, и победил бы первый (CASE WHEN), а не лучший.
+        updates, links = {}, {}
         for row in batch:
-            pk = by_number.get(row.get('number'))
-            if pk is None:
+            number = row.get('number') or ''
+            brand_id = row.get('brandId')
+            local = held.get(number.lower())
+            if local is None:
                 skipped += 1
                 continue
+            pk, local_number, brand_pk, brand_pim_id, previous_pim_brand_id = local
+            rank = (bool(brand_id) and brand_id == brand_pim_id, number == local_number)
+            if pk in filled:
+                # Проигравший — этот или вытесненный им: matched + skipped
+                # остаётся равным числу просмотренных.
+                skipped += 1
+                if rank <= filled[pk]:
+                    continue
+            else:
+                matched += 1
+            filled[pk] = rank
 
-            brand_pk = None
-            brand_id = row.get('brandId')
             if brand_id:
                 if brand_id not in brands:
                     brand = Brand.objects.create(
                         pim_id=brand_id, name=row.get('brandName') or brand_id)
                     brands[brand_id] = brand.pk
-                brand_pk = brands[brand_id]
+                # Свой бренд не из PIM остаётся. Пару проверять не нужно: номер
+                # у нас ровно у одного товара, другого с этой парой нет.
+                if brand_pk is None or brand_pim_id == previous_pim_brand_id:
+                    brand_pk = brands[brand_id]
 
-            updates.append(Product(pk=pk, name=row.get('name') or None,
-                                   raw_data=row, brand_id=brand_pk))
-            for cid in (row.get('categoriesIds') or []):
-                if cid in categories:
-                    links.append(through(product_id=pk, category_id=categories[cid]))
-            matched += 1
+            updates[pk] = Product(pk=pk, name=row.get('name') or None,
+                                  raw_data=row, brand_id=brand_pk)
+            links[pk] = [through(product_id=pk, category_id=categories[cid])
+                         for cid in (row.get('categoriesIds') or []) if cid in categories]
 
         if updates:
-            Product.objects.bulk_update(updates, ['name', 'raw_data', 'brand'], batch_size=500)
+            Product.objects.bulk_update(list(updates.values()), ['name', 'raw_data', 'brand'],
+                                        batch_size=500)
+        links = [link for product_links in links.values() for link in product_links]
         if links:
             through.objects.bulk_create(links, ignore_conflicts=True, batch_size=1000)
 
