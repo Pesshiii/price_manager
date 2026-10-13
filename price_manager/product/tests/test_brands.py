@@ -282,6 +282,19 @@ class MergeBrandsTests(_BrandFixture):
         self.assertEqual(list(only_old.brands.all()), [self.makita])
         self.assertEqual(BrandAlias.objects.get(name_key=brand_key('Makita Old')).brand, self.makita)
 
+    def test_twin_products_stop_the_merge_and_change_nothing(self):
+        """(артикул, бренд) — товар: слияние сделало бы два товара одной парой."""
+        old = Brand.objects.create(pim_id='br-old', name='Makita Old', is_active=False)
+        twin = Product.objects.create(number='p-1', brand=old)
+        Product.objects.create(number='P-1', brand=self.makita)
+
+        with self.assertRaisesMessage(service.BrandMergeConflict, '«p-1»'):
+            service.merge_brands(old, self.makita)
+
+        twin.refresh_from_db()
+        self.assertEqual(twin.brand, old)
+        self.assertTrue(Brand.objects.filter(pk=old.pk).exists())
+
 
 class BrandWindowTests(_BrandFixture):
     def setUp(self):

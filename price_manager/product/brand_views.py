@@ -208,6 +208,9 @@ class BrandMergeView(View):
         winner = Brand.objects.filter(pk=request.POST.get('brand') or None, is_active=True).first()
         if winner is None:
             return self._render(request, loser, error='Выберите бренд, на который перенести')
-        service.merge_brands(loser, winner)
+        try:
+            service.merge_brands(loser, winner)
+        except service.BrandMergeConflict as exc:
+            return self._render(request, loser, error=str(exc))
         messages.success(request, f'Всё с бренда «{loser.name}» перенесено на «{winner.name}»')
         return HttpResponseClientRefresh()

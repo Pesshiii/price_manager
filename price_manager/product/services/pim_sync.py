@@ -100,13 +100,34 @@ def _ensure_pim_brand(data: dict) -> Brand | None:
     return brand
 
 
+def _adopting_product(link: dict, number: str) -> Product:
+    """Local Product for a PMP no Product holds yet: its platformID, else its number, else new.
+
+    platformID is our pk, so it names the Product exactly. The number is the
+    fallback only while it is unambiguous: a number is not unique since
+    (number, brand) identity, and of several Products waiting for a PMP none
+    is more this one than the others. iexact — numbers compare
+    case-insensitively.
+    """
+    try:
+        pk = int(link.get('platformID') or '')
+    except ValueError:
+        pk = None
+    if pk is not None:
+        product = Product.objects.filter(pk=pk, pim_id__isnull=True).first()
+        if product is not None:
+            return product
+    waiting = list(Product.objects.filter(number__iexact=number, pim_id__isnull=True)[:2])
+    return waiting[0] if len(waiting) == 1 else Product(number=number)
+
+
 def sync_product_from_pim(pim_id: str, data: dict | None = None) -> Product:
     """Persist PIM data onto the local Product whose PriceManagerProduct is `pim_id`.
 
     pim_id is a PriceManagerProduct id. The local Product is the one already
-    holding it; failing that, the Product whose number is the PMP's number
-    and which has no pim_id yet adopts it; failing that, a new Product is
-    created with both.
+    holding it; failing that, one without a pim_id adopts it
+    (_adopting_product: the PMP's platformID, else its number if only one
+    Product waits with it); failing that, a new Product is created with both.
 
     `data` is the PIM Product that PMP points at, fetched through the PMP's
     productId unless given. It supplies name, raw_data and categoriesIds ->
@@ -115,8 +136,7 @@ def sync_product_from_pim(pim_id: str, data: dict | None = None) -> Product:
     not linked to a PIM Product yet leaves name/raw_data/categories as they are.
 
     Raises ValueError for an unknown PMP without a number. Lets IntegrityError
-    (a new Product whose number another Product already holds under a
-    different pim_id) and any PIM-fetch error propagate — it's
+    (a race on the (number, brand) pair) and any PIM-fetch error propagate — it's
     the caller's job to decide how to surface them. Fetches happen before the
     first write, so a failed fetch leaves no half-made row behind.
     """
@@ -129,12 +149,7 @@ def sync_product_from_pim(pim_id: str, data: dict | None = None) -> Product:
             # number is required: a Product without one matches no sku and is
             # how one sku once ended up on two Products (product.0016).
             raise ValueError(f'PMP {pim_id} has no number — nothing to match a local Product by')
-        # iexact: number's uniqueness is case-insensitive (Lower('number')),
-        # so a differently-cased match is the same Product, not a new one.
-        product = (
-            Product.objects.filter(number__iexact=number, pim_id__isnull=True).first()
-            or Product(number=number)
-        )
+        product = _adopting_product(link, number)
         product.pim_id = pim_id
     if data is None:
         if link is None:
@@ -149,17 +164,46 @@ def sync_product_from_pim(pim_id: str, data: dict | None = None) -> Product:
     return product
 
 
+def _pim_brand_for(product: Product, data: dict) -> Brand | None:
+    """Бренд, который товар получает при синхронизации с PIM `data`.
+
+    Бренд — половина идентичности товара (артикул, бренд), поэтому PIM его не
+    стирает и не отбирает:
+    - нет бренда в PIM — остаётся свой (например, бренд поставщика);
+    - свой бренд не из PIM (не тот, что PIM прислал в прошлый раз) и бренд
+      PIM другой — остаётся свой, расхождение — в лог;
+    - пара (артикул, бренд PIM) уже у другого товара — бренд не ставится,
+      конфликт — в лог: склеивают руками, переносом строк ГП.
+    """
+    current = product.brand if product.brand_id else None
+    pim_brand = _ensure_pim_brand(data)
+    if pim_brand is None or (current is not None and current.pk == pim_brand.pk):
+        return current
+    previous_pim_brand_id = (product.raw_data or {}).get('brandId')
+    if current is not None and current.pim_id != previous_pim_brand_id:
+        logger.warning('pim_sync: товар %s (%s) — бренд «%s» не из PIM, в PIM «%s»; оставлен свой',
+                       product.pk, product.number, current.name, pim_brand.name)
+        return current
+    taken = (Product.objects.filter(number__iexact=product.number, brand=pim_brand)
+             .exclude(pk=product.pk).values_list('pk', flat=True).first())
+    if taken is not None:
+        logger.warning('pim_sync: товар %s (%s) — бренд «%s» из PIM не поставлен: пара уже у товара %s',
+                       product.pk, product.number, pim_brand.name, taken)
+        return current
+    return pim_brand
+
+
 def apply_pim_product(product: Product, data: dict) -> None:
     """Записывает товар PIM `data` на `product` и сохраняет его.
 
-    name, raw_data, бренд, категории, затем поисковый вектор. number не
-    трогает — это локальный ключ сопоставления. Общая часть
+    name, raw_data, бренд (_pim_brand_for), категории, затем поисковый вектор.
+    number не трогает — это локальный ключ сопоставления. Общая часть
     sync_product_from_pim и синхронизации наборов (services/sets.py): набор
     приходит в зеркало не через PriceManagerProduct, но пишется так же.
     """
+    product.brand = _pim_brand_for(product, data)
     product.name = data.get('name') or None
     product.raw_data = data
-    product.brand = _ensure_pim_brand(data)
 
     category_ids = data.get('categoriesIds') or []
     categories = [c for c in (_ensure_pim_category(cid) for cid in category_ids) if c]
@@ -388,11 +432,17 @@ def load_products_by_number(page_size: int = 1000, limit: int | None = None,
 
     Сопоставление по number законно: number локального Product — это
     MainProduct.sku, а привязка к PIM и строится по равенству sku и number.
+    Но только для номера, который у нас один: с 2026-10-13 товар — пара
+    (артикул, бренд), и номер нескольких товаров не говорит, какой из них
+    этот товар PIM (а чужой бренд на нём нарушил бы уникальность пары).
     """
-    by_number = {
-        number: pk for pk, number in
-        Product.objects.values_list('pk', 'number')
-    }
+    by_number, shared = {}, set()
+    for pk, number in Product.objects.values_list('pk', 'number'):
+        if number in by_number:
+            shared.add(number)
+        by_number[number] = pk
+    for number in shared:
+        del by_number[number]
     categories = {c.pim_id: c.pk for c in Category.objects.exclude(pim_id__isnull=True)}
     brands = {b.pim_id: b.pk for b in Brand.objects.all()}
     through = Product.categories.through

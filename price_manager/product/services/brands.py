@@ -7,8 +7,9 @@ PIM по кнопке человека (create_pim_brand), никогда сам
 синонимом (BrandAlias) или неявно — названием бренда PIM с тем же ключом
 (models.brand_key). Чего свести не удалось, ждёт в окне «Бренды».
 
-Сопоставленный бренд живёт на строке ПП (SupplierProduct.brand). Product.brand
-этот шаг не трогает: он по-прежнему бренд PIM.
+Сопоставленный бренд живёт на строке ПП (SupplierProduct.brand). Товару без
+бренда PIM он достаётся, когда поставщики его товара не спорят
+(adopt_supplier_brands, шаг 3 — «товар = (бренд, артикул)», 2026-10-13).
 """
 from __future__ import annotations
 
@@ -17,8 +18,11 @@ import logging
 from collections import defaultdict
 from dataclasses import dataclass, field
 
+from django.contrib.postgres.search import SearchVectorField
 from django.db import transaction
-from django.db.models import Count, Exists, OuterRef, Q
+from django.db.models import Count, Exists, Min, OuterRef, Q, Value
+from django.db.models.expressions import RawSQL
+from django.db.models.functions import Lower
 
 from main_product_manager.models import MainProduct
 from pim_api import Asc, EntityList, Ordering, fetch_list, upsert_async
@@ -40,6 +44,14 @@ UNRESOLVED_EXAMPLES = 5
 
 class PimBrandError(Exception):
     """Бренд в PIM создать не удалось; сообщение — для пользователя."""
+
+
+class BrandMergeConflict(ValueError):
+    """Слияние брендов дало бы два товара с одной парой (артикул, бренд); сообщение — для пользователя."""
+
+
+# Сколько артикулов-двойников называть в отказе слияния брендов.
+MERGE_CONFLICT_EXAMPLES = 5
 
 
 class BrandIndex:
@@ -129,6 +141,101 @@ def apply_brand_resolution(queryset, index: BrandIndex | None = None) -> Resolut
         rows = queryset.filter(brand_name__in=chunk)
         rows.filter(brand__isnull=False).update(brand=None)
         stats.unresolved_rows += rows.count()
+
+    # Сведённый бренд поставщика может дать бренд товару без бренда — после
+    # коммита и задачей: первый проход по всему каталогу не для запроса окна
+    # «Бренды». Откат (--dry-run бэкфилла) задачу не отправит.
+    from core.task_runner import dispatch_after_commit
+    from ..tasks import adopt_supplier_brands_task
+    dispatch_after_commit(adopt_supplier_brands_task)
+    return stats
+
+
+@dataclass
+class AdoptionStats:
+    adopted: int = 0
+    # Строки прайса товара называют разные бренды или ждут сопоставления.
+    disputed: int = 0
+    # Пара (артикул, бренд) уже у другого товара.
+    taken: int = 0
+
+
+def adopt_supplier_brands() -> AdoptionStats:
+    """Поставить товарам без бренда бренд их поставщиков — там, где спора нет.
+
+    Товар — пара (артикул, бренд), и бренд товара — бренд PIM, а если в PIM
+    его нет, то бренд поставщиков. Товар без бренда получает бренд X, когда:
+    - хотя бы одна строка прайса его строк ГП сведена к X и ни одна — к
+      другому бренду;
+    - ни одна такая строка не ждёт сопоставления: несведённое написание — тоже
+      заявка на бренд, может быть, на другой («игнорировать» — не заявка);
+    - пары (артикул, X) нет у другого товара. Из нескольких товаров без
+      бренда с одним артикулом, которым досталась бы одна пара, бренд
+      получает старший по pk; остальные остаются без бренда и ждут ручного
+      переноса строк ГП.
+
+    Поисковый вектор дополняется названием бренда одним UPDATE на пачку, а не
+    пересобирается: пересборка — запрос на товар, а первый проход ставит
+    бренды десяткам тысяч товаров. Связь с PIM не трогается.
+    """
+    stats = AdoptionStats()
+    index = BrandIndex()
+    pending_names = [
+        name for name in SupplierProduct.objects.filter(brand__isnull=True, brand_name__isnull=False)
+        .values_list('brand_name', flat=True).distinct()
+        if not index.lookup(name)[0]
+    ]
+    supplier_rows = SupplierProduct.objects.filter(main_product__product=OuterRef('pk'))
+    pending = (Exists(supplier_rows.filter(brand__isnull=True, brand_name__in=pending_names))
+               if pending_names else Value(False))
+    rows = (
+        Product.objects.filter(brand__isnull=True)
+        .filter(Exists(supplier_rows.filter(brand__isnull=False)))
+        .annotate(
+            lower_number=Lower('number'),
+            brand_count=Count('main_products__supplierproducts__brand', distinct=True),
+            supplier_brand=Min('main_products__supplierproducts__brand'),
+            pending=pending,
+        )
+        .order_by('pk')
+        .values_list('pk', 'lower_number', 'supplier_brand', 'brand_count', 'pending')
+    )
+
+    winners: dict[tuple[str, int], int] = {}
+    candidates = 0
+    for pk, lower_number, brand_id, brand_count, has_pending in rows:
+        if brand_count > 1 or has_pending:
+            stats.disputed += 1
+            continue
+        candidates += 1
+        winners.setdefault((lower_number, brand_id), pk)
+    for chunk in _chunks(list(winners)):
+        held = set(
+            Product.objects.filter(brand__isnull=False)
+            .annotate(lower_number=Lower('number'))
+            .filter(lower_number__in={number for number, _ in chunk}, brand_id__in={brand for _, brand in chunk})
+            .values_list('lower_number', 'brand_id')
+        )
+        for key in held & set(chunk):
+            del winners[key]
+    stats.taken = candidates - len(winners)
+
+    by_brand: dict[int, list[int]] = defaultdict(list)
+    for (_, brand_id), pk in winners.items():
+        by_brand[brand_id].append(pk)
+    names = dict(Brand.objects.filter(pk__in=list(by_brand)).values_list('pk', 'name'))
+    for brand_id, pks in by_brand.items():
+        vector = RawSQL(
+            "COALESCE(search_vector, ''::tsvector) || setweight(to_tsvector('russian'::regconfig, %s), 'B')",
+            [names[brand_id]], output_field=SearchVectorField(),
+        )
+        for chunk in _chunks(pks):
+            # brand IS NULL ещё раз: бренд могли поставить с тех пор, как его
+            # прочитали (синхронизация с PIM идёт в своей очереди).
+            stats.adopted += (Product.objects.filter(pk__in=chunk, brand__isnull=True)
+                              .update(brand_id=brand_id, search_vector=vector))
+    logger.info('brands: бренд поставщика у товаров без бренда — поставлен %s, спор %s, пара занята %s',
+                stats.adopted, stats.disputed, stats.taken)
     return stats
 
 
@@ -293,6 +400,21 @@ def merge_brands(loser: Brand, winner: Brand) -> None:
 
     if loser.pk == winner.pk:
         raise ValueError('Бренд нельзя слить сам с собой')
+    # Товар — пара (артикул, бренд): товар бренда loser, у которого есть
+    # двойник с тем же артикулом у winner, после переноса стал бы второй такой
+    # парой. Это один товар, и склеивают его руками — слияние ждёт.
+    twins = list(
+        Product.objects.filter(brand=loser)
+        .filter(Exists(Product.objects.filter(brand=winner, number__iexact=OuterRef('number'))))
+        .order_by('number').values_list('number', flat=True)[:MERGE_CONFLICT_EXAMPLES + 1]
+    )
+    if twins:
+        shown = ', '.join(f'«{number}»' for number in twins[:MERGE_CONFLICT_EXAMPLES])
+        more = ' и другие' if len(twins) > MERGE_CONFLICT_EXAMPLES else ''
+        raise BrandMergeConflict(
+            f'У брендов «{loser.name}» и «{winner.name}» есть товары с одним артикулом: {shown}{more}. '
+            'Перенесите их строки ГП в товар бренда «' + winner.name + '» и удалите пустые товары, '
+            'затем слейте бренды.')
     Product.objects.filter(brand=loser).update(brand=winner)
     SupplierProduct.objects.filter(brand=loser).update(brand=winner)
     BrandAlias.objects.filter(brand=loser).update(brand=winner)

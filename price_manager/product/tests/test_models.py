@@ -54,10 +54,15 @@ class ProductModelTests(TestCase):
         with self.assertRaises(IntegrityError):
             Product.objects.create(pim_id='p1', number='N2', name='B')
 
-    def test_number_unique(self):
+    def test_number_is_unique_only_with_a_brand(self):
+        # Товар — пара (артикул, бренд); без бренда одинаковые артикулы —
+        # разные товары, пока бренда нет.
         Product.objects.create(pim_id='p1', number='N1', name='A')
+        Product.objects.create(pim_id='p2', number='N1', name='B')
+        brand = Brand.objects.create(pim_id='b1', name='Bosch')
+        Product.objects.create(pim_id='p3', number='N1', name='C', brand=brand)
         with self.assertRaises(IntegrityError):
-            Product.objects.create(pim_id='p2', number='N1', name='B')
+            Product.objects.create(pim_id='p4', number='n1', name='D', brand=brand)
 
     def test_name_is_not_unique(self):
         # Several local Products can sit on one PIM Product, and PIM does not

@@ -135,10 +135,26 @@ class ProductEditTests(DetailTestCase):
         self.assertEqual(self.product.number, 'SKU-1-NEW')
         self.assertEqual(self.product.name, 'Смеситель')
 
-    def test_number_is_unique_case_insensitively(self):
+    def test_a_branded_pair_is_unique_case_insensitively(self):
+        brand = Brand.objects.create(pim_id='b-1', name='Grohe')
+        self.other.brand = brand
+        self.other.save()
+
         response = self.hx_post(reverse('product-update', kwargs={'pk': self.product.pk}),
-                                {'number': 'sku-2', 'name': 'Смеситель'})
-        self.assertContains(response, 'Этот артикул уже у товара «Кран»')
+                                {'number': 'sku-2', 'name': 'Смеситель', 'brand': brand.pk})
+
+        # Ошибка ссылается на товар, который держит пару, — ссылкой, а не текстом с тегами.
+        self.assertContains(response, 'уже есть: <a href="%s">Кран</a>' % reverse(
+            'product-detail', kwargs={'pk': self.other.pk}), html=False)
+        self.product.refresh_from_db()
+        self.assertEqual(self.product.number, 'SKU-1')
+
+    def test_brandless_products_may_share_a_number(self):
+        self.hx_post(reverse('product-update', kwargs={'pk': self.product.pk}),
+                     {'number': 'sku-2', 'name': 'Смеситель'})
+
+        self.product.refresh_from_db()
+        self.assertEqual(self.product.number, 'sku-2')
 
 
 class ProductDeleteTests(DetailTestCase):

@@ -35,15 +35,15 @@ decisions: `.claude/shift-to-product-brief.md`.
   overwritten from PIM; **NOT NULL and never `''`** since `0017`, the latter
   by `CheckConstraint` `product_product_number_not_blank` — `0016` first
   merged the numberless placeholders left over from `0011` into the
-  Products of their rows' sku). **Not `unique=True` on the field** —
-  uniqueness is a `Meta.constraints` `UniqueConstraint(Lower('number'),
-  name='product_product_number_lower_uniq')` (`models.py:116`, added by
-  migration `0009_product_number_case_insensitive`), i.e. **case-insensitive**:
-  `sync_product_from_pim` matches with `number__iexact`, and so does
-  `services/sets.py`'s `_candidates` — any new code matching a PIM number to a
-  local `Product` must use `iexact` too, or it will create a duplicate that
-  differs only in case. `name` (**not** unique), M2M `categories`, FK `brand`
-  (nullable — PIM returns `brandId` as a **scalar**, hence FK not M2M),
+  Products of their rows' sku). **Not unique on its own since `0021`**: a
+  Product is the pair (number, brand), `UniqueConstraint(Lower('number'),
+  'brand', condition=brand IS NOT NULL, name='product_product_number_brand_uniq')`,
+  and brandless Products may share a number — see [[product/identity]]. The
+  pair is **case-insensitive** (`0009` made the number so first): any code
+  matching a number to a local `Product` uses `iexact`/`Lower()`, and a plain
+  `Index(Lower('number'))` serves those lookups. `name` (**not** unique), M2M
+  `categories`, FK `brand` (nullable — PIM returns `brandId` as a **scalar**,
+  hence FK not M2M; PIM's, or the suppliers' agreed one — [[product/identity]]),
   `raw_data` JSON, `search_vector` + GIN (`product_search_vector_gin`,
   `config='russian'`), timestamps. `ordering = ['-updated_at']`.
 - `Product.display_name` (`models.py:123-136`) — `name`, else the first linked

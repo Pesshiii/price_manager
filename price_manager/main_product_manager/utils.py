@@ -44,88 +44,78 @@ def _pim_id_of(product) -> str | None:
     return product.product.pim_id if product.product_id else None
 
 
-def _link_to_local_product(product) -> bool:
-    """Link an unlinked MainProduct to the existing local Product with number = sku.
+def row_brand_subquery():
+    """The brand of a MainProduct (OuterRef('pk')): its price-list row's resolved brand.
 
-    The render-path counterpart of link_unlinked_main_products: it never
-    creates a Product and never talks to PIM — creating and pushing is left to
-    reindex. Returns whether the product is linked afterwards.
+    A ГП row has no brand of its own. Its price-list row (at most one:
+    SupplierProduct.main_product is unique) has the supplier's brand column,
+    resolved to a PIM brand (SupplierProduct.brand, product/services/brands.py).
+    A hand-made row has none.
     """
-    if product.product_id:
-        return True
-    if not product.sku:
-        return False
-    row = PimProduct.objects.filter(number=product.sku).first()
-    if row is None:
-        return False
-    MainProduct.objects.filter(pk=product.pk, product__isnull=True).update(product=row)
-    product.product = row
-    return True
+    return Subquery(
+        SupplierProduct.objects.filter(main_product_id=OuterRef('pk'), brand__isnull=False)
+        .values('brand_id')[:1]
+    )
 
 
-def product_for_sku(sku: str, name: str | None = None):
-    """The local Product numbered `sku` — found case-insensitively, else created.
+def row_brand_id(main_product) -> int | None:
+    """row_brand_subquery for one row."""
+    return (
+        SupplierProduct.objects.filter(main_product_id=main_product.pk, brand__isnull=False)
+        .values_list('brand_id', flat=True).first()
+    )
 
-    number is unique on Lower(number), so the lookup has to be iexact: an
-    exact match would miss "abc" against "ABC" and the create would then hit
-    the constraint. A concurrent create of the same number is the Product we
-    wanted, hence the re-read on IntegrityError. DB only, no PIM — pushing is
+
+def resolve_product(sku: str, brand_id: int | None = None, name: str | None = None):
+    """The Product a ГП row with this sku and brand belongs to: found, else created.
+
+    A product is the pair (number, brand), number compared case-insensitively
+    (product_product_number_brand_uniq). With a brand it is found or created;
+    a concurrent create of the same pair is the Product we wanted, hence the
+    re-read on IntegrityError. Without a brand there is nothing to find by:
+    brandless products sharing a number are different products until they get
+    a brand, so every call creates a new one. DB only, no PIM — pushing is
     reindex's job.
     """
     from django.db import IntegrityError, transaction
 
     sku = sku.strip()
-    product = PimProduct.objects.filter(number__iexact=sku).order_by('pk').first()
+    name = (name or '')[:PRODUCT_NAME_MAX_LENGTH] or None
+    if brand_id is None:
+        return PimProduct.objects.create(number=sku, name=name)
+    product = PimProduct.objects.filter(number__iexact=sku, brand_id=brand_id).order_by('pk').first()
     if product is not None:
         return product
     try:
         with transaction.atomic():
-            return PimProduct.objects.create(number=sku, name=(name or '')[:PRODUCT_NAME_MAX_LENGTH] or None)
+            return PimProduct.objects.create(number=sku, brand_id=brand_id, name=name)
     except IntegrityError:
-        return PimProduct.objects.get(number__iexact=sku)
+        return PimProduct.objects.get(number__iexact=sku, brand_id=brand_id)
 
 
-def ensure_product(main_product) -> bool:
-    """Put a MainProduct on the Product of its sku, creating the Product if needed.
+_ROW_BRAND = object()
 
-    Every path that writes a MainProduct by hand (the create and edit modals,
-    the admin) goes through here, so a row never waits for the nightly reindex
-    to become visible on /products/. An existing link is kept — moving a row
-    is MainProductMoveView's job. Returns whether the row is linked afterwards.
+
+def ensure_product(main_product, brand_id=_ROW_BRAND) -> bool:
+    """Put an unlinked MainProduct on the Product of its sku and brand (resolve_product).
+
+    Every path that writes a MainProduct by hand (the create modal, the admin,
+    its import) goes through here, so a row never waits for the nightly
+    reindex to become visible on /products/. brand_id defaults to the row's
+    price-list brand (row_brand_id) — None for a hand-made row, which then
+    gets a Product of its own. An existing link is kept — moving a row is
+    MainProductMoveView's job. Returns whether the row is linked afterwards.
     """
     if main_product.product_id:
         return True
     if not main_product.sku or len(main_product.sku.strip()) > PRODUCT_NUMBER_MAX_LENGTH:
         return False
-    product = product_for_sku(main_product.sku, main_product.name)
+    if brand_id is _ROW_BRAND:
+        brand_id = row_brand_id(main_product)
+    product = resolve_product(main_product.sku, brand_id, main_product.name)
     MainProduct.objects.filter(pk=main_product.pk).update(product=product)
     main_product.product = product
     return True
-
-
-def link_to_local_products(main_product_ids) -> int:
-    """_link_to_local_product for many rows at once: one lookup, one bulk update.
-
-    For callers that just created or touched MainProducts in bulk — the
-    copy-to-main import. Same rule, deliberately: link to an EXISTING Product
-    with number = sku, never create one, never talk to PIM (creating is
-    reindex's job, link_unlinked_main_products). Until Phase 2b this happened
-    as a side effect of rebuilding search_vector; with that column gone, the
-    link has to be asked for. Returns how many rows got linked.
-    """
-    rows = list(
-        MainProduct.objects.filter(pk__in=list(main_product_ids), product__isnull=True)
-        .exclude(sku__isnull=True).exclude(sku='')
-        .values_list('pk', 'sku')
-    )
-    if not rows:
-        return 0
-    by_number = dict(
-        PimProduct.objects.filter(number__in={sku for _, sku in rows}).values_list('number', 'pk')
-    )
-    to_link = [MainProduct(pk=pk, product_id=by_number[sku]) for pk, sku in rows if sku in by_number]
-    MainProduct.objects.bulk_update(to_link, fields=['product'], batch_size=1000)
-    return len(to_link)
 
 
 CACHE_TTL = 60 * 60 * 24 * 30  # 30 дней
@@ -292,13 +282,20 @@ class PimScanError(RuntimeError):
     """A reindex batch ended with PIM searches unanswered or pushes rejected."""
 
 
-def _search_pim_product_id(number: str) -> tuple[str | None, str]:
-    """Find the PIM `Product` whose number equals `number` — returns (id, outcome).
+def _search_pim_product_id(number: str, brand_pim_id: str | None = None) -> tuple[str | None, str]:
+    """Find the PIM `Product` with this number and brand — returns (id, outcome).
 
     Only reindex calls this, to fill a new PriceManagerProduct's productId; the
     render path never searches PIM. `number` must be non-empty: Where.get()
     drops the value key when it is None (pim_api/__init__.py:24-25), so the
     request would otherwise go out as an unconstrained match.
+
+    PIM is unique by (number, brand) since 2026-10-06, so a number alone can
+    name several cards. The brand is matched on our side, from `brandId` in
+    the same answer (list mode returns it only when selected): a branded
+    Product matches the card of its brand, a brandless one only a brandless
+    card. A brandless Product is never bound to a branded card by number
+    alone — the brand would then come from PIM by guess.
 
     The search must stay `equals`, not `like`: AtroPIM passes a `like` value
     straight into SQL LIKE, so `_` matches any single character and `%`
@@ -309,15 +306,15 @@ def _search_pim_product_id(number: str) -> tuple[str | None, str]:
     `outcome` is one of the _SEARCH_* constants. Callers must keep
     _SEARCH_ERROR apart from the rest: an error learned nothing, so pushing
     then would create the PMP without a productId the search could have found.
-    PIM's metadata does not declare Product.number unique, so several matches
-    come back as _SEARCH_AMBIGUOUS and link none of them.
+    Several cards of the same brand come back as _SEARCH_AMBIGUOUS and link
+    none of them.
     """
     t0 = time.monotonic()
     try:
         result = site.get(
             EntityList(
                 name='Product',
-                select=['id'],
+                select=['id', 'brandId'],
                 where=[Where(attribute='number', type='equals', value=number)],
             )
         )
@@ -325,7 +322,10 @@ def _search_pim_product_id(number: str) -> tuple[str | None, str]:
         _record_pim_error("_search_pim_product_id", exc, int((time.monotonic() - t0) * 1000))
         return None, _SEARCH_ERROR
 
-    pim_ids = [item.get('id') for item in result.get('list', []) if item.get('id')]
+    pim_ids = [
+        item.get('id') for item in result.get('list', [])
+        if item.get('id') and (item.get('brandId') or None) == brand_pim_id
+    ]
     if len(pim_ids) == 1:
         return pim_ids[0], _SEARCH_FOUND
     if pim_ids:
@@ -338,13 +338,13 @@ def _search_pim_product_id(number: str) -> tuple[str | None, str]:
 
 
 def get_pim_data_for_product(product, refresh: bool = False) -> dict | None:
-    """Return PIM data for a MainProduct, linking it to a local Product first if one matches its sku.
+    """Return PIM data for a MainProduct through its local Product.
 
-    Never creates a Product or pushes to PIM — an unlinked product, or one
-    whose Product has no pim_id yet, simply has no PIM data until reindex runs.
+    Never links, creates or pushes anything — an unlinked row, or one whose
+    Product has no pim_id yet, simply has no PIM data until reindex runs. It
+    used to link an unlinked row to the Product numbered like its sku; with
+    (number, brand) identity a number alone no longer names one Product.
     """
-    if not product.product_id:
-        _link_to_local_product(product)
     return get_pim_data(_pim_id_of(product), refresh=refresh)
 
 
@@ -583,23 +583,31 @@ def compute_supplier_sku(article: str, supplier) -> str:
 
 
 def link_unlinked_main_products(batch_size: int = 1000, main_product_ids=None) -> int:
-    """Link every unlinked MainProduct that has a sku to the local Product with number = sku.
+    """Put every unlinked MainProduct that has a sku on its Product (number, brand).
 
-    A sku with no Product yet gets one (number = sku, name = the lowest-pk
-    such MainProduct's name), so afterwards every linkable MainProduct is
-    linked. Existing links are never touched: a MainProduct already on a
-    Product keeps it even if its sku now says otherwise.
+    The bulk counterpart of ensure_product, with the same rule
+    (resolve_product): a row whose price-list row names a brand
+    (row_brand_subquery) goes to the Product with that number and brand,
+    created if missing (name = the lowest-pk such row's name); a row without
+    a brand gets a new Product of its own — brandless products sharing a
+    number are different products. Existing links are never touched: a
+    MainProduct already on a Product keeps it even if its sku now says
+    otherwise.
 
     main_product_ids limits the pass to those rows — the copy-to-main import
     passes the rows it just touched, so a new supplier row lands on a Product
     at once instead of waiting for the nightly reindex. None is the whole
     table, as reindex runs it.
 
-    Pure DB work, safe inside execute_locked_task's transaction. A sku longer
-    than number's max_length can never be a number, so it stays unlinked and
-    is counted in the log rather than failing the bulk_create. Returns how
-    many MainProducts were linked.
+    Pure DB work, safe inside execute_locked_task's transaction. Each chunk
+    locks its rows first: a row linked elsewhere meanwhile (a manual move) is
+    skipped, and a brandless one never leaves an orphan Product behind. A sku
+    longer than number's max_length can never be a number, so it stays
+    unlinked and is counted in the log rather than failing the bulk_create.
+    Returns how many MainProducts were linked.
     """
+    from django.db import transaction
+
     scope = None if main_product_ids is None else list(main_product_ids)
 
     def unlinked():
@@ -616,64 +624,69 @@ def link_unlinked_main_products(batch_size: int = 1000, main_product_ids=None) -
             'link_unlinked_main_products: %s MainProducts have a sku longer than %s chars — left unlinked',
             too_long, PRODUCT_NUMBER_MAX_LENGTH,
         )
-    linkable = with_length.filter(sku_length__lte=PRODUCT_NUMBER_MAX_LENGTH)
-
-    skus = list(linkable.order_by('sku').values_list('sku', flat=True).distinct())
-    for start in range(0, len(skus), batch_size):
-        chunk = skus[start:start + batch_size]
-        # number's uniqueness is case-insensitive (Lower('number')), so both
-        # the "already has a Product" check and the dedup below have to
-        # compare on Lower(...), not the exact string.
-        existing = {
-            n.lower() for n in
-            PimProduct.objects.annotate(lower_number=Lower('number'))
-            .filter(lower_number__in=[s.lower() for s in chunk])
-            .values_list('lower_number', flat=True)
-        }
-        missing = [sku for sku in chunk if sku.lower() not in existing]
-        if not missing:
-            continue
-        # Two skus in the same chunk that are case-variants of each other
-        # (e.g. "ABC"/"abc", neither pre-existing) must collapse onto one new
-        # Product, not two -- bulk_create's ignore_conflicts would otherwise
-        # silently drop whichever one loses the race against the index.
-        missing_by_lower = {}
-        for sku in missing:
-            missing_by_lower.setdefault(sku.lower(), sku)
-        missing = list(missing_by_lower.values())
-
-        names = {}
-        for lower_sku, name in (
-            linkable.annotate(lower_sku=Lower('sku'))
-            .filter(lower_sku__in=missing_by_lower.keys())
-            .order_by('pk')
-            .values_list('lower_sku', 'name')
-        ):
-            names.setdefault(lower_sku, name)
-        PimProduct.objects.bulk_create(
-            [
-                PimProduct(number=sku, name=(names.get(sku.lower()) or '')[:PRODUCT_NAME_MAX_LENGTH] or None)
-                for sku in missing
-            ],
-            batch_size=batch_size,
-            # number is unique on Lower(number): a row created since
-            # `existing` was read -- exact match or case-variant -- is simply
-            # the Product this sku should link to.
-            ignore_conflicts=True,
-        )
-
-    # One correlated UPDATE rather than one per sku. A sku with no Product
-    # (only the too-long ones by now) gets NULL from the subquery, which is
-    # what it already had — so count what got linked instead of trusting
-    # update()'s row count.
-    unlinked().update(
-        product_id=Subquery(
-            PimProduct.objects.annotate(lower_number=Lower('number'))
-            .filter(lower_number=Lower(OuterRef('sku')))
-            .values('id')[:1]
-        )
+    pks = list(
+        with_length.filter(sku_length__lte=PRODUCT_NUMBER_MAX_LENGTH).order_by('pk').values_list('pk', flat=True)
     )
+    for start in range(0, len(pks), batch_size):
+        with transaction.atomic():
+            rows = list(
+                MainProduct.objects.select_for_update(of=('self',))
+                .filter(pk__in=pks[start:start + batch_size], product__isnull=True)
+                .annotate(lower_sku=Lower('sku'), row_brand_id=row_brand_subquery())
+                .order_by('pk')
+                .values_list('pk', 'sku', 'lower_sku', 'name', 'row_brand_id')
+            )
+            _link_rows(rows)
     return before - unlinked().count()
+
+
+def _link_rows(rows: list[tuple]) -> None:
+    """link_unlinked_main_products for one locked chunk of (pk, sku, lower_sku, name, brand_id).
+
+    Numbers are compared as Postgres lowers them (lower_sku comes from the
+    same query), never as Python does, so a lookup key always meets the
+    index's.
+    """
+    def trimmed(name):
+        return (name or '')[:PRODUCT_NAME_MAX_LENGTH] or None
+
+    links = {}
+    brandless = [(pk, sku, name) for pk, sku, _, name, brand_id in rows if brand_id is None]
+    if brandless:
+        created = PimProduct.objects.bulk_create(
+            [PimProduct(number=sku, name=trimmed(name)) for _, sku, name in brandless])
+        links.update({pk: product.pk for (pk, _, _), product in zip(brandless, created)})
+
+    branded = [row for row in rows if row[4] is not None]
+    if branded:
+        def existing():
+            found = {}
+            for pk, lower_number, brand_id in (
+                PimProduct.objects.annotate(lower_number=Lower('number'))
+                .filter(lower_number__in={row[2] for row in branded}, brand_id__in={row[4] for row in branded})
+                .order_by('pk').values_list('pk', 'lower_number', 'brand_id')
+            ):
+                found.setdefault((lower_number, brand_id), pk)
+            return found
+
+        found = existing()
+        missing = {}
+        for _, sku, lower_sku, name, brand_id in branded:
+            if (lower_sku, brand_id) not in found:
+                missing.setdefault((lower_sku, brand_id), PimProduct(number=sku, name=trimmed(name), brand_id=brand_id))
+        if missing:
+            # A pair created since `found` was read is simply the Product
+            # this row belongs to; the re-read picks it up.
+            PimProduct.objects.bulk_create(list(missing.values()), ignore_conflicts=True)
+            found = existing()
+        for pk, _, lower_sku, _, brand_id in branded:
+            if (lower_sku, brand_id) in found:
+                links[pk] = found[(lower_sku, brand_id)]
+
+    MainProduct.objects.bulk_update(
+        [MainProduct(pk=pk, product_id=product_id) for pk, product_id in links.items()],
+        fields=['product'], batch_size=1000,
+    )
 
 
 def iter_unpushed_product_pk_batches(batch_size: int = 1000):
@@ -695,47 +708,6 @@ def iter_unpushed_product_pk_batches(batch_size: int = 1000):
         yield pks[start:start + batch_size]
 
 
-def _take_over_pim_link(payload: dict) -> str | None:
-    """Repoint the PriceManagerProduct holding payload's number at our Product.
-
-    Reached when PIM rejected a push. PIM matches an upsert on the PMP's two
-    unique fields, so a rejection means one of them sits on a record whose
-    other one differs — typically our number on a PMP whose platformID is
-    someone else's (a local Product deleted and recreated under a new pk, or
-    another environment pushed first). Upserting that record by id with our
-    payload rewrites its platformID — and name, description and, when the
-    search found one, productId — to ours.
-
-    Returns the PMP id, or None when no single PMP holds the number or PIM
-    refuses the rewrite too (our platformID already on a PMP with another
-    number).
-    """
-    t0 = time.monotonic()
-    try:
-        found = site.get(EntityList(
-            name=PIM_LINK_ENTITY,
-            select=['id', 'platformID'],
-            where=[Where(attribute='number', type='equals', value=payload['number'])],
-        ))
-        records = [item for item in (found.get('list') or []) if item.get('id')] if isinstance(found, dict) else []
-        if len(records) != 1:
-            return None
-        results = _upsert_async(site, [{'entity': PIM_LINK_ENTITY, 'payload': {**payload, 'id': records[0]['id']}}])
-    except Exception as exc:
-        _record_pim_error('take_over_pim_link', exc, int((time.monotonic() - t0) * 1000))
-        return None
-    if not (isinstance(results, list) and len(results) == 1 and isinstance(results[0], dict)):
-        return None
-    result = results[0]
-    if result.get('status') == 'Failed' or not result.get('id'):
-        return None
-    logger.warning(
-        'PriceManagerProduct %s (number=%s) repointed from platformID=%s to %s',
-        result['id'], payload['number'], records[0].get('platformID'), payload['platformID'],
-    )
-    return result['id']
-
-
 def _push_pim_links(targets: list, batch_size: int = 1000, delay: float = 0.5) -> tuple[int, int]:
     """upsertAsync `targets` — [(Product, payload), ...] — as PriceManagerProduct
     records and store each returned id as that Product's pim_id.
@@ -746,12 +718,14 @@ def _push_pim_links(targets: list, batch_size: int = 1000, delay: float = 0.5) -
     without aborting the rest: results are tied back to Products only by
     position, so a short or malformed list must never be zipped.
 
-    PIM matches an upsert on number + platformID (verified live): both on one
-    record answers NotModified/Updated with its id — how a PMP whose id was
-    lost gets it back — while only one of them matching fails the item with a
-    unique-violation 400 inside a job that still ends as Success. A rejected
-    item goes to _take_over_pim_link; what even that cannot place is logged
-    and recorded. Returns (linked, rejected).
+    PIM matches an upsert on the PMP's unique field, platformID (our pk): a
+    record that has it answers NotModified/Updated with its id — how a PMP
+    whose id was lost gets it back. PMP.number is not unique since
+    2026-10-13, so Products sharing a number each get their own PMP. A
+    rejected item (a Failed status inside a job that still ends as Success)
+    is logged and recorded, never placed on another Product's PMP: the old
+    take-over by number would now hand one Product's PMP to another every
+    night. Returns (linked, rejected).
     """
     total_linked = 0
     total_rejected = 0
@@ -786,10 +760,8 @@ def _push_pim_links(targets: list, batch_size: int = 1000, delay: float = 0.5) -
         for (product, payload), result in zip(chunk, results):
             pim_id = result.get('id')
             if result.get('status') == 'Failed' or not pim_id:
-                pim_id = _take_over_pim_link(payload)
-                if not pim_id:
-                    rejected.append(result)
-                    continue
+                rejected.append(result)
+                continue
             product.pim_id = pim_id
             linked.append(product)
         if rejected:
@@ -800,10 +772,11 @@ def _push_pim_links(targets: list, batch_size: int = 1000, delay: float = 0.5) -
             logger.error('push_pim_links: %s', error)
             _record_pim_error('push_pim_links', error, int((time.monotonic() - t0) * 1000))
         if linked:
-            # A taken-over PMP may still be stored on the Product it used to
-            # point at; that Product lost it in PIM, so it loses it here too
-            # (and is pushed afresh next run) rather than tripping pim_id's
-            # unique constraint.
+            # A PMP id may still be stored on a Product it no longer belongs
+            # to (taken over before 2026-10-13, or a pk reused by another
+            # environment); PIM gave it to this one, so the other loses it
+            # here too (and is pushed afresh next run) rather than tripping
+            # pim_id's unique constraint.
             PimProduct.objects.filter(pim_id__in=[p.pim_id for p in linked]).exclude(
                 pk__in=[p.pk for p in linked]
             ).update(pim_id=None)
@@ -817,8 +790,8 @@ def push_pim_links(pks: list[int], delay: float = 0.5, batch_size: int = 1000) -
     """Create the PriceManagerProduct for one batch of local Products and store its id as pim_id.
 
     For each Product still without a pim_id: search the PIM Product by
-    number, then push {platformID: our pk, number, name, description} — plus
-    productId when the search found exactly one. An ambiguous search pushes
+    number and brand, then push {platformID: our pk, number, name, description}
+    — plus productId when the search found exactly one. An ambiguous search pushes
     without productId, leaving PIM staff to pick the product; a failed search
     skips the Product, since pushing then would drop a productId the search
     might have found. The key is left out rather than sent as null when there
@@ -832,7 +805,7 @@ def push_pim_links(pks: list[int], delay: float = 0.5, batch_size: int = 1000) -
     push stayed rejected, so the batch is recorded as an error, not a success.
     """
     products = list(
-        PimProduct.objects.filter(pk__in=pks, pim_id__isnull=True).order_by('pk')
+        PimProduct.objects.filter(pk__in=pks, pim_id__isnull=True).select_related('brand').order_by('pk')
     )
     if not products:
         return 0
@@ -852,7 +825,8 @@ def push_pim_links(pks: list[int], delay: float = 0.5, batch_size: int = 1000) -
     for product in products:
         if product.pk not in first_main_product:
             continue
-        pim_product_id, outcome = _search_pim_product_id(product.number)
+        pim_product_id, outcome = _search_pim_product_id(
+            product.number, product.brand.pim_id if product.brand_id else None)
         time.sleep(delay)
         if outcome == _SEARCH_ERROR:
             unanswered += 1

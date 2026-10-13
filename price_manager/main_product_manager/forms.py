@@ -2,6 +2,8 @@ from django import forms
 from django.db.models import Q
 from django.utils import timezone
 
+from product.models import Brand
+
 from .models import Supplier, MainProduct, MP_PRICES
 
 SKU_MAX_LENGTH = 128  # product.Product.number — артикул строки становится им
@@ -16,13 +18,20 @@ class MainProductForm(forms.ModelForm):
   цены. Остаток строки без строки прайса update_stocks не трогает — у любого
   поставщика. Без поставщика (NULL) — только строки наборов, их форма не создаёт.
 
+  Бренд — не поле строки, а половина её товара: товар — пара (артикул, бренд),
+  и вьюха ставит строку на товар этой пары (resolve_product). Без бренда
+  товар заводится новый: товары без бренда с одним артикулом — разные.
+
   Что форма не даёт менять:
-  - у строки из прайса поставщика — поставщика и артикул поставщика: по ним
-    её находит импорт, и следующая загрузка прайса завела бы строку заново;
-  - у строки набора — поставщика, артикул, себестоимость и остаток: они —
-    из комплектующих (product.services.set_rows);
-  - при создании из карточки товара — артикул: он и есть товар.
+  - у строки из прайса поставщика — поставщика, артикул поставщика и бренд:
+    по первым двум её находит импорт, и следующая загрузка прайса завела бы
+    строку заново, а бренд — из колонки бренда прайса;
+  - у строки набора — поставщика, артикул, бренд, себестоимость и остаток:
+    они — из комплектующих и PIM (product.services.set_rows);
+  - при создании из карточки товара — артикул и бренд: они и есть товар.
   """
+
+  brand = forms.ModelChoiceField(queryset=Brand.objects.all(), required=False, label='Бренд')
 
   class Meta:
     model = MainProduct
@@ -63,16 +72,24 @@ class MainProductForm(forms.ModelForm):
     for field in MP_PRICES:
       self.fields[field].widget.attrs.update({'min': 0, 'step': '0.01', 'inputmode': 'decimal'})
 
+    if instance.pk and instance.product_id:
+      self.initial.setdefault('brand', instance.product.brand_id)
     if product is not None and not instance.pk:
       self.initial.setdefault('sku', product.number)
       self.initial.setdefault('name', product.name or product.display_name)
+      self.initial.setdefault('brand', product.brand_id)
       self.fields['sku'].disabled = True
+      self.fields['brand'].disabled = True
     if self.from_price_list:
-      self.fields['supplier'].disabled = True
-      self.fields['article'].disabled = True
-    if self.is_set_row:
-      for name in ('supplier', 'sku', 'article', 'prime_cost', 'stock'):
+      for name in ('supplier', 'article', 'brand'):
         self.fields[name].disabled = True
+    if self.is_set_row:
+      for name in ('supplier', 'sku', 'article', 'brand', 'prime_cost', 'stock'):
+        self.fields[name].disabled = True
+
+  def brand_options(self):
+    from product.forms import brand_picker_options, selected_pks
+    return brand_picker_options(selected_pks(self['brand']))
 
   @property
   def stock_and_price_fields(self):

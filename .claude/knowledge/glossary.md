@@ -18,10 +18,11 @@ that explains it rather than explaining it here.
 | «Свой склад» (was «Без поставщика») | `Supplier` with `is_own_stock=True` | Supplier for leftover stock, returns, bonuses; behaves like any supplier, default of the «Строка ГП» modal. [[supplier_manager/own-stock]] |
 | Строка набора, «Наборы» (правило без поставщика) | `MainProduct` with `supplier` NULL (`is_set`); `PriceManager.supplier` NULL | Only set rows have no supplier. [[product/set-rows]], [[product_price_manager/pages-and-fixed-markups]] |
 | Строка набора | `MainProduct.is_set` | One per set; `prime_cost`, stock and delivery days from components. [[product/set-rows]] |
-| Артикул | `Product.number` = `MainProduct.sku` | Local match key; unique case-insensitively. [[product/pim-link]] |
+| Артикул | `Product.number` = `MainProduct.sku` | Local match key, case-insensitive. Unique only together with a brand. [[product/identity]] |
+| «Товар = бренд + артикул» | `product_product_number_brand_uniq`, `resolve_product` | A product is the pair (артикул, бренд). Products without a brand that share an артикул are different products until they get a brand. [[product/identity]] |
 | Артикул поставщика | `MainProduct.article`, `SupplierProduct.article` | The supplier's own code; `sku` is built from it (`compute_supplier_sku`). [[main_product_manager/sku-and-linking]] |
-| Категория, Бренд | `product.Category` (MPTT), `product.Brand` | Both come from PIM; supplier-side categories were retired. `Product.brand` is PIM's. [[supplier_manager/retired-models]] |
-| Бренд поставщика, колонка «Бренд» прайса | `SupplierProduct.brand_name` (raw), `SupplierProduct.brand` (resolved PIM brand), `Link` key `brand_name` | Returned 2026-10-12, step 1 of «товар = бренд + артикул». A claim resolved to a PIM brand, not the product's brand. [[product/brands]] |
+| Категория, Бренд | `product.Category` (MPTT), `product.Brand` | Both come from PIM; supplier-side categories were retired. `Product.brand` is PIM's, or else the brand its suppliers agree on. [[supplier_manager/retired-models]], [[product/identity]] |
+| Бренд поставщика, колонка «Бренд» прайса | `SupplierProduct.brand_name` (raw), `SupplierProduct.brand` (resolved PIM brand), `Link` key `brand_name` | Returned 2026-10-12, step 1 of «товар = бренд + артикул». A claim resolved to a PIM brand. It becomes the product's brand only when no other supplier disputes it. [[product/brands]] |
 | Синоним бренда | `product.BrandAlias` | A supplier spelling → PIM brand (or «без бренда»). [[product/brands]] |
 | «Бренды» (`/brands/`) | `product.brand_views` | Coverage, the queue of unresolved spellings, PIM brands, aliases; «Создать в PIM». [[product/brands]] |
 | Набор, «Состав набора», «Позиция набора» | `product.ProductSetItem` | A `Product` with composition rows. [[product/sets]] |

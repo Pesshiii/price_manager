@@ -41,7 +41,7 @@ class _PimUnreachable:
     """Заглушка для main_product_manager.utils.site: сеть в тестах запрещена.
 
     С Phase 2b ни импорт, ни копирование в ГП до PIM не доходят: связь с
-    товаром ставится локально (link_to_local_products), а цепочка через
+    товаром ставится локально (link_unlinked_main_products), а цепочка через
     search_vector удалена. Заглушка остаётся страховкой: любой будущий путь в
     сеть из этих тестов упрётся в неё, а не сходит в живой PIM. Громко — не
     обязательно: _fetch_pim_entity ловит Exception.
@@ -760,17 +760,33 @@ class CopySupplierProductsToMainTaskTests(TestCase):
         self.assertEqual(result["created_count"], 2)
         self.assertEqual(result["updated_links_count"], 2)
 
-    def test_new_row_is_linked_to_the_existing_product_with_its_sku(self):
+    def _brand(self):
+        return Brand.objects.get_or_create(pim_id="br-ct", defaults={"name": "Bosch"})[0]
+
+    def test_new_row_is_linked_to_the_existing_product_of_its_sku_and_brand(self):
         """Та тихая поломка, ради которой шаг и существует: до Phase 2b связь
         ставилась побочным эффектом пересборки search_vector. Без явного шага
         строка ложилась бы с product IS NULL — невидимой на /products/."""
-        product = Product.objects.create(number="CT-5")
-        sp = SupplierProduct.objects.create(supplier=self.supplier, article="CT-5", name="Товар 5")
+        product = Product.objects.create(number="CT-5", brand=self._brand())
+        sp = SupplierProduct.objects.create(supplier=self.supplier, article="CT-5", name="Товар 5",
+                                            brand_name="Bosch", brand=self._brand())
 
         copy_supplier_products_to_main_task(self.supplier.id, None, self.user.id)
 
         sp.refresh_from_db()
         self.assertEqual(MainProduct.objects.get(pk=sp.main_product_id).product_id, product.pk)
+
+    def test_new_row_without_a_brand_gets_a_product_of_its_own(self):
+        """Товары без бренда с одним артикулом — разные товары, пока бренда нет."""
+        existing = Product.objects.create(number="CT-5")
+        sp = SupplierProduct.objects.create(supplier=self.supplier, article="CT-5", name="Товар 5")
+
+        copy_supplier_products_to_main_task(self.supplier.id, None, self.user.id)
+
+        sp.refresh_from_db()
+        row = MainProduct.objects.get(pk=sp.main_product_id)
+        self.assertNotEqual(row.product_id, existing.pk)
+        self.assertEqual((row.product.number, row.product.brand_id), ("CT-5", None))
 
     def test_copy_creates_the_product_a_new_sku_has_none_of(self):
         """Строка ГП без товара не бывает: товар создаётся сразу, а не ночью."""
@@ -783,9 +799,10 @@ class CopySupplierProductsToMainTaskTests(TestCase):
         self.assertEqual((row.product.number, row.product.name), ("CT-6", "Товар 6"))
 
     def test_copy_links_case_insensitively_and_leaves_other_rows_alone(self):
-        product = Product.objects.create(number="ct-7")
+        product = Product.objects.create(number="ct-7", brand=self._brand())
         stranger = MainProduct.objects.create(supplier=self.supplier, article="X", name="Чужая", sku="OTHER-1")
-        sp = SupplierProduct.objects.create(supplier=self.supplier, article="CT-7", name="Товар 7")
+        sp = SupplierProduct.objects.create(supplier=self.supplier, article="CT-7", name="Товар 7",
+                                            brand_name="Bosch", brand=self._brand())
 
         copy_supplier_products_to_main_task(self.supplier.id, None, self.user.id)
 
@@ -795,10 +812,11 @@ class CopySupplierProductsToMainTaskTests(TestCase):
         self.assertIsNone(stranger.product_id)
 
     def test_already_linked_row_gets_its_product_link_without_a_new_main_product(self):
-        product = Product.objects.create(number="CT-3")
+        product = Product.objects.create(number="CT-3", brand=self._brand())
         mp = MainProduct.objects.create(supplier=self.supplier, article="CT-3", name="Товар 3", sku="CT-3")
         SupplierProduct.objects.create(
             supplier=self.supplier, article="CT-3", name="Товар 3", main_product=mp,
+            brand_name="Bosch", brand=self._brand(),
         )
 
         result = copy_supplier_products_to_main_task(self.supplier.id, None, self.user.id)

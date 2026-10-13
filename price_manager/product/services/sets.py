@@ -18,7 +18,7 @@ import logging
 from collections import defaultdict
 
 from django.db import transaction
-from django.db.models import Exists, OuterRef
+from django.db.models import Exists, F, OuterRef, Q
 
 from main_product_manager.models import MainProduct
 from pim_api import EntityList, Where, fetch_list
@@ -73,11 +73,12 @@ def _fetch_set_links(association_id: str) -> list[dict]:
 
 
 def _fetch_pim_products_brief(product_ids: list[str]) -> dict[str, dict]:
-    """id товара PIM -> {number, name}. Для снимка компонента в составе."""
+    """id товара PIM -> {number, name, brandId}. Для снимка компонента в составе
+    и для поиска нашего товара по паре (артикул, бренд)."""
     found = {}
     for chunk in _chunks(product_ids):
         for row in _fetch_all(EntityList(
-            name='Product', select=['id', 'number', 'name'],
+            name='Product', select=['id', 'number', 'name', 'brandId'],
             where=[Where(attribute='id', type='in', value=chunk)],
         )):
             found[row['id']] = row
@@ -104,35 +105,43 @@ def _fetch_platform_ids(product_ids: list[str]) -> dict[str, list[int]]:
     return found
 
 
-def _candidates(platform_pks: list[int], number: str | None) -> list[Product]:
+def _candidates(platform_pks: list[int], number: str | None, brand_pim_id: str | None) -> list[Product]:
     """Наши Product, которые могут быть этим товаром PIM.
 
     Связь через PMP — главный признак, номер — запасной: у товара, которому
-    reindex_pim_ids ещё не завёл PMP, другого способа нет. iexact, потому что
-    уникальность number нечувствительна к регистру (Lower('number')).
+    reindex_pim_ids ещё не завёл PMP, другого способа нет. Товар — пара
+    (артикул, бренд), поэтому по номеру не берётся наш товар другого бренда,
+    чем у товара PIM. Пустой бренд с любой стороны — не противоречие: он
+    может быть просто не заполнен. iexact — артикулы сравниваются без регистра.
     """
     by_pk = Product.objects.filter(pk__in=platform_pks) if platform_pks else Product.objects.none()
-    by_number = Product.objects.filter(number__iexact=number) if number else Product.objects.none()
+    by_number = Product.objects.none()
+    if number:
+        by_number = Product.objects.filter(number__iexact=number)
+        if brand_pim_id:
+            by_number = by_number.filter(Q(brand__isnull=True) | Q(brand__pim_id=brand_pim_id))
     return list((by_pk | by_number).distinct().annotate(
+        brand_pim_id=F('brand__pim_id'),
         has_stock=Exists(MainProduct.objects.filter(product=OuterRef('pk'), stock__gt=0)),
         has_suppliers=Exists(MainProduct.objects.filter(product=OuterRef('pk'))),
     ))
 
 
-def _pick(candidates: list[Product], platform_pks: list[int]) -> Product:
-    """Из нескольких кандидатов — привязанный через PMP, затем с остатком,
-    затем с поставщиками, затем самый старый."""
+def _pick(candidates: list[Product], platform_pks: list[int], brand_pim_id: str | None) -> Product:
+    """Из нескольких кандидатов — привязанный через PMP, затем того же бренда,
+    что товар PIM, затем с остатком, затем с поставщиками, затем самый старый."""
     linked = set(platform_pks)
     return min(candidates, key=lambda p: (
-        p.pk not in linked, not p.has_stock, not p.has_suppliers, p.pk))
+        p.pk not in linked, p.brand_pim_id != brand_pim_id, not p.has_stock, not p.has_suppliers, p.pk))
 
 
-def _resolve(pim_product_id: str, number: str | None, platform_ids: dict, what: str) -> Product | None:
+def _resolve(pim_product_id: str, number: str | None, brand_pim_id: str | None,
+             platform_ids: dict, what: str) -> Product | None:
     platform_pks = platform_ids.get(pim_product_id, [])
-    candidates = _candidates(platform_pks, number)
+    candidates = _candidates(platform_pks, number, brand_pim_id)
     if not candidates:
         return None
-    chosen = _pick(candidates, platform_pks)
+    chosen = _pick(candidates, platform_pks, brand_pim_id)
     if len(candidates) > 1:
         logger.warning(
             'sets: %s %s (%s) — несколько наших товаров %s, взят %s',
@@ -148,7 +157,7 @@ def _resolve_set_product(pim_product_id: str, data: dict, platform_ids: dict) ->
     набор не узнал бы и завёл бы ещё один.
     """
     number = data.get('number') or None
-    product = _resolve(pim_product_id, number, platform_ids, 'набор')
+    product = _resolve(pim_product_id, number, data.get('brandId') or None, platform_ids, 'набор')
     if product is not None:
         return product, False
     if number is None:
@@ -199,6 +208,13 @@ def sync_product_sets() -> dict:
     component_ids = sorted({link['associatedItemId'] for links in links_by_set.values() for link in links})
     briefs = _fetch_pim_products_brief(component_ids)
     platform_ids = _fetch_platform_ids(sorted(set(component_ids) | set(links_by_set)))
+    # Набор, который мы уже зеркалили, узнаётся по id товара PIM в raw_data так
+    # же верно, как по PMP. Номер для него — слабый признак: смени PIM бренд
+    # набора, и поиск по паре (артикул, бренд) завёл бы второй товар набора.
+    for pk, pim_product_id in (Product.objects.filter(set_items__isnull=False).distinct()
+                               .values_list('pk', 'raw_data__id')):
+        if pim_product_id in links_by_set and pk not in platform_ids.get(pim_product_id, []):
+            platform_ids.setdefault(pim_product_id, []).append(pk)
 
     synced_set_pks = set()
     for set_id, links in links_by_set.items():
@@ -235,7 +251,7 @@ def sync_product_sets() -> dict:
             seen.add(component_id)
             brief = briefs.get(component_id, {})
             number = brief.get('number') or None
-            component = _resolve(component_id, number, platform_ids, 'компонент')
+            component = _resolve(component_id, number, brief.get('brandId') or None, platform_ids, 'компонент')
             if component is None:
                 stats['unresolved_components'] += 1
                 logger.warning('sets: набор %s (%s) — компонента %s (%s) нет в Price Manager',

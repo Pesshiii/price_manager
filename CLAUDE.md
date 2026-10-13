@@ -111,11 +111,20 @@ the `run-price-manager` skill before isolating.
 
 Invariants that cross these apps (the mechanics are in the keepers' topics):
 
+- **A Product is the pair (number, brand), and only a branded pair is unique**
+  (`product_product_number_brand_uniq`, `Lower(number)`). Brandless Products
+  sharing a number are different products until they get a brand, so a row
+  without a brand always gets a Product of its own. A row's brand is its price-list
+  row's resolved `SupplierProduct.brand` (a hand-made row's comes from the modal).
+  `Product.brand` is PIM's brand, or failing that the one its suppliers agree on
+  (`product.services.brands.adopt_supplier_brands`). PIM never clears it and never
+  overrides a brand that did not come from PIM, and a pair another Product holds
+  is never set. The rest is in `.claude/knowledge/product/identity.md`.
 - **A ГП row never exists without a Product.** Every write path (the «Строка ГП»
-  modal, the admin and its import) goes through `main_product_manager.utils.ensure_product`/`product_for_sku`
-  (case-insensitive, creates the Product). The copy-to-main import runs
-  `link_unlinked_main_products(main_product_ids=…)`. Changing a row's sku moves it
-  to the new sku's Product.
+  modal, the admin and its import) goes through `main_product_manager.utils.ensure_product`/`resolve_product`
+  (finds or creates the pair; creates a new Product without a brand). The
+  copy-to-main import runs `link_unlinked_main_products(main_product_ids=…)`.
+  Changing a row's sku or brand moves it to that pair's Product.
 - **A ГП row with `supplier` NULL is a set row** (`MainProduct.is_set`, one per
   set). A stray non-set one, such as an admin import with an empty supplier, is
   moved to «Свой склад» by the next `sync_set_rows`. Only `product/services/set_rows` writes its `prime_cost`, `stock` and
@@ -150,18 +159,18 @@ but do not grow it into anything independent of PIM and the legacy stack.
 `MainProduct.product` is an FK to it. It has no embeddings, no characteristics
 JSONB and no `ImportJob`/`CharacteristicMutationJob`; docs that say otherwise are stale.
 
-**Product = (brand, article) is the adopted policy (2026-10-12), and only its first
-step — brands — has shipped.** PIM stays the source of brands: `product.Brand`
+**Product = (brand, article) is the adopted policy (2026-10-12). Brands (step 1)
+and identity in PM (step 3, 2026-10-13) have shipped.** PIM stays the source of brands: `product.Brand`
 mirrors PIM's whole list (`product.sync_brands`, nightly and from the window), and
 PM creates a PIM brand only from the «Создать в PIM» button. A price list's brand
 column (`Link` key `brand_name`) is stored raw on `SupplierProduct.brand_name` and
 resolved to a PIM brand (`SupplierProduct.brand`) by name key or a
 `product.BrandAlias`. Whatever does not resolve waits in «Бренды» (`/brands/`).
-`Product.brand` is still PIM's, and `Product.number` is still unique on its own.
-Identity moves to (brand, article) only once most brands are filled. The order of
-the remaining steps and their traps are in `.claude/shift-to-product-brief.md` §0.6:
-`PriceManagerProduct.number` is unique in PIM, the data needs splits as well as
-merges, and stripping supplier suffixes is risky.
+Identity is the invariant above. The number is still the sku with the supplier's
+prefix or suffix, not the clean article. Existing Products were neither split nor
+renumbered: that is the data step, and it and the other remaining steps are in
+`.claude/shift-to-product-brief.md` §0.6. `PriceManagerProduct.number` is no longer
+unique in PIM (2026-10-13), so the PMP push matches on `platformID` alone.
 
 **Supporting apps without a keeper:**
 

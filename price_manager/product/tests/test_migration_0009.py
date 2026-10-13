@@ -13,30 +13,41 @@ from supplier_manager.models import Currency, Supplier
 migration = importlib.import_module('product.migrations.0009_product_number_case_insensitive')
 
 
-class ProductNumberCaseInsensitiveConstraintTests(TestCase):
-    """The schema-level guarantee product.0009 exists to add: not just a
-    one-time cleanup, but a standing constraint against new collisions."""
+class ProductNumberBrandConstraintTests(TestCase):
+    """The standing constraint: product.0009 made number unique case-insensitively,
+    product.0021 narrowed that to the pair (Lower(number), brand), brand set.
 
-    def test_constraint_rejects_case_variant_numbers(self):
-        Product.objects.create(number='abc123')
+    Brandless products sharing a number are different products until they get
+    a brand, so only a branded pair is guarded.
+    """
+
+    def test_constraint_rejects_a_case_variant_of_a_branded_pair(self):
+        brand = Brand.objects.create(pim_id='brand-1', name='Bosch')
+        Product.objects.create(number='abc123', brand=brand)
 
         with self.assertRaises(IntegrityError):
-            Product.objects.create(number='ABC123')
+            Product.objects.create(number='ABC123', brand=brand)
+
+    def test_same_number_under_another_brand_or_none_is_allowed(self):
+        bosch = Brand.objects.create(pim_id='brand-1', name='Bosch')
+        makita = Brand.objects.create(pim_id='brand-2', name='Makita')
+        Product.objects.create(number='abc123', brand=bosch)
+
+        Product.objects.create(number='ABC123', brand=makita)
+        Product.objects.create(number='abc123')
+        Product.objects.create(number='abc123')
+
+        self.assertEqual(Product.objects.filter(number__iexact='abc123').count(), 4)
 
 
 class MergeCaseDuplicateNumbersTests(TestCase):
     """The data step of product.0009, run against the live registry.
 
     CI migrates an empty database, where the step has nothing to touch; this
-    is the only place its filters meet rows. Case-variant duplicates can no
-    longer be created directly once product_product_number_lower_uniq exists.
-    It's an expression index, not a pg_constraint row (Postgres has no
-    table-level CONSTRAINT for an indexed expression — see the migration's
-    sqlmigrate output: CREATE UNIQUE INDEX ... ((LOWER("number")))), so it
-    comes off with DROP INDEX rather than ALTER TABLE ... DROP CONSTRAINT.
-    Postgres DDL is transactional, so each test drops it to set up its
-    fixture and the per-test rollback restores it afterwards without
-    touching other tests or the constraint test above.
+    is the only place its filters meet rows. Brandless case-variant duplicates
+    can be created directly since product.0021 replaced the unique
+    Lower(number) with the (Lower(number), brand) pair, so the fixtures need
+    no index dropped any more.
     """
 
     def setUp(self):
@@ -47,8 +58,6 @@ class MergeCaseDuplicateNumbersTests(TestCase):
             delivery_days_available=1,
             delivery_days_navailable=2,
         )
-        with connection.cursor() as cursor:
-            cursor.execute('DROP INDEX product_product_number_lower_uniq')
 
     def _run(self):
         # A real schema editor, not None: the step flushes deferred FK

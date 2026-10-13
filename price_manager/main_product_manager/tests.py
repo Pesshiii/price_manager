@@ -5,7 +5,7 @@ from django.test import TestCase
 
 from supplier_manager.models import Currency, Supplier
 from supplier_product_manager.models import SupplierProduct
-from product.models import Product as PimProduct
+from product.models import Brand, Product as PimProduct
 from .models import MainProduct, MainProductLog
 from .utils import update_stocks
 
@@ -427,18 +427,16 @@ from .utils import (
     _SEARCH_AMBIGUOUS,
     _SEARCH_ERROR,
     _SEARCH_FOUND,
-    _link_to_local_product,
     _search_pim_product_id,
     get_pim_data,
     iter_unpushed_product_pk_batches,
-    link_to_local_products,
     link_unlinked_main_products,
     push_pim_links,
 )
 
 
-def _pim_list(*ids):
-    return {'list': [{'id': pim_id} for pim_id in ids]}
+def _pim_list(*ids, brand_id=None):
+    return {'list': [{'id': pim_id, 'brandId': brand_id} for pim_id in ids]}
 
 
 def _created(pim_id):
@@ -525,12 +523,47 @@ class SearchPimProductIdTests(_PimSearchTestCase):
             [(w.attribute, w.type, w.value) for w in entity_list.where],
             [('number', 'equals', '2001_-04_z01')],
         )
+        # brandId must be selected: the brand is matched on our side.
+        self.assertIn('brandId', entity_list.select)
+
+    def test_branded_product_matches_only_the_card_of_its_brand(self):
+        """PIM is unique by (number, brand): one number, a card per brand."""
+        answer = {'list': [{'id': 'pim-bosch', 'brandId': 'br-bosch'},
+                           {'id': 'pim-makita', 'brandId': 'br-makita'},
+                           {'id': 'pim-none', 'brandId': None}]}
+        with patch.object(mp_utils, 'site') as site:
+            site.get.return_value = answer
+            self.assertEqual(_search_pim_product_id('N-1', 'br-makita'), ('pim-makita', _SEARCH_FOUND))
+            self.assertEqual(_search_pim_product_id('N-1', 'br-other'), (None, _SEARCH_ABSENT))
+
+    def test_brandless_product_is_never_bound_to_a_branded_card(self):
+        with patch.object(mp_utils, 'site') as site:
+            site.get.return_value = _pim_list('pim-bosch', brand_id='br-bosch')
+            self.assertEqual(_search_pim_product_id('N-1'), (None, _SEARCH_ABSENT))
+            site.get.return_value = {'list': [{'id': 'pim-bosch', 'brandId': 'br-bosch'},
+                                              {'id': 'pim-none', 'brandId': None}]}
+            self.assertEqual(_search_pim_product_id('N-1'), ('pim-none', _SEARCH_FOUND))
 
 
 class LinkUnlinkedMainProductsTests(_PimSearchTestCase):
-    """The local half of reindex: MainProduct -> product.Product by sku = number."""
+    """The local half of reindex: MainProduct -> product.Product by (sku, brand).
 
-    def test_creates_one_product_per_sku_and_links_every_main_product_to_it(self):
+    The brand of a row is its price-list row's resolved brand. A product is
+    the pair (number, brand); brandless rows each get a Product of their own.
+    """
+
+    def setUp(self):
+        super().setUp()
+        self.bosch = Brand.objects.create(pim_id='br-bosch', name='Bosch')
+        self.makita = Brand.objects.create(pim_id='br-makita', name='Makita')
+
+    def branded(self, brand, sku='SKU-A', **kwargs):
+        row = self.product(sku=sku, **kwargs)
+        SupplierProduct.objects.create(supplier=self.supplier, main_product=row, article=row.article,
+                                       name=row.name, brand_name=brand.name, brand=brand)
+        return row
+
+    def test_brandless_rows_sharing_a_sku_each_get_a_product_of_their_own(self):
         first = self.product(sku='SKU-A', name='Первый')
         second = self.product(sku='SKU-A', article='OTHER', name='Второй')
 
@@ -539,25 +572,65 @@ class LinkUnlinkedMainProductsTests(_PimSearchTestCase):
         first.refresh_from_db()
         second.refresh_from_db()
         self.assertEqual(linked, 2)
-        self.assertEqual(first.product_id, second.product_id)
-        self.assertEqual(first.product.number, 'SKU-A')
-        self.assertEqual(first.product.name, 'Первый')
+        self.assertNotEqual(first.product_id, second.product_id)
+        self.assertEqual((first.product.number, first.product.name, first.product.brand_id),
+                         ('SKU-A', 'Первый', None))
+        self.assertEqual(second.product.name, 'Второй')
         self.assertIsNone(first.product.pim_id)
 
-    def test_links_to_an_existing_product_instead_of_creating_one(self):
-        existing = PimProduct.objects.create(number='SKU-B')
-        main_product = self.product(sku='SKU-B')
+    def test_rows_of_one_brand_share_one_product_case_insensitively(self):
+        first = self.branded(self.bosch, sku='ABC123', name='Первый')
+        second = self.branded(self.bosch, sku='abc123', article='OTHER', name='Второй')
+
+        self.assertEqual(link_unlinked_main_products(), 2)
+
+        first.refresh_from_db()
+        second.refresh_from_db()
+        self.assertEqual(first.product_id, second.product_id)
+        self.assertEqual((first.product.brand_id, first.product.name), (self.bosch.pk, 'Первый'))
+        self.assertEqual(PimProduct.objects.count(), 1)
+
+    def test_one_sku_under_two_brands_is_two_products(self):
+        bosch_row = self.branded(self.bosch)
+        makita_row = self.branded(self.makita, article='OTHER')
 
         link_unlinked_main_products()
 
-        main_product.refresh_from_db()
-        self.assertEqual(main_product.product_id, existing.pk)
+        bosch_row.refresh_from_db()
+        makita_row.refresh_from_db()
+        self.assertEqual(bosch_row.product.brand_id, self.bosch.pk)
+        self.assertEqual(makita_row.product.brand_id, self.makita.pk)
+
+    def test_branded_row_links_to_the_existing_pair(self):
+        existing = PimProduct.objects.create(number='abc123', brand=self.bosch)
+        row = self.branded(self.bosch, sku='ABC123')
+
+        link_unlinked_main_products()
+
+        row.refresh_from_db()
+        self.assertEqual(row.product_id, existing.pk)
         self.assertEqual(PimProduct.objects.count(), 1)
+
+    def test_a_number_alone_joins_nothing(self):
+        """A new row is a new product for this supplier, whatever else holds the number."""
+        brandless = PimProduct.objects.create(number='SKU-B')
+        makita = PimProduct.objects.create(number='SKU-B', brand=self.makita)
+        bosch_row = self.branded(self.bosch, sku='SKU-B')
+        plain_row = self.product(sku='SKU-B', article='PLAIN')
+
+        link_unlinked_main_products()
+
+        bosch_row.refresh_from_db()
+        plain_row.refresh_from_db()
+        self.assertNotIn(bosch_row.product_id, {brandless.pk, makita.pk})
+        self.assertEqual(bosch_row.product.brand_id, self.bosch.pk)
+        self.assertNotIn(plain_row.product_id, {brandless.pk, makita.pk, bosch_row.product_id})
+        self.assertIsNone(plain_row.product.brand_id)
 
     def test_existing_links_are_never_moved(self):
         elsewhere = PimProduct.objects.create(number='MANUAL')
-        PimProduct.objects.create(number='SKU-C')
-        main_product = self.product(sku='SKU-C', product=elsewhere)
+        PimProduct.objects.create(number='SKU-C', brand=self.bosch)
+        main_product = self.branded(self.bosch, sku='SKU-C', product=elsewhere)
 
         self.assertEqual(link_unlinked_main_products(), 0)
 
@@ -588,29 +661,16 @@ class LinkUnlinkedMainProductsTests(_PimSearchTestCase):
         self.assertIsNone(too_long.product_id)
         self.assertEqual(fine.product.number, 'FINE')
 
-    def test_case_variant_sku_links_to_existing_product_instead_of_duplicating(self):
-        # number's uniqueness is case-insensitive: a differently-cased sku is
-        # the same Product, not grounds for a second row.
-        existing = PimProduct.objects.create(number='abc123')
-        main_product = self.product(sku='ABC123')
+    def test_scoped_link_touches_only_the_given_rows(self):
+        mine = self.product(sku='S-1')
+        other = self.product(sku='S-2')
 
-        link_unlinked_main_products()
+        self.assertEqual(link_unlinked_main_products(main_product_ids=[mine.pk]), 1)
 
-        main_product.refresh_from_db()
-        self.assertEqual(main_product.product_id, existing.pk)
-        self.assertEqual(PimProduct.objects.count(), 1)
-
-    def test_case_variant_skus_in_the_same_batch_collapse_onto_one_product(self):
-        first = self.product(sku='ABC123')
-        second = self.product(sku='abc123', article='OTHER')
-
-        linked = link_unlinked_main_products()
-
-        first.refresh_from_db()
-        second.refresh_from_db()
-        self.assertEqual(linked, 2)
-        self.assertEqual(first.product_id, second.product_id)
-        self.assertEqual(PimProduct.objects.count(), 1)
+        mine.refresh_from_db()
+        other.refresh_from_db()
+        self.assertEqual(mine.product.number, 'S-1')
+        self.assertIsNone(other.product_id)
 
 
 class IterUnpushedProductPkBatchesTests(_PimSearchTestCase):
@@ -721,46 +781,43 @@ class PushPimLinksTests(_PimSearchTestCase):
         product.refresh_from_db()
         self.assertEqual(product.pim_id, 'pmp-lost')
 
-    def test_rejected_push_takes_over_the_pmp_holding_our_number(self):
+    def test_rejected_push_is_never_placed_on_another_products_pmp(self):
+        """PMP.number is not unique in PIM since 2026-10-13: Products sharing a
+        number each get their own PMP, and a rejection is just a rejection.
+        The old take-over by number would now hand one Product's PMP to
+        another every night."""
         product = self.waiting_product('N-1')
-        # The PMP used to belong to another local Product, which loses it.
-        previous_owner = PimProduct.objects.create(number='RENUMBERED', pim_id='pmp-taken')
+        PimProduct.objects.create(number='N-1', pim_id='pmp-other')
 
-        def site_get(entity):
-            if entity.name == 'Product':
-                return _pim_list()
-            self.assertEqual(entity.name, 'PriceManagerProduct')
-            return {'list': [{'id': 'pmp-taken', 'platformID': '999'}]}
+        with patch.object(mp_utils, 'site') as site,                 patch.object(mp_utils, '_upsert_async', return_value=[_UNIQUE_VIOLATION]) as upsert,                 self.assertLogs(mp_utils.logger, level='ERROR'):
+            site.get.side_effect = self._site_by_number({'N-1': _pim_list()})
+            with self.assertRaises(PimScanError):
+                push_pim_links([product.pk], delay=0)
 
-        with patch.object(mp_utils, 'site') as site, patch.object(mp_utils, '_upsert_async', side_effect=[
-            [_UNIQUE_VIOLATION],
-            [{'entity': 'PriceManagerProduct', 'id': 'pmp-taken', 'stored': True, 'status': 'Updated'}],
-        ]) as upsert:
-            site.get.side_effect = site_get
-            with self.assertLogs(mp_utils.logger, level='WARNING'):
-                self.assertEqual(push_pim_links([product.pk], delay=0), 1)
-
-        takeover = upsert.call_args_list[1].args[1][0]['payload']
-        self.assertEqual(takeover['id'], 'pmp-taken')
-        self.assertEqual(takeover['platformID'], str(product.pk))
+        upsert.assert_called_once()
+        self.assertEqual([c.args[0].name for c in site.get.call_args_list], ['Product'])
         product.refresh_from_db()
-        previous_owner.refresh_from_db()
-        self.assertEqual(product.pim_id, 'pmp-taken')
-        self.assertIsNone(previous_owner.pim_id)
+        self.assertIsNone(product.pim_id)
+        self.assertEqual(PimProduct.objects.get(pim_id='pmp-other').number, 'N-1')
 
-    def test_rejection_nothing_can_place_is_recorded_and_raises(self):
+    def test_branded_product_is_linked_to_the_card_of_its_brand(self):
+        brand = Brand.objects.create(pim_id='br-makita', name='Makita')
+        product = self.waiting_product('N-1')
+        PimProduct.objects.filter(pk=product.pk).update(brand=brand)
+
+        with patch.object(mp_utils, 'site') as site,                 patch.object(mp_utils, '_upsert_async', return_value=[_created('pmp-1')]) as upsert:
+            site.get.return_value = {'list': [{'id': 'pim-bosch', 'brandId': 'br-bosch'},
+                                              {'id': 'pim-makita', 'brandId': 'br-makita'}]}
+            push_pim_links([product.pk], delay=0)
+
+        self.assertEqual(upsert.call_args.args[1][0]['payload']['productId'], 'pim-makita')
+
+    def test_a_rejection_is_recorded_and_raises_after_the_rest_is_stored(self):
         rejected = self.waiting_product('REJECTED')
         created = self.waiting_product('CREATED')
 
-        def site_get(entity):
-            if entity.name == 'Product':
-                return _pim_list()
-            return {'list': []}  # no PMP holds the number, so nothing to take over
-
-        with patch.object(mp_utils, 'site') as site, \
-                patch.object(mp_utils, '_upsert_async', return_value=[_UNIQUE_VIOLATION, _created('pmp-2')]), \
-                self.assertLogs(mp_utils.logger, level='ERROR'):
-            site.get.side_effect = site_get
+        with patch.object(mp_utils, 'site') as site,                 patch.object(mp_utils, '_upsert_async', return_value=[_UNIQUE_VIOLATION, _created('pmp-2')]),                 self.assertLogs(mp_utils.logger, level='ERROR'):
+            site.get.return_value = _pim_list()
             with self.assertRaises(PimScanError):
                 push_pim_links([rejected.pk, created.pk], delay=0)
 
@@ -862,73 +919,13 @@ class GetPimDataTests(_PimSearchTestCase):
         self.assertEqual(main_product.product.pim_id, 'pmp-1')
 
 
-class LinkToLocalProductTests(_PimSearchTestCase):
-    """The render path links to an existing Product only — it never creates one or asks PIM."""
-
-    def test_links_to_the_product_numbered_like_the_sku(self):
-        existing = PimProduct.objects.create(number='SKU-1')
-        main_product = self.product(sku='SKU-1')
-
-        with patch.object(mp_utils, 'site') as site:
-            self.assertTrue(_link_to_local_product(main_product))
-
-        site.get.assert_not_called()
-        main_product.refresh_from_db()
-        self.assertEqual(main_product.product_id, existing.pk)
-
-    def test_no_matching_product_creates_nothing(self):
-        main_product = self.product(sku='SKU-NEW')
-
-        with patch.object(mp_utils, 'site') as site:
-            self.assertFalse(_link_to_local_product(main_product))
-
-        site.get.assert_not_called()
-        self.assertEqual(PimProduct.objects.count(), 0)
-
-
-class LinkToLocalProductsTests(_PimSearchTestCase):
-    """Batched link for copy-to-main: existing Products only, one lookup for the lot."""
-
-    def test_links_every_row_whose_sku_names_an_existing_product(self):
-        first = PimProduct.objects.create(number='SKU-1')
-        second = PimProduct.objects.create(number='SKU-2')
-        rows = [self.product(sku='SKU-1'), self.product(sku='SKU-2'), self.product(sku='SKU-NONE')]
-
-        with patch.object(mp_utils, 'site') as site:
-            linked = link_to_local_products([row.pk for row in rows])
-
-        self.assertEqual(linked, 2)
-        site.get.assert_not_called()
-        self.assertEqual(PimProduct.objects.count(), 2)
-        self.assertEqual(
-            {row.sku: row.product_id for row in MainProduct.objects.filter(pk__in=[r.pk for r in rows])},
-            {'SKU-1': first.pk, 'SKU-2': second.pk, 'SKU-NONE': None},
-        )
-
-    def test_an_existing_link_is_never_overwritten(self):
-        mine = PimProduct.objects.create(number='OTHER')
-        PimProduct.objects.create(number='SKU-1')
-        row = self.product(sku='SKU-1', product=mine)
-
-        self.assertEqual(link_to_local_products([row.pk]), 0)
-        row.refresh_from_db()
-        self.assertEqual(row.product_id, mine.pk)
-
-    def test_query_count_does_not_grow_with_the_rows(self):
-        for n in range(5):
-            PimProduct.objects.create(number=f'SKU-{n}')
-        rows = [self.product(sku=f'SKU-{n}') for n in range(5)]
-
-        with self.assertNumQueries(3):  # rows, products, one bulk update
-            link_to_local_products([row.pk for row in rows])
-
-
 class MainProductFormTests(_PimSearchTestCase):
     """Строка ГП руками: с поставщиком и без, все поля, товар — всегда.
 
-    Строка ГП без товара не бывает (product_for_sku): с «Товаров» строка
-    встаёт на товар своего артикула, создавая его; из карточки товара — на
-    этот товар. Цены вводятся и логируются как любая другая смена цены.
+    Строка ГП без товара не бывает (resolve_product): с «Товаров» строка
+    встаёт на товар своей пары (артикул, бренд), создавая его, а без бренда —
+    на новый товар; из карточки товара — на этот товар. Цены вводятся и
+    логируются как любая другая смена цены.
     """
 
     def setUp(self):
@@ -958,14 +955,30 @@ class MainProductFormTests(_PimSearchTestCase):
         fields.update(data)
         return self.post(reverse('mainproduct-update', kwargs={'pk': row.pk}), fields, current_url)
 
-    def test_created_row_is_linked_to_the_product_with_its_sku_case_insensitively(self):
-        product = PimProduct.objects.create(number='NEW-1')
+    def test_created_row_with_a_brand_joins_its_pair_case_insensitively(self):
+        brand = Brand.objects.create(pim_id='br-1', name='Bosch')
+        product = PimProduct.objects.create(number='NEW-1', brand=brand)
+        PimProduct.objects.create(number='NEW-1')
 
-        response = self.create(supplier=self.supplier.pk, article='A-NEW', name='Новый', sku='new-1', stock=3)
+        response = self.create(supplier=self.supplier.pk, article='A-NEW', name='Новый', sku='new-1',
+                               stock=3, brand=brand.pk)
 
         self.assertEqual(response.status_code, 200, response.content[:300])
         self.assertEqual(MainProduct.objects.get(article='A-NEW').product_id, product.pk)
-        self.assertEqual(PimProduct.objects.count(), 1)
+        self.assertEqual(PimProduct.objects.count(), 2)
+
+    def test_created_row_without_a_brand_gets_a_product_of_its_own(self):
+        from django.contrib.messages import get_messages
+        brandless = PimProduct.objects.create(number='NEW-1')
+
+        response = self.create(supplier=Supplier.own_stock().pk, name='Возврат', sku='NEW-1', stock=1)
+
+        row = MainProduct.objects.get(name='Возврат')
+        self.assertNotEqual(row.product_id, brandless.pk)
+        self.assertEqual((row.product.number, row.product.brand_id), ('NEW-1', None))
+        # Сообщение подсказывает, что товары с таким артикулом уже есть.
+        messages = [str(m) for m in get_messages(response.wsgi_request)]
+        self.assertTrue(any('уже 1' in m for m in messages), messages)
 
     def test_a_new_sku_gets_its_product_at_once(self):
         response = self.create(supplier=Supplier.own_stock().pk, name='Возврат', sku='RET-1', stock=1)
@@ -1034,6 +1047,28 @@ class MainProductFormTests(_PimSearchTestCase):
         row.refresh_from_db()
         self.assertEqual(row.product.number, 'BRAND-NEW')
 
+    def test_choosing_a_brand_moves_a_hand_made_row_to_that_pair(self):
+        brand = Brand.objects.create(pim_id='br-1', name='Bosch')
+        pair = PimProduct.objects.create(number='OWN-1', brand=brand)
+        old = PimProduct.objects.create(number='OWN-1')
+        row = self.product(sku='OWN-1', product=old)
+
+        self.update(row, brand=brand.pk)
+
+        row.refresh_from_db()
+        self.assertEqual(row.product_id, pair.pk)
+
+    def test_price_list_row_moves_with_its_suppliers_brand(self):
+        brand = Brand.objects.create(pim_id='br-1', name='Bosch')
+        row = self.product(sku='PL-OLD', product=PimProduct.objects.create(number='PL-OLD', brand=brand))
+        SupplierProduct.objects.create(supplier=self.supplier, main_product=row, article=row.article,
+                                       name=row.name, brand_name='Bosch', brand=brand)
+
+        self.update(row, sku='PL-NEW', brand='')
+
+        row.refresh_from_db()
+        self.assertEqual((row.product.number, row.product.brand_id), ('PL-NEW', brand.pk))
+
     def test_price_list_row_keeps_supplier_and_article(self):
         other = Supplier.objects.create(name='Другой', currency=self.currency,
                                         delivery_days_available=1, delivery_days_navailable=1)
@@ -1056,27 +1091,41 @@ class MainProductFormTests(_PimSearchTestCase):
         self.assertEqual((row.prime_cost, row.basic_price), (Decimal('500'), Decimal('800')))
 
 
-class ProductForSkuTests(_PimSearchTestCase):
-    def test_finds_case_insensitively_and_creates_once(self):
-        from .utils import product_for_sku
-        existing = PimProduct.objects.create(number='Abc')
+class ResolveProductTests(_PimSearchTestCase):
+    """A product is the pair (number, brand); without a brand there is nothing to find by."""
 
-        self.assertEqual(product_for_sku(' aBC ').pk, existing.pk)
-        created = product_for_sku('NEW', 'Имя')
-        self.assertEqual((created.number, created.name), ('NEW', 'Имя'))
-        self.assertEqual(product_for_sku('new').pk, created.pk)
+    def test_finds_a_branded_pair_case_insensitively_and_creates_it_once(self):
+        from .utils import resolve_product
+        brand = Brand.objects.create(pim_id='br-1', name='Bosch')
+        existing = PimProduct.objects.create(number='Abc', brand=brand)
 
-    def test_scoped_link_touches_only_the_given_rows(self):
-        from .utils import link_unlinked_main_products
-        mine = self.product(sku='S-1')
-        other = self.product(sku='S-2')
+        self.assertEqual(resolve_product(' aBC ', brand.pk).pk, existing.pk)
+        created = resolve_product('NEW', brand.pk, 'Имя')
+        self.assertEqual((created.number, created.name, created.brand_id), ('NEW', 'Имя', brand.pk))
+        self.assertEqual(resolve_product('new', brand.pk).pk, created.pk)
 
-        self.assertEqual(link_unlinked_main_products(main_product_ids=[mine.pk]), 1)
+    def test_without_a_brand_every_call_is_a_new_product(self):
+        from .utils import resolve_product
+        PimProduct.objects.create(number='ABC')
 
-        mine.refresh_from_db()
-        other.refresh_from_db()
-        self.assertEqual(mine.product.number, 'S-1')
-        self.assertIsNone(other.product_id)
+        first = resolve_product('ABC')
+        second = resolve_product('abc')
+
+        self.assertNotEqual(first.pk, second.pk)
+        self.assertEqual(PimProduct.objects.filter(number__iexact='abc').count(), 3)
+
+    def test_ensure_product_takes_the_brand_of_the_price_list_row(self):
+        from .utils import ensure_product
+        brand = Brand.objects.create(pim_id='br-1', name='Bosch')
+        pair = PimProduct.objects.create(number='SKU-1', brand=brand)
+        row = self.product(sku='SKU-1')
+        SupplierProduct.objects.create(supplier=self.supplier, main_product=row, article=row.article,
+                                       name=row.name, brand_name='Bosch', brand=brand)
+
+        self.assertTrue(ensure_product(row))
+
+        row.refresh_from_db()
+        self.assertEqual(row.product_id, pair.pk)
 
 
 from django.contrib.auth.models import User
