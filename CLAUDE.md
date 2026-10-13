@@ -41,7 +41,9 @@ restarts the workers. The code is bind-mounted, so only `requirements.txt`,
 migrations stops it**, and a human deploys that one. A failed step rolls back
 and the SHA is skipped. `deploy/README.md` has the procedure and everything it
 never does on its own. The server runs an *installed copy* of the scripts, so
-editing `deploy/` changes nothing there until someone reinstalls it.
+editing `deploy/` changes nothing there until someone reinstalls it. The CI step
+`deploy/tests/test_pm_deploy.sh` covers each branch of the script; a change to
+the script needs a scenario there.
 `docker-compose.yml` publishes every port on `127.0.0.1` only, because ports
 Docker publishes bypass ufw. Keep it that way.
 

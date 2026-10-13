@@ -156,3 +156,10 @@ sudo systemctl enable --now pm-deploy.timer
 - **Пауза:** `sudo systemctl stop pm-deploy.timer`; вернуть — `start`.
 - **Журнал:** `journalctl -u pm-deploy -f`.
 - **Снова попробовать пропущенный SHA:** `sudo rm /var/lib/pm-deploy/skipped`.
+
+## Правка скрипта
+
+Каждую ветку `pm-deploy.sh` проверяет `bash deploy/tests/test_pm_deploy.sh` на
+временных git-репозиториях с заглушками вместо docker и curl. Этот тест — шаг
+CI. Меняете поведение скрипта — добавьте сценарий. После слияния установите
+скрипт на сервере заново (шаг 5): автодеплой напомнит об этом сам.

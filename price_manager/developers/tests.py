@@ -85,15 +85,16 @@ class FeedbackFormTests(TestCase):
         self.assertEqual(feedback.page_url, 'http://testserver/products/?q=b')
         self.assertEqual(feedback.rendered_url, 'http://testserver/products/')
 
-    @override_settings(CSRF_TRUSTED_ORIGINS=['https://pm.example.kz'])
-    def test_urls_use_browser_origin_not_proxy_host(self):
-        # Behind the proxy Django sees Host: localhost; the browser's Origin is the public address.
+    @override_settings(ALLOWED_HOSTS=['pm.example.kz'])
+    def test_urls_use_host_and_scheme_forwarded_by_nginx(self):
+        # The headers deploy/nginx.conf.example sets on every proxied request.
         with mock.patch('developers.views.send_feedback_task'), \
                 self.captureOnCommitCallbacks(execute=True):
             self.client.post(
                 self.url,
                 {'message': 'x', 'page': '/products/?q=b', 'rendered_page': '/products/'},
-                HTTP_HX_REQUEST='true', HTTP_HOST='localhost', HTTP_ORIGIN='https://pm.example.kz',
+                HTTP_HX_REQUEST='true', HTTP_HOST='pm.example.kz',
+                HTTP_X_FORWARDED_HOST='pm.example.kz', HTTP_X_FORWARDED_PROTO='https',
             )
         feedback = Feedback.objects.get()
         self.assertEqual(feedback.page_url, 'https://pm.example.kz/products/?q=b')
