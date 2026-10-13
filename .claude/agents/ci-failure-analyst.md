@@ -1,6 +1,6 @@
 ---
 name: ci-failure-analyst
-description: Reads a red GitHub Actions run for this repo and says what actually broke — which of the five CI steps failed, which failures are the branch's own versus inherited from main, and whether it is a real test failure at all. Use when `gh run watch` exits non-zero, when a PR goes red, or before pushing a fixup at a failure you have not identified. Returns file:line and a verdict, not a log dump.
+description: Reads a red GitHub Actions run for this repo and says what actually broke — which CI step failed, which failures are the branch's own versus inherited from main, and whether it is a real test failure at all. Use when `gh run watch` exits non-zero, when a PR goes red, or before pushing a fixup at a failure you have not identified. Returns file:line and a verdict, not a log dump.
 tools: Bash, Read, Grep, Glob
 model: sonnet
 ---
@@ -84,11 +84,13 @@ They are noise, not evidence, and not yours to remove while analysing a failure.
 
 ## 2. Classify the step
 
-Only one of these five is a test problem. Getting this wrong costs a whole cycle,
+Only `Run tests` is a Django test problem. Getting this wrong costs a whole cycle,
 because the fix for each lives somewhere else entirely.
 
 | Failing step | What it means | Fix, and whose |
 |---|---|---|
+| `Check knowledge base index` | A topic under `.claude/knowledge/` lacks front matter, a generated README is stale, or a `[[app/topic]]` link points nowhere. | Run `python .claude/tools/knowledge_index.py` and commit the regenerated READMEs, or fix the link. Not a test problem. |
+| `Test the deploy script` | `deploy/tests/test_pm_deploy.sh` failed. Either a change to `deploy/pm-deploy.sh` broke a branch the server relies on, or the scenario lags an intended change. Each failed check prints the script's output and the stubbed docker calls. | `bash deploy/tests/test_pm_deploy.sh` reproduces it. Fix the script, or the scenario if the behaviour change is wanted. Not a Django test problem. |
 | `Install dependencies` | `requirements.txt` does not resolve on Python 3.13. | Pin or correct the dependency. Not a test problem. |
 | `Check for uncommitted migrations` | Model/migration drift — a `models.py` edit without its migration. Runs *before* `migrate`, deliberately, as the cheapest failure. | `docker compose exec web python manage.py makemigrations`, then commit it. `CLAUDE.md`: always commit migrations. |
 | `Apply migrations` | A migration itself is broken — bad dependency order, or a data migration that raises. | Fix the migration. Suspect a newly added one first. |

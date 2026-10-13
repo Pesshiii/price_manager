@@ -42,14 +42,6 @@ class FeedbackCreateView(LoginRequiredMixin, CreateView):
     def _absolute_url(self, path):
         if not path:
             return ''
-        # Behind the reverse proxy the Host Django sees is the container's
-        # (localhost), so build_absolute_uri() yields a link nobody can open.
-        # The browser's Origin header carries the public address, and
-        # CsrfViewMiddleware has already checked it against the request host
-        # or CSRF_TRUSTED_ORIGINS before this POST got here.
-        origin = self.request.headers.get('Origin', '')
-        if origin.startswith(('http://', 'https://')):
-            url = origin.rstrip('/') + path
-        else:
-            url = self.request.build_absolute_uri(path)
-        return url[:500]
+        # nginx forwards Host and X-Forwarded-Proto (deploy/nginx.conf.example),
+        # so this is the public https address, not the container's.
+        return self.request.build_absolute_uri(path)[:500]
