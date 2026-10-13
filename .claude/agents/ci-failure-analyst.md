@@ -9,7 +9,7 @@ model: sonnet
 
 You read one CI run and answer three questions, in order:
 
-1. **Which step failed?** Five can, and four of them are not test failures.
+1. **Which step failed?** Eight can, and seven of them are not test failures.
 2. **Is it the branch's, or was `main` already red?**
 3. **What is the fix, and who should make it?**
 
@@ -91,6 +91,7 @@ because the fix for each lives somewhere else entirely.
 |---|---|---|
 | `Check knowledge base index` | A topic under `.claude/knowledge/` lacks front matter, a generated README is stale, or a `[[app/topic]]` link points nowhere. | Run `python .claude/tools/knowledge_index.py` and commit the regenerated READMEs, or fix the link. Not a test problem. |
 | `Test the deploy script` | `deploy/tests/test_pm_deploy.sh` failed. Either a change to `deploy/pm-deploy.sh` broke a branch the server relies on, or the scenario lags an intended change. Each failed check prints the script's output and the stubbed docker calls. | `bash deploy/tests/test_pm_deploy.sh` reproduces it. Fix the script, or the scenario if the behaviour change is wanted. Not a Django test problem. |
+| `Lint (ruff)` | A pyflakes check from `ruff.toml` failed: an undefined name, a name used before assignment, a broken `%`/`.format` call. Each finding prints `file:line` and the rule code. | Fix the code at that line. Do not widen `ignore` in `ruff.toml` to get green. Not a test problem. |
 | `Install dependencies` | `requirements.txt` does not resolve on Python 3.13. | Pin or correct the dependency. Not a test problem. |
 | `Check for uncommitted migrations` | Model/migration drift — a `models.py` edit without its migration. Runs *before* `migrate`, deliberately, as the cheapest failure. | `docker compose exec web python manage.py makemigrations`, then commit it. `CLAUDE.md`: always commit migrations. |
 | `Apply migrations` | A migration itself is broken — bad dependency order, or a data migration that raises. | Fix the migration. Suspect a newly added one first. |

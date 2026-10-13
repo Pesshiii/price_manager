@@ -38,7 +38,10 @@ the `Django test suite` check on the new `main` commit is green, it
 fast-forwards the production checkout, runs `manage.py check`, HUPs gunicorn and
 restarts the workers. The code is bind-mounted, so only `requirements.txt`,
 `Dockerfile` or `docker-compose.yml` changes rebuild the image. **A commit with
-migrations stops it**, and a human deploys that one. A failed step rolls back
+migrations stops it**, and a human deploys that one. Every commit merged after it
+waits too, urgent fixes included, because the script diffs against what is
+deployed. So merge a migration PR only when someone is ready to deploy it by
+hand. A failed step rolls back
 and the SHA is skipped. `deploy/README.md` has the procedure and everything it
 never does on its own. The server runs an *installed copy* of the scripts, so
 editing `deploy/` changes nothing there until someone reinstalls it. The CI step
@@ -46,6 +49,23 @@ editing `deploy/` changes nothing there until someone reinstalls it. The CI step
 the script needs a scenario there.
 `docker-compose.yml` publishes every port on `127.0.0.1` only, because ports
 Docker publishes bypass ufw. Keep it that way.
+
+## Branches and pull requests
+
+- **Everything reaches `main` through a PR, merged as a squash.** The repository
+  allows no other merge method and deletes the branch after the merge. The
+  required check is `Django test suite`, which also runs `ruff check .`
+  (`ruff.toml` at the root, version pinned in `ci.yml`).
+- **A PR made for an issue says `Closes #N` in its body.** Without it the issue
+  stays open after the fix lands, and most of the old ones did.
+- **Never push to the branch of a merged PR.** The squash has already happened,
+  so the commit reaches nothing: #199 auto-merged, and its follow-up came back as
+  #200. Start a new branch from `origin/main`. `.claude/hooks/guard_push_merged.py`
+  asks before such a push.
+- **The main checkout mirrors `origin/main`.** Update it only with
+  `git pull --ff-only` (it has `pull.ff only` set). Work goes in a worktree,
+  a person's too: a branch switched there from GitHub Desktop is invisible to the
+  hooks below.
 
 ## Running more than one agent
 

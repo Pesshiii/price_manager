@@ -1,0 +1,15 @@
+# CI runs `ruff check .` from the repo root (`.github/workflows/ci.yml`, step
+# «Lint (ruff)»). Run the same locally with the version pinned there.
+#
+# Only the pyflakes rules that find bugs. The rest of `F` reports ~490 findings
+# on the current code, almost all noise:
+#   F401 unused import (245)   F403/F405 star imports, settings and views (226)
+#   F541 f-string without placeholders (12)
+#   F811 redefinition (6)      F841 unused variable (2)
+# Turning one of these on means cleaning it up first, in its own PR. This file
+# lives at the root, not under price_manager/, so editing it does not restart
+# the production workers (pm-deploy.sh treats price_manager/ as runtime).
+
+[lint]
+select = ["F"]
+ignore = ["F401", "F403", "F405", "F541", "F811", "F841"]

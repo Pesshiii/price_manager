@@ -118,6 +118,18 @@ jobs:
         working-directory: .
         run: bash deploy/tests/test_pm_deploy.sh
 
+      # The pyflakes checks that catch real bugs (an undefined name, a name used
+      # before assignment), configured in ruff.toml at the repo root. It is a
+      # step of this job, not a job of its own, because `Django test suite` is
+      # the required check and the one pm-deploy.sh waits for. Pinned: a new
+      # ruff release can add rules, and an unpinned one would turn main red
+      # and stall deploys without a single commit.
+      - name: Lint (ruff)
+        working-directory: .
+        run: |
+          pip install ruff==0.17.0
+          ruff check .
+
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip

@@ -44,6 +44,12 @@
             "command": "python \"${CLAUDE_PROJECT_DIR:-$(git rev-parse --show-toplevel 2>/dev/null || pwd)}/.claude/hooks/guard_branch_switch.py\"",
             "statusMessage": "Checking working-tree ownership...",
             "timeout": 15
+          },
+          {
+            "type": "command",
+            "command": "python \"${CLAUDE_PROJECT_DIR:-$(git rev-parse --show-toplevel 2>/dev/null || pwd)}/.claude/hooks/guard_push_merged.py\"",
+            "statusMessage": "Checking the pushed branch's PR...",
+            "timeout": 15
           }
         ]
       }
