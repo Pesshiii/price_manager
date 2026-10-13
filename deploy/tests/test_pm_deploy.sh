@@ -76,7 +76,9 @@ echo a > price_manager/app/views.py
 echo a > price_manager/app/templates/x.html
 echo a > price_manager/requirements.txt
 echo a > Dockerfile; echo a > docker-compose.yml; echo a > README.md
-git add -A; git commit -qm init; git push -q origin main
+# HEAD:main, not main: in a clone of an empty repo, older git names the unborn
+# branch after init.defaultBranch, which may be master.
+git add -A; git commit -qm init; git push -q origin HEAD:main
 git -c core.autocrlf=false clone -q "$W/origin.git" "$W/app"
 git -C "$W/app" config core.autocrlf false
 
@@ -88,9 +90,9 @@ PASS=0; FAILED=0
 commit() { # message, then the files to touch
   local msg=$1; shift
   for f in "$@"; do mkdir -p "$(dirname "$f")"; echo "$RANDOM" >> "$f"; done
-  git add -A; git commit -qm "$msg"; git push -q origin main
+  git add -A; git commit -qm "$msg"; git push -q origin HEAD:main
 }
-revert_last() { git revert --no-edit HEAD >/dev/null; git push -q origin main; }
+revert_last() { git revert --no-edit HEAD >/dev/null; git push -q origin HEAD:main; }
 run() { # optional VAR=value overrides
   : > "$LOG"; rm -f "$W/smoke_n"
   env "$@" bash "$SCRIPT" > "$W/out.txt" 2>&1; RC=$?
@@ -249,10 +251,11 @@ expect "rc 0, reported" '[ $RC = 0 ] && has "notify PM: выкачен main до
 if [ "$REAL_FLOCK" = 1 ]; then
   echo "17. a run while the previous one holds the lock exits quietly"
   commit py4 price_manager/app/views.py
-  flock "$W/state/lock" sleep 3 &
-  sleep 1
+  # Held on this shell's own descriptor: the script opens a second one on the
+  # same file, so its `flock -n` fails even though it inherits fd 8.
+  exec 8>"$W/state/lock"; flock 8
   run
-  wait
+  exec 8>&-
   expect "rc 0, nothing done" '[ $RC = 0 ] && ! has "curl github" && said "ещё идёт"'
 fi
 
