@@ -1069,6 +1069,19 @@ class MainProductFormTests(_PimSearchTestCase):
         row.refresh_from_db()
         self.assertEqual((row.product.number, row.product.brand_id), ('PL-NEW', brand.pk))
 
+    def test_price_list_row_without_a_supplier_brand_moves_with_its_products_brand(self):
+        """Поставщик бренда не называет — строка прайса держит бренд своего товара (inherit_product_brands)."""
+        from product.services.brands import inherit_product_brands
+        brand = Brand.objects.create(pim_id='br-1', name='Bosch')
+        row = self.product(sku='PL-OLD', product=PimProduct.objects.create(number='PL-OLD', brand=brand))
+        SupplierProduct.objects.create(supplier=self.supplier, main_product=row, article=row.article, name=row.name)
+        inherit_product_brands(SupplierProduct.objects.all())
+
+        self.update(row, sku='PL-NEW', brand='')
+
+        row.refresh_from_db()
+        self.assertEqual((row.product.number, row.product.brand_id), ('PL-NEW', brand.pk))
+
     def test_price_list_row_keeps_supplier_and_article(self):
         other = Supplier.objects.create(name='Другой', currency=self.currency,
                                         delivery_days_available=1, delivery_days_navailable=1)

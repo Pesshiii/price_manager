@@ -115,7 +115,9 @@ Invariants that cross these apps (the mechanics are in the keepers' topics):
   (`product_product_number_brand_uniq`, `Lower(number)`). Brandless Products
   sharing a number are different products until they get a brand, so a row
   without a brand always gets a Product of its own. A row's brand is its price-list
-  row's resolved `SupplierProduct.brand` (a hand-made row's comes from the modal).
+  row's `SupplierProduct.brand`: the supplier's resolved brand, or, when the
+  supplier names none, the row's Product's brand (`inherit_product_brands`, kept by
+  every brand resolution). A hand-made row's comes from the modal.
   `Product.brand` is PIM's brand, or failing that the one its suppliers agree on
   (`product.services.brands.adopt_supplier_brands`). PIM never clears it and never
   overrides a brand that did not come from PIM, and a pair another Product holds
@@ -166,6 +168,8 @@ PM creates a PIM brand only from the «Создать в PIM» button. A price l
 column (`Link` key `brand_name`) is stored raw on `SupplierProduct.brand_name` and
 resolved to a PIM brand (`SupplierProduct.brand`) by name key or a
 `product.BrandAlias`. Whatever does not resolve waits in «Бренды» (`/brands/`).
+A row whose supplier names no brand takes its Product's
+(`supplier_product_manager.0021` backfilled them once, on 2026-10-13).
 Identity is the invariant above. The number is still the sku with the supplier's
 prefix or suffix, not the clean article. Existing Products were neither split nor
 renumbered: that is the data step, and it and the other remaining steps are in

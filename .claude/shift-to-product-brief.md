@@ -317,6 +317,14 @@ the window's coverage panel is the gauge.
      «Код_товара» were not done.
    - A Product pushed while brandless keeps its PMP without `productId` after it gets a
      brand: re-searching it is a deliberate command, not a side effect of adoption.
+   - **Follow-up, 2026-10-13 (the user's two calls):** a price-list row whose supplier
+     names no brand (no spelling, or one that means «no brand») **inherits its
+     Product's brand** into `SupplierProduct.brand`, so editing its sku or the step-4
+     renumbering keeps the pair. `supplier_product_manager.0021` backfilled it once.
+     Resolution keeps it current (it used to clear such rows every night), and so do
+     a row move, a brand set on the card, PIM and adoption. A waiting spelling stays
+     brandless in the queue. An inherited brand is not a vote in adoption. ГП rows got
+     no brand field: «only ПП», by the user's call.
 
    The original plan for this step, kept for the record:
    - Swap `product_product_number_lower_uniq` for `UniqueConstraint(Lower('number'), 'brand',

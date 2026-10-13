@@ -330,6 +330,19 @@ class BrandWindowTests(_BrandFixture):
         self.assertEqual((coverage.mp_with_brand, coverage.mp_total), (1, 2))
         self.assertEqual(coverage.settings_without_brand, [])
 
+    def test_coverage_counts_an_inherited_brand_as_ignored_not_mapped(self):
+        """«Без бренда» на товаре Makita: бренд у строки есть, но не сведённый — от товара."""
+        product = Product.objects.create(number='D-1', brand=self.makita)
+        mp = MainProduct.objects.create(product=product, supplier=self.supplier, article='A-1', name='Дрель')
+        self._row('Без бренда', article='A-1', main_product=mp)
+        self._row('DeWALT', article='A-2')
+        service.resolve_all()
+
+        coverage = service.coverage()
+
+        self.assertEqual(SupplierProduct.objects.get(article='A-1').brand, self.makita)
+        self.assertEqual((coverage.sp_mapped, coverage.sp_ignored), (1, 1))
+
     def test_map_answers_with_fragments_and_closes_the_modal(self):
         row = self._row('Makitta')
 

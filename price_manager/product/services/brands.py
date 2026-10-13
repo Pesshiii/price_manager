@@ -10,6 +10,8 @@ PIM по кнопке человека (create_pim_brand), никогда сам
 Сопоставленный бренд живёт на строке ПП (SupplierProduct.brand). Товару без
 бренда PIM он достаётся, когда поставщики его товара не спорят
 (adopt_supplier_brands, шаг 3 — «товар = (бренд, артикул)», 2026-10-13).
+Строка, о бренде которой поставщик ничего не заявил, наоборот, берёт бренд
+своего товара (inherit_product_brands, 2026-10-13).
 """
 from __future__ import annotations
 
@@ -20,7 +22,7 @@ from dataclasses import dataclass, field
 
 from django.contrib.postgres.search import SearchVectorField
 from django.db import transaction
-from django.db.models import Count, Exists, Min, OuterRef, Q, Value
+from django.db.models import Count, Exists, F, Min, OuterRef, Q, Subquery, Value
 from django.db.models.expressions import RawSQL
 from django.db.models.functions import Lower
 
@@ -108,16 +110,53 @@ def _chunks(values: list, size: int = _NAMES_CHUNK):
         yield values[start:start + size]
 
 
+def _inherit(rows) -> None:
+    """Строкам rows — бренд товара их строки ГП; нет товара или бренда у него — никакого.
+
+    rows — только строки без заявки поставщика. Два UPDATE, и только строкам,
+    у которых бренд другой.
+    """
+    rows.filter(brand__isnull=False, main_product__product__brand__isnull=True).update(brand=None)
+    (rows.filter(main_product__product__brand__isnull=False)
+     .filter(Q(brand__isnull=True) | ~Q(brand=F('main_product__product__brand')))
+     .update(brand_id=Subquery(
+         MainProduct.objects.filter(pk=OuterRef('main_product_id')).values('product__brand')[:1])))
+
+
+def inherit_product_brands(rows, index: BrandIndex | None = None) -> None:
+    """Строкам ПП из rows, о бренде которых поставщик ничего не заявил, — бренд их товара.
+
+    Заявки нет у строки без написания и у строки, написание которой значит
+    «бренда нет» (синоним «игнорировать», одни разделители). Такая строка
+    берёт бренд товара своей строки ГП: бренд строки — половина пары
+    (артикул, бренд), и без него правка артикула или перенумерация увели бы
+    строку на новый товар без бренда. Строку с несведённым написанием это не
+    трогает — её решают в окне «Бренды».
+
+    Правило держит apply_brand_resolution. Отдельно функцию зовут там, где у
+    строки меняется товар или у товара бренд (перенос строки ГП, карточка
+    товара, PIM, adopt_supplier_brands): строка получает бренд сразу, не
+    дожидаясь ночного сопоставления.
+    """
+    names = list(rows.exclude(brand_name__isnull=True).values_list('brand_name', flat=True).distinct())
+    no_brand = []
+    if names:
+        index = index or BrandIndex()
+        no_brand = [name for name in names if index.lookup(name) == (True, None)]
+    _inherit(rows.filter(Q(brand_name__isnull=True) | Q(brand_name__in=no_brand)))
+
+
 def apply_brand_resolution(queryset, index: BrandIndex | None = None) -> ResolutionStats:
-    """Проставить строкам ПП бренд по их brand_name.
+    """Проставить строкам ПП бренд: сведённую заявку поставщика, а без заявки — бренд товара.
 
     Один UPDATE на бренд (по пачкам написаний), и только строкам, у которых
     бренд другой, — ночной полный проход не переписывает весь прайс. update(),
     не save(): updated_at — время данных поставщика, а не сопоставления.
-    Строки без написания или с несведённым написанием остаются без бренда.
+    Строки без написания или с написанием «бренда нет» берут бренд товара
+    (inherit_product_brands); строки с несведённым написанием остаются без
+    бренда.
     """
     index = index or BrandIndex()
-    queryset.filter(brand_name__isnull=True, brand__isnull=False).update(brand=None)
     names = list(queryset.exclude(brand_name__isnull=True).values_list('brand_name', flat=True).distinct())
     targets: dict[int | None, list[str]] = defaultdict(list)
     unresolved: list[str] = []
@@ -128,13 +167,14 @@ def apply_brand_resolution(queryset, index: BrandIndex | None = None) -> Resolut
         else:
             unresolved.append(name)
 
+    no_brand = targets.pop(None, [])
     for brand_id, chunk_names in targets.items():
         for chunk in _chunks(chunk_names):
-            rows = queryset.filter(brand_name__in=chunk)
-            if brand_id is None:
-                rows.filter(brand__isnull=False).update(brand=None)
-            else:
-                rows.filter(Q(brand__isnull=True) | ~Q(brand_id=brand_id)).update(brand_id=brand_id)
+            (queryset.filter(brand_name__in=chunk)
+             .filter(Q(brand__isnull=True) | ~Q(brand_id=brand_id)).update(brand_id=brand_id))
+    _inherit(queryset.filter(brand_name__isnull=True))
+    for chunk in _chunks(no_brand):
+        _inherit(queryset.filter(brand_name__in=chunk))
 
     stats = ResolutionStats(unresolved_names=sorted(unresolved))
     for chunk in _chunks(unresolved):
@@ -174,12 +214,19 @@ def adopt_supplier_brands() -> AdoptionStats:
       получает старший по pk; остальные остаются без бренда и ждут ручного
       переноса строк ГП.
 
+    Унаследованный бренд (inherit_product_brands) — не заявка и не голос.
+    Поэтому проход начинается с того, что строки без заявки снова берут бренд
+    своего товара — у товара без бренда никакого. Иначе строка, которую
+    перенесли с товара с брендом, голосовала бы за прежний бренд. Строки
+    товаров, получивших бренд, наследуют его сразу.
+
     Поисковый вектор дополняется названием бренда одним UPDATE на пачку, а не
     пересобирается: пересборка — запрос на товар, а первый проход ставит
     бренды десяткам тысяч товаров. Связь с PIM не трогается.
     """
     stats = AdoptionStats()
     index = BrandIndex()
+    inherit_product_brands(SupplierProduct.objects.all(), index)
     pending_names = [
         name for name in SupplierProduct.objects.filter(brand__isnull=True, brand_name__isnull=False)
         .values_list('brand_name', flat=True).distinct()
@@ -234,6 +281,7 @@ def adopt_supplier_brands() -> AdoptionStats:
             # прочитали (синхронизация с PIM идёт в своей очереди).
             stats.adopted += (Product.objects.filter(pk__in=chunk, brand__isnull=True)
                               .update(brand_id=brand_id, search_vector=vector))
+            inherit_product_brands(SupplierProduct.objects.filter(main_product__product_id__in=chunk), index)
     logger.info('brands: бренд поставщика у товаров без бренда — поставлен %s, спор %s, пара занята %s',
                 stats.adopted, stats.disputed, stats.taken)
     return stats
@@ -537,7 +585,12 @@ def coverage() -> Coverage:
     sp_total = sps.count()
     named = sps.filter(brand_name__isnull=False)
     sp_with_name = named.count()
-    sp_mapped = named.filter(brand__isnull=False).count()
+    # Сведённые — заявки. У строки с написанием «бренда нет» бренд тоже бывает,
+    # но унаследованный от товара (inherit_product_brands): она — «игнор».
+    index = BrandIndex()
+    no_brand = [name for name in named.values_list('brand_name', flat=True).distinct()
+                if index.lookup(name) == (True, None)]
+    sp_mapped = named.exclude(brand_name__in=no_brand).filter(brand__isnull=False).count()
     queue = unmapped_names()
     unmapped = sum(item.rows for item in queue)
     mps = MainProduct.objects.filter(supplier__isnull=False)

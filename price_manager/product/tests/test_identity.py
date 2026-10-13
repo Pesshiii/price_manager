@@ -8,6 +8,7 @@ from unittest import mock
 
 from django.contrib.postgres.search import SearchQuery
 from django.test import TestCase
+from django.urls import reverse
 
 from main_product_manager.models import MainProduct
 from supplier_manager.models import Supplier
@@ -126,6 +127,106 @@ class AdoptSupplierBrandsTests(_Fixture):
             service.apply_brand_resolution(SupplierProduct.objects.all())
 
         delay.assert_called_once_with()
+
+
+class InheritProductBrandsTests(_Fixture):
+    """Строка прайса, о бренде которой поставщик молчит, берёт бренд своего товара.
+
+    Бренд строки — половина пары (артикул, бренд): без него правка артикула
+    увела бы строку на новый товар без бренда. Заявка поставщика сильнее,
+    несведённое написание ждёт в окне «Бренды» без бренда.
+    """
+
+    def resolve(self):
+        service.apply_brand_resolution(SupplierProduct.objects.all())
+
+    def brand_of(self, main_product):
+        return SupplierProduct.objects.get(main_product=main_product).brand
+
+    def login(self):
+        from django.contrib.auth.models import User
+        self.client.force_login(User.objects.create_user(username='brands', password='pw'))
+
+    def test_a_row_without_a_claim_takes_its_products_brand(self):
+        product = Product.objects.create(number='D-1', brand=self.bosch)
+        silent = self.row(product, self.first)
+        ignored = self.row(product, self.second, 'Без бренда')
+
+        self.resolve()
+
+        self.assertEqual((self.brand_of(silent), self.brand_of(ignored)), (self.bosch, self.bosch))
+
+    def test_a_claim_wins_and_a_waiting_spelling_stays_in_the_queue(self):
+        product = Product.objects.create(number='D-1', brand=self.bosch)
+        claimed = self.row(product, self.first, 'Makita')
+        waiting = self.row(product, self.second, 'Бош-неизвестный')
+
+        self.resolve()
+
+        self.assertEqual((self.brand_of(claimed), self.brand_of(waiting)), (self.makita, None))
+        self.assertEqual([item.name for item in service.unmapped_names()], ['Бош-неизвестный'])
+
+    def test_the_inherited_brand_follows_the_product(self):
+        product = Product.objects.create(number='D-1', brand=self.bosch)
+        row = self.row(product, self.first)
+        loose = SupplierProduct.objects.create(supplier=self.first, article='LOOSE', name='Без строки ГП',
+                                               brand=self.bosch)
+        self.resolve()
+        Product.objects.filter(pk=product.pk).update(brand=self.makita)
+
+        self.resolve()
+
+        loose.refresh_from_db()
+        self.assertEqual((self.brand_of(row), loose.brand), (self.makita, None))
+
+    def test_an_inherited_brand_is_no_vote(self):
+        """Строку перенесли с товара Bosch на товар без бренда: прежний бренд ему не достаётся."""
+        product = Product.objects.create(number='D-1')
+        row = self.row(product, self.first, brand=self.bosch)
+
+        self.assertEqual(service.adopt_supplier_brands().adopted, 0)
+
+        product.refresh_from_db()
+        self.assertIsNone(product.brand)
+        self.assertIsNone(self.brand_of(row))
+
+    def test_rows_of_an_adopted_product_take_its_brand(self):
+        product = Product.objects.create(number='D-1')
+        self.row(product, self.first, 'Bosch', self.bosch)
+        silent = self.row(product, self.second)
+
+        service.adopt_supplier_brands()
+
+        self.assertEqual(self.brand_of(silent), self.bosch)
+
+    def test_a_brand_from_pim_reaches_the_rows(self):
+        product = Product.objects.create(number='D-1')
+        row = self.row(product, self.first)
+
+        apply_pim_product(product, {'id': 'p-1', 'brandId': 'br-makita', 'brandName': 'Makita'})
+
+        self.assertEqual(self.brand_of(row), self.makita)
+
+    def test_a_brand_set_on_the_card_reaches_the_rows(self):
+        self.login()
+        product = Product.objects.create(number='D-1', name='Дрель')
+        row = self.row(product, self.first)
+
+        self.client.post(reverse('product-update', args=[product.pk]),
+                         {'number': 'D-1', 'name': 'Дрель', 'brand': self.bosch.pk}, HTTP_HX_REQUEST='true')
+
+        self.assertEqual(self.brand_of(row), self.bosch)
+
+    def test_a_moved_row_takes_its_new_products_brand(self):
+        self.login()
+        row = self.row(Product.objects.create(number='D-1', brand=self.bosch), self.first)
+        target = Product.objects.create(number='D-2', brand=self.makita)
+        self.resolve()
+
+        self.client.post(reverse('main-product-move', args=[row.pk]), {'product': target.pk},
+                         HTTP_HX_REQUEST='true')
+
+        self.assertEqual(self.brand_of(row), self.makita)
 
 
 class PimBrandTests(_Fixture):

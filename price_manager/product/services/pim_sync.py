@@ -6,9 +6,11 @@ import time
 from django.db.models.fields.json import KT
 from django.utils.dateparse import parse_datetime
 from pim_api import Entity, EntityList, Where, fetch_list
+from supplier_product_manager.models import SupplierProduct
 
 from .. import pim_client
 from ..models import Brand, Category, Product
+from .brands import inherit_product_brands
 
 # Поля товара PIM, которые нужны странице. Без явного select PIM не отдаёт ни
 # categoriesIds, ни description — в списочном режиме они просто отсутствуют в
@@ -201,6 +203,7 @@ def apply_pim_product(product: Product, data: dict) -> None:
     sync_product_from_pim и синхронизации наборов (services/sets.py): набор
     приходит в зеркало не через PriceManagerProduct, но пишется так же.
     """
+    brand_before = product.brand_id
     product.brand = _pim_brand_for(product, data)
     product.name = data.get('name') or None
     product.raw_data = data
@@ -209,6 +212,9 @@ def apply_pim_product(product: Product, data: dict) -> None:
     categories = [c for c in (_ensure_pim_category(cid) for cid in category_ids) if c]
     product.save()
     product.categories.set(categories)
+    if product.brand_id != brand_before:
+        # Строки прайса без заявки о бренде берут бренд товара.
+        inherit_product_brands(SupplierProduct.objects.filter(main_product__product=product))
     # После save(), а не до: rebuild_search_vector() делает update() по pk, и до
     # первого сохранения у новой строки pk ещё нет. Вектор собирается из
     # raw_data, которые мы только что записали, — в PIM он не ходит.
