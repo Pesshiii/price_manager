@@ -75,6 +75,19 @@ column per selected supplier column times supplier was replaced with this:
     `export.py:60`). `supplier_product_price/rrp/discount_price` are in the
     supplier's currency and cannot be compared across suppliers; they appear
     only on supplier sheets / supplier blocks of the csv.
+  - **Every main price and the main stock is followed by its source,
+    `Поставщик (<колонка>)`** (`SOURCE_COLUMNS`), in both the xlsx and the
+    full csv. One column *per price*, not one per row: the owner chose that
+    because a price the level winner lacks comes from the next supplier, so
+    one row can mix sources. `main_entries()` computes `(key, value,
+    supplier_pk)` through `main_values.main_entry` (`main_value` is now a thin
+    wrapper over it), and `main_cells()` interleaves the names. A zero or empty
+    main value has **no** source. The source can be `None` = set rows, shown
+    as «Наборы», so "no source" is decided by `is_zero(value)`, never by
+    `source is None`. Stock ties go to the first supplier in level order (by
+    name). **`main_value_cells()` keeps its old shape (values only, one per
+    column) on purpose:** `SatuExporter` zips it positionally with
+    `SATU_COLUMNS`, and interleaving names there would shift every Satu price.
   - `supplier_values()` (`export.py:318-341`) folds **one supplier's own
     `MainProduct` rows** (no unique `(product, supplier)`) by the same rule:
     rows by `prime_cost`, prices first non-zero, stock max; `_joined()`

@@ -8,9 +8,10 @@ xlsx — та же выборка, что на странице, тот же п�
 
 - «Товары» — строка на товар (Product), как строка страницы: колонки товара
   и основные цены и остаток — по уровням приоритета поставщиков
-  (Supplier.price_priority / stock_priority), см. main_value_cells. Основное
+  (Supplier.price_priority / stock_priority), см. main_entries. Основное
   значение есть только у цен в тенге (MP_PRICES) и у остатка: цены
   SupplierProduct — в валюте поставщика, между поставщиками их не сравнить.
+  За каждым основным значением — «Поставщик (<колонка>)»: у кого оно взято.
 - по листу на поставщика, в порядке приоритета по цене — все выбранные
   колонки строк поставщиков (цены, остаток, артикул поставщика, статус
   наличия, …) с его значениями. На листе только товары, которые у него есть,
@@ -41,7 +42,7 @@ from main_product_manager.models import MP_PRICES, MainProduct
 from supplier_manager.models import Supplier
 
 from .columns import COLUMN_LABELS, SUPPLIER_ROW_COLUMNS
-from .main_values import cost_key, is_zero, main_value  # noqa: F401 — is_zero/main_value и для тестов
+from .main_values import cost_key, is_zero, main_entry, main_value
 from .filters import CATEGORY_LABEL_DEPTH, ProductFilter, search_terms
 from .models import Category, Product, ProductExport, ProductSetItem
 from .set_costs import set_totals_for
@@ -59,6 +60,10 @@ PRICE_COLUMNS = set(MP_PRICES) | set(SUPPLIER_PRODUCT_PRICES)
 # остаток. Остальные колонки строк поставщиков — только на листах поставщиков.
 MAIN_PRICE_COLUMNS = set(MP_PRICES)
 STOCK_COLUMN = 'stock'
+# Основные значения, за которыми идёт колонка с их поставщиком: основная цена
+# может прийти не от победителя уровня (у него её нет), поэтому источник — у
+# каждой цены свой, а не один на строку.
+SOURCE_COLUMNS = MAIN_PRICE_COLUMNS | {STOCK_COLUMN}
 # Срок поставки: у поставщика — минимальный по его строкам, основной — минимальный
 # по поставщикам товара. Не main_value: 0 дней — срок, а не «значения нет».
 DELIVERY_COLUMN = 'delivery_days'
@@ -280,7 +285,8 @@ class ProductExporter:
         return value
 
     def main_titles(self) -> list[str]:
-        """«Товары»: товар и основные цены и остаток (по уровням поставщиков)."""
+        """«Товары»: товар и основные цены и остаток (по уровням поставщиков),
+        за каждым основным значением — его поставщик."""
         titles = PRODUCT_TITLES + [COLUMN_LABELS[key] for key in self.product_columns]
         for key in self.supplier_columns:
             if key in MAIN_PRICE_COLUMNS:
@@ -289,6 +295,8 @@ class ProductExporter:
                 titles.append(f'{COLUMN_LABELS[key]} (основной)')
             elif key == DELIVERY_COLUMN:
                 titles.append(f'{COLUMN_LABELS[key]} (минимальный)')
+            if key in SOURCE_COLUMNS:
+                titles.append(f'Поставщик ({COLUMN_LABELS[key]})')
         if self.with_sets:
             titles += SET_TITLES
         return titles
@@ -367,31 +375,53 @@ class ProductExporter:
             by_supplier[main_product.supplier_id].append(main_product.prime_cost)
         return {pk: main_value([costs], min) for pk, costs in by_supplier.items()}
 
-    def main_value_cells(self, values, costs, price_levels, stock_levels):
-        """Основные цены и остаток по уровням поставщиков (main_value).
+    def main_entries(self, values, costs, price_levels, stock_levels):
+        """Основные цены и остаток по уровням поставщиков (main_entry):
+        [(колонка, значение, pk поставщика-источника)].
 
         Цены: на уровне побеждает поставщик с минимальной себестоимостью, и
         все цены берутся у него — чтобы цены строки были от одного поставщика.
         Нет у него какой-то цены (0 или пусто) — она берётся у следующего по
         себестоимости на том же уровне, затем с уровней ниже.
 
-        Остаток: максимальный ненулевой на первом уровне по остаткам, где он есть.
+        Остаток: максимальный ненулевой на первом уровне по остаткам, где он
+        есть; при равных — у первого по имени.
 
-        Срок поставки: минимальный по всем поставщикам товара, без уровней.
+        Срок поставки: минимальный по всем поставщикам товара, без уровней и
+        без источника.
         """
         price_order = [[pk] for level in price_levels
                        for pk in winner_order([pk for pk in level if pk in values], costs)]
-        cells = []
+        entries = []
         for key in self.supplier_columns:
             if key in MAIN_PRICE_COLUMNS:
-                cells.append(main_value(([values[pk][key] for pk in single]
-                                         for single in price_order), min))
+                entries.append((key, *main_entry(
+                    ([(pk, values[pk][key]) for pk in single] for single in price_order), min)))
             elif key == STOCK_COLUMN:
-                cells.append(main_value(
-                    ([values[pk][key] for pk in level if pk in values] for level in stock_levels),
-                    max))
+                entries.append((key, *main_entry(
+                    ([(pk, values[pk][key]) for pk in level if pk in values]
+                     for level in stock_levels),
+                    max)))
             elif key == DELIVERY_COLUMN:
-                cells.append(_min_days(supplier[key] for supplier in values.values()))
+                entries.append((key, _min_days(supplier[key] for supplier in values.values()),
+                                None))
+        return entries
+
+    def main_value_cells(self, values, costs, price_levels, stock_levels):
+        """Только основные значения, по одному на колонку — без поставщиков."""
+        return [value for _, value, _ in
+                self.main_entries(values, costs, price_levels, stock_levels)]
+
+    @staticmethod
+    def main_cells(entries, names) -> list:
+        """Ячейки «Товаров» по main_entries: значение, а за основной ценой и
+        остатком — имя поставщика, у которого оно взято (names — {pk: имя}).
+        Нет основного значения (0 или пусто) — нет и поставщика."""
+        cells = []
+        for key, value, source in entries:
+            cells.append(value)
+            if key in SOURCE_COLUMNS:
+                cells.append(None if is_zero(value) else names.get(source))
         return cells
 
     def suppliers(self, pks):
@@ -407,10 +437,10 @@ class ProductExporter:
                 supplier_levels(supplier_ids, 'price_priority'),
                 supplier_levels(supplier_ids, 'stock_priority'))
 
-    def rows(self, pks, price_levels, stock_levels):
-        """По строке на товар в порядке pks: (ячейки товара, основные значения,
-        {pk поставщика: {колонка: значение}} — только поставщики, у которых
-        товар есть).
+    def rows(self, pks, price_levels, stock_levels, names):
+        """По строке на товар в порядке pks: (ячейки товара, основные значения
+        с их поставщиками, {pk поставщика: {колонка: значение}} — только
+        поставщики, у которых товар есть). names — {pk поставщика: имя}.
 
         Общая часть xlsx и csv: правила основного значения и свёртки строк
         одного поставщика у них одни.
@@ -428,8 +458,10 @@ class ProductExporter:
                     continue
                 rows = main_products.get(pk, [])
                 values = self.supplier_values(rows) if self.supplier_columns else {}
-                main_cells = self.main_value_cells(values, self.supplier_costs(rows),
-                                                   price_levels, stock_levels)
+                main_cells = self.main_cells(
+                    self.main_entries(values, self.supplier_costs(rows),
+                                      price_levels, stock_levels),
+                    names)
                 if self.with_sets:
                     main_cells += self.set_cells(set_totals.get(pk))
                 yield self.product_cells(product, rows), main_cells, values
@@ -462,7 +494,8 @@ class ProductExporter:
                                       sheet_names(name for _, name in price_suppliers))
         }
 
-        for product_cells, main_cells, values in self.rows(pks, price_levels, stock_levels):
+        for product_cells, main_cells, values in self.rows(pks, price_levels, stock_levels,
+                                                           dict(price_suppliers)):
             main_sheet.append([_excel_value(value) for value in product_cells + main_cells])
             identity = product_cells[:len(IDENTITY_TITLES)]
             for supplier_pk in price_order:
@@ -480,8 +513,9 @@ class FullCsvExporter(ProductExporter):
 
     Весь каталог (фильтров нет, порядок — страница по умолчанию), одна
     строка на товар: товар, основные цены и остаток по уровням
-    поставщиков и минимальный срок поставки, затем по блоку на каждого
-    поставщика — все его цены, остаток и срок поставки, колонки «<поставщик> • <колонка>», поставщики по приоритету
+    поставщиков (каждое — с его поставщиком) и минимальный срок поставки,
+    затем по блоку на каждого поставщика — все его цены, остаток и срок
+    поставки, колонки «<поставщик> • <колонка>», поставщики по приоритету
     цены. У csv один лист, поэтому поставщики — колонками, а не листами.
 
     Разделитель «;», BOM и дробные с запятой — так файл сразу открывает Excel
@@ -505,7 +539,8 @@ class FullCsvExporter(ProductExporter):
         writer.writerow(self.main_titles() + [
             f'{name} • {label}' for _, name in price_suppliers for label in labels])
         empty = dict.fromkeys(self.supplier_columns)
-        for product_cells, main_cells, values in self.rows(pks, price_levels, stock_levels):
+        for product_cells, main_cells, values in self.rows(pks, price_levels, stock_levels,
+                                                           dict(price_suppliers)):
             supplier_cells = [values.get(pk, empty)[key]
                               for pk in price_order for key in self.supplier_columns]
             writer.writerow([_csv_value(value)
