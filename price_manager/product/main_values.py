@@ -27,14 +27,27 @@ def main_value(levels, pick):
     синхронизировался, товара нет), иначе пусто (ни у кого нет данных) — NULL
     и 0 в остатке разные вещи.
     """
+    return main_entry((((None, value) for value in level) for level in levels), pick)[0]
+
+
+def main_entry(levels, pick):
+    """main_value — и чьё оно: уровни из пар (источник, значение).
+
+    Возвращает (значение, источник). Источник есть только у ненулевого
+    значения; при равных побеждает первый по порядку уровня. 0 и пусто —
+    (0, None) и (None, None): основного значения ни у кого нет. Источником
+    бывает и None (строки наборов), поэтому «нет источника» отличают по
+    is_zero(значение), а не по источнику.
+    """
     seen = False
     for level in levels:
         level = list(level)
-        non_zero = [value for value in level if not is_zero(value)]
+        non_zero = [entry for entry in level if not is_zero(entry[1])]
         if non_zero:
-            return pick(non_zero)
-        seen = seen or any(value is not None for value in level)
-    return 0 if seen else None
+            source, value = pick(non_zero, key=lambda entry: entry[1])
+            return value, source
+        seen = seen or any(value is not None for _, value in level)
+    return (0 if seen else None), None
 
 
 def cost_key(cost):

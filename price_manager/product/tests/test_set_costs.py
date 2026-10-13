@@ -92,10 +92,13 @@ class MainRowTests(SetFixture, TestCase):
         content, _ = ProductExporter(QueryDict(), ['prime_cost', 'stock']).build()
         by_number = {row['Артикул']: row for row in as_dicts(read_sheets(content)['Товары'])}
         for product in (self.stand, self.shelf):
-            cost, _ = main_row(self.rows(product), 'prime_cost', 'price_priority', min)
-            stock, _ = main_row(self.rows(product), 'stock', 'stock_priority', max)
-            self.assertEqual(by_number[product.number]['Себестоимость (основная)'], cost)
-            self.assertEqual(by_number[product.number]['Остаток (основной)'], stock)
+            cost, cost_row = main_row(self.rows(product), 'prime_cost', 'price_priority', min)
+            stock, stock_row = main_row(self.rows(product), 'stock', 'stock_priority', max)
+            row = by_number[product.number]
+            self.assertEqual(row['Себестоимость (основная)'], cost)
+            self.assertEqual(row['Поставщик (Себестоимость)'], cost_row.supplier.name)
+            self.assertEqual(row['Остаток (основной)'], stock)
+            self.assertEqual(row['Поставщик (Остаток)'], stock_row.supplier.name)
 
 
 class SetTotalsTests(SetFixture, TestCase):

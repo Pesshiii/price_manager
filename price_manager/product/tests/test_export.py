@@ -19,6 +19,7 @@ from product.export import (
     FULL_EXPORT_COLUMNS, MAIN_PRICE_COLUMNS, ProductExporter, build_full_csv_export,
     main_value, ordered_product_pks, ranked_suppliers, sheet_names, supplier_levels,
 )
+from product.main_values import main_entry
 from product.models import Brand, Category, Product, ProductExport
 
 
@@ -66,6 +67,24 @@ class MainValueTests(TestCase):
 
     def test_no_suppliers_gives_empty(self):
         self.assertIsNone(main_value([], min))
+
+
+class MainEntryTests(TestCase):
+    def test_source_of_first_non_zero_level(self):
+        levels = [[('А', Decimal('0')), ('Б', None)], [('В', Decimal('5')), ('Г', Decimal('9'))]]
+        self.assertEqual(main_entry(levels, min), (Decimal('5'), 'В'))
+        self.assertEqual(main_entry(levels, max), (Decimal('9'), 'Г'))
+
+    def test_tie_goes_to_first_in_level(self):
+        self.assertEqual(main_entry([[('А', 4), ('Б', 4)]], max), (4, 'А'))
+
+    def test_no_source_without_main_value(self):
+        self.assertEqual(main_entry([[('А', 0), ('Б', None)]], min), (0, None))
+        self.assertEqual(main_entry([[('А', None)]], min), (None, None))
+
+    def test_set_rows_can_be_the_source(self):
+        # None — строки наборов; отличить их от «нет источника» можно только по значению.
+        self.assertEqual(main_entry([[('А', 0)], [(None, 3)]], max), (3, None))
 
 
 class RankedSuppliersTests(TestCase):
@@ -135,19 +154,26 @@ class ExportContentTests(TestCase):
 
         header, row = sheets['Товары']
         self.assertEqual(header, ['Артикул', 'Название', 'Бренд', 'Категории',
-                                  'Себестоимость (основная)', 'Базовая цена (основная)',
-                                  'Цена ИМ (основная)', 'Остаток (основной)'])
+                                  'Себестоимость (основная)', 'Поставщик (Себестоимость)',
+                                  'Базовая цена (основная)', 'Поставщик (Базовая цена)',
+                                  'Цена ИМ (основная)', 'Поставщик (Цена ИМ)',
+                                  'Остаток (основной)', 'Поставщик (Остаток)'])
         values = dict(zip(header, row))
         self.assertEqual(values['Артикул'], 'SKU-1')
         self.assertEqual(values['Бренд'], 'Grohe')
         self.assertEqual(values['Категории'], 'Сантехника')
         # У А (приоритет по цене 1) себестоимость 0 — основная берётся у Б.
         self.assertEqual(values['Себестоимость (основная)'], 80)
+        self.assertEqual(values['Поставщик (Себестоимость)'], 'Б')
         self.assertEqual(values['Базовая цена (основная)'], 100)
-        # Цены ИМ нет ни у кого.
+        self.assertEqual(values['Поставщик (Базовая цена)'], 'А')
+        # Цены ИМ нет ни у кого — нет и поставщика.
         self.assertIsNone(values['Цена ИМ (основная)'])
-        # Остаток: у Б (приоритет по остаткам 1) NULL, у А 0 — основной 0, а не пусто.
+        self.assertIsNone(values['Поставщик (Цена ИМ)'])
+        # Остаток: у Б (приоритет по остаткам 1) NULL, у А 0 — основной 0, а не пусто;
+        # но 0 — это «товара нет», и поставщика у него нет.
         self.assertEqual(values['Остаток (основной)'], 0)
+        self.assertIsNone(values['Поставщик (Остаток)'])
 
         self.assertEqual(sheets['А'][0], ['Артикул', 'Название', 'Себестоимость',
                                           'Базовая цена', 'Цена ИМ', 'Остаток'])
@@ -229,7 +255,9 @@ class ExportLevelTests(TestCase):
         # Победитель — А (себестоимость 90): и базовая цена его, хоть у Б она ниже.
         self.assertEqual(values['Себестоимость (основная)'], 90)
         self.assertEqual(values['Базовая цена (основная)'], 120)
+        self.assertEqual(values['Поставщик (Базовая цена)'], 'А')
         self.assertEqual(values['Остаток (основной)'], 5)
+        self.assertEqual(values['Поставщик (Остаток)'], 'Б')
 
     def test_winner_chosen_even_when_prime_cost_not_exported(self):
         self.row(self.a, prime_cost=Decimal('90'), basic_price=Decimal('120'))
@@ -242,8 +270,18 @@ class ExportLevelTests(TestCase):
         self.row(self.c, prime_cost=Decimal('10'), basic_price=Decimal('20'))
         values = self.main(['basic_price', 'm_price'])
         self.assertEqual(values['Цена ИМ (основная)'], 150)
+        self.assertEqual(values['Поставщик (Цена ИМ)'], 'А')
         # У победителя базовой цены нет — берётся у следующего на его уровне, не с нижнего.
         self.assertEqual(values['Базовая цена (основная)'], 110)
+        # Поэтому поставщик — у каждой цены свой, а не один победитель на строку.
+        self.assertEqual(values['Поставщик (Базовая цена)'], 'Б')
+
+    def test_set_row_source_is_named_like_its_sheet(self):
+        self.row(self.a, stock=0)
+        self.row(None, is_set=True, basic_price=Decimal('300'), stock=2)
+        values = self.main(['basic_price', 'stock'])
+        self.assertEqual(values['Поставщик (Базовая цена)'], 'Наборы')
+        self.assertEqual(values['Поставщик (Остаток)'], 'Наборы')
 
     def test_supplier_without_prime_cost_loses_to_one_with(self):
         self.row(self.a, basic_price=Decimal('50'))
@@ -287,7 +325,7 @@ class ExportLevelTests(TestCase):
         content, _ = ProductExporter(QueryDict(''), columns).build()
         sheets = read_sheets(content)
         header = sheets['Товары'][0]
-        self.assertEqual(header[4:], ['Базовая цена (основная)'])
+        self.assertEqual(header[4:], ['Базовая цена (основная)', 'Поставщик (Базовая цена)'])
         # На листе поставщика они остаются.
         self.assertEqual(sheets['А'][0][2:], [COLUMN_LABELS[key] for key in columns])
 
@@ -401,23 +439,30 @@ class FullCsvExportTests(TestCase):
         self.assertTrue(export.file.name.endswith('.csv'))
 
         labels = [COLUMN_LABELS[key] for key in FULL_EXPORT_COLUMNS]
+        main_titles = []
+        for key, label in zip(FULL_EXPORT_COLUMNS, labels):
+            if key == 'delivery_days':
+                main_titles.append(f'{label} (минимальный)')
+            elif key == 'stock':
+                main_titles += [f'{label} (основной)', f'Поставщик ({label})']
+            elif key in MAIN_PRICE_COLUMNS:
+                main_titles += [f'{label} (основная)', f'Поставщик ({label})']
         self.assertEqual(header, (
-            ['Артикул', 'Название', 'Бренд', 'Категории']
-            + [f'{label} (основной)' if key == 'stock'
-               else f'{label} (минимальный)' if key == 'delivery_days'
-               else f'{label} (основная)'
-               for key, label in zip(FULL_EXPORT_COLUMNS, labels)
-               if key in ('stock', 'delivery_days') or key in MAIN_PRICE_COLUMNS]
+            ['Артикул', 'Название', 'Бренд', 'Категории'] + main_titles
             + [f'А • {label}' for label in labels]
             + [f'Б • {label}' for label in labels]))
 
         row = next(row for row in rows if row['Артикул'] == 'SKU-1')
         # У А (приоритет по цене 1) себестоимость 0 — основная берётся у Б.
         self.assertEqual(row['Себестоимость (основная)'], '80,00')
+        self.assertEqual(row['Поставщик (Себестоимость)'], 'Б')
         self.assertEqual(row['Базовая цена (основная)'], '100,00')
+        self.assertEqual(row['Поставщик (Базовая цена)'], 'А')
         # По остаткам первым идёт Б.
         self.assertEqual(row['Остаток (основной)'], '7')
+        self.assertEqual(row['Поставщик (Остаток)'], 'Б')
         self.assertEqual(row['Цена ИМ (основная)'], '')
+        self.assertEqual(row['Поставщик (Цена ИМ)'], '')
         # Ноль остаётся нулём, а не пустой ячейкой (main_value).
         self.assertEqual(row['А • Себестоимость'], '0')
         self.assertEqual(row['Б • Базовая цена'], '120,00')
