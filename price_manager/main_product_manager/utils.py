@@ -45,12 +45,13 @@ def _pim_id_of(product) -> str | None:
 
 
 def row_brand_subquery():
-    """The brand of a MainProduct (OuterRef('pk')): its price-list row's resolved brand.
+    """The brand of a MainProduct (OuterRef('pk')): its price-list row's brand.
 
     A ГП row has no brand of its own. Its price-list row (at most one:
     SupplierProduct.main_product is unique) has the supplier's brand column,
-    resolved to a PIM brand (SupplierProduct.brand, product/services/brands.py).
-    A hand-made row has none.
+    resolved to a PIM brand (SupplierProduct.brand, product/services/brands.py),
+    and when the supplier names no brand, the brand of the row's current
+    Product (inherit_product_brands). A hand-made row has none.
     """
     return Subquery(
         SupplierProduct.objects.filter(main_product_id=OuterRef('pk'), brand__isnull=False)

@@ -24,6 +24,7 @@ from .pim_content import (
     PimUnavailable, characteristics, clean_description, fetch_flat_product, other_fields,
     pim_product_url, description_html,
 )
+from .services.brands import inherit_product_brands
 from .services.photos import product_photos
 from .set_costs import attach_set_info, set_totals_for
 from .tasks import export_products_task
@@ -414,7 +415,9 @@ class ProductUpdateView(UpdateView):
     template_name = 'product/partials/product_form.html'
 
     def form_valid(self, form):
-        form.save()
+        product = form.save()
+        if 'brand' in form.changed_data:
+            inherit_product_brands(SupplierProduct.objects.filter(main_product__product=product))
         messages.success(self.request, 'Товар сохранён')
         return HttpResponseClientRefresh()
 
@@ -453,10 +456,12 @@ def _relinked(request, main_product, target, message):
     """Перенос строки ГП в другой товар.
 
     Связь, поставленная руками, ночью не трогается: link_unlinked_main_products
-    привязывает только строки без товара.
+    привязывает только строки без товара. Строка прайса без заявки о бренде
+    берёт бренд нового товара (inherit_product_brands).
     """
     main_product.product = target
     main_product.save(update_fields=['product'])
+    inherit_product_brands(main_product.supplierproducts.all())
     messages.success(request, message)
     return HttpResponseClientRefresh()
 

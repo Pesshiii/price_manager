@@ -1,6 +1,6 @@
 ---
 title: Product identity — the (number, brand) pair
-summary: Why a Product is unique only by a branded (number, brand) pair, where a row's and a Product's brand come from, resolve_product, the supplier-brand adoption pass, PIM's brand rules, and what step 3 left undone.
+summary: Why a Product is unique only by a branded (number, brand) pair, where a row's and a Product's brand come from (including a price-list row inheriting its Product's brand), resolve_product, the supplier-brand adoption pass, PIM's brand rules, and what step 3 left undone.
 code: price_manager/product/models.py, price_manager/product/migrations/0021_product_number_brand_uniq.py, price_manager/main_product_manager/utils.py, price_manager/product/services/brands.py, price_manager/product/services/pim_sync.py, price_manager/product/services/sets.py, price_manager/product/forms.py
 ---
 # Product identity — the (number, brand) pair
@@ -27,11 +27,16 @@ reason, and `get_pim_data_for_product` no longer links on the render path.
 ## Where a brand comes from
 
 - **A ГП row** has no brand field. A price-list row's brand is
-  `SupplierProduct.brand`, resolved from the brand column
-  (`row_brand_subquery`/`row_brand_id`; `SupplierProduct.main_product` is
-  unique, so there is at most one). A hand-made row's brand is the «Бренд» picker
-  in the «Строка ГП» modal (`MainProductForm.brand`, not a model field). The
-  picker is disabled for price-list rows, set rows, and rows added from a card.
+  `SupplierProduct.brand` (`row_brand_subquery`/`row_brand_id`;
+  `SupplierProduct.main_product` is unique, so there is at most one). That is
+  the brand column resolved to a PIM brand. When the supplier names no brand (no
+  brand column, an empty cell, an ignore-spelling), it is the brand of the
+  row's current Product, inherited at resolution — see [[product/brands]]. So a
+  price-list row on a branded Product keeps its brand when its sku is edited:
+  it moves to the (new sku, same brand) pair, not to a new brandless Product.
+  A hand-made row's brand is the «Бренд» picker in the «Строка ГП» modal
+  (`MainProductForm.brand`, not a model field). The picker is disabled for
+  price-list rows, set rows, and rows added from a card.
 - **A Product** takes PIM's brand when PIM has one. Otherwise it takes the
   brand its suppliers agree on.
 
@@ -55,7 +60,9 @@ query), never from Python's `.lower()`.
 **Consequence: a new row never joins an existing brandless Product.** The user
 put it this way: a row that is new for its supplier is a separate product. An
 existing row whose supplier later names a brand reaches its Product through the
-adoption pass below.
+adoption pass below. A *new* price-list row has no Product yet, so it has no
+brand to inherit either: its first Product is the (sku, claimed brand) pair, or
+a new brandless one.
 
 ## The adoption pass — `adopt_supplier_brands()` (`services/brands.py`)
 
@@ -67,6 +74,14 @@ A brandless Product gets brand X when all of these hold. This is the user's
   unresolved spelling is a claim too. An ignore-alias («Без бренда») is not;
 - no other Product holds (number, X). Of brandless twins competing for one
   pair, the lowest pk wins and the rest stay brandless (`taken`).
+
+**An inherited brand is not a vote.** Only claims vote. The pass therefore
+starts with `inherit_product_brands(SupplierProduct.objects.all(), index)`: rows
+without a claim on a brandless Product end up with brand NULL. Without that, a
+no-claim row moved from a Bosch Product to a brandless one (or on a Product
+whose brand was cleared on the card) would vote «Bosch» with its stale inherited
+brand and re-brand the Product. After adopting a chunk, that chunk's Products'
+no-claim rows inherit the new brand.
 
 The pass runs the whole catalogue as task `product.adopt_supplier_brands`
 (default queue, locked). `apply_brand_resolution` dispatches it after commit,
@@ -97,6 +112,8 @@ call is a deliberate command, not a side effect.
 - Another Product already holds (number, PIM's brand): the brand is not set and
   the conflict is logged. Name, `raw_data` and categories are still written.
   The fix is manual: move the ГП rows and delete the empty Product.
+- When the Product's brand changed, its no-claim price-list rows inherit it
+  straight away (`inherit_product_brands`).
 
 ## PIM search and push
 

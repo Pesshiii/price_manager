@@ -2920,3 +2920,55 @@ class BackfillBrandsTests(TestCase):
 
         self.assertIn("заполнено столбец «Производитель» (найден сейчас), строк 1", out.getvalue())
         self.assertIn("Проверка (ничего не записано)", out.getvalue())
+
+
+class BrandFromProductMigrationTests(TestCase):
+    """0021: строкам ПП без заявки о бренде — бренд товара их строки ГП, разово."""
+
+    def migration(self):
+        # Исторические модели, как у настоящей миграции.
+        import importlib
+        from django.db import connection
+        from django.db.migrations.executor import MigrationExecutor
+        apps = MigrationExecutor(connection).loader.project_state(
+            [("supplier_product_manager", "0020_supplierproduct_brand"),
+             ("product", "0021_product_number_brand_uniq"),
+             ("main_product_manager", "0014_mainproduct_set_delivery_days")]).apps
+        module = importlib.import_module("supplier_product_manager.migrations.0021_supplierproduct_brand_from_product")
+        return module, apps
+
+    def setUp(self):
+        self.supplier = Supplier.objects.create(name="Поставщик")
+        self.bosch = Brand.objects.create(pim_id="br-bosch", name="Bosch")
+        self.makita = Brand.objects.create(pim_id="br-makita", name="Makita")
+        # Синоним «игнорировать», как его засевает product.0020 (засев TransactionTestCase стирает).
+        BrandAlias.objects.get_or_create(name_key="безбренда", defaults={"name": "Без бренда", "brand": None})
+        self.product = Product.objects.create(number="D-1", brand=self.bosch)
+
+    def _row(self, article, brand_name=None, brand=None, product=None):
+        main_product = MainProduct.objects.create(supplier=self.supplier, article=article, name="Дрель",
+                                                  sku=article, product=product or self.product)
+        return SupplierProduct.objects.create(supplier=self.supplier, main_product=main_product, article=article,
+                                              name="Дрель", brand_name=brand_name, brand=brand)
+
+    def test_rows_without_a_claim_take_the_products_brand_and_give_it_back(self):
+        rows = [
+            self._row("A-1"),
+            self._row("A-2", brand_name="-"),
+            self._row("A-3", brand_name="без  бренда"),
+            self._row("A-4", brand_name="Makita", brand=self.makita),
+            self._row("A-5", brand_name="Бош-неизвестный"),
+            self._row("A-6", product=Product.objects.create(number="D-2")),
+            SupplierProduct.objects.create(supplier=self.supplier, article="A-7", name="Без строки ГП"),
+        ]
+        module, apps = self.migration()
+
+        module.forwards(apps, None)
+
+        self.assertEqual([SupplierProduct.objects.get(pk=row.pk).brand for row in rows],
+                         [self.bosch, self.bosch, self.bosch, self.makita, None, None, None])
+
+        module.backwards(apps, None)
+
+        self.assertEqual([SupplierProduct.objects.get(pk=row.pk).brand for row in rows],
+                         [None, None, None, self.makita, None, None, None])
