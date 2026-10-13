@@ -290,11 +290,35 @@ the window's coverage panel is the gauge.
 **Later steps (order matters — found by reviewing the code, not decided yet in detail):**
 1. **Fill empty brands of linked PIM cards** from the resolved supplier brand. This only adds
    data and reduces conflicts in step 3.
-2. **PIM: drop `unique` from `PriceManagerProduct.number`** (keep `platformID`). Match the PMP
+2. ✅ **PIM: drop `unique` from `PriceManagerProduct.number`** (keep `platformID`). Match the PMP
    push on `platformID` only and remove `_take_over_pim_link`. Without this, two Products with
    one number and different brands take one PMP from each other every night. Do not bind a
-   brandless Product to a branded PIM card by number alone.
-3. **Identity in PM.**
+   brandless Product to a branded PIM card by number alone. *PIM dropped the unique by
+   2026-10-13 (`/api/metadata` re-read); the PM half shipped with step 3.*
+3. ✅ **Identity in PM — shipped 2026-10-13, ahead of the brand-coverage gauge, by the
+   user's call.** What shipped and the user's decisions (four questions, 2026-10-13):
+   - `0021`: `product_product_number_brand_uniq` replaced `_lower_uniq`, plus a plain
+     `Lower(number)` index.
+   - **A row without a brand always gets a Product of its own** (`resolve_product`): brandless
+     products sharing a number are different products until they get a brand.
+   - **A new row never joins an existing brandless Product**, even with a brand. The
+     user said a row that is new for its supplier is a separate product. An existing
+     row whose supplier later names brand X lends X to its Product when no other
+     row on it names a different brand or waits for mapping, and no other Product
+     holds the pair (`adopt_supplier_brands`, «да, если нет спора»).
+   - **`Product.brand` = PIM's, else the suppliers' agreed one.** PIM never clears a brand,
+     never overrides one that did not come from PIM (logged), and never sets a pair another
+     Product holds (logged). Conflicts are resolved by hand, by moving ГП rows: the card
+     form refuses a taken pair with a link to its holder.
+   - The key is still the **sku** (with the supplier prefix or suffix), not
+     `manufacturer_article(row)`. That waits for step 4's renumbering. No advisory lock
+     was needed: brandless rows never look anything up, and the branded pair has the
+     DB guard. `MainProduct.link_source`, search over `MainProduct.sku` and Satu's
+     «Код_товара» were not done.
+   - A Product pushed while brandless keeps its PMP without `productId` after it gets a
+     brand: re-searching it is a deliberate command, not a side effect of adoption.
+
+   The original plan for this step, kept for the record:
    - Swap `product_product_number_lower_uniq` for `UniqueConstraint(Lower('number'), 'brand',
      condition=Q(brand__isnull=False))`. It is strictly weaker, so it is a pure schema migration,
      safe for CI.

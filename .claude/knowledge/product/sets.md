@@ -51,8 +51,11 @@ Task `product.sync_product_sets` (`tasks.py:77-92`, `execute_locked_task`,
   reverse row never appears).
 - **Resolving a PIM product id → local `Product`** (`_candidates`/`_pick`,
   `services/sets.py:107-127`): match by PMP `platformID` (= local pk) first,
-  then `number__iexact` (case-insensitive per the `Lower('number')`
-  constraint); among several candidates prefer one already PMP-linked, then
+  plus an earlier-mirrored set Product found by its PIM id in `raw_data`, then
+  `number__iexact` **skipping a Product whose brand contradicts the card's**
+  (`brandId`; an empty brand on either side does not contradict —
+  [[product/identity]]); among several candidates prefer one already PMP-linked,
+  then one of the card's brand, then
   one with `stock > 0`, then one with any `MainProduct`, then the lowest pk.
   A set with **neither** a PIM number **nor** a PMP match is skipped
   (`skipped_sets`, `_resolve_set_product`, `:143-156`), never created —

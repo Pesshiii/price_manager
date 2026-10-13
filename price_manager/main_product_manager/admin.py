@@ -43,7 +43,8 @@ class MainProductAdmin(ImportExportModelAdmin):
     list_filter = ['supplier', 'is_set']
 
     def save_model(self, request, obj, form, change):
-        # Строка ГП без товара не бывает (как и в модалках): товар — по sku.
+        # Строка ГП без товара не бывает (как и в модалках): товар — по sku и
+        # бренду строки прайса; без бренда — новый товар (ensure_product).
         from .utils import ensure_product
         super().save_model(request, obj, form, change)
         ensure_product(obj)

@@ -1,7 +1,7 @@
 {% load widget_tweaks %}
 {% comment %}
   Строка ГП — создание и правка (MainProductForm): поставщик (по умолчанию
-  «Свой склад»), артикулы, название, затем остаток и цены. Поля,
+  «Свой склад»), артикулы, название, бренд товара, затем остаток и цены. Поля,
   которые менять нельзя (поставщик строки из прайса, себестоимость и остаток
   строки набора),
   просто заблокированы — без пояснений, по просьбе владельца.
@@ -45,6 +45,14 @@
         <label class="form-label small fw-medium" for="{{ form.name.id_for_label }}">Название</label>
         {% render_field form.name class="form-control" %}
         {% for error in form.name.errors %}<div class="invalid-feedback d-block">{{ error }}</div>{% endfor %}
+      </div>
+      <div class="col-12">
+        <label class="form-label small fw-medium">Бренд</label>
+        {% include 'product/partials/picker.html' with name=form.brand.html_name options=form.brand_options single=True disabled=form.brand.field.disabled placeholder='Найти бренд' all_label='Без бренда' %}
+        {% if not editing and not form.brand.field.disabled %}
+          <div class="form-text">Товар — это артикул и бренд вместе. Строка без бренда встаёт на новый, отдельный товар.</div>
+        {% endif %}
+        {% for error in form.brand.errors %}<div class="invalid-feedback d-block">{{ error }}</div>{% endfor %}
       </div>
     </div>
 

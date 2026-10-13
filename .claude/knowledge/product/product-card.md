@@ -25,7 +25,9 @@ When the Product has PIM content (`raw_data` non-empty) `name`, `brand` and
 `categories` are **disabled**: `apply_pim_product` overwrites them on every
 sync ([[product/pim-sync]]), so they are fixed in PIM. A Product without PIM
 data (most of them) is fully editable. `number` is always local — PIM never
-sends it — and is the key new ГП rows link by.
+sends it — and with `brand` is the pair new ГП rows link by. `ProductForm.clean`
+refuses a (number, brand) pair another Product holds, with a link to it;
+brandless Products may share a number ([[product/identity]]).
 
 ## ГП rows are moved, never unlinked
 
@@ -33,8 +35,9 @@ sends it — and is the key new ГП rows link by.
 and `MainProductMoveView` («Перенести в другой товар») both just set
 `MainProduct.product` (`_relinked`, `views.py:452`). There is deliberately no
 "unlink": `link_unlinked_main_products` re-links an unlinked row **nightly** to
-the Product numbered by its sku, **recreating** that Product if missing — while
-it never touches an existing link, so a hand-made move sticks.
+the Product of its (sku, brand) pair — a new Product if it has no brand —
+**recreating** that Product if missing, while it never touches an existing
+link, so a hand-made move sticks.
 
 ## Delete — only a Product with no ГП rows
 

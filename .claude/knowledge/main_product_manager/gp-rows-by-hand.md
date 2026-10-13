@@ -31,13 +31,18 @@ prefix the ids collide when the modal opens over it.
 
 ## A row is always on a Product
 
-`MainProductCreate` (`views.py:152`): from the card it sets `product` to the
-card's Product; from «Товары» it calls `ensure_product` (Product by sku,
-created if missing — [[main_product_manager/sku-and-linking]]). Success from
-«Товары» redirects to the new row's card, since the list hides it in a
-collapsed panel.
+`MainProductCreate`: from the card it sets `product` to the card's Product
+(sku and brand pickers disabled). From «Товары» it calls `resolve_product(sku,
+brand)` with the modal's «Бренд» picker: the (sku, brand) Product is found or
+created, and **a row without a brand always gets a new Product**
+([[product/identity]]). A brandless row that lands next to other Products with
+its number gets an info toast suggesting a move. Success from «Товары»
+redirects to the new row's card, since the list hides it in a collapsed panel.
 
-`MainProductUpdate`: **changing the sku moves the row** to the Product of the
-new sku (`product_for_sku`, creating it) — the row's sku and the Product's
-number are the same thing. The nightly reindex never moves a linked row; it
-only links rows with `product IS NULL`.
+`MainProductUpdate`: **changing the sku or the brand moves the row** to that
+pair's Product (`resolve_product`, creating it). A price-list row's brand is
+its supplier's (`row_brand_id`), and its picker is disabled. The nightly
+reindex never moves a linked row; it only links rows with `product IS NULL`.
+
+`brand` is a declared, non-model form field. The picker partial needs
+`name=form.brand.html_name` (`mp-brand`) because of the form prefix.

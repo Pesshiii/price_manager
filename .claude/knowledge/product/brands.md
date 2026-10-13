@@ -14,8 +14,10 @@ product-shift brief; the reasons and the later steps are in its §0.6.
 - `SupplierProduct.brand_name` holds the **supplier's text**, raw from the file
   (`Link` key `brand_name`).
 - `SupplierProduct.brand` is that text **resolved** to a PIM brand.
-- `Product.brand` is still **PIM's**, written only by `apply_pim_product`. Step 1
-  never writes it.
+- `Product.brand` is PIM's (`apply_pim_product`), or failing that, since step 3,
+  the brand the Product's suppliers agree on (`adopt_supplier_brands`, which
+  every `apply_brand_resolution` dispatches after commit). It is half of the
+  Product's identity — see [[product/identity]].
 
 ## Resolution — `BrandIndex` (`services/brands.py`)
 
@@ -80,7 +82,9 @@ the supplier's data) does not move. Callers:
   window. It moves `Product.brand`, `SupplierProduct.brand`, aliases and
   `PriceManagerBrand` (dropping the loser's row where a rule already has the
   winner), turns the loser's name into an alias of the winner, then deletes the
-  loser.
+  loser. It refuses (`BrandMergeConflict`, shown in the modal) while a Product
+  of the loser has a same-number twin of the winner: moving it would create a
+  second copy of a (number, brand) pair.
 
 ## The window (`brand_views.py`)
 

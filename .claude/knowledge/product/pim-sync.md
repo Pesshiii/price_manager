@@ -9,16 +9,21 @@ code: price_manager/product/services/pim_sync.py, price_manager/product/tasks.py
 
 `pim_id` here is a **PMP id** (see [[product/pim-link]]), not a PIM `Product` id.
 
-- **Local row lookup** (`:120-133`): the `Product` already holding `pim_id` →
-  else the `Product` whose `number` equals the PMP's `number` (matched
-  `iexact`) and whose `pim_id` is still `NULL` adopts it → else a new
+- **Local row lookup**: the `Product` already holding `pim_id` → else
+  `_adopting_product`: the Product whose pk is the PMP's `platformID` and
+  whose `pim_id` is still `NULL`, then the one Product without a `pim_id`
+  whose `number` equals the PMP's (`iexact`) — only if exactly one, since a
+  number is not unique under (number, brand) identity → else a new
   `Product(number=...)`.
 - **`data`** is the PIM `Product` reached through the PMP's `productId`
   (`_fetch_pim_product`, `:34-36`), fetched unless passed in.
-- **Writes:** `name`, `raw_data`, `brand` (via `_ensure_pim_brand`,
-  `:81-98` — matched on `brandId`, never `brandName`, for the same
+- **Writes:** `name`, `raw_data`, `brand` (via `_pim_brand_for` →
+  `_ensure_pim_brand` — matched on `brandId`, never `brandName`, for the same
   fork-on-rename reason as the `Brand` model itself; updates the local
-  `Brand.name` in place when PIM's `brandName` changed), categories (via
+  `Brand.name` in place when PIM's `brandName` changed. Since step 3 the
+  brand is identity: PIM never clears it, never overrides a brand that did
+  not come from PIM, never sets a pair another Product holds — see
+  [[product/identity]]), categories (via
   `categoriesIds` → `_ensure_pim_category`), then `rebuild_search_vector()`
   (**after** `save()` — the rebuild does an `update()` by `pk`, which a
   brand-new row doesn't have yet). **Never `number`** — PIM staff can link a
@@ -41,9 +46,9 @@ code: price_manager/product/services/pim_sync.py, price_manager/product/tasks.py
   half-made `Product` row (`test_failed_link_fetch_leaves_no_row`).
   `_ensure_pim_category`/`_ensure_pim_brand` can still create rows before
   `product.save()` runs.
-- `IntegrityError` still propagates uncaught: a new `Product` whose `number`
-  another `Product` already holds under a different `pim_id` (now
-  case-insensitively, per the `Lower('number')` constraint — see [[product/overview]]).
+- `IntegrityError` still propagates uncaught, but only from a race on the
+  (number, brand) pair: `_pim_brand_for` checks the pair before `save()`, and
+  a number alone is not unique since `0021` — see [[product/identity]].
 - **A PMP without a number raises `ValueError`** instead of creating a
   `Product`: `number` is NOT NULL and non-empty since `0017`. (It used to
   be `or None`, which made numberless placeholders.) `apply_pim_product`'s `product.name = data.get('name') or None`

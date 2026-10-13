@@ -139,12 +139,13 @@ class Product(models.Model):
     pim_id = models.CharField(
         'Id связи в PIM (PriceManagerProduct)', max_length=64, null=True, blank=True, unique=True,
     )
-    # The match key: MainProduct.sku. Local, never overwritten from PIM.
-    # Case-insensitive: uniqueness is enforced by Meta.constraints on
-    # Lower('number'), not by unique=True here — see the product_product_number_lower_uniq
-    # constraint below. Never empty (product_product_number_not_blank): a
-    # Product without one can't be matched, searched or pushed, and is how one
-    # sku ended up split across two Products — see product.0016.
+    # The match key, together with brand: MainProduct.sku. Local, never
+    # overwritten from PIM. A Product is unique by (Lower(number), brand) —
+    # product_product_number_brand_uniq below — and only while it has a brand:
+    # brandless Products sharing a number are different products until one
+    # gets a brand (main_product_manager.utils.resolve_product). Never empty
+    # (product_product_number_not_blank): a Product without one can't be
+    # matched, searched or pushed — see product.0016.
     number = models.CharField('Артикул', max_length=128)
     # Not unique: several Products can sit on one PIM Product, and PIM does not
     # keep Product.name unique either.
@@ -152,6 +153,11 @@ class Product(models.Model):
     categories = models.ManyToManyField(
         Category, related_name='products', blank=True, verbose_name='Категории',
     )
+    # PIM's brand when PIM has one, else the brand the product's suppliers
+    # agree on (services/brands.adopt_supplier_brands). A sync never clears it
+    # and never overwrites a brand that did not come from PIM
+    # (services/pim_sync.apply_pim_product). Part of the identity: a brand that
+    # another Product already holds with this number is never set.
     brand = models.ForeignKey(
         Brand,
         related_name='products',
@@ -171,9 +177,21 @@ class Product(models.Model):
         ordering = ['-updated_at']
         indexes = [
             GinIndex(fields=['search_vector'], name='product_search_vector_gin'),
+            # Every lookup by number is case-insensitive (number__iexact is
+            # UPPER(), Lower() annotations are LOWER()); this one serves the
+            # Lower() ones, which the partial unique index below cannot for
+            # brandless rows.
+            models.Index(Lower('number'), name='product_product_number_lower'),
         ]
         constraints = [
-            models.UniqueConstraint(Lower('number'), name='product_product_number_lower_uniq'),
+            # A product is the pair (number, brand). Without a brand there is
+            # no uniqueness: brandless Products sharing a number are different
+            # products until they get a brand (step 3 of «товар = бренд +
+            # артикул», 2026-10-13; .claude/shift-to-product-brief.md §0.6).
+            models.UniqueConstraint(
+                Lower('number'), 'brand', condition=models.Q(brand__isnull=False),
+                name='product_product_number_brand_uniq',
+            ),
             models.CheckConstraint(condition=~models.Q(number=''), name='product_product_number_not_blank'),
         ]
 

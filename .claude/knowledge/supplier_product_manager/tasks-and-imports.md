@@ -60,15 +60,13 @@ copies nothing but the row itself: `MainProduct` lost `manufacturer`,
 `description` and `categories`, and `SupplierProduct` lost `category` and
 `manufacturer`. What it still does besides creating rows is **link them to
 `product.Product` — explicitly**, via [[main_product_manager]]'s
-`link_to_local_products(ids)`: one lookup and one bulk update per chunk,
-existing Products only (`number=sku`), never creates one. Before 2b-2 the link
-was a side effect of rebuilding `MainProduct.search_vector`; dropping the
-vector without this step would have left every imported row with `product IS
-NULL`, invisible on `/products/` until the nightly `reindex_pim_ids`, with no
-error. For a brand-new row the matching `Product` usually doesn't exist yet
-(its `sku` was just computed), so the step mostly helps rows whose `Product`
-appeared since; creating Products stays reindex's job
-(`link_unlinked_main_products`, which is unscoped and table-wide).
+`link_unlinked_main_products(main_product_ids=touched)`. It finds or creates
+the Product of each row's (sku, brand) pair. The brand is the row's resolved
+`SupplierProduct.brand`, and a row without one gets a new Product of its own
+([[product/identity]]). Before 2b-2 the link was a side effect of rebuilding
+`MainProduct.search_vector`; dropping the vector without this step would have
+left every imported row with `product IS NULL`, invisible on `/products/`
+until the nightly `reindex_pim_ids`, with no error.
 
 ## Imports — the "up, not down" rule has one live exception
 
@@ -85,7 +83,7 @@ down, not a stale claim to prune: it works because `utils.py` imports
 `supplier_product_manager.models`, and `supplier_product_manager/tasks.py:11`
 completes the loop the other way
 (`from main_product_manager.utils import compute_supplier_sku,
-link_to_local_products, update_stocks`). So the two apps are mutually
+link_unlinked_main_products, update_stocks`). So the two apps are mutually
 dependent through `utils.py` specifically — do not assume "main_product_manager
 never imports this app" when touching either side.
 

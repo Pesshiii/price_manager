@@ -44,7 +44,7 @@ from .forms import *
 from .tables import *
 from .filters import *
 from .utils import *
-from .utils import ensure_product, get_pim_data_for_product, pim_image_url, maybe_notify_pim_error, product_for_sku
+from .utils import get_pim_data_for_product, pim_image_url, maybe_notify_pim_error, resolve_product, row_brand_id
 from .tasks import sync_main_products_task
 from product.pim_content import clean_description
 from supplier_product_manager.views import UploadSupplierFile
@@ -149,12 +149,20 @@ class _MainProductFormMixin:
     return main_product
 
 
-class MainProductCreate(_MainProductFormMixin, CreateView):
-  """«Добавить строку ГП»: с «Товаров» (артикул вводится) или из карточки товара.
+def _same_number_count(product) -> int:
+  """Сколько ещё товаров с артикулом этого товара — для подсказки «перенесите строку»."""
+  from product.models import Product
+  return Product.objects.filter(number__iexact=product.number).exclude(pk=product.pk).count()
 
-  Из карточки (?product=<pk>) строка сразу стоит на этом товаре и артикул
-  заполнен им. С «Товаров» — строка встаёт на товар со своим артикулом, а
-  если такого нет, он создаётся: строки ГП без товара не бывает.
+
+class MainProductCreate(_MainProductFormMixin, CreateView):
+  """«Добавить строку ГП»: с «Товаров» (артикул и бренд вводятся) или из карточки товара.
+
+  Из карточки (?product=<pk>) строка сразу стоит на этом товаре, артикул и
+  бренд — его. С «Товаров» — строка встаёт на товар с её артикулом и брендом,
+  а если такого нет, он создаётся: строки ГП без товара не бывает. Без бренда
+  искать нечего — товар заводится новый (resolve_product), и сообщение
+  говорит, если товары с таким артикулом уже есть.
   """
 
   def get(self, request, *args, **kwargs):
@@ -171,15 +179,21 @@ class MainProductCreate(_MainProductFormMixin, CreateView):
 
   def form_valid(self, form):
     product = self.get_preset_product()
+    brand = form.cleaned_data.get('brand')
     with transaction.atomic():
       self.object = main_product = self.save_form(form)
-      if product is not None:
-        MainProduct.objects.filter(pk=main_product.pk).update(product=product)
-        main_product.product = product
-      else:
-        ensure_product(main_product)
+      if product is None:
+        product = resolve_product(main_product.sku, brand.pk if brand else None, main_product.name)
+      MainProduct.objects.filter(pk=main_product.pk).update(product=product)
+      main_product.product = product
     label = main_product.supplier.name if main_product.supplier else 'набор'
     messages.success(self.request, f'Строка ГП «{main_product.name}» ({label}) добавлена')
+    if self.get_preset_product() is None and product.brand_id is None:
+      others = _same_number_count(product)
+      if others:
+        messages.info(self.request, (
+          f'Без бренда строка встала на новый товар: товаров с артикулом «{product.number}» уже {others}. '
+          'Если это один из них — перенесите строку в него.'))
     # Открыта карточка этого товара — перезагрузить её; иначе (с «Товаров»)
     # — перейти в карточку: там видно новую строку, а на списке она спрятана
     # в свёрнутой панели.
@@ -193,8 +207,9 @@ class MainProductCreate(_MainProductFormMixin, CreateView):
 class MainProductUpdate(_MainProductFormMixin, UpdateView):
   """Правка строки ГП — все поля, включая цены.
 
-  Смена артикула переносит строку в товар с новым артикулом (создавая его,
-  если нужно): артикул строки и номер товара — одно и то же.
+  Смена артикула или бренда переносит строку в товар с новой парой (артикул,
+  бренд), создавая его, если нужно (resolve_product): артикул строки — номер
+  её товара. Бренд строки из прайса — бренд поставщика, в форме он не правится.
   """
 
   def get(self, request, *args, **kwargs):
@@ -203,14 +218,18 @@ class MainProductUpdate(_MainProductFormMixin, UpdateView):
     return super().get(request, *args, **kwargs)
 
   def form_valid(self, form):
-    sku_changed = 'sku' in form.changed_data
+    identity_changed = bool({'sku', 'brand'} & set(form.changed_data))
     with transaction.atomic():
       self.object = main_product = self.save_form(form)
-      if sku_changed or not main_product.product_id:
-        target = product_for_sku(main_product.sku, main_product.name)
-        if target.pk != main_product.product_id:
-          MainProduct.objects.filter(pk=main_product.pk).update(product=target)
-          main_product.product = target
+      if identity_changed or not main_product.product_id:
+        if form.from_price_list:
+          brand_id = row_brand_id(main_product)
+        else:
+          brand = form.cleaned_data.get('brand')
+          brand_id = brand.pk if brand else None
+        target = resolve_product(main_product.sku, brand_id, main_product.name)
+        MainProduct.objects.filter(pk=main_product.pk).update(product=target)
+        main_product.product = target
     messages.success(self.request, 'Строка ГП сохранена')
     return HttpResponseClientRefresh()
 

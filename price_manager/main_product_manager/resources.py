@@ -116,7 +116,8 @@ class MainProductResource(resources.ModelResource):
 
     def after_save_instance(self, instance, *args, **kwargs):
         # Импорт из админки заводит строки ГП — и они, как и все остальные,
-        # сразу встают на товар своего sku.
+        # сразу встают на товар своего sku и бренда; без бренда — каждая на
+        # новый (ensure_product).
         from .utils import ensure_product
         super().after_save_instance(instance, *args, **kwargs)
         ensure_product(instance)

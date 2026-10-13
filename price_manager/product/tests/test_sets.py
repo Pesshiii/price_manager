@@ -119,6 +119,21 @@ class SyncProductSetsTests(TestCase):
         self.assertEqual(ProductSetItem.objects.get().set_product_id, existing.pk)
         self.assertEqual(Product.objects.count(), 1)
 
+    def test_a_set_mirrored_before_survives_a_brand_change_in_pim(self):
+        """Товар — пара (артикул, бренд), но набор, который мы уже зеркалили,
+        узнаётся по id товара PIM: смена бренда набора в PIM не заводит второй."""
+        self._pim_component('c-1', 'C-1')
+        self._link('c-1')
+        self.pim_products[self.SET].update(brandId='br-old', brandName='Старый')
+        self._sync()
+        self.pim_products[self.SET].update(brandId='br-new', brandName='Новый')
+
+        stats = self._sync()
+
+        self.assertEqual(Product.objects.filter(number__iexact='SET-1').count(), 1)
+        self.assertEqual(stats['created_sets'], 0)
+        self.assertEqual(self._set().brand.pim_id, 'br-new')
+
     def test_set_without_a_name_in_pim_falls_back_to_its_number(self):
         self.pim_products[self.SET]['name'] = ''
         self._pim_component('c-1', 'C-1')

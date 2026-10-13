@@ -48,17 +48,13 @@ it clears `product.Product.pim_id`, nothing else — `MainProduct.product`
 the PIM `Product` behind a PMP never reaches this — `get_pim_data`'s second
 hop just returns `None` (`utils.py:238-240`).
 
-## Writing links: `push_pim_links` / `_push_pim_links` / `_take_over_pim_link`
+## Writing links: `push_pim_links` / `_push_pim_links`
 
-Only `reindex_pim_ids` writes to PIM. **The render path never searches or
-pushes**: `_link_to_local_product` (`utils.py:47-63`, used by
-`get_pim_data_for_product` and «Добавить товар», `views.py:118-124`) and its
-batched twin `link_to_local_products` (`utils.py:66-88`, used by
-copy-to-main) only link to an *existing* local Product with `number=sku` —
-never create, never call PIM. Since Phase 2b these are explicit calls (used
-to be a side effect of the now-removed `_build_searchvector`); forgetting to
-link a newly-created MainProduct makes it invisible on `/products/` until
-the nightly reindex, no error anywhere. Canary:
+Only `reindex_pim_ids` writes to PIM. **The render path never searches,
+pushes or links**: `get_pim_data_for_product` only reads through an existing
+link. Every write path links the ГП row to its (sku, brand) Product itself
+([[product/identity]]); a row left unlinked is invisible on `/products/`
+until the nightly reindex, no error anywhere. Canary:
 `unlinked_main_product_count()` in `product/views.py`.
 
 `push_pim_links(pks)` (`utils.py:789-850`), run per-batch as
@@ -67,20 +63,20 @@ the nightly reindex, no error anywhere. Canary:
 "skip this chunk on error" into "lose everything since the last commit"):
 
 - Per local Product `pim_id__isnull=True` with a `number`: search PIM by
-  `number` via `_search_pim_product_id`. FOUND → push with `productId`;
+  `number` and the Product's brand via `_search_pim_product_id` (a brandless
+  Product matches only a brandless card). FOUND → push with `productId`;
   ABSENT/AMBIGUOUS → push without it; ERROR → skip (an unanswered search
   must not drop a `productId` it might have found).
 - Payload name/description come from the **lowest-pk MainProduct** on that
   Product (`utils.py:812-842`) — description off that MainProduct's first
   `SupplierProduct.description` (MainProduct's own field is gone).
-- `_push_pim_links` (`utils.py:712-786`) `upsertAsync`s the batch, matching
-  PIM's live behaviour on the PMP's two unique fields (`number`,
-  `platformID`): both match one record → `NotModified`/`Updated` with its
-  id; only one matches → per-item `Failed` (unique violation; job still ends
-  `Success`). A `Failed`/id-less item goes to `_take_over_pim_link`
-  (`utils.py:671-709`): GET the PMP holding `number`, upsert
-  `{...payload, id: that_id}` to repoint its `platformID`. What even that
-  can't place is logged, not raised.
+- `_push_pim_links` `upsertAsync`s the batch. PIM matches an upsert on the
+  PMP's unique field — since 2026-10-13 only `platformID` (`number` lost
+  `unique` when PIM went to (number, brand)): a record with it → `NotModified`/
+  `Updated` with its id. A `Failed`/id-less item (job still ends `Success`) is
+  logged, recorded and counted as rejected. **`_take_over_pim_link` was
+  deleted**: it repointed the PMP holding our *number* to our platformID,
+  which with shared numbers would trade one PMP between Products every night.
 - Before `bulk_update`, any other local Product still holding a
   newly-linked PMP id gets `pim_id=None` first (`utils.py:775-783`) —
   `Product.pim_id` is `unique=True`.
@@ -95,13 +91,15 @@ the nightly reindex, no error anywhere. Canary:
   sums every numeric element of a *tuple* return, so `(linked, rejected)`
   would silently inflate `TaskRunHistory.updated_count`.
 
-PIM's own metadata doesn't declare `Product.name`/`number` unique, so
-`_SEARCH_AMBIGUOUS` is reachable in principle (no duplicates in a 2400-row
-sample so far).
+PIM is unique by (number, brand) since its 2026-10-06 cleanup, so one
+number may name several cards — one per brand.
 
-## `_search_pim_product_id`: one `equals`, four outcomes, no cache (`utils.py:255-297`)
+## `_search_pim_product_id(number, brand_pim_id)`: one `equals`, four outcomes, no cache
 
-No cache — a scan re-searches a known-bad row every time it's due. Outcomes:
+No cache — a scan re-searches a known-bad row every time it's due. It selects
+`id` and `brandId` (list mode returns `brandId` only when selected) and keeps
+the cards whose `brandId` equals the Product's brand — `None` for a brandless
+Product, which therefore never binds to a branded card. Outcomes over those:
 `_SEARCH_FOUND` (exactly one), `_SEARCH_ABSENT` (zero), `_SEARCH_AMBIGUOUS`
 (>1, links nothing), `_SEARCH_ERROR`.
 

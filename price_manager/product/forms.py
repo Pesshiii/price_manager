@@ -1,4 +1,6 @@
 from django import forms
+from django.urls import reverse
+from django.utils.html import format_html
 
 from .models import Brand, Category, Product
 
@@ -64,7 +66,8 @@ class ProductForm(forms.ModelForm):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.fields['number'].help_text = (
-            'Ключ привязки строк ГП: новые строки с таким артикулом (sku) привяжутся к этому товару.')
+            'Вместе с брендом — ключ привязки строк ГП: новые строки с таким артикулом (sku) '
+            'и брендом привяжутся к этому товару.')
         self.fields['categories'].queryset = Category.objects.all()
         self.fields['brand'].queryset = Brand.objects.all()
         if self.from_pim:
@@ -86,10 +89,26 @@ class ProductForm(forms.ModelForm):
         number = (self.cleaned_data.get('number') or '').strip()
         if not number:
             raise forms.ValidationError('Укажите артикул товара.')
-        other = Product.objects.filter(number__iexact=number).exclude(pk=self.instance.pk).first()
-        if other:
-            raise forms.ValidationError(f'Этот артикул уже у товара «{other.display_name}».')
         return number
+
+    def clean(self):
+        """Товар — пара (артикул, бренд): с брендом она уникальна, без бренда — нет.
+
+        Занятую пару не ставим, а показываем товар, который её держит: это
+        один и тот же товар, и строки ГП переносят в него руками.
+        """
+        cleaned_data = super().clean()
+        number, brand = cleaned_data.get('number'), cleaned_data.get('brand')
+        if number and brand:
+            other = (Product.objects.filter(number__iexact=number, brand=brand)
+                     .exclude(pk=self.instance.pk).first())
+            if other:
+                url = reverse('product-detail', kwargs={'pk': other.pk})
+                self.add_error('brand' if 'brand' in self.changed_data else 'number', format_html(
+                    'Товар с артикулом «{}» и брендом «{}» уже есть: <a href="{}">{}</a>. '
+                    'Если это он — перенесите строки ГП туда.',
+                    number, brand.name, url, other.display_name))
+        return cleaned_data
 
     def save(self, commit=True):
         product = super().save(commit=commit)

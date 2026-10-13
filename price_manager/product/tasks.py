@@ -12,7 +12,7 @@ from .services.pim_sync import (
     sync_product_from_pim,
     sync_products,
 )
-from .services.brands import sync_brands_from_pim
+from .services.brands import adopt_supplier_brands, sync_brands_from_pim
 from .services.set_rows import sync_set_rows
 from .services.sets import sync_product_sets
 
@@ -169,6 +169,23 @@ def sync_brands_task() -> dict:
         # Список брендов читается из PIM до записей; запись брендов идёт в
         # своей транзакции, пересопоставление строк идемпотентно.
         atomic=False,
+    )
+
+
+@shared_task(name='product.adopt_supplier_brands')
+def adopt_supplier_brands_task() -> dict:
+    """Бренд поставщиков — товарам без бренда, где поставщики не спорят.
+
+    Отправляется после каждого сопоставления брендов строк ПП
+    (apply_brand_resolution): загрузка прайса, синоним в окне «Бренды», ночная
+    синхронизация брендов. Проход всегда по всему каталогу — он идемпотентен,
+    и пропущенный из-за блокировки запуск доделает следующий. Не в очереди
+    pim: в PIM не ходит.
+    """
+    return execute_locked_task(
+        task_name='product.adopt_supplier_brands',
+        lock_ttl=60 * 30,
+        runner=lambda: adopt_supplier_brands().adopted,
     )
 
 
