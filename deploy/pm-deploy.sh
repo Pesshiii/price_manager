@@ -149,9 +149,21 @@ main() {
     exit 0
   fi
 
-  if ! git merge -q --ff-only "$NEW"; then
+  # A refused fast-forward usually touches nothing, since git checks for local
+  # edits first. A file or directory it cannot write (one a root-run git left to
+  # root) fails midway instead, after the writable files are already new, and
+  # live through the bind mount. So local edits are refused up front, and a
+  # merge that fails on a clean tree is undone with a hard reset, which then
+  # loses nothing.
+  if [ -n "$(git status --porcelain --untracked-files=no)" ]; then
     echo "$NEW" > "$SKIP_FILE"
-    log "git merge --ff-only не прошёл: в чекауте локальные правки или он разошёлся с main."
+    log "В чекауте локальные правки, ${NEW:0:7} не выкатываю: $(git status --porcelain --untracked-files=no | head -5 | tr '\n' ' ')"
+    exit 1
+  fi
+  if ! git merge -q --ff-only "$NEW"; then
+    git reset -q --hard "$OLD" || log "git reset --hard ${OLD:0:7} тоже не прошёл — чекаут надо проверить руками."
+    echo "$NEW" > "$SKIP_FILE"
+    log "git merge --ff-only не прошёл, чекаут возвращён на ${OLD:0:7}. Обычно это файлы или каталоги, которые принадлежат не $(id -un) (deploy/README.md)."
     exit 1
   fi
 

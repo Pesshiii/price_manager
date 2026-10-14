@@ -57,6 +57,12 @@ REAL_GIT=$(command -v git)
 cat > "$W/bin/git" <<EOF
 #!/usr/bin/env bash
 if [ "\$1" = fetch ] && [ -n "\${FAKE_FETCH_ERR:-}" ]; then echo "\$FAKE_FETCH_ERR" >&2; exit 1; fi
+# FAKE_MERGE_PARTIAL: the merge writes one new file, then dies on an unwritable one.
+if [ "\$1" = merge ] && [ -n "\${FAKE_MERGE_PARTIAL:-}" ]; then
+  "$REAL_GIT" checkout -q "\${@: -1}" -- price_manager/app/views.py
+  echo "error: unable to unlink old 'deploy/pm-deploy.sh': Permission denied" >&2
+  exit 1
+fi
 exec "$REAL_GIT" "\$@"
 EOF
 REAL_FLOCK=1
@@ -248,8 +254,18 @@ echo local >> "$W/app/price_manager/app/views.py"
 OLD=$(app_head)
 run
 expect "rc 1, not merged, skipped" '[ $RC = 1 ] && [ $HEAD = $OLD ] && skipped'
-expect "edit kept, no docker" 'grep -q local "$W/app/price_manager/app/views.py" && ! has docker'
+expect "refused before merging, edit kept" 'said "локальные правки" && grep -q local "$W/app/price_manager/app/views.py" && ! has docker'
 git -C "$W/app" checkout -q -- .; unskip
+
+echo "15b. merge dies midway (unwritable file) -> the half-written tree is reset"
+commit py6 price_manager/app/views.py deploy/pm-deploy.sh
+OLD=$(app_head)
+OLD_VIEWS=$(cat "$W/app/price_manager/app/views.py")
+run FAKE_MERGE_PARTIAL=1
+expect "rc 1, not merged, skipped" '[ $RC = 1 ] && [ $HEAD = $OLD ] && skipped'
+expect "tree clean, old file back" '[ -z "$(git -C "$W/app" status --porcelain --untracked-files=no)" ] && [ "$(cat "$W/app/price_manager/app/views.py")" = "$OLD_VIEWS" ]'
+expect "says it was reset, no docker" 'said "чекаут возвращён" && ! has docker'
+unskip
 
 echo "16. success is reported when NOTIFY_SUCCESS=1"
 run NOTIFY_SUCCESS=1
