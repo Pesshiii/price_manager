@@ -29,15 +29,23 @@ sends it — and with `brand` is the pair new ГП rows link by. `ProductForm.cl
 refuses a (number, brand) pair another Product holds, with a link to it;
 brandless Products may share a number ([[product/identity]]).
 
-## ГП rows are moved, never unlinked
+## ГП rows are moved, never left unlinked
 
 `MainProductAttachView` («Привязать строку ГП», pull a row from another Product)
 and `MainProductMoveView` («Перенести в другой товар») both just set
-`MainProduct.product` (`_relinked`, `views.py:452`). There is deliberately no
-"unlink": `link_unlinked_main_products` re-links an unlinked row **nightly** to
-the Product of its (sku, brand) pair — a new Product if it has no brand —
-**recreating** that Product if missing, while it never touches an existing
-link, so a hand-made move sticks.
+`MainProduct.product` (`_relinked`). There is deliberately no plain "unlink"
+(product = NULL): `link_unlinked_main_products` re-links an unlinked row
+**nightly** to the Product of its (sku, brand) pair — a new Product if it has no
+brand — **recreating** that Product if missing, while it never touches an
+existing link, so a hand-made move sticks.
+
+«Отвязать в новый товар» (`MainProductDetachView`, a button in the move modal) is
+a move into a Product made for the row: `resolve_product(sku, row_brand_id)` when
+that pair is not the current Product's, otherwise a new **brandless** Product
+(the same pair would just return the old one). A no-claim price-list row carries
+the old Product's brand as inherited, so its pair is always the same and it
+always gets a brandless Product. Set rows are refused (`set_rows` keys them by
+product). The old Product may be left with no rows; delete it by hand.
 
 ## Delete — only a Product with no ГП rows
 

@@ -8,6 +8,7 @@ from django.urls import reverse
 from main_product_manager.models import MainProduct
 from product_price_manager.models import PriceTag
 from supplier_manager.models import Supplier
+from supplier_product_manager.models import SupplierProduct
 
 from product.filters import matching_product_pks
 from product.models import Brand, Category, Product, ProductPhoto
@@ -194,3 +195,57 @@ class RelinkTests(DetailTestCase):
 
         self.row.refresh_from_db()
         self.assertEqual(self.row.product, self.other)
+
+
+class DetachTests(DetailTestCase):
+    def detach(self, row=None):
+        return self.hx_post(reverse('main-product-detach', kwargs={'pk': (row or self.row).pk}))
+
+    def test_move_modal_offers_detach(self):
+        response = self.client.get(reverse('main-product-move', kwargs={'pk': self.row.pk}))
+        self.assertContains(response, reverse('main-product-detach', kwargs={'pk': self.row.pk}))
+
+    def test_row_moves_to_a_new_product_with_its_sku_and_name(self):
+        MainProduct.objects.create(product=self.product, supplier=self.supplier, article='A2', sku='SKU-1')
+
+        self.detach()
+
+        self.row.refresh_from_db()
+        new = self.row.product
+        self.assertNotIn(new.pk, (self.product.pk, self.other.pk))
+        self.assertEqual((new.number, new.name, new.brand_id), ('SKU-1', 'Смеситель у поставщика', None))
+        self.assertTrue(Product.objects.filter(pk=new.pk, search_vector__isnull=False).exists())
+        self.assertEqual(self.product.main_products.count(), 1)
+
+    def test_same_brand_pair_gives_a_brandless_product(self):
+        brand = Brand.objects.create(name='Grohe')
+        Product.objects.filter(pk=self.product.pk).update(brand=brand)
+        SupplierProduct.objects.create(supplier=self.supplier, article='A1', name='Смеситель',
+                                       main_product=self.row, brand=brand)
+
+        self.detach()
+
+        self.row.refresh_from_db()
+        self.assertNotEqual(self.row.product_id, self.product.pk)
+        self.assertIsNone(self.row.product.brand_id)
+        # Бренд, унаследованный строкой прайса от старого товара, уходит.
+        self.assertIsNone(SupplierProduct.objects.get(main_product=self.row).brand_id)
+
+    def test_own_brand_of_the_price_row_picks_its_product(self):
+        brand = Brand.objects.create(name='Grohe')
+        mine = Product.objects.create(number='sku-1', brand=brand)
+        SupplierProduct.objects.create(supplier=self.supplier, article='A1', name='Смеситель',
+                                       main_product=self.row, brand=brand, brand_name='Grohe')
+
+        self.detach()
+
+        self.row.refresh_from_db()
+        self.assertEqual(self.row.product, mine)
+
+    def test_set_row_is_not_detached(self):
+        set_row = MainProduct.objects.create(product=self.other, is_set=True, sku='SKU-2', name='Набор')
+
+        self.detach(set_row)
+
+        set_row.refresh_from_db()
+        self.assertEqual(set_row.product, self.other)

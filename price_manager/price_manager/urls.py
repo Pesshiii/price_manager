@@ -52,6 +52,8 @@ urlpatterns = [
          name='product-attach-main-product'),
     path('products/main-product/<int:pk>/move/', product_views.MainProductMoveView.as_view(),
          name='main-product-move'),
+    path('products/main-product/<int:pk>/detach/', product_views.MainProductDetachView.as_view(),
+         name='main-product-detach'),
 
     # Бренды: бренды PIM, синонимы написаний поставщиков, очередь несопоставленных.
     path('brands/', brand_views.BrandPage.as_view(), name='brands'),
