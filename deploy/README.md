@@ -28,6 +28,37 @@ main не уйдёт вперёд) и сообщает в Telegram.
 **В чекауте прода нельзя `git clean`:** `media/` (загруженные прайсы) и
 `staticfiles/` лежат внутри него и попадают под gitignore.
 
+**git в чекауте — только от его владельца**, того же пользователя, что в
+`User=` сервиса. Команды ниже написаны так:
+
+```bash
+cd /путь/к/чекауту && OWNER=$(stat -c '%U' .)
+sudo -u "$OWNER" -H git status
+```
+
+Если запустить git от root, в чекауте останутся файлы root, и автодеплой на них
+споткнётся:
+- **в `.git`** — `fetch` упадёт с `Permission denied`, скрипт сразу сообщит в
+  Telegram;
+- **в рабочем дереве** (например, каталог, который git создал при `merge` от root)
+  — `merge` не сможет записать файл. Скрипт вернёт чекаут на прежний коммит и
+  остановится на этом SHA.
+
+Найти такие файлы:
+
+```bash
+sudo find . -path ./price_manager/media -prune -o -path ./price_manager/staticfiles -prune -o ! -user "$OWNER" -print
+```
+
+Вернуть владельца можно ровно этим путям: `sudo chown -R "$OWNER": <пути>`, для
+`.git` — `sudo chown -R "$OWNER": .git`. Весь чекаут так не переписывать:
+`media/` и `staticfiles/` принадлежат пользователю контейнера (uid 1011).
+
+Если `fetch` не проходит по другой причине (сеть, GitHub), скрипт молча
+повторяет попытки. Сообщение приходит, если сбой длится дольше 30 минут
+(`FETCH_ALERT_AFTER` в `/etc/pm-deploy.env`), и ещё одно — когда `fetch` снова
+пройдёт.
+
 ## Подключение (один раз, по порядку)
 
 Порядок важен:
@@ -63,10 +94,10 @@ sudo nginx -t && sudo systemctl reload nginx
 а смена портов пересоздаёт `db` и `redis` (перезапуск Postgres).
 
 ```bash
-git status --short                      # должно быть пусто
+sudo -u "$OWNER" -H git status --short  # должно быть пусто
 docker compose exec -T celery_worker celery -A price_manager inspect active   # задач нет
 # свежий дамп — той же командой, что в cron-задаче бэкапа
-git fetch && git merge --ff-only origin/main
+sudo -u "$OWNER" -H git fetch && sudo -u "$OWNER" -H git merge --ff-only origin/main
 docker compose build && docker compose up -d
 ```
 
@@ -83,8 +114,8 @@ docker compose kill -s HUP web && docker compose logs --since 1m web   # Handlin
 sudo ss -ltnp | grep docker-proxy        # все порты только на 127.0.0.1
 ```
 
-Сайт по домену должен работать как раньше. Откат: `git reset --hard <прежний SHA>`
-и `docker compose up -d`.
+Сайт по домену должен работать как раньше. Откат:
+`sudo -u "$OWNER" -H git reset --hard <прежний SHA>` и `docker compose up -d`.
 
 ### 4. nginx: заголовки
 
@@ -139,7 +170,7 @@ sudo systemctl enable --now pm-deploy.timer
 2. `docker compose exec -T celery_worker celery -A price_manager inspect active` — задач нет.
 3. Свежий дамп.
 4. ```bash
-   git merge --ff-only origin/main
+   sudo -u "$OWNER" -H git fetch && sudo -u "$OWNER" -H git merge --ff-only origin/main
    docker compose stop celery_beat celery_worker celery_worker_pim
    docker compose run --rm --no-deps -T web python manage.py migrate --noinput
    docker compose exec -T web python manage.py collectstatic --noinput
@@ -156,7 +187,7 @@ sudo systemctl enable --now pm-deploy.timer
 
 - **Плохой коммит прошёл все проверки:** revert в GitHub — автодеплой выкатит его
   как обычный коммит. Срочно: `sudo systemctl stop pm-deploy.timer`,
-  `git reset --hard <SHA>`, `docker compose kill -s HUP web`.
+  `sudo -u "$OWNER" -H git reset --hard <SHA>`, `docker compose kill -s HUP web`.
 - **Пауза:** `sudo systemctl stop pm-deploy.timer`; вернуть — `start`.
 - **Журнал:** `journalctl -u pm-deploy -f`.
 - **Снова попробовать пропущенный SHA:** `sudo rm /var/lib/pm-deploy/skipped`.

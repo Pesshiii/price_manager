@@ -19,6 +19,11 @@ STATE_DIR=${STATE_DIRECTORY:-/var/lib/pm-deploy}
 # The SHA that must not be deployed automatically (migrations, a rollback). The
 # timer skips it until main moves on, or until a human deletes the file.
 SKIP_FILE=$STATE_DIR/skipped
+# When the current run of failed fetches began (epoch seconds), and whether the
+# owner has been told about it.
+FETCH_FAILING=$STATE_DIR/fetch-failing
+FETCH_ALERTED=$STATE_DIR/fetch-alerted
+FETCH_ALERT_AFTER=${FETCH_ALERT_AFTER:-1800}
 # db and redis are never touched here: a database restart is never automatic.
 APP_SERVICES=(web celery_worker celery_worker_pim celery_beat)
 
@@ -81,6 +86,33 @@ fail() {
   exit 1
 }
 
+# A failed fetch is retried on the next tick, and a network blip must not send
+# a message every two minutes. But while fetch fails, nothing is ever deployed
+# and nothing else says so. So the owner is told once per run of failures: at
+# once for a permission error, which never heals by itself (git was run in the
+# checkout as another user, usually root, and left files in .git that this user
+# cannot write), otherwise after FETCH_ALERT_AFTER seconds.
+fetch() {
+  local err now
+  if err=$(git fetch -q origin main 2>&1); then
+    if [ -f "$FETCH_ALERTED" ]; then notify "PM: git fetch снова проходит, автодеплой работает."; fi
+    rm -f "$FETCH_FAILING" "$FETCH_ALERTED"
+    return 0
+  fi
+  log "git fetch не прошёл: $err"
+  now=$(date +%s)
+  if [ ! -f "$FETCH_FAILING" ]; then echo "$now" > "$FETCH_FAILING"; fi
+  if [ -f "$FETCH_ALERTED" ]; then return 1; fi
+  if grep -qiE 'permission denied|insufficient permission' <<<"$err"; then
+    touch "$FETCH_ALERTED"
+    notify "PM: автодеплой стоит — у $(id -un) нет прав на запись в $APP_DIR/.git. Похоже, git в чекауте запускали от другого пользователя. Исправление: sudo chown -R $(id -un): $APP_DIR/.git (deploy/README.md)."
+  elif [ $((now - $(cat "$FETCH_FAILING"))) -ge "$FETCH_ALERT_AFTER" ]; then
+    touch "$FETCH_ALERTED"
+    notify "PM: автодеплой стоит — git fetch не проходит с $(date -d "@$(cat "$FETCH_FAILING")" '+%d.%m %H:%M' 2>/dev/null || cat "$FETCH_FAILING"): ${err##*$'\n'}"
+  fi
+  return 1
+}
+
 deployed() {
   log "Выкачен main до $(subject HEAD)$1."
   if [ "${NOTIFY_SUCCESS:-0}" = 1 ]; then notify "PM: выкачен main до $(subject HEAD)$1."; fi
@@ -92,8 +124,7 @@ main() {
   exec 9>"$STATE_DIR/lock"
   if ! flock -n 9; then log "Предыдущий запуск ещё идёт."; exit 0; fi
 
-  # Network trouble is not worth a message every two minutes: the next tick retries.
-  if ! git fetch -q origin main; then log "git fetch не прошёл, попробую в следующий раз."; exit 0; fi
+  if ! fetch; then exit 0; fi
   OLD=$(git rev-parse HEAD)
   NEW=$(git rev-parse origin/main)
   if [ "$OLD" = "$NEW" ]; then exit 0; fi
@@ -118,9 +149,21 @@ main() {
     exit 0
   fi
 
-  if ! git merge -q --ff-only "$NEW"; then
+  # A refused fast-forward usually touches nothing, since git checks for local
+  # edits first. A file or directory it cannot write (one a root-run git left to
+  # root) fails midway instead, after the writable files are already new, and
+  # live through the bind mount. So local edits are refused up front, and a
+  # merge that fails on a clean tree is undone with a hard reset, which then
+  # loses nothing.
+  if [ -n "$(git status --porcelain --untracked-files=no)" ]; then
     echo "$NEW" > "$SKIP_FILE"
-    log "git merge --ff-only не прошёл: в чекауте локальные правки или он разошёлся с main."
+    log "В чекауте локальные правки, ${NEW:0:7} не выкатываю: $(git status --porcelain --untracked-files=no | head -5 | tr '\n' ' ')"
+    exit 1
+  fi
+  if ! git merge -q --ff-only "$NEW"; then
+    git reset -q --hard "$OLD" || log "git reset --hard ${OLD:0:7} тоже не прошёл — чекаут надо проверить руками."
+    echo "$NEW" > "$SKIP_FILE"
+    log "git merge --ff-only не прошёл, чекаут возвращён на ${OLD:0:7}. Обычно это файлы или каталоги, которые принадлежат не $(id -un) (deploy/README.md)."
     exit 1
   fi
 

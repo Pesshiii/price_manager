@@ -46,7 +46,10 @@ and the SHA is skipped. `deploy/README.md` has the procedure and everything it
 never does on its own. The server runs an *installed copy* of the scripts, so
 editing `deploy/` changes nothing there until someone reinstalls it. The CI step
 `deploy/tests/test_pm_deploy.sh` covers each branch of the script; a change to
-the script needs a scenario there.
+the script needs a scenario there. Any server command you hand out runs git in
+the production checkout as its owner (`sudo -u "$OWNER" -H git …`), never as
+root: a root `fetch` leaves root-owned files in `.git`, and autodeploy's next
+fetch fails.
 `docker-compose.yml` publishes every port on `127.0.0.1` only, because ports
 Docker publishes bypass ufw. Keep it that way.
 
