@@ -1,7 +1,8 @@
 {% comment %}
   «Перенести в другой товар»: поиск товара тем же поиском, что на «Товарах»
   (filters.matching_product_pks), и перенос строки ГП в выбранный.
-  Ответ на поиск — только #results (hx-get с ?q=).
+  Ответ на поиск — только #results (hx-get с ?q=). Внизу — «Отвязать в новый
+  товар» (MainProductDetachView); у строки набора его нет.
 {% endcomment %}
 <div class="modal-header">
   <h5 class="modal-title fw-semibold">Перенести строку ГП в другой товар</h5>
@@ -45,4 +46,17 @@
       {% endif %}
     {% endpartialdef %}
   </div>
+  {% if not main_product.is_set %}
+    <hr>
+    <form method="post" class="d-flex align-items-center gap-3"
+          hx-post="{% url 'main-product-detach' main_product.pk %}"
+          hx-target="#modal-container .modal-content" hx-swap="innerHTML"
+          hx-confirm="Отвязать строку ГП в новый товар с артикулом {{ main_product.sku }}?">
+      {% csrf_token %}
+      <p class="small text-body-secondary flex-grow-1 mb-0">
+        Нужного товара нет — отвяжите строку в новый товар с её артикулом и названием.
+      </p>
+      <button type="submit" class="btn btn-sm btn-outline-danger flex-none">Отвязать в новый товар</button>
+    </form>
+  {% endif %}
 </div>

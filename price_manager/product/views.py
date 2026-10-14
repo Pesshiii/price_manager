@@ -2,6 +2,7 @@ import logging
 import os
 
 from django.contrib import messages
+from django.db import transaction
 from django.db.models import OuterRef, Prefetch, Q, Subquery
 from django.http import FileResponse, Http404, HttpResponse, QueryDict
 from django.shortcuts import get_object_or_404, redirect, render
@@ -12,7 +13,7 @@ from django_htmx.http import HttpResponseClientRedirect, HttpResponseClientRefre
 from django_tables2 import SingleTableMixin
 
 from main_product_manager.models import MainProduct
-from main_product_manager.utils import fetch_pim_image
+from main_product_manager.utils import fetch_pim_image, resolve_product, row_brand_id
 from product_price_manager.models import PriceTag
 from supplier_product_manager.models import SupplierProduct
 
@@ -521,3 +522,31 @@ class MainProductMoveView(View):
         target = get_object_or_404(Product, pk=request.POST.get('product'))
         return _relinked(request, main_product, target,
                          f'Строка ГП перенесена в товар «{target.display_name}»')
+
+
+class MainProductDetachView(View):
+    """«Отвязать в новый товар»: строка ГП уходит из своего товара в отдельный.
+
+    Товар — пара (артикул, бренд). Если бренд строки из прайса даёт другую
+    пару, строка встаёт в товар этой пары (resolve_product находит или
+    создаёт). Если пара та же, новый товар создаётся без бренда: товары без
+    бренда с одним артикулом — разные товары. Строку набора не отвязать: её
+    держит её набор (product/services/set_rows).
+    """
+
+    def post(self, request, pk):
+        main_product = get_object_or_404(MainProduct.objects.select_related('product'), pk=pk)
+        if main_product.is_set:
+            messages.error(request, 'Строку набора нельзя отвязать от набора')
+            return HttpResponseClientRefresh()
+        if not main_product.sku or not main_product.sku.strip():
+            messages.error(request, 'У строки ГП нет артикула — новый товар не создать')
+            return HttpResponseClientRefresh()
+        with transaction.atomic():
+            brand_id = row_brand_id(main_product)
+            target = resolve_product(main_product.sku, brand_id, main_product.name) if brand_id else None
+            if target is None or target.pk == main_product.product_id:
+                target = resolve_product(main_product.sku, None, main_product.name)
+            target.rebuild_search_vector()
+            return _relinked(request, main_product, target,
+                             f'Строка ГП отвязана в товар «{target.display_name}»')
