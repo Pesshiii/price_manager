@@ -52,6 +52,13 @@ case "$url" in
 esac
 EOF
 printf '#!/bin/sh\necho "notify $*" >> "$LOG"\n' > "$W/bin/pm-notify"
+# The real git, except that `git fetch` fails with $FAKE_FETCH_ERR when it is set.
+REAL_GIT=$(command -v git)
+cat > "$W/bin/git" <<EOF
+#!/usr/bin/env bash
+if [ "\$1" = fetch ] && [ -n "\${FAKE_FETCH_ERR:-}" ]; then echo "\$FAKE_FETCH_ERR" >&2; exit 1; fi
+exec "$REAL_GIT" "\$@"
+EOF
 REAL_FLOCK=1
 if ! command -v jq >/dev/null; then
   cat > "$W/bin/jq" <<'EOF'
@@ -248,8 +255,29 @@ echo "16. success is reported when NOTIFY_SUCCESS=1"
 run NOTIFY_SUCCESS=1
 expect "rc 0, reported" '[ $RC = 0 ] && has "notify PM: выкачен main до"'
 
+NETWORK_ERR="fatal: unable to access 'https://github.com/Pesshiii/price_manager.git/': Could not resolve host: github.com"
+PERMISSION_ERR="error: cannot update the ref 'refs/remotes/origin/main': unable to append to '.git/logs/refs/remotes/origin/main': Permission denied"
+
+echo "17. fetch keeps failing -> one message after FETCH_ALERT_AFTER, one on recovery"
+run FAKE_FETCH_ERR="$NETWORK_ERR"
+expect "rc 0, failure recorded, nothing said" '[ $RC = 0 ] && [ -f "$W/state/fetch-failing" ] && ! has notify && ! has docker'
+run FAKE_FETCH_ERR="$NETWORK_ERR" FETCH_ALERT_AFTER=0
+expect "reported past the threshold, with the error" 'has "notify PM: автодеплой стоит — git fetch не проходит" && has "Could not resolve host"'
+run FAKE_FETCH_ERR="$NETWORK_ERR" FETCH_ALERT_AFTER=0
+expect "not reported twice" '[ $RC = 0 ] && ! has notify'
+run
+expect "recovery reported, state cleared" 'has "снова проходит" && [ ! -f "$W/state/fetch-failing" ] && [ ! -f "$W/state/fetch-alerted" ]'
+
+echo "18. permission error -> reported at once, with the fix"
+run FAKE_FETCH_ERR="$PERMISSION_ERR"
+expect "rc 0, reported at once" '[ $RC = 0 ] && has "нет прав на запись" && has "chown -R"'
+run FAKE_FETCH_ERR="$PERMISSION_ERR"
+expect "not reported twice" '! has notify'
+run
+expect "recovery reported" 'has "снова проходит"'
+
 if [ "$REAL_FLOCK" = 1 ]; then
-  echo "17. a run while the previous one holds the lock exits quietly"
+  echo "19. a run while the previous one holds the lock exits quietly"
   commit py4 price_manager/app/views.py
   # Held on this shell's own descriptor: the script opens a second one on the
   # same file, so its `flock -n` fails even though it inherits fd 8.
