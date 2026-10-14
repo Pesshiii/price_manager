@@ -123,24 +123,13 @@ EnterWorktree(name: "<N>-<short-slug>")
 That branches from `origin/main` and moves the session into
 `.claude/worktrees/<N>-<short-slug>/`, which makes the `git checkout main && git
 pull` this step used to open with redundant — the base is fresh by construction.
-It generates a branch name, so rename it to the convention:
-
-```bash
-git branch -m fix/<N>-<short-slug>
-```
+The branch is `worktree-<N>-<short-slug>`. Keep that name: it is what every PR in
+this repo uses, and the number in it is enough to walk back to the brief. What
+ties the PR to the issue is `Closes #<N>` in the PR body (§7), not the branch.
 
 A `PreToolUse` hook (`.claude/hooks/guard_branch_switch.py`) asks before a branch
 switch lands in the shared checkout. Treat that prompt as a sign you skipped this
 step, not as a box to tick.
-
-`fix/<N>-<slug>` — the issue number belongs in the branch name. Issue-driven work
-in this repo already uses it (`fix/136-product-price-manager-test-suite` for
-PR #141, `fix/135-remove-retiring-stack-tests` for PR #143). The recent
-`claude/<generated-name>` branches came from sessions that started without an
-issue; do not copy them here, because the number is what lets a later session
-walk from a branch back to its brief.
-
-Use the prefix the work actually is: `fix/`, `test/`, `docs/`, `feat/`.
 
 ## 4. Write the code
 
@@ -219,14 +208,18 @@ Conventional subjects, matching what the log already holds (`fix(product):`,
 
 Commit body on stdin via `git commit -F -`. Include `Closes #<N>` — it is what
 makes the merge close the issue, and it keeps the Telegram audit trail
-(`capture.py`, `tg-summary`) able to walk report → issue → PR. Sign off with the
-`Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>` trailer.
+(`capture.py`, `tg-summary`) able to walk report → issue → PR. End it with the
+`Co-Authored-By` trailer your session's attribution names.
 
 ```bash
 git add -A
 git commit -F <path-to-message-file>
-git push -u origin fix/<N>-<short-slug>
+git push -u origin worktree-<N>-<short-slug>
 ```
+
+Push follow-ups only while the PR is open. Once it has merged, a new commit on
+its branch reaches nothing (the merge was a squash), so put it on a new branch
+from `origin/main`. `.claude/hooks/guard_push_merged.py` asks before such a push.
 
 PR title mirrors the commit subject. Body on stdin with `--body-file -`, never
 `--body "…"` — Russian issue titles are full of quotes and dashes that mangle a
@@ -259,7 +252,7 @@ than polling, and rather than reaching for `/loop` — the pipeline is far short
 than a scheduling loop is worth.
 
 ```bash
-gh run list --branch fix/<N>-<short-slug> --limit 1 --json databaseId --jq '.[0].databaseId'
+gh run list --branch worktree-<N>-<short-slug> --limit 1 --json databaseId --jq '.[0].databaseId'
 gh run watch <run-id> --exit-status
 ```
 
@@ -365,7 +358,11 @@ fails closed. Do not treat that refusal as the gate being broken.
   (Earlier revisions of this section said `main` had no protection. That was
   read from the legacy `branches/main/protection` endpoint, which 404s when
   protection comes from a ruleset. It was wrong.)
-- GitHub, not the workflow, waits for green and performs the merge.
+- GitHub, not the workflow, waits for green and performs the merge — a squash,
+  the only merge method the repository allows.
+- An armed PR merges the moment the check goes green, so arm it only after your
+  last push. A commit pushed later is lost: #199 auto-merged, and its follow-up
+  had to come back as #200.
 - The repo setting **`allow_auto_merge`** is **`true`**, so the gate is live: a
   correctly labelled PR in the class really is armed, and GitHub merges it the
   moment the required check goes green. (The workflow still handles the `false`

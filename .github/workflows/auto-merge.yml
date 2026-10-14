@@ -174,6 +174,8 @@ jobs:
 
           # --- Arm it -----------------------------------------------------------
           # GitHub takes it from here: it waits for the required `Django test
-          # suite` check and merges only when that check is green.
+          # suite` check and merges only when that check is green. `--squash`
+          # because the repository allows squash merges only: `--merge` would
+          # fail here, the moment a PR first qualified.
           echo "ELIGIBLE — arming auto-merge."
-          gh pr merge "$PR" --repo "$REPO" --auto --merge
+          gh pr merge "$PR" --repo "$REPO" --auto --squash

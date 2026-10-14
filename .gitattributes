@@ -1,0 +1,4 @@
+# Shell scripts run on Linux: on the server, in CI, and inside containers that
+# bind-mount a Windows working tree. core.autocrlf=true would check them out
+# with CRLF there, and a CRLF script fails in a Linux shell.
+*.sh text eol=lf
