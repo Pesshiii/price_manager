@@ -188,6 +188,18 @@ class SupplierListViewTests(TestCase):
         names = [row['name'] for row in self._get(sort='sp_total', dir='desc').context['suppliers']]
         self.assertEqual(names, ['Счётчики', 'Пустой'])
 
+    def test_grouped_supplier_query_has_no_subquery(self):
+        """Подзапрос рядом с GROUP BY Postgres считает на каждую строку ГП: на проде — таймаут."""
+        s = _supplier('Без подзапроса')
+        SupplierProduct.objects.create(supplier=s, article='A', name='A')
+        MainProduct.objects.create(supplier=s, article='A', name='A')
+        with CaptureQueriesContext(connection) as ctx:
+            self._get()
+        grouped = [q['sql'] for q in ctx.captured_queries
+                   if 'FROM "supplier_manager_supplier"' in q['sql'] and 'GROUP BY' in q['sql']]
+        self.assertEqual(len(grouped), 1)
+        self.assertEqual(grouped[0].upper().count('SELECT'), 1, grouped[0])
+
     def test_price_cells_link_to_the_suppliers_price_managers(self):
         """Цены строк ГП считают менеджеры цен — ячейка покрытия ведёт к ним."""
         s = _supplier('Покрытие')

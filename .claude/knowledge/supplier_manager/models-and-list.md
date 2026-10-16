@@ -83,13 +83,20 @@ others in sight.
 Rendered by hand from `supplier/partials/list_table_partial.html`
 (`supplier_manager/templates/supplier/list.html` extends `base.html` and
 includes it), not django-tables2 (the unused `SupplierListTable` was
-deleted — no trace of it anywhere in the tree). All per-supplier counts come
-from one annotated query; a test pins the query count so it cannot drift
-back to N+1. Two counters (#186): «В прайсе» is `sp_total`, the supplier's
+deleted — no trace of it anywhere in the tree). The ГП counts come from one
+annotated query; a test pins the query count so it cannot drift back to
+N+1. Two counters (#186): «В прайсе» is `sp_total`, the supplier's
 `SupplierProduct` rows, and «В ГП» is `total`, its `MainProduct` rows. The
-price columns count ГП rows too. `sp_total` is a **subquery** (`views.py:81`),
-not a second `Count`: two `Count`s over two reverse relations in one GROUP BY
-multiply each other's rows. The price columns come from
+price columns count ГП rows too. **`sp_total` is a separate grouped query**
+(`sp_totals`, `views.py:84`), never part of the supplier annotation:
+- A second `Count` over another reverse relation in the same GROUP BY
+  multiplies each other's rows.
+- A correlated `Subquery` annotation is worse. Django puts it into the GROUP BY
+  (`GROUP BY id, 19`), so Postgres evaluates it for every joined ГП row before
+  grouping. Shipped in #283, it timed out `/supplier/` in production the same
+  day (gunicorn killed the worker).
+
+`test_grouped_supplier_query_has_no_subquery` pins it. The price columns come from
 `Count('main_products', filter=…)` per price field (`views.py:72`). They are driven by `PRICE_COLUMNS` in `views.py:44`
 for both header and cells — they used to be written out separately and had
 silently drifted into different orders. Current columns/labels:
