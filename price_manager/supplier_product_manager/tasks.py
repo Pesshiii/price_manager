@@ -130,8 +130,12 @@ def _hold_for_confirmation(run, setting, supplier_file, user_id, stats, verdict)
 
 
 def import_confirmation_link(run: ImportRun) -> str:
-    """Страница поставщика, которая сразу открывает окно подтверждения этого импорта."""
-    return f"{reverse('supplier-detail', kwargs={'pk': run.supplier_id})}?import_run={run.pk}#settings"
+    """«Загрузка прайсов», которая сразу открывает окно подтверждения этого импорта.
+
+    Карточка поставщика тоже понимает ?import_run=: подтверждения не истекают,
+    и созданные раньше ведут туда.
+    """
+    return f"{reverse('supplier-bulk-upload')}?import_run={run.pk}#bulk-row-{run.supplier_id}"
 
 
 @shared_task

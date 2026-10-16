@@ -7,9 +7,12 @@
 {% block body %}
 <div class="container container-fluid mt-4 mb-5">
   <div class="container d-flex gap-4">
-    <h1 class="mb-4">
-      {{supplier.name}}
-    </h1>
+    <div class="mb-4">
+      <h1 class="mb-1">
+        {{supplier.name}}
+      </h1>
+      {% include 'supplier/partials/update_badges.html' with badges=update_badges %}
+    </div>
     <div class="container">
       <button type="button"
               class="btn btn-lg btn-success"

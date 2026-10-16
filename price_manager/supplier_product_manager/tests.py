@@ -1301,7 +1301,8 @@ class ImportGuardTests(TestCase):
         notification = PersistentNotification.objects.get(user=self.user)
         self.assertEqual(notification.level, "warning")
         self.assertIn("история ещё копится (2 из 3)", notification.message)
-        self.assertEqual(notification.link, f"/supplier/{self.supplier.pk}/?import_run={run.pk}#settings")
+        self.assertEqual(notification.link,
+                         f"/supplier/bulk-upload/?import_run={run.pk}#bulk-row-{self.supplier.pk}")
 
     def test_usual_file_is_applied(self):
         self._history((2, 2), (2, 2), (2, 2))
@@ -1524,7 +1525,24 @@ class ImportGuardTests(TestCase):
         self.assertContains(response, "уже обработан: отменён")
         self.assertNotContains(response, reverse("import-run-apply", kwargs={"pk": run.pk}))
 
-    def test_notification_link_opens_the_dialog_only_while_pending(self):
+    def test_notification_link_opens_the_dialog_with_row_buttons_only_while_pending(self):
+        run = self._pending_run()
+        url = PersistentNotification.objects.get(user=self.user).link
+
+        response = self.client.get(url)
+
+        confirm_url = f"{reverse('import-run-confirm', kwargs={'pk': run.pk})}?row={self.supplier.pk}"
+        self.assertEqual(response.context["import_confirm_url"], confirm_url)
+        self.assertContains(response, f'id="bulk-row-{self.supplier.pk}"')
+        # The dialog opened with ?row= answers with the bulk row, not a reload.
+        dialog = self.client.get(confirm_url)
+        self.assertContains(dialog, reverse("supplier-bulk-upload-apply",
+                                            kwargs={"pk": self.supplier.pk, "run_pk": run.pk}))
+        ImportRun.objects.filter(pk=run.pk).update(status=ImportRun.STATUS_APPLIED)
+        self.assertNotIn("import_confirm_url", self.client.get(url).context)
+
+    def test_old_notification_link_to_the_card_still_opens_the_dialog(self):
+        """Подтверждения не истекают: созданные до переезда ведут в карточку."""
         run = self._pending_run()
         url = f"{reverse('supplier-detail', kwargs={'pk': self.supplier.pk})}?import_run={run.pk}"
 
@@ -2631,7 +2649,7 @@ class HasHeaderTests(_SupplierFixtureMixin, TestCase):
 
 
 class BulkUploadTests(_SupplierFixtureMixin, TestCase):
-    """«Массовая загрузка»: строка на поставщика, файл — сразу в очередь, статус в строке."""
+    """«Загрузка прайсов»: строка на поставщика, файл — сразу в очередь, статус в строке."""
 
     def setUp(self):
         _block_pim(self)
@@ -2670,6 +2688,19 @@ class BulkUploadTests(_SupplierFixtureMixin, TestCase):
         names = [row["supplier"].name for row in response.context["rows"]
                  if not row["supplier"].is_own_stock]
         self.assertEqual(names, [stale.name, self.supplier.name, never.name])
+
+    def test_row_shows_price_and_stock_freshness(self):
+        """Свежесть живёт здесь, а не в списке поставщиков: бейдж на цены и на остатки."""
+        self.supplier.price_update_days = 7
+        self.supplier.save()
+
+        response = self.client.get(reverse("supplier-bulk-upload"))
+
+        row = next(row for row in response.context["rows"] if row["supplier"] == self.supplier)
+        self.assertEqual([b["status"] for b in row["badges"]], ["never", "untracked"])
+        self.assertTrue(row["overdue"])
+        self.assertContains(response, "supplier-status-never")
+        self.assertContains(response, "Не обновлялось · интервал 1 нед.")
 
     def test_default_setting_is_the_last_applied_then_the_newest(self):
         applied = self._setting("Применялась")

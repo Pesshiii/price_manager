@@ -24,10 +24,10 @@ from django.forms import modelform_factory
 from typing import Optional, Any, Dict, Iterable
 from collections import defaultdict, OrderedDict
 from datetime import datetime, timezone as dt_timezone
-from django.db.models import Count, Prefetch
+from django.db.models import Count, OuterRef, Prefetch, Subquery
 from django_tables2 import SingleTableView, RequestConfig, SingleTableMixin
 from django.db.models import Q, F, ExpressionWrapper, BooleanField, DurationField, Value, Case, When
-from django.db.models.functions import Greatest, ExtractDay
+from django.db.models.functions import Coalesce, Greatest, ExtractDay
 
 
 from dal import autocomplete
@@ -48,27 +48,17 @@ PRICE_COLUMNS = [
   ('wholesale_price', 'Оптовая цена'),
 ]
 
-UPDATE_KINDS = [('price', 'Цены'), ('stock', 'Остатки')]
-
-
-def _status_title(supplier, kind, status):
-  if status == 'untracked':
-    return 'Интервал обновления не задан'
-  interval = format_interval(getattr(supplier, f'{kind}_update_days'))
-  if status == 'never':
-    return f'Не обновлялось · интервал {interval}'
-  updated_at = timezone.localtime(getattr(supplier, f'{kind}_updated_at'))
-  return f'Обновлено {updated_at:%d.%m.%Y %H:%M} · интервал {interval}'
-
-
 class SupplierList(TemplateView):
-  '''Список поставщиков на <<supplier/>>'''
+  '''Список поставщиков на <<supplier/>>: уровни и покрытие строк ГП ценами.
+
+  Свежесть прайсов и загрузка — на «Загрузке прайсов» (supplier-bulk-upload),
+  всё про одного поставщика — в его карточке.
+  '''
   template_name = 'supplier/list.html'
 
-  SORT_FIELDS = {'name', 'total', *PRIORITY_FIELDS, *(key for key, _ in PRICE_COLUMNS)}
+  SORT_FIELDS = {'name', 'total', 'sp_total', *PRIORITY_FIELDS, *(key for key, _ in PRICE_COLUMNS)}
 
   def get_context_data(self, **kwargs) -> dict[str, Any]:
-    now = timezone.now()
     context = super().get_context_data(**kwargs)
     sort_by = self.request.GET.get('sort', 'name')
     direction = self.request.GET.get('dir', 'asc')
@@ -86,13 +76,17 @@ class SupplierList(TemplateView):
       )
       for key, _ in PRICE_COLUMNS
     }
-    queryset = Supplier.objects.annotate(total=Count('main_products'), **missing)
+    # Строки прайса — подзапросом: второй Count по другой связи в том же
+    # GROUP BY перемножил бы строки ГП на строки прайса.
+    sp_total = (SupplierProduct.objects.filter(supplier=OuterRef('pk')).order_by()
+                .values('supplier').annotate(n=Count('pk')).values('n'))
+    queryset = Supplier.objects.annotate(
+      total=Count('main_products'),
+      sp_total=Coalesce(Subquery(sp_total), 0),
+      **missing,
+    )
 
     def get_row(obj):
-      statuses = []
-      for kind, label in UPDATE_KINDS:
-        status = obj.update_status(kind, now=now)
-        statuses.append({'label': label, 'status': status, 'title': _status_title(obj, kind, status)})
       prices = []
       for key, label in PRICE_COLUMNS:
         n_missing = getattr(obj, f'{key}_missing')
@@ -106,7 +100,7 @@ class SupplierList(TemplateView):
         'name': obj.name,
         'is_own_stock': obj.is_own_stock,
         'total': obj.total,
-        'statuses': statuses,
+        'sp_total': obj.sp_total,
         'price_priority': obj.price_priority,
         'stock_priority': obj.stock_priority,
         'prices': prices,

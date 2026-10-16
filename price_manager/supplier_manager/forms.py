@@ -62,9 +62,10 @@ class SupplierForm(forms.ModelForm):
       'stock_update_days',
       'msg_available',
       'msg_navailable',
-      'price_priority',
-      'stock_priority',
     ]
+    # Уровни (price_priority/stock_priority) здесь нет: они имеют смысл только
+    # рядом с уровнями других поставщиков и правятся в ячейке списка
+    # (SupplierPriorityUpdate).
     help_texts = {
       'price_update_days': 'Пусто — не отслеживать.',
       'stock_update_days': 'Пусто — не отслеживать.',
@@ -129,11 +130,7 @@ class SupplierForm(forms.ModelForm):
         css_class='row mb-4'
       ),
       HTML('<hr class="my-4 border-secondary col-8">'),
-      Div(
-        Div('price_priority', css_class='col-4'),
-        Div('stock_priority', css_class='col-4'),
-        css_class='row',
-      ),
-      HTML('<hr class="my-4 border-secondary col-8">'),
+      HTML('<p class="text-muted small col-8">Уровни по ценам и остаткам задаются в '
+           '<a href="{% url \'supplier\' %}">списке поставщиков</a> — рядом с уровнями остальных.</p>'),
       Submit('action', 'Сохранить', title="Поиск", css_class='btn btn-primary col-5 mt-4 btn-lg')
     )

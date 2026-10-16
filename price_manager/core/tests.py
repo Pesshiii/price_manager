@@ -966,3 +966,15 @@ class AddSetToCartTests(TestCase):
             frame = pd.read_excel(BytesIO(fh.read()))
         self.assertEqual(list(frame.columns)[-1], 'Набор')
         self.assertEqual(set(frame['Набор']), {'KIT-1 — Стеллаж'})
+
+
+class NavbarSupplierMenuTests(TestCase):
+    """«Поставщики» в шапке — выпадающий список: список поставщиков и загрузка прайсов."""
+
+    def test_both_supplier_pages_are_in_the_dropdown(self):
+        self.client.force_login(User.objects.create_user(username='navbar', password='pw'))
+        html = self.client.get(reverse('release-list')).content.decode()
+        menu = html.split('dropdown-toggle', 1)[1].split('</ul>', 1)[0]
+        self.assertIn('Поставщики', menu)
+        self.assertIn(f'href="{reverse("supplier")}"', menu)
+        self.assertIn(f'href="{reverse("supplier-bulk-upload")}"', menu)

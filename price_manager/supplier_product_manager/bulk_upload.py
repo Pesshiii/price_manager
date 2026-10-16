@@ -1,4 +1,8 @@
-"""«Массовая загрузка» прайсов: все поставщики на одной странице << supplier/bulk-upload/ >>.
+"""«Загрузка прайсов»: все поставщики на одной странице << supplier/bulk-upload/ >>.
+
+Единственное место, где видно, кого пора обновить: свежесть цен и остатков,
+загрузка файла и подтверждение импорта. Сюда ведёт уведомление «ждёт
+подтверждения» (?import_run=<pk>).
 
 Строка на поставщика: настройка (по умолчанию — та, что применялась последней),
 зона для файла и статус импорта. Файл, брошенный в строку, сразу сохраняется
@@ -151,7 +155,7 @@ def build_rows(suppliers, selected=None, upload_errors=None):
     if choice not in setting_ids:
       choice = max(setting_ids) if setting_ids else None
 
-    statuses = [supplier.update_status(kind, now=now) for kind in ('price', 'stock')]
+    badges = supplier.update_badges(now=now)
     state = jobs[0]['state'] if jobs else IDLE
     rows.append({
       'supplier': supplier,
@@ -163,7 +167,8 @@ def build_rows(suppliers, selected=None, upload_errors=None):
       'state': state,
       'states': {j['state'] for j in jobs},
       'poll': any(j['state'] in ACTIVE_STATES for j in jobs),
-      'overdue': any(s in ('overdue', 'never') for s in statuses),
+      'badges': badges,
+      'overdue': any(b['status'] in ('overdue', 'never') for b in badges),
       'updated_at': supplier.last_update,
       'updated_label': updated_label(supplier.last_update, now),
       'applied_today': any(j['state'] == APPLIED and j['finished_at']
@@ -194,6 +199,15 @@ class BulkUploadView(TemplateView):
     context = super().get_context_data(**kwargs)
     context['rows'] = build_rows(_suppliers())
     context['filters'] = FILTERS
+    # ?import_run=<pk> — link from the «ждёт подтверждения» notification: open
+    # the dialog with the row's buttons, but only while the run is pending, so
+    # the link of a run already processed just opens the page.
+    run_pk = self.request.GET.get('import_run', '')
+    run = (ImportRun.objects.filter(pk=run_pk, status=ImportRun.STATUS_NEEDS_CONFIRMATION).first()
+           if run_pk.isdigit() else None)
+    if run is not None:
+      context['import_confirm_url'] = (
+        f"{reverse('import-run-confirm', kwargs={'pk': run.pk})}?row={run.supplier_id}")
     return context
 
 
