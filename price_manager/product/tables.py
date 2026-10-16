@@ -27,6 +27,23 @@ def in_sets_label(count):
     return f'в {count} наборе' if count % 10 == 1 and count % 100 != 11 else f'в {count} наборах'
 
 
+def suppliers_label(count):
+    """«1 поставщик», «3 поставщика», «5 поставщиков»; ноль — «Нет поставщиков»."""
+    if not count:
+        return 'Нет поставщиков'
+    if count % 10 == 1 and count % 100 != 11:
+        return f'{count} поставщик'
+    if 2 <= count % 10 <= 4 and not 12 <= count % 100 <= 14:
+        return f'{count} поставщика'
+    return f'{count} поставщиков'
+
+
+def meta_names(product):
+    """Бренд и категории товара — строка под названием и в таблице, и в карточке."""
+    names = [product.brand.name] if product.brand else []
+    return names + [category.name for category in product.categories.all()]
+
+
 def set_cost_html(totals):
     """Себестоимость набора из комплектующих — с пометкой, если она неполная.
 
@@ -211,6 +228,21 @@ def with_category_headers(rows):
     return result
 
 
+def card_groups(product_rows):
+    """Пары (заголовок, строка) из product_rows — группами для режима карточек.
+
+    [(заголовок или None, [строка, …]), …]: у каждой группы своя сетка, и
+    заголовок категории стоит над ней во всю ширину, а не карточкой в ряду.
+    Без группировки (выбрана сортировка) — одна группа без заголовка.
+    """
+    groups = []
+    for header, row in product_rows:
+        if header is not None or not groups:
+            groups.append((header, []))
+        groups[-1][1].append(row)
+    return groups
+
+
 class ProductTable(tables.Table):
     """Товарная таблица: строка — Product, поставщики раскрываются под ней."""
 
@@ -305,8 +337,7 @@ class ProductTable(tables.Table):
         ProductPage.get_context_data (attach_set_info); без него — как у
         обычного товара.
         """
-        meta = [record.brand.name] if record.brand else []
-        meta += [category.name for category in record.categories.all()]
+        meta = meta_names(record)
         parts = [format_html('{}', ' · '.join(meta))] if meta else []
         if getattr(record, 'set_totals', None):
             parts.insert(0, format_html('<span class="badge product-set-badge">Набор</span>'))
@@ -396,6 +427,45 @@ class ProductTable(tables.Table):
     def render_pim_status(self, record):
         return (record.raw_data or {}).get('status') or '—'
 
+    # --- режим карточек -------------------------------------------------------
+
+    CARD_EXTRAS = ('tags', 'ean', 'pim_status')
+
+    def card(self, record):
+        """Данные карточки товара (product/partials/product_card.html).
+
+        Карточка — другой вид той же строки, поэтому значения берутся теми же
+        render_*, что и ячейки: артикул с резервом от поставщика,
+        себестоимость с подсказкой «из компл.» у набора. Фото — всегда, это
+        смысл режима; теги, EAN и статус в PIM — если выбраны в колонках и не
+        пусты. set_totals и in_sets_count навешивает attach_set_info
+        (ProductPage.get_context_data) до вызова.
+        """
+        from .services.photos import product_photos
+
+        photos = product_photos(record)
+        in_sets = getattr(record, 'in_sets_count', 0)
+        extras = []
+        for key in self.CARD_EXTRAS:
+            if not self.columns[key].visible:
+                continue
+            value = getattr(self, f'render_{key}')(record)
+            if value != '—':
+                extras.append((COLUMN_LABELS[key], value))
+        return {
+            'record': record,
+            'photo': photos[0] if photos else None,
+            'photo_count': len(photos),
+            'meta': ' · '.join(meta_names(record)),
+            'is_set': bool(getattr(record, 'set_totals', None)),
+            'in_sets_label': in_sets_label(in_sets) if in_sets else '',
+            'number': self.render_number(record.number, record),
+            'cost': self.render_prime_cost_range(record),
+            'stock': getattr(record, 'main_stock', None),
+            'suppliers_label': suppliers_label(getattr(record, 'supplier_count', 0)),
+            'extras': extras,
+        }
+
 
 class SupplierRowTable(tables.Table):
     """Строки поставщиков под товаром — то, чем была вся таблица старой главной.
@@ -478,3 +548,45 @@ class SupplierRowTable(tables.Table):
         # составу (MainProduct.get_delivery_days).
         days = record.get_delivery_days()
         return '' if days is None else days
+
+
+def _money_or_dash(value):
+    if value is None:
+        return format_html('<span class="text-body-tertiary">{}</span>', '—')
+    return _money(value)
+
+
+def compact_supplier_rows(main_products, price_key=None):
+    """Строки ГП товара для выпадающего списка в карточке (режим карточек).
+
+    Та же трактовка, что у SupplierRowTable, только ужатая до строки: остаток
+    NULL — «нет данных», 0 — «нет в наличии» (сообщение поставщика — в
+    подсказке), срок — MainProduct.get_delivery_days(). price_key — колонка
+    цены из columns.card_price_column; без неё вторая цена не показывается.
+    """
+    rows = []
+    for record in main_products:
+        supplier = record.supplier
+        if record.stock is None:
+            state, text, hint = 'none', NO_STOCK_DATA.lower(), ''
+        elif record.stock > 0:
+            state, text = 'in', f'{record.stock} шт'
+            hint = supplier.msg_available if supplier else ''
+        else:
+            state, text = 'out', 'нет в наличии'
+            hint = supplier.msg_navailable if supplier else ''
+        if supplier:
+            name = supplier.name
+        else:
+            name = 'Набор' if record.is_set else '—'
+        rows.append({
+            'record': record,
+            'name': name,
+            'stock_state': state,
+            'stock_text': text,
+            'stock_hint': hint or '',
+            'delivery_days': record.get_delivery_days(),
+            'cost': _money_or_dash(record.prime_cost),
+            'price': _money_or_dash(getattr(record, price_key)) if price_key else None,
+        })
+    return rows

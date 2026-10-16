@@ -17,7 +17,10 @@ from main_product_manager.utils import fetch_pim_image, resolve_product, row_bra
 from product_price_manager.models import PriceTag
 from supplier_product_manager.models import SupplierProduct
 
-from .columns import PRODUCT_COLUMN_GROUPS, load_columns, save_columns
+from .columns import (
+    COLUMN_LABELS, PRODUCT_COLUMN_GROUPS, VIEW_CARDS, card_price_column, load_columns,
+    load_view_mode, save_columns, save_view_mode,
+)
 from .filters import CATEGORY_LABEL_DEPTH, ProductFilter, matching_product_pks, ranked, search_terms
 from .forms import ProductForm
 from .models import Category, Product, ProductExport
@@ -30,8 +33,8 @@ from .services.photos import product_photos
 from .set_costs import attach_set_info, set_totals_for
 from .tasks import export_products_task
 from .tables import (
-    ProductTable, SupplierRowTable, annotate_product_rows, best_match_groups_first,
-    category_path, primary_category, with_category_headers,
+    ProductTable, SupplierRowTable, annotate_product_rows, best_match_groups_first, card_groups,
+    category_path, compact_supplier_rows, primary_category, with_category_headers,
 )
 
 logger = logging.getLogger(__name__)
@@ -39,6 +42,19 @@ logger = logging.getLogger(__name__)
 # Событие «выдача товаров сменилась»; его слушает #product-facets-refresh
 # в product/list.html.
 PRODUCTS_UPDATED_EVENT = 'products-updated'
+
+CARDS_PER_PAGE = 24
+
+# Сортировка в режиме карточек: (значение sort, подпись). Пустое — порядок по
+# умолчанию, по категориям (ProductPage.groups_by_category).
+CARD_SORT_OPTIONS = [
+    ('', 'По категориям'),
+    ('number', 'Артикул, А→Я'),
+    ('-number', 'Артикул, Я→А'),
+    ('-supplier_count', 'Больше поставщиков'),
+    ('-main_stock', 'Больше остаток'),
+    ('main_stock', 'Меньше остаток'),
+]
 
 
 def _base_queryset(by_category=False):
@@ -163,6 +179,26 @@ class ProductPage(SingleTableMixin, FilterView):
                 self._selected_columns = load_columns(self.request.user)
         return self._selected_columns
 
+    def view_mode(self):
+        """Таблица или карточки: из запроса — сохраняется, иначе — сохранённый.
+
+        view= шлёт только переключатель вида; поиск, фильтр и выбор колонок
+        его не несут и получают сохранённый (см. product/columns.py).
+        """
+        if not hasattr(self, '_view_mode'):
+            if 'view' in self.request.GET:
+                self._view_mode = save_view_mode(self.request.user, self.request.GET['view'])
+            else:
+                self._view_mode = load_view_mode(self.request.user)
+        return self._view_mode
+
+    def get_table_pagination(self, table):
+        """В карточках — 24 на страницу: ровные ряды по 2, 3 и 4."""
+        pagination = super().get_table_pagination(table)
+        if self.view_mode() == VIEW_CARDS and isinstance(pagination, dict):
+            pagination = {**pagination, 'per_page': CARDS_PER_PAGE}
+        return pagination
+
     def get_table_kwargs(self):
         kwargs = super().get_table_kwargs()
         kwargs['request'] = self.request
@@ -191,6 +227,16 @@ class ProductPage(SingleTableMixin, FilterView):
         # Наборы и компоненты — только для показанных строк; ячейки таблицы
         # отрисовываются в шаблоне позже и читают навешенное здесь.
         attach_set_info(row.record for _, row in context['product_rows'])
+        context['view_mode'] = self.view_mode()
+        if self.view_mode() == VIEW_CARDS:
+            context['card_groups'] = [
+                (header, [table.card(row.record) for row in rows])
+                for header, rows in card_groups(context['product_rows'])
+            ]
+            # У карточек нет шапки со ссылками сортировки — она в списке над
+            # выдачей. Значения — те же order_by, что у ссылок в шапке таблицы.
+            context['card_sort_options'] = CARD_SORT_OPTIONS
+            context['card_sort'] = self.request.GET.get(table.prefixed_order_by_field, '')
         return context
 
 
@@ -241,6 +287,8 @@ class ProductSuppliersView(View):
             .order_by('-is_set', 'supplier__name', 'article')
         )
         set_totals = set_totals_for([product.pk]).get(product.pk)
+        if request.GET.get('compact'):
+            return self.compact(request, product, main_products, set_totals)
         table = SupplierRowTable(main_products, request=request,
                                  selected_columns=load_columns(request.user))
         # render_table передаёт шаблону таблицы только её саму.
@@ -253,6 +301,23 @@ class ProductSuppliersView(View):
             # из отдельной строки «Из комплектующих».
             'set_totals': set_totals,
             'has_set_row': any(row.is_set for row in main_products),
+        })
+
+    def compact(self, request, product, main_products, set_totals):
+        """Выпадающий список поставщиков в карточке товара (режим карточек).
+
+        Ширина карточки вмещает себестоимость и одну цену, а не все выбранные
+        колонки: цена — первая выбранная (card_price_column), полная таблица —
+        в карточке товара. У набора — строка «разложить в заявку» с итогами
+        состава, есть у него своя строка ГП или нет: раскрывать состав в
+        списке шириной с карточку негде.
+        """
+        price_key = card_price_column(load_columns(request.user))
+        return render(request, 'product/partials/suppliers_compact.html', {
+            'product': product,
+            'rows': compact_supplier_rows(main_products, price_key),
+            'price_label': COLUMN_LABELS[price_key] if price_key else '',
+            'set_totals': set_totals,
         })
 
 

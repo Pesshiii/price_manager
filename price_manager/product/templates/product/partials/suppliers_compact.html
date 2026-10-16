@@ -1,0 +1,47 @@
+{% comment %}
+  Поставщики в выпадающем списке карточки (режим карточек) —
+  ProductSuppliersView.compact. Строка на поставщика: название (карточка
+  строки ГП), себестоимость, «В заявку»; ниже — остаток, срок и одна цена,
+  первая выбранная в «Столбцах» (price_label пуст — не выбрана ни одна).
+  Остальное — в карточке товара и в табличном режиме.
+
+  Набор — строкой итогов состава с кнопкой «разложить в заявку» сверху
+  (set_figures.html, тот же, что в таблице), есть у него своя строка ГП или нет.
+{% endcomment %}
+{% if set_totals %}
+  <div class="product-card-set">
+    {% include 'product/partials/set_figures.html' %}
+  </div>
+{% endif %}
+{% for row in rows %}
+  <div class="product-card-supplier">
+    <a class="product-card-supplier-name" href="{% url 'mainproduct-info' row.record.pk %}"
+       title="Карточка строки ГП">{{ row.name }}</a>
+    <span class="product-card-supplier-cost">{{ row.cost }}</span>
+    <div class="product-card-supplier-cart">{% include 'main/product/actions.html' with record=row.record %}</div>
+    <span class="product-card-supplier-sub">
+      <span class="product-card-stock is-{{ row.stock_state }}"{% if row.stock_hint %} title="{{ row.stock_hint }}"{% endif %}>
+        {% if row.stock_state != 'none' %}<span class="product-card-dot" aria-hidden="true"></span>{% endif %}
+        {{ row.stock_text }}
+      </span>
+      {% if row.delivery_days is not None %}<span>{{ row.delivery_days }} дн.</span>{% endif %}
+    </span>
+    {% if row.price is not None %}<span class="product-card-supplier-price">{{ row.price }}</span>{% endif %}
+  </div>
+{% empty %}
+  {% if not set_totals %}
+    <div class="product-card-supplier-empty">
+      <span>Строк ГП нет</span>
+      <button type="button" class="btn btn-sm btn-outline-primary"
+              data-bs-toggle="modal" data-bs-target="#modal-container"
+              hx-get="{% url 'mainproduct-create' %}?product={{ product.pk }}"
+              hx-target="#modal-container .modal-content" hx-swap="innerHTML">
+        <i class="bi bi-plus-lg" aria-hidden="true"></i> Добавить строку ГП
+      </button>
+    </div>
+  {% endif %}
+{% endfor %}
+<div class="product-card-suppliers-foot">
+  <span>Себестоимость{% if price_label %} · {{ price_label }}{% endif %}</span>
+  <a href="{% url 'product-detail' product.pk %}">Карточка товара <i class="bi bi-arrow-up-right" aria-hidden="true"></i></a>
+</div>

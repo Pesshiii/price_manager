@@ -1,0 +1,25 @@
+{% comment %}
+  Режим карточек: та же страница выдачи, что и таблица, сеткой.
+
+  card_groups — (заголовок категории или None, [данные карточки, …])
+  (ProductPage.get_context_data, tables.card_groups). У каждой группы своя
+  сетка, а заголовок — над ней во всю ширину: в одной общей сетке он встал бы
+  карточкой в ряд. При сортировке группа одна и без заголовка.
+{% endcomment %}
+<div class="products-cards-view">
+  {% for header, cards in card_groups %}
+    {% if header %}
+      <div class="product-group-path products-card-group">
+        {% for name in header %}
+          {% if not forloop.first %}<i class="bi bi-chevron-right" aria-hidden="true"></i>{% endif %}
+          <span>{{ name }}</span>
+        {% endfor %}
+      </div>
+    {% endif %}
+    <div class="products-cards">
+      {% for card in cards %}
+        {% include 'product/partials/product_card.html' %}
+      {% endfor %}
+    </div>
+  {% endfor %}
+</div>

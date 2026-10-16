@@ -1,0 +1,77 @@
+{% comment %}
+  Карточка товара в режиме карточек. card — ProductTable.card(record): те же
+  значения, что в строке таблицы.
+
+  Поставщики — выпадающий список Bootstrap, продолжающий карточку вниз поверх
+  соседних карточек; сетка при этом не сдвигается. Кнопка и меню — прямые
+  дети карточки: data-bs-reference="parent" ставит меню по краю всей
+  карточки, а не кнопки, и при нехватке места снизу Popper раскрывает его
+  вверх. Содержимое догружается при открытии (скрипт в product/list.html) из
+  product-suppliers?compact=1 и сбрасывается при закрытии — как раскрытие
+  строки в таблице, чтобы цены были свежими.
+
+  Без id внутри: карточек на странице 24, а разметка одна.
+{% endcomment %}
+{% with product=card.record %}
+  <article class="product-card" data-product-pk="{{ product.pk }}">
+    <a class="product-card-photo{% if not card.photo %} is-empty{% endif %}"
+       href="{% url 'product-detail' product.pk %}" tabindex="-1" aria-hidden="true">
+      {% if card.photo %}
+        <img src="{{ card.photo.src }}" data-fallback-src="{{ card.photo.fallback }}" alt="" loading="lazy">
+      {% else %}
+        <i class="bi bi-image" aria-hidden="true"></i>
+        <span>Нет фото</span>
+      {% endif %}
+      {% if card.is_set %}<span class="badge product-set-badge">Набор</span>{% endif %}
+      {% if card.photo_count > 1 %}
+        <span class="product-card-photo-count" title="Фото: {{ card.photo_count }}">
+          <i class="bi bi-images" aria-hidden="true"></i> {{ card.photo_count }}
+        </span>
+      {% endif %}
+    </a>
+
+    <div class="product-card-body">
+      {% if card.meta %}<div class="product-card-meta" title="{{ card.meta }}">{{ card.meta }}</div>{% endif %}
+      <a class="product-card-name" href="{% url 'product-detail' product.pk %}" title="{{ product.display_name }}">
+        {{ product.display_name }}
+      </a>
+      <div class="product-card-line">
+        <span class="product-card-number">{{ card.number }}</span>
+        {% if card.in_sets_label %}
+          <a class="product-in-sets" href="{% url 'products' %}?contains={{ product.pk }}">{{ card.in_sets_label }}</a>
+        {% endif %}
+      </div>
+      {% for label, value in card.extras %}
+        <div class="product-card-extra" title="{{ label }}: {{ value }}"><span>{{ label }}:</span> {{ value }}</div>
+      {% endfor %}
+      <div class="product-card-figures">
+        <div class="product-card-label">Себестоимость</div>
+        <div class="product-card-cost">{{ card.cost }}</div>
+        {% if card.stock is None %}
+          <span class="product-card-stock is-none"><i class="bi bi-question-circle" aria-hidden="true"></i> Нет данных</span>
+        {% elif card.stock > 0 %}
+          <span class="product-card-stock is-in"><span class="product-card-dot" aria-hidden="true"></span> Остаток {{ card.stock }}</span>
+        {% else %}
+          <span class="product-card-stock is-out"><span class="product-card-dot" aria-hidden="true"></span> Нет в наличии</span>
+        {% endif %}
+      </div>
+    </div>
+
+    <button type="button" class="product-card-toggle"
+            data-bs-toggle="dropdown"
+            data-bs-reference="parent"
+            data-bs-auto-close="outside"
+            data-bs-offset="0,0"
+            data-suppliers-url="{% url 'product-suppliers' product.pk %}?compact=1"
+            aria-expanded="false"
+            aria-label="{{ card.suppliers_label }}: «{{ product.display_name }}»">
+      <span><i class="bi bi-truck" aria-hidden="true"></i> {{ card.suppliers_label }}</span>
+      <i class="bi bi-chevron-down product-card-chevron" aria-hidden="true"></i>
+    </button>
+    <div class="dropdown-menu product-card-suppliers">
+      <div class="product-card-suppliers-loading">
+        <span class="spinner-border spinner-border-sm" aria-hidden="true"></span> Загружаю поставщиков…
+      </div>
+    </div>
+  </article>
+{% endwith %}

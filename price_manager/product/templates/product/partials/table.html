@@ -18,7 +18,12 @@
 
   «Сбросить сортировку» — единственный путь назад к порядку по умолчанию:
   ссылки в шапке django-tables2 только переключают направление и сортировку
-  не снимают.
+  не снимают. В режиме карточек шапки нет, и сортировка — список над выдачей,
+  где порядок по умолчанию — первый пункт.
+
+  Режим карточек (view_mode, ProductPage.view_mode) рисует ту же страницу
+  выдачи сеткой — product/partials/cards.html. Обёртка #products-table общая:
+  в неё целятся поиск, фильтр, выбор колонок, переключатель вида и сортировка.
 {% endcomment %}
 <div id="products-table">
   <div class="products-resultbar">
@@ -27,16 +32,43 @@
         Показаны <strong>{{ table.page.start_index|floatformat:"g" }}–{{ table.page.end_index|floatformat:"g" }}</strong>
         из <strong>{{ table.paginator.count|floatformat:"g" }}</strong>
       {% endif %}
-      {% if table.order_by %}
+      {% if table.order_by and view_mode != 'cards' %}
         <a class="products-sort-reset" href="{% querystring without table.prefixed_order_by_field table.prefixed_page_field %}">
           <i class="bi bi-x-lg" aria-hidden="true"></i> Сбросить сортировку
         </a>
       {% endif %}
     </div>
-    {% include 'product/partials/coverage_note.html' %}
+    <div class="products-resultbar-end">
+      {% include 'product/partials/coverage_note.html' %}
+      {% if view_mode == 'cards' %}
+        {% comment %}
+          hx-include — те же формы, что у выбора колонок: смена сортировки не
+          должна сбрасывать поиск и фильтры. Номер страницы не уходит —
+          новый порядок начинается с первой.
+        {% endcomment %}
+        <label class="products-sort">
+          <span>Сортировка</span>
+          <select class="form-select form-select-sm"
+                  name="{{ table.prefixed_order_by_field }}"
+                  hx-get="{% url 'products' %}"
+                  hx-target="#products-table"
+                  hx-swap="outerHTML"
+                  hx-push-url="true"
+                  hx-include="#product-filter, #products-search"
+                  hx-indicator="#products-results">
+            {% for value, label in card_sort_options %}
+              <option value="{{ value }}"{% if value == card_sort %} selected{% endif %}>{{ label }}</option>
+            {% endfor %}
+          </select>
+        </label>
+      {% endif %}
+    </div>
   </div>
 
   {% if table.paginated_rows %}
+    {% if view_mode == 'cards' %}
+      {% include 'product/partials/cards.html' %}
+    {% else %}
     <div class="products-table-card">
       <div class="products-table-wrap">
         <table {{ table.attrs.as_html }}>
@@ -90,6 +122,7 @@
         </table>
       </div>
     </div>
+    {% endif %}
 
     {% if table.page and table.paginator.num_pages > 1 %}
       <nav class="products-pagination" aria-label="Постраничная навигация">
