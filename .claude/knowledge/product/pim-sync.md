@@ -86,7 +86,11 @@ between calls) and calls `sync_products(pks)` (`services/pim_sync.py:193-217`),
 which calls the **plain** `sync_product_from_pim` function per pk (not the
 Celery task) and tolerates individual failures — a failed row just stays
 eligible for the next pass (`test_failed_rows_stay_eligible_for_the_next_run`,
-`product/tests/test_backfill.py`). The backfill itself is **not** in
+`product/tests/test_backfill.py`). The exception is Celery's
+`SoftTimeLimitExceeded`: `sync_products` and `_ensure_pim_category` re-raise
+it ahead of their `except Exception`, so a batch that runs out of time ends
+as an error row with its lock released, not in the hard limit's SIGKILL
+([[core/task-runner]], *Time limits*). The backfill itself is **not** in
 `CELERY_BEAT_SCHEDULE`; `run_task` doesn't know it either (that command only
 lists `main_product_manager` tasks) — start it from `manage.py shell` with
 `backfill_products_from_pim_task.delay()`.

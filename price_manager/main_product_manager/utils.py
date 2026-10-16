@@ -4,6 +4,7 @@ import time
 from urllib.parse import urljoin, urlsplit
 
 import httpx
+from celery.exceptions import SoftTimeLimitExceeded
 from django.conf import settings
 from django.db.models import Max, F
 from django.core.cache import cache
@@ -184,6 +185,8 @@ def _fetch_pim_entity(name: str, entity_id: str) -> tuple[dict | None, bool]:
     try:
         data = site.get(Entity(name=name, id=entity_id))
         return data, False
+    except SoftTimeLimitExceeded:
+        raise
     except httpx.HTTPStatusError as exc:
         _record_pim_error("get_pim_data", exc, int((time.monotonic() - t0) * 1000))
         return None, exc.response.status_code == 404
@@ -319,6 +322,8 @@ def _search_pim_product_id(number: str, brand_pim_id: str | None = None) -> tupl
                 where=[Where(attribute='number', type='equals', value=number)],
             )
         )
+    except SoftTimeLimitExceeded:
+        raise
     except Exception as exc:
         _record_pim_error("_search_pim_product_id", exc, int((time.monotonic() - t0) * 1000))
         return None, _SEARCH_ERROR
@@ -398,6 +403,8 @@ def get_file_url(file_id: str | None, size: str = 'medium') -> str | None:
         try:
             data = site.get(FileRecord(id=file_id))
             cache.set(cache_key, data, PIM_CACHE_TTL)
+        except SoftTimeLimitExceeded:
+            raise
         except Exception as exc:
             _record_pim_error("get_file_url", exc, int((time.monotonic() - t0) * 1000))
             return None
@@ -717,7 +724,9 @@ def _push_pim_links(targets: list, batch_size: int = 1000, delay: float = 0.5) -
     chunk whose transport/timeout/job call errors, or whose result has the
     wrong shape or length, is recorded via _record_pim_error and skipped
     without aborting the rest: results are tied back to Products only by
-    position, so a short or malformed list must never be zipped.
+    position, so a short or malformed list must never be zipped. Celery's
+    SoftTimeLimitExceeded is the exception: it is re-raised, unrecorded, so the
+    batch task ends as an error row before the hard limit SIGKILLs it.
 
     PIM matches an upsert on the PMP's unique field, platformID (our pk): a
     record that has it answers NotModified/Updated with its id — how a PMP
@@ -738,6 +747,8 @@ def _push_pim_links(targets: list, batch_size: int = 1000, delay: float = 0.5) -
         t0 = time.monotonic()
         try:
             results = _upsert_async(site, items)
+        except SoftTimeLimitExceeded:
+            raise
         except Exception as exc:
             _record_pim_error('push_pim_links', exc, int((time.monotonic() - t0) * 1000))
             continue
@@ -804,6 +815,9 @@ def push_pim_links(pks: list[int], delay: float = 0.5, batch_size: int = 1000) -
     and a repeat push of a PMP whose id was never saved answers with that id.
     Raises PimScanError after its writes if any search went unanswered or any
     push stayed rejected, so the batch is recorded as an error, not a success.
+    The soft time limit is not an unanswered search: SoftTimeLimitExceeded
+    propagates from wherever it lands, and since every search runs before
+    the first write, a batch cut short in the search loop has written nothing.
     """
     products = list(
         PimProduct.objects.filter(pk__in=pks, pim_id__isnull=True).select_related('brand').order_by('pk')

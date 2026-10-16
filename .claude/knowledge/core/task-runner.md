@@ -48,7 +48,7 @@ from the other side: it used to return `(numbered, linked)` — Products
 numbered and MainProducts linked, not the same unit — and was changed to a
 bare `linked`, with a comment at the call site naming this exact trap
 (`main_product_manager/tasks.py:155-157`); the function its batch task runs,
-`push_pim_links` (`main_product_manager/utils.py:755`), returns a plain int
+`push_pim_links` (`main_product_manager/utils.py:801`), returns a plain int
 and raises `PimScanError` on failure rather than folding a failure count into
 the total. **Return the one bare int you actually want counted.**
 
@@ -107,11 +107,32 @@ Hence the rules, with `product/tasks.py` (`PIM_SCAN_TIME_LIMIT`,
 - **The limit equals the task's `lock_ttl`, from one constant.** A run that
   outlives its lock lets a second copy start on top of it.
 - **`soft_time_limit` is one minute earlier.** It raises
-  `SoftTimeLimitExceeded` (an `Exception` subclass) into the runner, so the
-  error row is written and the lock released. A runner that swallows it gets
-  no benefit: the per-item `except Exception` in `sync_products` and
-  `push_pim_links`, and the page retry in `stale_product_pks`, swallow it,
-  and those runs still end in the hard kill.
+  `SoftTimeLimitExceeded` into the runner, so the error row is written and
+  the lock released.
+- **A broad handler in a soft-limited runner re-raises it.**
+  `SoftTimeLimitExceeded` is an `Exception` subclass, so a per-item
+  `except Exception` swallows it and the run still ends in the hard kill.
+  The guard goes first:
+  `except SoftTimeLimitExceeded: raise` (from `celery.exceptions`), then the
+  broad clause. It was added to `sync_products` and `_ensure_pim_category`
+  (`product/services/pim_sync.py`), and to `_search_pim_product_id` and
+  `_push_pim_links` (`main_product_manager/utils.py`). Same guard in
+  `_fetch_pim_entity`, `get_file_url` and `load_products_by_number`; these
+  are reached only from views or a management command, where no soft limit
+  fires. `stale_product_pks` never had a handler, so it always propagated.
+  Do not pass the soft limit to `_record_pim_error`, which would show a
+  card viewer a «PIM недоступен» that was no outage. The tests are in
+  `PushPimLinksTests`, `SyncProductsBatchTaskTests`
+  (`product/tests/test_backfill.py`) and the classes next to it.
+- **`satu_export._pim_get` still swallows it** on every attempt but the
+  last, retrying with a sleep, and `export_products_satu_task` has a soft
+  limit. `sync_product_sets` (`services/sets.py`) swallows it too, but its
+  task has no `soft_time_limit`.
+- The error row's `error` is `str(SoftTimeLimitExceeded())`, which says
+  nothing about where the limit hit.
+- A `push_pim_links` batch too slow for its limit now errors visibly, but
+  it makes no progress, because every search runs before the first write
+  ([[main_product_manager/pim-link]]).
 
 `core.tests.PimTaskTimeLimitTests` pins the seven long PIM tasks and fails
 on any `time_limit=None` or `soft_time_limit=None` in an app's `tasks.py`.

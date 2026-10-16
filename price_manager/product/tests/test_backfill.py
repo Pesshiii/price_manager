@@ -1,8 +1,10 @@
 from unittest.mock import patch
 
+from celery.exceptions import SoftTimeLimitExceeded
+from core.models import TaskRunHistory
 from django.core.cache import cache
 from django.test import TestCase, override_settings
-from pim_api import ListResult
+from pim_api import ListResult, SiteAPI
 
 from product import tasks
 from product.models import Product
@@ -119,6 +121,18 @@ class SyncProductsBatchTests(TestCase):
 
         self.assertEqual(synced, 2)
 
+    def test_the_soft_time_limit_is_not_a_failed_product(self):
+        """Мягкий лимит Celery — тоже Exception, но партию он заканчивает.
+
+        Проглоченный как сбой товара, он оставлял партию дорабатывать до
+        жёсткого лимита: SIGKILL, ни строки в истории задач, блокировка висит.
+        """
+        with patch(SYNC_ONE_PATCH, side_effect=SoftTimeLimitExceeded()) as sync_one:
+            with self.assertRaises(SoftTimeLimitExceeded):
+                sync_products(self.pks, delay=0)
+
+        self.assertEqual(sync_one.call_count, 1)
+
 
 def _listing(pmps, pim_products):
     """fetch_list, отвечающий по имени сущности: PMP-ы и товары PIM."""
@@ -218,6 +232,14 @@ class StaleProductPksTests(TestCase):
             with self.assertRaises(RuntimeError):
                 stale_product_pks()
 
+    def test_the_soft_time_limit_reaches_the_caller(self):
+        """Ниже сверки (fetch_list, SiteAPI.get) мягкий лимит никто не ловит."""
+        with patch.object(SiteAPI, 'get', side_effect=SoftTimeLimitExceeded()) as get:
+            with self.assertRaises(SoftTimeLimitExceeded):
+                stale_product_pks()
+
+        self.assertEqual(get.call_count, 1)
+
 
 @override_settings(CACHES=LOCMEM_CACHE)
 class RefreshProductsFromPimTaskTests(TestCase):
@@ -233,3 +255,26 @@ class RefreshProductsFromPimTaskTests(TestCase):
         self.assertEqual([call.kwargs['pks'] for call in delay.call_args_list], [[1, 2], [3]])
         self.assertEqual(payload['status'], 'success')
         self.assertEqual(payload['updated_count'], 3)
+
+
+@override_settings(CACHES=LOCMEM_CACHE)
+class SyncProductsBatchTaskTests(TestCase):
+    def setUp(self):
+        cache.clear()
+
+    def test_the_soft_time_limit_is_recorded_and_releases_the_lock(self):
+        """До жёсткого лимита партия успевает записать ошибку и снять блокировку."""
+        pks = [
+            Product.objects.create(pim_id=f'pmp-{i}', number=f'N{i}', raw_data={}).pk
+            for i in range(2)
+        ]
+        task_name = f'product.sync_products_batch:{pks[0]}-{pks[-1]}'
+
+        with patch(SYNC_ONE_PATCH, side_effect=SoftTimeLimitExceeded()):
+            with self.assertRaises(SoftTimeLimitExceeded):
+                tasks.sync_products_batch_task(pks=pks, delay=0)
+
+        run = TaskRunHistory.objects.get(task_name=task_name)
+        self.assertEqual(run.status, 'error')
+        self.assertEqual(run.error, str(SoftTimeLimitExceeded()))
+        self.assertIsNone(cache.get(f'task-lock:{task_name}'))

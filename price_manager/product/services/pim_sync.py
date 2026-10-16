@@ -3,6 +3,7 @@ from __future__ import annotations
 import logging
 import time
 
+from celery.exceptions import SoftTimeLimitExceeded
 from django.db.models.fields.json import KT
 from django.db.models.functions import Lower
 from django.utils.dateparse import parse_datetime
@@ -62,6 +63,8 @@ def _ensure_pim_category(pim_category_id: str) -> Category | None:
 
     try:
         data = _fetch_pim_category(pim_category_id)
+    except SoftTimeLimitExceeded:
+        raise
     except Exception:
         logger.warning('pim_sync: failed to fetch PIM category %s', pim_category_id, exc_info=True)
         return None
@@ -254,6 +257,11 @@ def sync_products(pks: list[int], delay: float = 0.5) -> int:
     _ensure_pim_category с битым id категории. Сбойные строки останутся с
     пустым raw_data и попадут в следующий прогон — бэкфилл идемпотентен.
 
+    Кроме мягкого лимита времени Celery: SoftTimeLimitExceeded — тоже
+    Exception, и проглоченный, он оставил бы партию дорабатывать до жёсткого
+    лимита, а тот — SIGKILL без строки в TaskRunHistory и с блокировкой до
+    конца её lock_ttl. Поэтому он выходит из партии в execute_locked_task.
+
     PMP без productId — не успех: sync_product_from_pim сохраняет тогда одну
     связь, и raw_data остаётся пустым. Раньше такие считались синхронизированными,
     и история задач показывала успехом партии, в которых контент не получил
@@ -269,6 +277,8 @@ def sync_products(pks: list[int], delay: float = 0.5) -> int:
     ):
         try:
             product = sync_product_from_pim(pim_id)
+        except SoftTimeLimitExceeded:
+            raise
         except Exception:
             failed += 1
             logger.warning('pim_sync: не удалось синхронизировать PMP %s', pim_id, exc_info=True)
@@ -495,6 +505,8 @@ def load_products_by_number(page_size: int = 1000, limit: int | None = None,
                     timeout=120,
                 )
                 break
+            except SoftTimeLimitExceeded:
+                raise
             except Exception:
                 if attempt == _PAGE_RETRIES - 1:
                     logger.error('pim_sync: страница offset=%s не далась за %s попыток',

@@ -131,8 +131,9 @@ def sync_main_products_task(user_id: int):
 # falls back to CELERY_TASK_TIME_LIMIT (30 min) instead of lifting the limit.
 # Each limit is also the task's lock_ttl, so a run never outlives its lock. The
 # soft limit a minute earlier lets execute_locked_task record the error and
-# release the lock, which a SIGKILL skips, unless the runner swallows it (more
-# in product/tasks.py).
+# release the lock, which a SIGKILL skips. That works only because the broad
+# handlers in push_pim_links' path re-raise SoftTimeLimitExceeded (more in
+# product/tasks.py).
 REINDEX_TIME_LIMIT = 60 * 60
 REINDEX_BATCH_TIME_LIMIT = 30 * 60
 

@@ -420,6 +420,9 @@ class GetFileUrlTests(TestCase):
             self.assertIsNone(get_file_url('file-1'))
 
 
+from celery.exceptions import SoftTimeLimitExceeded
+
+from core.models import TaskRunHistory
 from . import utils as mp_utils
 from .utils import (
     PimScanError,
@@ -839,6 +842,53 @@ class PushPimLinksTests(_PimSearchTestCase):
 
         site.get.assert_not_called()
         upsert.assert_not_called()
+
+    # Celery's soft time limit raises SoftTimeLimitExceeded, an Exception, into
+    # whatever line the batch is on. Caught as a PIM error it let the batch run
+    # on into the hard limit, a SIGKILL that leaves no TaskRunHistory row and
+    # the lock held for its whole lock_ttl.
+
+    def test_the_soft_time_limit_in_a_search_ends_the_batch(self):
+        first = self.waiting_product('FIRST')
+        second = self.waiting_product('SECOND')
+
+        with patch.object(mp_utils, 'site') as site, patch.object(mp_utils, '_upsert_async') as upsert:
+            site.get.side_effect = SoftTimeLimitExceeded()
+            with self.assertRaises(SoftTimeLimitExceeded):
+                push_pim_links([first.pk, second.pk], delay=0)
+
+        self.assertEqual(site.get.call_count, 1)
+        upsert.assert_not_called()
+        # Not a PIM outage, so no «PIM недоступен» for the next card viewer.
+        self.assertIsNone(cache.get(mp_utils._PIM_LAST_ERROR_KEY))
+
+    def test_the_soft_time_limit_in_a_push_is_not_a_skipped_chunk(self):
+        first = self.waiting_product('FIRST')
+        second = self.waiting_product('SECOND')
+
+        with patch.object(mp_utils, 'site') as site, \
+                patch.object(mp_utils, '_upsert_async', side_effect=SoftTimeLimitExceeded()) as upsert:
+            site.get.return_value = _pim_list()
+            with self.assertRaises(SoftTimeLimitExceeded):
+                push_pim_links([first.pk, second.pk], delay=0, batch_size=1)
+
+        self.assertEqual(upsert.call_count, 1)
+        self.assertIsNone(cache.get(mp_utils._PIM_LAST_ERROR_KEY))
+
+    def test_the_batch_task_records_the_soft_time_limit_and_releases_its_lock(self):
+        product = self.waiting_product('N-1')
+        task_name = f'main_product_manager.reindex_pim_ids_batch:{product.pk}-{product.pk}'
+
+        with patch.object(mp_utils, 'site') as site, patch.object(mp_utils, '_upsert_async'):
+            site.get.side_effect = SoftTimeLimitExceeded()
+            with self.assertRaises(SoftTimeLimitExceeded):
+                mp_tasks.reindex_pim_ids_batch_task(pks=[product.pk], delay=0)
+
+        run = TaskRunHistory.objects.get(task_name=task_name)
+        self.assertEqual(run.status, 'error')
+        # The soft limit itself, not the PimScanError an unanswered search raises.
+        self.assertEqual(run.error, str(SoftTimeLimitExceeded()))
+        self.assertIsNone(cache.get(f'task-lock:{task_name}'))
 
 
 @override_settings(CACHES=LOCMEM_CACHE)

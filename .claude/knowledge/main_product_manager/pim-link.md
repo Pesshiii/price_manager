@@ -90,6 +90,14 @@ until the nightly reindex, no error anywhere. Canary:
   stay scalar: `core/task_runner.py`'s `_normalize_updated_count` (`:14-21`)
   sums every numeric element of a *tuple* return, so `(linked, rejected)`
   would silently inflate `TaskRunHistory.updated_count`.
+- Celery's `SoftTimeLimitExceeded` is neither an ERROR search nor a skipped
+  chunk. `_search_pim_product_id` and `_push_pim_links` re-raise it ahead of
+  their `except Exception` and do not pass it to `_record_pim_error`, so the
+  batch ends as an error row with its lock released
+  ([[core/task-runner]], *Time limits*). Every search runs before the first
+  write, so a batch the limit cuts short in the search loop has written
+  nothing. The next run takes the same pks, so a batch too slow for its
+  limit errors every night without progress.
 
 PIM is unique by (number, brand) since its 2026-10-06 cleanup, so one
 number may name several cards — one per brand.
