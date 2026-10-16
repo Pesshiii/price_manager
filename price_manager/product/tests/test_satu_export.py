@@ -210,7 +210,7 @@ class SatuExportTests(TestCase):
     def test_image_links_are_public_pim_links_main_first(self):
         # Главное фото создано последним (больший pk), но стоит первым — по position.
         for file_id, position, url in [('f-2', 1, '2.PNG'), ('f-3', 2, ''), ('f-4', 3, '4.webp'),
-                                       ('f-5', 4, '5.gif'), ('f-1', 0, '1.jpg')]:
+                                       ('f-5', 4, '5.gif'), ('f-7', 5, '7'), ('f-1', 0, '1.jpg')]:
             ProductPhoto.objects.create(product=self.product, pim_file_id=file_id, position=position,
                                         is_main=position == 0,
                                         public_url=SHARING + url if url else '')
@@ -219,8 +219,9 @@ class SatuExportTests(TestCase):
         _, sheets = self.export()
         rows = {row[0]: dict(zip(BASE_TITLES, row)) for row in sheets[PRODUCTS_SHEET][1:]}
         # Без фото без ссылки и без webp: Satu берёт только JPG, GIF и PNG.
+        # Ссылка без расширения остаётся — формат по ней не узнать.
         self.assertEqual(rows['SKU-1']['Ссылка_изображения'],
-                         f'{SHARING}1.jpg, {SHARING}2.PNG, {SHARING}5.gif')
+                         f'{SHARING}1.jpg, {SHARING}2.PNG, {SHARING}5.gif, {SHARING}7')
         self.assertIsNone(rows['SKU-2']['Ссылка_изображения'])
 
     def test_image_links_take_one_query_for_all_products(self):

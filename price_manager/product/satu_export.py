@@ -112,10 +112,12 @@ CURRENCY = 'KZT'
 IN_STOCK = '+'
 NOT_AVAILABLE = '-'
 
-# Satu берёт фото только в JPG, GIF и PNG, а у нас бывают и webp/bmp/svg/avif
-# (services/photos.IMAGE_EXTENSIONS). Публичная ссылка PIM кончается
-# расширением файла: pim.tirado.kz/sharings/<id>.<ext>.
-SATU_IMAGE_EXTENSIONS = ('.jpg', '.jpeg', '.png', '.gif')
+# Satu берёт фото только в JPG, GIF и PNG, а фото у нас бывают и в этих
+# форматах (services/photos.IMAGE_EXTENSIONS). Публичная ссылка PIM кончается
+# расширением (pim.tirado.kz/sharings/<id>.<ext>, замер 2026-10-12). Отсекаются
+# только известные чужие расширения: ссылка без расширения остаётся, иначе
+# сдвиг формата ссылки в PIM молча опустошил бы колонку.
+NOT_SATU_IMAGE_EXTENSIONS = ('.webp', '.bmp', '.svg', '.avif')
 IMAGE_SEPARATOR = ', '
 
 # Больше — 414 URI Too Long: отбор id in [...] идёт в строке запроса.
@@ -233,7 +235,7 @@ def image_links(pks) -> dict:
     photos = (ProductPhoto.objects.filter(product_id__in=pks).exclude(public_url='')
               .order_by('position', 'pk').values_list('product_id', 'public_url'))
     for product_id, url in photos:
-        if urlsplit(url).path.lower().endswith(SATU_IMAGE_EXTENSIONS):
+        if not urlsplit(url).path.lower().endswith(NOT_SATU_IMAGE_EXTENSIONS):
             links.setdefault(product_id, []).append(url)
     return {pk: IMAGE_SEPARATOR.join(urls) for pk, urls in links.items()}
 
