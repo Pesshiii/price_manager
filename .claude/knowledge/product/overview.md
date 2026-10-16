@@ -21,7 +21,9 @@ decisions: `.claude/shift-to-product-brief.md`.
   unique constraint on `(parent, name)`, `order_insertion_by = ['name']`.
   `save()` auto-generates a unique `slug` via `slugify(allow_unicode=True)`
   with a `-2`, `-3` … suffix loop. **`__str__` recurses through `self.parent`**
-  — see the N+1 trap in [[product/products-page]].
+  — see the N+1 trap in [[product/products-page]]. It has no `code`: PIM's
+  category code (the Satu group number) is fetched at export time,
+  [[product/satu-export]].
 - `Brand` — `pim_id` (unique, PIM `brandId`), `name`. **Keyed on the id, never
   the name**: a PIM rename would otherwise fork one brand into two (real: R5,
   2026-09-21, 14 groups like STAYER/Stayer across 321 brands, merged in PIM
@@ -46,21 +48,25 @@ decisions: `.claude/shift-to-product-brief.md`.
   hence FK not M2M; PIM's, or the suppliers' agreed one — [[product/identity]]),
   `raw_data` JSON, `search_vector` + GIN (`product_search_vector_gin`,
   `config='russian'`), timestamps. `ordering = ['-updated_at']`.
-- `Product.display_name` (`models.py:123-136`) — `name`, else the first linked
+- `Product.display_name` (`models.py:201-214`) — `name`, else the first linked
   MainProduct's name, else (none linked) `number`, else `pim_id`. Needed because
   `name` comes from PIM and most Products (still true as of the last measured
   pass — see coverage in [[product/pim-sync]]) have no PIM content at all.
-- `Product._build_searchvector()` (`models.py:138-167`) builds **only from
-  `raw_data`** — no network call. Joins with `' '`, not `''`: the old
+- `Product._build_searchvector()` (`models.py:216-245`) is built from **local
+  data only** — no network call. It reads `raw_data`; the local `name` and brand
+  fill in where PIM gave none, and with no `raw_data` at all the categories come
+  from the local `categories` (hand-edited on the card), so such a Product is
+  still found by what was typed into it. Joins with `' '`, not `''`: the old
   `MainProduct` version glued category names into one token, so neither word
   was searchable.
-- `ProductPhoto` (`models.py:174-207`) — one PIM image file of a Product
+- `ProductPhoto` (`models.py:252-285`) — one PIM image file of a Product
   (`related_name='photos'`) with its anonymous public link; written only by the
   nightly photo pass — see [[product/photos]].
-- `ProductSetItem` (`models.py:210-254`) — see [[product/sets]].
-- `ProductExport` (`models.py:257-279`) — `user` FK (`related_name=
+- `ProductSetItem` (`models.py:288-332`) — see [[product/sets]].
+- `ProductExport` (`models.py:335-357`) — `user` FK (`related_name=
   'product_exports'`), `file` (`upload_to='product_exports/'`), `rows_count`,
-  `created_at`. One row per completed export run; see [[product/export]].
+  `created_at`. One row per completed export run (page xlsx, full csv and the
+  Satu file); see [[product/export]], [[product/satu-export]].
 
 ## What it is *not* — earlier docs described these; they do not exist
 

@@ -10,6 +10,12 @@
 - Код_товара — артикул (Product.number), Название_позиции, Описание
   (longDescription из PIM, иначе description — HTML как есть),
   Поисковые_запросы — теги PIM, Производитель — бренд;
+- Идентификатор_товара — pk товара в PM (решение владельца, 2026-10-17:
+  «Используй id в pm»). По этой колонке Satu сопоставляет строки импорта с
+  позициями, и она обязательная — вместе с Названием_позиции и Описанием
+  (support.satu.kz/hc/ru/articles/360005181198). Артикул на эту роль не
+  годится: номера повторяются у разных брендов и будут перенумерованы.
+  Не pim_id: это id PMP, и у наборов он пуст;
 - Наличие — «+» при основном остатке > 0, иначе минимальный срок поставки
   по поставщикам товара, а если его нет — «-»; Количество — основной остаток;
 - Страна_производитель, GTIN (ean), MPN и характеристики — из PIM: в зеркале
@@ -22,10 +28,18 @@
   цены ИМ или она не ниже базовой — скидки и её срока нет. Все цены — по
   уровням поставщиков, как в полном csv;
 - цены ГП — все семь, ещё и отдельными колонками после характеристик.
-  «Оптовая_цена» Satu пустая.
+  «Оптовая_цена» Satu пустая;
+- Ссылка_изображения — публичные ссылки PIM на фото (ProductPhoto.public_url,
+  их Satu скачивает без токена) через «, », главное фото первым; только
+  JPG/GIF/PNG — другие форматы Satu не берёт. Фото без публичной ссылки
+  открываются только с токеном, их нет. Нет ни одной ссылки — ячейка пустая.
 
-Остальное (группы Satu, подразделы, ссылки на сайт, фото — фото PIM
-без токена не открываются) остаётся пустым. Лист групп — только заголовок.
+Лист групп — категории PIM, одна строка на категорию: Номер_группы — код
+категории PIM (он и есть номер группы Satu), Название_группы, Номер_родителя —
+код родителя, у верхних категорий пустой.
+
+Остальное (группа товара на листе товаров, подразделы, ссылки на сайт)
+остаётся пустым.
 
 Весь каталог — ~158 тыс. товаров и ~1 600 запросов к PIM. Ширина листа
 зависит от товара с наибольшим числом характеристик, а write_only-книга пишет
@@ -40,6 +54,7 @@ import tempfile
 import time
 from datetime import date, timedelta
 from decimal import Decimal
+from urllib.parse import urlsplit
 
 from django.core.files import File
 from django.http import QueryDict
@@ -48,12 +63,12 @@ from openpyxl import Workbook
 from openpyxl.cell.cell import ILLEGAL_CHARACTERS_RE
 
 from main_product_manager.models import MP_PRICES, MainProduct
-from pim_api import EntityList, FlatEntityList, Where, fetch_list
+from pim_api import Asc, EntityList, FlatEntityList, Ordering, Where, fetch_list
 
 from . import pim_client
 from .columns import COLUMN_LABELS
 from .export import STOCK_COLUMN, ProductExporter, _chunks, _excel_value, ordered_product_pks
-from .models import ProductExport
+from .models import ProductExport, ProductPhoto
 
 logger = logging.getLogger(__name__)
 
@@ -96,6 +111,14 @@ CURRENCY = 'KZT'
 
 IN_STOCK = '+'
 NOT_AVAILABLE = '-'
+
+# Satu берёт фото только в JPG, GIF и PNG, а фото у нас бывают и в этих
+# форматах (services/photos.IMAGE_EXTENSIONS). Публичная ссылка PIM кончается
+# расширением (pim.tirado.kz/sharings/<id>.<ext>, замер 2026-10-12). Отсекаются
+# только известные чужие расширения: ссылка без расширения остаётся, иначе
+# сдвиг формата ссылки в PIM молча опустошил бы колонку.
+NOT_SATU_IMAGE_EXTENSIONS = ('.webp', '.bmp', '.svg', '.avif')
+IMAGE_SEPARATOR = ', '
 
 # Больше — 414 URI Too Long: отбор id in [...] идёт в строке запроса.
 PIM_BATCH = 100
@@ -149,6 +172,83 @@ def fetch_countries() -> dict:
     result = fetch_list(pim_client.site, EntityList(name='Country', select=['id', 'name']),
                         timeout=PIM_TIMEOUT)
     return {item['id']: item.get('name') or '' for item in result.items}
+
+
+def fetch_categories() -> dict:
+    """Категории PIM: {id: (код, название, id родителя)}.
+
+    Неполный список — ошибка: без части категорий лист групп перевесил бы их
+    детей в корень Satu. Сортировка по id — как у брендов: по полю с равными
+    значениями PIM при постраничном чтении дублирует и теряет строки.
+
+    parentId — не поле Category в метаданных PIM (там parents, linkMultiple,
+    и одна связь CategoryHierarchy: multiParents выключен), но в списке PIM его
+    отдаёт: по нему строит дерево probe_pim_category_size (2026-09-16, 15 корней
+    из 668). Если PIM однажды перестанет его отдавать, все группы стали бы
+    верхними и плоский лист перевесил бы дерево Satu — поэтому это ошибка.
+    """
+    result = fetch_list(pim_client.site, EntityList(
+        name='Category', select=['id', 'code', 'name', 'parentId'],
+        ordering=Ordering(sortBy='id', asc=Asc.ASC)), timeout=PIM_TIMEOUT)
+    if result.truncated:
+        raise RuntimeError(
+            f'satu_export: PIM отдал {len(result.items)} из {result.total} категорий — '
+            'список неполный, выгрузка остановлена')
+    categories = {
+        item['id']: (str(item.get('code') or '').strip(), item.get('name') or '',
+                     item.get('parentId'))
+        for item in result.items if item.get('id')
+    }
+    if len(categories) > 1 and not any(parent_id for _, _, parent_id in categories.values()):
+        raise RuntimeError(
+            f'satu_export: PIM отдал {len(categories)} категорий и ни одной с родителем — '
+            'parentId не пришёл, выгрузка остановлена')
+    return categories
+
+
+def group_rows(categories: dict) -> list[list]:
+    """Строки листа групп Satu: родитель раньше детей, соседи по названию.
+
+    Код категории PIM и есть номер группы Satu (сверено 2026-10-17: коды,
+    названия и родители всех 668 категорий совпали с группами Satu). У верхней
+    категории Номер_родителя пуст. Категории без кода в листе нет — Satu не по
+    чему её узнать; её дети считаются верхними.
+    """
+    children = {}
+    for pim_id, (_, _, parent_id) in categories.items():
+        children.setdefault(parent_id if parent_id in categories else None, []).append(pim_id)
+    rows = []
+
+    def visit(parent_id):
+        parent_code = categories[parent_id][0] if parent_id else ''
+        siblings = sorted(children.get(parent_id, []),
+                          key=lambda pim_id: (categories[pim_id][1], categories[pim_id][0]))
+        for pim_id in siblings:
+            code, name, _ = categories[pim_id]
+            if code:
+                row = dict.fromkeys(GROUP_TITLES)
+                row.update({'Номер_группы': code, 'Название_группы': name,
+                            'Номер_родителя': parent_code or None})
+                rows.append(list(row.values()))
+            visit(pim_id)
+
+    visit(None)
+    return rows
+
+
+def image_links(pks) -> dict:
+    """{pk товара: «ссылка, ссылка»} — публичные ссылки PIM на фото, одним запросом.
+
+    Порядок — ProductPhoto.Meta.ordering: главное фото PIM стоит на position 0,
+    а первое фото у Satu и есть главное.
+    """
+    links = {}
+    photos = (ProductPhoto.objects.filter(product_id__in=pks).exclude(public_url='')
+              .order_by('position', 'pk').values_list('product_id', 'public_url'))
+    for product_id, url in photos:
+        if not urlsplit(url).path.lower().endswith(NOT_SATU_IMAGE_EXTENSIONS):
+            links.setdefault(product_id, []).append(url)
+    return {pk: IMAGE_SEPARATOR.join(urls) for pk, urls in links.items()}
 
 
 def fetch_flat_products(pim_ids) -> dict:
@@ -228,9 +328,10 @@ class SatuExporter(ProductExporter):
         super().__init__(QueryDict(), SATU_COLUMNS)
         self.attributes = {}
         self.countries = {}
+        self.groups = []
         self.today = timezone.localdate()
 
-    def product_row(self, product, main_products, main_cells, pim_data):
+    def product_row(self, product, main_products, main_cells, pim_data, images=None):
         raw = product.raw_data or {}
         pim = pim_data or {}
         prices = dict(zip(SATU_COLUMNS, main_cells))
@@ -251,9 +352,11 @@ class SatuExporter(ProductExporter):
             DISCOUNT_TO: ((self.today + timedelta(days=DISCOUNT_DAYS)).isoformat()
                           if price_discount else None),
             'Код_товара': number,
+            'Идентификатор_товара': str(product.pk),
             'Название_позиции': name,
             'Поисковые_запросы': ', '.join(raw.get('tag') or []) or None,
             'Описание': raw.get('longDescription') or raw.get('description') or None,
+            'Ссылка_изображения': images or None,
             'Наличие': availability(stock, main_products),
             'Количество': stock,
             'Производитель': product.brand.name if product.brand else raw.get('brandName'),
@@ -277,6 +380,7 @@ class SatuExporter(ProductExporter):
                 main_products.setdefault(main_product.product_id, []).append(main_product)
             pim_ids = {(product.raw_data or {}).get('id') for product in products.values()}
             flat = fetch_flat_products(sorted(pim_id for pim_id in pim_ids if pim_id))
+            images = image_links(chunk)
             for pk in chunk:
                 product = products.get(pk)
                 if product is None:
@@ -286,7 +390,8 @@ class SatuExporter(ProductExporter):
                 main_cells = self.main_value_cells(values, self.supplier_costs(rows),
                                                    price_levels, stock_levels)
                 yield self.product_row(product, rows, main_cells,
-                                       flat.get((product.raw_data or {}).get('id')))
+                                       flat.get((product.raw_data or {}).get('id')),
+                                       images.get(pk))
 
     def write(self, target) -> int:
         """Пишет xlsx в target (бинарный файл); возвращает число товаров."""
@@ -294,6 +399,7 @@ class SatuExporter(ProductExporter):
         _, price_levels, stock_levels = self.suppliers(pks)
         self.attributes = fetch_attributes()
         self.countries = fetch_countries()
+        self.groups = group_rows(fetch_categories())
 
         width = MIN_CHARACTERISTICS
         with tempfile.TemporaryFile('w+', encoding='utf-8') as rows_file:
@@ -316,7 +422,10 @@ class SatuExporter(ProductExporter):
                 triples += [None] * (3 * width - len(triples))
                 sheet.append([_cell(value)
                               for value in row['base'] + triples + row['prices']])
-            workbook.create_sheet(GROUPS_SHEET).append(GROUP_TITLES)
+            groups = workbook.create_sheet(GROUPS_SHEET)
+            groups.append(GROUP_TITLES)
+            for row in self.groups:
+                groups.append([_cell(value) for value in row])
             workbook.save(target)
         return len(pks)
 

@@ -313,8 +313,10 @@ the window's coverage panel is the gauge.
    - The key is still the **sku** (with the supplier prefix or suffix), not
      `manufacturer_article(row)`. That waits for step 4's renumbering. No advisory lock
      was needed: brandless rows never look anything up, and the branded pair has the
-     DB guard. `MainProduct.link_source`, search over `MainProduct.sku` and Satu's
-     «Код_товара» were not done.
+     DB guard. `MainProduct.link_source` and search over `MainProduct.sku` were not
+     done. Satu matches import rows by «Идентификатор_товара», not «Код_товара», and
+     since 2026-10-17 the export fills it with `Product.pk` (PR #289,
+     `.claude/knowledge/product/satu-export.md`).
    - A Product pushed while brandless keeps its PMP without `productId` after it gets a
      brand: re-searching it is a deliberate command, not a side effect of adoption.
    - **Follow-up, 2026-10-13 (the user's two calls):** a price-list row whose supplier
@@ -340,7 +342,8 @@ the window's coverage panel is the gauge.
    - `apply_pim_product` must stop clearing a local brand; brand conflicts go to a queue.
    - Sets must select `brandId`.
    - Search must also cover `MainProduct.sku`.
-   - Check what Satu matches «Код_товара» on.
+   - Check what Satu matches «Код_товара» on. *(Answered 2026-10-17: Satu matches on
+     «Идентификатор_товара», a required field, see `.claude/knowledge/product/satu-export.md`.)*
 4. **Data, by management command, not migration** (`--dry-run`, beat paused). The command:
    - merges Products sharing a PIM `productId`;
    - **splits** Products whose suppliers name different brands;
