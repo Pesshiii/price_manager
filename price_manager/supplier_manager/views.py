@@ -24,10 +24,10 @@ from django.forms import modelform_factory
 from typing import Optional, Any, Dict, Iterable
 from collections import defaultdict, OrderedDict
 from datetime import datetime, timezone as dt_timezone
-from django.db.models import Count, OuterRef, Prefetch, Subquery
+from django.db.models import Count, Prefetch
 from django_tables2 import SingleTableView, RequestConfig, SingleTableMixin
 from django.db.models import Q, F, ExpressionWrapper, BooleanField, DurationField, Value, Case, When
-from django.db.models.functions import Coalesce, Greatest, ExtractDay
+from django.db.models.functions import Greatest, ExtractDay
 
 
 from dal import autocomplete
@@ -68,7 +68,7 @@ class SupplierList(TemplateView):
     if direction not in {'asc', 'desc'}:
       direction = 'asc'
 
-    # Все счётчики — одним запросом, а не пятью на каждого поставщика.
+    # Счётчики ГП — одним запросом, а не пятью на каждого поставщика.
     missing = {
       f'{key}_missing': Count(
         'main_products',
@@ -76,15 +76,13 @@ class SupplierList(TemplateView):
       )
       for key, _ in PRICE_COLUMNS
     }
-    # Строки прайса — подзапросом: второй Count по другой связи в том же
-    # GROUP BY перемножил бы строки ГП на строки прайса.
-    sp_total = (SupplierProduct.objects.filter(supplier=OuterRef('pk')).order_by()
-                .values('supplier').annotate(n=Count('pk')).values('n'))
-    queryset = Supplier.objects.annotate(
-      total=Count('main_products'),
-      sp_total=Coalesce(Subquery(sp_total), 0),
-      **missing,
-    )
+    queryset = Supplier.objects.annotate(total=Count('main_products'), **missing)
+    # Строки прайса — своим запросом, и не в этом GROUP BY. Второй Count по
+    # другой связи перемножил бы строки ГП на строки прайса, а подзапрос
+    # Django кладёт в GROUP BY, и Postgres считает его на каждую строку ГП
+    # до группировки: на проде страница не укладывалась в таймаут gunicorn.
+    sp_totals = dict(
+      SupplierProduct.objects.order_by().values_list('supplier').annotate(n=Count('pk')))
 
     def get_row(obj):
       prices = []
@@ -100,7 +98,7 @@ class SupplierList(TemplateView):
         'name': obj.name,
         'is_own_stock': obj.is_own_stock,
         'total': obj.total,
-        'sp_total': obj.sp_total,
+        'sp_total': sp_totals.get(obj.pk, 0),
         'price_priority': obj.price_priority,
         'stock_priority': obj.stock_priority,
         'prices': prices,
