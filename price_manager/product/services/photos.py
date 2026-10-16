@@ -6,15 +6,25 @@
 public_url, если он есть, а иначе — наш прокси (pim_image_url), как было до
 публичных ссылок.
 
-Цена прохода, замеренная на живом PIM 2026-10-12 (maxSize=1000): ProductFile —
-466 тыс. строк, ~1,5 с на страницу, ~12 минут целиком; Sharing — 293 тыс.
-строк, ~8,4 с на страницу (PIM считает в каждой строке пути превью), ~41
-минута целиком. Поэтому ProductFile сканируется каждую ночь полностью — иначе
-не узнать об отвязанных фото, — а Sharing ночью только инкрементально: новые
-ссылки (createdAt) плюс ссылки на файлы, впервые появившиеся у товаров.
-Полный проход Sharing (full=True) — раз в неделю: он же стирает ссылки,
-которые PIM отозвал. До него отозванную ссылку подменяет на прокси сам
-браузер (static/js/pim-photo-fallback.js).
+Проход идёт партиями товаров PIM (BATCH_SIZE). Одной задачей полный проход
+шёл около часа и не укладывался в лимит воркера. Партия же самодостаточна:
+все файлы своих товаров (ProductFile productId in), их ссылки и одна
+транзакция записи. Поэтому каждая партия сверяет свои товары полностью — и
+узнаёт об отвязанных фото, — а упавшая не трогает чужие. Ночная задача
+(plan_photo_batches) только раздаёт партии и делает то, что можно без них:
+стирает фото товаров, отвязанных от PIM, а по будням ставит новые ссылки
+(Sharing по createdAt) уже заведённым строкам.
+
+Ссылки по будням — инкрементально: новые (createdAt) плюс ссылки файлов,
+впервые появившихся у товаров партии. По воскресеньям (full=True) партия
+читает Sharing всех своих файлов и стирает ссылки, которые PIM отозвал. До
+этого отозванную ссылку подменяет на прокси сам браузер
+(static/js/pim-photo-fallback.js).
+
+Цена на живом PIM: ProductFile productId in [100] — ~1,1 с, Sharing fileId
+in [100] — ~2,1 с (2026-10-16). Сплошной скан дешевле на строку (ProductFile
+~1,5 с, Sharing ~8,4 с на 1000 строк, 2026-10-12: ~12 и ~41 минута целиком),
+но это одна задача на час.
 """
 from __future__ import annotations
 
@@ -36,9 +46,12 @@ logger = logging.getLogger(__name__)
 TASK_NAME = 'product.refresh_product_photos'
 
 PAGE_SIZE = 1000
-# Отбор fileId in [...] уходит в строку запроса; на 200 uuid PIM отвечает
-# 414 URI Too Long, 100 проходят (см. pim_api.FlatEntityList).
-FILE_ID_CHUNK = 100
+# Отбор productId/fileId in [...] уходит в строку запроса; на 200 uuid PIM
+# отвечает 414 URI Too Long, 100 проходят (см. pim_api.FlatEntityList).
+ID_CHUNK = 100
+# Товаров PIM в партии. По будням партия — ~10 запросов ProductFile, в
+# воскресенье ещё ~30 запросов Sharing: около минуты, далеко от лимита.
+BATCH_SIZE = 1000
 WRITE_CHUNK = 2000
 # createdAt в PIM и started_at прошлого прогона могут жить в разных часовых
 # поясах, а ссылку могли создать, пока прошлый прогон шёл. Сутки нахлёста
@@ -132,26 +145,40 @@ def _sorting(value) -> int:
         return 0
 
 
-def _local_products() -> dict[str, list[int]]:
-    """Id товара PIM → наши Product на нём (их бывает несколько, см. Product.name)."""
+def _linked_products():
+    """Product, у которых есть товар PIM (raw_data['id']), — с его id в pim_product_id."""
+    return (Product.objects.annotate(pim_product_id=KT('raw_data__id'))
+            .filter(pim_product_id__isnull=False).exclude(pim_product_id=''))
+
+
+def _local_products(pks=None) -> dict[str, list[int]]:
+    """Id товара PIM → наши Product на нём (их бывает несколько, см. Product.name).
+
+    pks — только эти Product (партия); None — все.
+    """
     products = defaultdict(list)
-    rows = (Product.objects.annotate(pim_product_id=KT('raw_data__id'))
-            .filter(pim_product_id__isnull=False).exclude(pim_product_id='')
-            .values_list('pk', 'pim_product_id'))
-    for pk, pim_product_id in rows.iterator(chunk_size=5000):
+    rows = _linked_products()
+    if pks is not None:
+        rows = rows.filter(pk__in=pks)
+    for pk, pim_product_id in rows.values_list('pk', 'pim_product_id').iterator(chunk_size=5000):
         products[pim_product_id].append(pk)
     return products
 
 
 def _desired_photos(products: dict[str, list[int]]) -> dict[int, list[tuple[str, bool]]]:
-    """pk товара → [(id файла, главное)] в порядке показа — из полного скана ProductFile."""
+    """pk товара → [(id файла, главное)] в порядке показа — по ProductFile этих товаров PIM."""
     files = defaultdict(list)
-    for row in _iter_pages('ProductFile', PRODUCT_FILE_FIELDS):
-        product_id, file_id = row.get('productId'), row.get('fileId')
-        if product_id not in products or not file_id or not _is_image(row.get('fileName')):
-            continue
-        is_main = bool(row.get('isMainImage'))
-        files[product_id].append((not is_main, _sorting(row.get('sorting')), row.get('fileName') or '', file_id))
+    product_ids = sorted(products)
+    for start in range(0, len(product_ids), ID_CHUNK):
+        chunk = product_ids[start:start + ID_CHUNK]
+        for row in _iter_pages('ProductFile', PRODUCT_FILE_FIELDS,
+                               [Where(attribute='productId', type='in', value=chunk)]):
+            product_id, file_id = row.get('productId'), row.get('fileId')
+            if product_id not in products or not file_id or not _is_image(row.get('fileName')):
+                continue
+            is_main = bool(row.get('isMainImage'))
+            files[product_id].append(
+                (not is_main, _sorting(row.get('sorting')), row.get('fileName') or '', file_id))
 
     desired = {}
     for product_id, entries in files.items():
@@ -210,8 +237,8 @@ def _links_created_since(since: datetime) -> dict[str, str]:
 def _links_for_files(file_ids) -> dict[str, str]:
     file_ids = sorted(file_ids)
     links = {}
-    for start in range(0, len(file_ids), FILE_ID_CHUNK):
-        chunk = file_ids[start:start + FILE_ID_CHUNK]
+    for start in range(0, len(file_ids), ID_CHUNK):
+        chunk = file_ids[start:start + ID_CHUNK]
         links.update(_collect_links(_iter_pages(
             'Sharing', SHARING_FIELDS, [Where(attribute='fileId', type='in', value=chunk)])))
     return links
@@ -232,19 +259,18 @@ def _chunks(items, size):
         yield items[start:start + size]
 
 
-def _plan_rows(desired: dict[int, list[tuple[str, bool]]]):
-    """Что сделать с ProductPhoto, чтобы он совпал с desired, — без записи.
+def _plan_rows(desired: dict[int, list[tuple[str, bool]]], pks: list[int]):
+    """Что сделать с ProductPhoto товаров pks, чтобы он совпал с desired, — без записи.
 
-    Возвращает (создать, обновить, удалить) кортежами, а не моделями: на первом
-    прогоне создать надо все ~466 тыс. строк, и экземпляры моделей заняли бы
-    в памяти воркера в разы больше.
+    Возвращает (создать, обновить, удалить) кортежами, а не моделями: экземпляры
+    моделей заняли бы в памяти воркера в разы больше.
 
-    Товар, которого нет в desired, теряет все фото: в PIM у него их больше
-    нет, или он отвязан от товара PIM.
+    Товар из pks, которого нет в desired, теряет все фото: в PIM у него их
+    больше нет, или он отвязан от товара PIM. Фото товаров не из pks не
+    трогаются: это чужая партия.
     """
     creates, updates, deletes = [], [], []
-    pks = sorted(set(desired) | set(ProductPhoto.objects.values_list('product_id', flat=True).distinct()))
-    for chunk in _chunks(pks, WRITE_CHUNK):
+    for chunk in _chunks(sorted(set(pks)), WRITE_CHUNK):
         existing = defaultdict(dict)
         rows = ProductPhoto.objects.filter(product_id__in=chunk).values_list(
             'pk', 'product_id', 'pim_file_id', 'position', 'is_main')
@@ -286,19 +312,18 @@ def _write_rows(creates, updates, deletes) -> int:
     return created
 
 
-def _apply_links(links: dict[str, str], clear_missing: bool) -> int:
-    """Ставит public_url строкам по id файла. Возвращает число изменённых строк.
+def _apply_links(links: dict[str, str], rows, clear_missing: bool = False) -> int:
+    """Ставит public_url строкам rows по id файла. Возвращает число изменённых строк.
 
-    clear_missing — только для полного прохода: тогда links — все действующие
-    ссылки, и строка, которой в нём нет, ссылку потеряла. Инкрементальный
-    проход видит лишь новые ссылки и ничего не стирает.
+    clear_missing — только для полного прохода партии: тогда links — все
+    действующие ссылки её файлов, и строка из rows, которой в нём нет, ссылку
+    потеряла. Поэтому rows — строки самой партии: шире — и стёрлись бы ссылки
+    чужих. Инкрементальный проход видит лишь новые ссылки и ничего не стирает.
     """
-    if clear_missing:
-        rows = ProductPhoto.objects.all()
-    elif links:
-        rows = ProductPhoto.objects.filter(pim_file_id__in=list(links))
-    else:
-        return 0
+    if not clear_missing:
+        if not links:
+            return 0
+        rows = rows.filter(pim_file_id__in=list(links))
     changed = []
     for pk, file_id, current in rows.values_list('pk', 'pim_file_id', 'public_url').iterator(chunk_size=5000):
         url = links.get(file_id, '' if clear_missing else current)
@@ -309,13 +334,44 @@ def _apply_links(links: dict[str, str], clear_missing: bool) -> int:
     return len(changed)
 
 
-def refresh_product_photos(full: bool = False, since: datetime | None = None) -> dict:
-    """Ночной проход: фото всех товаров зеркала и их публичные ссылки.
+def plan_photo_batches(full: bool = False, since: datetime | None = None) -> dict:
+    """Ночной проход, раздача: партии товаров и то, что делается без них.
 
-    full=True — ссылки полным проходом Sharing (раз в неделю; и первый запуск).
-    Иначе — ссылки, созданные после since минус SHARING_OVERLAP, плюс ссылки
-    файлов, впервые появившихся у товаров в этот проход. since=None при
-    full=False — значит, успешного прогона ещё не было, и проход полный.
+    Партия — pk наших Product на BATCH_SIZE товарах PIM; все Product одного
+    товара PIM попадают в одну партию. Здесь же:
+    - стираются фото товаров, отвязанных от PIM (raw_data без id): ни в одну
+      партию они не попадут;
+    - по будням — ссылки, созданные после since минус SHARING_OVERLAP,
+      ставятся уже заведённым строкам. Ссылки файлов, которых ещё нет, найдёт
+      партия.
+
+    since=None при full=False — успешного прогона ещё не было, и проход
+    полный. Сначала чтение PIM, потом короткая транзакция: сбой PIM не пишет
+    ничего.
+    """
+    full = full or since is None
+    links = {} if full else _links_created_since(since - SHARING_OVERLAP)
+    products = _local_products()
+    pim_ids = sorted(products)
+    batches = [sorted(pk for pim_id in pim_ids[start:start + BATCH_SIZE] for pk in products[pim_id])
+               for start in range(0, len(pim_ids), BATCH_SIZE)]
+
+    with transaction.atomic():
+        deleted, _ = ProductPhoto.objects.exclude(product_id__in=_linked_products().values('pk')).delete()
+        linked = _apply_links(links, ProductPhoto.objects.all())
+    stats = {'batches': batches, 'full': full, 'products': len(pim_ids), 'deleted': deleted, 'links': linked}
+    logger.info('refresh_product_photos: партий %s, товаров PIM %s, полный %s, '
+                'стёрто фото отвязанных товаров %s, новых ссылок %s',
+                len(batches), len(pim_ids), full, deleted, linked)
+    return stats
+
+
+def refresh_photo_batch(pks: list[int], full: bool = False) -> dict:
+    """Одна партия: фото товаров pks и их публичные ссылки.
+
+    full=True — ссылки всех файлов партии, и строки, чьих ссылок больше нет,
+    ссылку теряют. Иначе — только ссылки файлов, впервые появившихся у
+    товаров: новые ссылки старых файлов ставит раздача (plan_photo_batches).
 
     Сначала всё читается из PIM, включая ссылки файлов новых строк, и только
     потом одной транзакцией пишется база. Сбой PIM на любом шаге не пишет
@@ -323,24 +379,16 @@ def refresh_product_photos(full: bool = False, since: datetime | None = None) ->
     поиска их ссылок, упавший поиск оставил бы их без ссылок до воскресенья:
     на следующую ночь эти строки уже не новые, а ссылки старше водяного знака.
     """
-    products = _local_products()
-    desired = _desired_photos(products)
-    full = full or since is None
+    desired = _desired_photos(_local_products(pks))
     wanted = {file_id for files in desired.values() for file_id, _ in files}
-    if full:
-        links = _collect_links(_iter_pages('Sharing', SHARING_FIELDS), wanted)
-    else:
-        links = _links_created_since(since - SHARING_OVERLAP)
-
-    creates, updates, deletes = _plan_rows(desired)
-    if not full:
-        missing = {file_id for _, file_id, _, _ in creates} - links.keys()
-        links.update(_links_for_files(missing))
+    creates, updates, deletes = _plan_rows(desired, pks)
+    links = _links_for_files(wanted if full else {file_id for _, file_id, _, _ in creates})
 
     with transaction.atomic():
         created = _write_rows(creates, updates, deletes)
-        linked = _apply_links({k: v for k, v in links.items() if k in wanted}, clear_missing=full)
+        linked = _apply_links({k: v for k, v in links.items() if k in wanted},
+                              ProductPhoto.objects.filter(product_id__in=pks), clear_missing=full)
     stats = {'created': created, 'updated': len(updates), 'deleted': len(deletes), 'links': linked,
              'full': full, 'products': len(desired), 'files': len(wanted), 'linked_files': len(links)}
-    logger.info('refresh_product_photos: %s', stats)
+    logger.info('refresh_photo_batch %s-%s: %s', pks[0], pks[-1], stats)
     return stats

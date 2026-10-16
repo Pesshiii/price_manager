@@ -1,6 +1,6 @@
 ---
 title: execute_locked_task and Celery dispatch
-summary: The Redis lock, the transaction, TaskRunHistory, atomic=False and dispatch_after_commit.
+summary: The Redis lock, the transaction, TaskRunHistory, atomic=False, dispatch_after_commit and task time limits.
 code: price_manager/core/task_runner.py
 ---
 # execute_locked_task and Celery dispatch
@@ -20,7 +20,8 @@ What it gives you, in order:
    runs it in autocommit. Only the transaction is dropped; steps 1, 3 and 4
    are unaffected, so the Redis lock still guarantees a single runner.
 3. A `TaskRunHistory` row for **every** outcome — success, error, *and*
-   lock-skipped — with `duration_ms` and `updated_count`.
+   lock-skipped — with `duration_ms` and `updated_count`. Except a hard
+   time-limit kill: see *Time limits* below.
 4. `cache.delete(lock_key)` in `finally`.
 
 The skipped path `return`s at `:84`, **before** the `try` — so the `finally` at
@@ -78,3 +79,45 @@ Three consequences worth remembering:
   running against a parent run recorded as failed. Outside a transaction it
   dispatches at once, so it is safe from views too. The `reindex_pim_ids_task`
   fan-out in `main_product_manager/tasks.py:145-150` is the worked example.
+
+## Time limits: `time_limit=None` is not "no limit"
+
+`settings/celery.py` sets `CELERY_TASK_TIME_LIMIT = 30 * 60`. To Celery, a
+task's `time_limit=None` means *unset*: the worker takes
+`time_limit or task.time_limit` (`celery/worker/request.py`) and falls back
+to the pool default, which is that global. Six PIM tasks carried
+`time_limit=None, soft_time_limit=None` as if it lifted the limit, so each was
+capped at 30 minutes. The full photo pass (`product.refresh_product_photos`,
+then one task of about an hour) was killed every night and had not written
+one `ProductPhoto` row by 2026-10-16. It now runs in batches
+([[product/photos]]).
+
+A hard-limit kill is a SIGKILL of the pool process, so the `finally` never
+runs and nothing reaches `TaskRunHistory`:
+- the lock stays until `lock_ttl` expires, and every run until then is
+  `skipped`;
+- the run leaves no row at all. The only trace is
+  `Hard time limit (1800s) exceeded for <task>` in the worker log.
+
+Hence the rules, with `product/tasks.py` (`PIM_SCAN_TIME_LIMIT`,
+`PIM_BATCH_TIME_LIMIT`) and
+`main_product_manager/tasks.py` (`REINDEX_*_TIME_LIMIT`) as the examples:
+- **A long task gets an explicit integer limit.** Neither `None` nor `0`
+  works: both read as unset.
+- **The limit equals the task's `lock_ttl`, from one constant.** A run that
+  outlives its lock lets a second copy start on top of it.
+- **`soft_time_limit` is one minute earlier.** It raises
+  `SoftTimeLimitExceeded` (an `Exception` subclass) into the runner, so the
+  error row is written and the lock released. A runner that swallows it gets
+  no benefit: the per-item `except Exception` in `sync_products` and
+  `push_pim_links`, and the page retry in `stale_product_pks`, swallow it,
+  and those runs still end in the hard kill.
+
+`core.tests.PimTaskTimeLimitTests` pins the seven long PIM tasks and fails
+on any `time_limit=None` or `soft_time_limit=None` in an app's `tasks.py`.
+
+Calling a task object directly in `manage.py shell` (`some_task(...)`) runs
+it in process, outside the pool, so no time limit applies while the lock and
+`TaskRunHistory` still work. For a dispatcher that only fans out (backfill,
+refresh, reindex, and the photo pass since its batching) this runs just the
+dispatch; the batches still go to the queue and its limits.

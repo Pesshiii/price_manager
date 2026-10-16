@@ -126,7 +126,19 @@ def sync_main_products_task(user_id: int):
     )
     return workflow.apply_async()
 
-@shared_task(name="main_product_manager.reindex_pim_ids", time_limit=None, soft_time_limit=None)
+
+# Explicit numbers, not time_limit=None: to Celery None means "not set", which
+# falls back to CELERY_TASK_TIME_LIMIT (30 min) instead of lifting the limit.
+# Each limit is also the task's lock_ttl, so a run never outlives its lock. The
+# soft limit a minute earlier lets execute_locked_task record the error and
+# release the lock, which a SIGKILL skips, unless the runner swallows it (more
+# in product/tasks.py).
+REINDEX_TIME_LIMIT = 60 * 60
+REINDEX_BATCH_TIME_LIMIT = 30 * 60
+
+
+@shared_task(name="main_product_manager.reindex_pim_ids", time_limit=REINDEX_TIME_LIMIT,
+             soft_time_limit=REINDEX_TIME_LIMIT - 60)
 def reindex_pim_ids_task(delay: float = 0.5, batch_size: int = 1000) -> dict:
     """Link MainProducts to local Products by sku, then push the missing PriceManagerProducts.
 
@@ -154,16 +166,17 @@ def reindex_pim_ids_task(delay: float = 0.5, batch_size: int = 1000) -> dict:
 
     return execute_locked_task(
         task_name="main_product_manager.reindex_pim_ids",
-        lock_ttl=60 * 60,
+        lock_ttl=REINDEX_TIME_LIMIT,
         runner=_runner,
     )
 
 
-@shared_task(name="main_product_manager.reindex_pim_ids_batch", time_limit=None, soft_time_limit=None)
+@shared_task(name="main_product_manager.reindex_pim_ids_batch", time_limit=REINDEX_BATCH_TIME_LIMIT,
+             soft_time_limit=REINDEX_BATCH_TIME_LIMIT - 60)
 def reindex_pim_ids_batch_task(pks: list[int], delay: float = 0.5, batch_size: int = 1000) -> dict:
     return execute_locked_task(
         task_name=f"main_product_manager.reindex_pim_ids_batch:{pks[0]}-{pks[-1]}",
-        lock_ttl=60 * 30,
+        lock_ttl=REINDEX_BATCH_TIME_LIMIT,
         runner=lambda: push_pim_links(pks, delay=delay, batch_size=batch_size),
         # The batch is HTTP-bound (a search per Product, then upsertAsync), so
         # it must not hold a transaction open across the loop.

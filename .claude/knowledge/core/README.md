@@ -11,6 +11,6 @@ Keeper: `core-keeper`. Start with [overview](overview.md). Back to the [knowledg
 | [Middleware](middleware.md) | LoginRequiredMiddleware, toaster_middleware and the Bitrix24 link-required gate. | `price_manager/core/middleware.py` |
 | [Models and PersistentNotification lifetimes](models-and-notifications.md) | core models and how long each kind of persistent notification lives. | `price_manager/core/models.py` |
 | [Shared template includes](shared-includes.md) | checkbox_field / radio_field facet includes and table_htmx.html, shared by several apps. | `price_manager/core/templates/core/includes/` |
-| [execute_locked_task and Celery dispatch](task-runner.md) | The Redis lock, the transaction, TaskRunHistory, atomic=False and dispatch_after_commit. | `price_manager/core/task_runner.py` |
+| [execute_locked_task and Celery dispatch](task-runner.md) | The Redis lock, the transaction, TaskRunHistory, atomic=False, dispatch_after_commit and task time limits. | `price_manager/core/task_runner.py` |
 | [Testing core — the --keepdb trap](testing.md) | Why running the core tests empties the database for every later --keepdb run. | `price_manager/core/tests.py` |
 | [Views and the shopping tab](views.md) | core/views.py: shopping-tab and cart views and how they are wired. | `price_manager/core/views.py` |

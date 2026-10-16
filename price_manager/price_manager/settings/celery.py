@@ -41,6 +41,7 @@ CELERY_TASK_ROUTES = {
         'product.backfill_products_from_pim',
         'product.refresh_products_from_pim',
         'product.refresh_product_photos',
+        'product.refresh_product_photos_batch',
         'product.sync_products_batch',
         'product.sync_product_from_pim',
         'product.sync_product_sets',
@@ -109,8 +110,9 @@ CELERY_BEAT_SCHEDULE = {
     },
     # Фото товаров и их публичные ссылки — после refresh-products-from-pim:
     # товары, впервые получившие raw_data этой ночью, если их партии успели.
+    # Задача раздаёт партии по 1000 товаров PIM (product.refresh_product_photos_batch).
     # По будням ссылки берутся инкрементально, в воскресенье — полным
-    # проходом (около часа), который стирает отозванные PIM.
+    # проходом, который стирает отозванные PIM.
     'refresh-product-photos': {
         'task': 'product.refresh_product_photos',
         'schedule': crontab(hour=5, minute=30, day_of_week='1-6'),

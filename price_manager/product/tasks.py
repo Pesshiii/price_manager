@@ -5,7 +5,7 @@ from celery import shared_task
 from core.task_runner import dispatch_after_commit, execute_locked_task
 
 from .services.photos import TASK_NAME as PHOTOS_TASK_NAME
-from .services.photos import last_successful_run, refresh_product_photos
+from .services.photos import last_successful_run, plan_photo_batches, refresh_photo_batch
 from .services.pim_sync import (
     iter_unsynced_product_pk_batches,
     stale_product_pks,
@@ -28,7 +28,22 @@ def sync_product_from_pim_task(pim_id: str) -> dict:
     )
 
 
-@shared_task(name='product.backfill_products_from_pim', time_limit=None, soft_time_limit=None)
+# Лимиты задач PIM — явные числа. time_limit=None для Celery значит «не
+# задан» и отдаёт задачу общему CELERY_TASK_TIME_LIMIT (30 минут), а не снимает
+# лимит: так полный проход фото (около часа) каждую ночь убивался SIGKILL, не
+# записав ни строки. Каждый лимит — он же lock_ttl задачи: прогон, переживший
+# свою блокировку, пустил бы вторую копию поверх себя. Мягкий лимит на минуту
+# раньше бросает в runner исключение, и execute_locked_task пишет ошибку в
+# TaskRunHistory и снимает блокировку; SIGKILL не даёт сделать ни того, ни
+# другого. Но только если runner исключение не проглотит: поштучный
+# except Exception в sync_products и push_pim_links и повтор страниц в
+# stale_product_pks его глотают, и такой прогон снимает уже жёсткий лимит.
+PIM_SCAN_TIME_LIMIT = 60 * 60
+PIM_BATCH_TIME_LIMIT = 30 * 60
+
+
+@shared_task(name='product.backfill_products_from_pim', time_limit=PIM_SCAN_TIME_LIMIT,
+             soft_time_limit=PIM_SCAN_TIME_LIMIT - 60)
 def backfill_products_from_pim_task(delay: float = 0.5, batch_size: int = 500,
                                     refresh: bool = False) -> dict:
     """Наполняет Product контентом из PIM: name, raw_data, категории, бренд, вектор.
@@ -59,16 +74,17 @@ def backfill_products_from_pim_task(delay: float = 0.5, batch_size: int = 500,
 
     return execute_locked_task(
         task_name='product.backfill_products_from_pim',
-        lock_ttl=60 * 60,
+        lock_ttl=PIM_SCAN_TIME_LIMIT,
         runner=_runner,
     )
 
 
-@shared_task(name='product.sync_products_batch', time_limit=None, soft_time_limit=None)
+@shared_task(name='product.sync_products_batch', time_limit=PIM_BATCH_TIME_LIMIT,
+             soft_time_limit=PIM_BATCH_TIME_LIMIT - 60)
 def sync_products_batch_task(pks: list[int], delay: float = 0.5) -> dict:
     return execute_locked_task(
         task_name=f'product.sync_products_batch:{pks[0]}-{pks[-1]}',
-        lock_ttl=60 * 30,
+        lock_ttl=PIM_BATCH_TIME_LIMIT,
         runner=lambda: sync_products(pks, delay=delay),
         # Партия висит на HTTP (два запроса на товар плюс категории) и спит
         # между ними — держать транзакцию открытой на весь проход нельзя.
@@ -78,7 +94,8 @@ def sync_products_batch_task(pks: list[int], delay: float = 0.5) -> dict:
     )
 
 
-@shared_task(name='product.refresh_products_from_pim', time_limit=None, soft_time_limit=None)
+@shared_task(name='product.refresh_products_from_pim', time_limit=PIM_SCAN_TIME_LIMIT,
+             soft_time_limit=PIM_SCAN_TIME_LIMIT - 60)
 def refresh_products_from_pim_task(delay: float = 0.5, batch_size: int = 500) -> dict:
     """Ночью: забирает из PIM контент товаров, у которых он разошёлся с зеркалом.
 
@@ -103,32 +120,56 @@ def refresh_products_from_pim_task(delay: float = 0.5, batch_size: int = 500) ->
 
     return execute_locked_task(
         task_name='product.refresh_products_from_pim',
-        lock_ttl=60 * 60,
+        lock_ttl=PIM_SCAN_TIME_LIMIT,
         runner=_runner,
         # Сверка — сотни списочных запросов к PIM подряд, без записей в базу.
         atomic=False,
     )
 
 
-@shared_task(name=PHOTOS_TASK_NAME, time_limit=None, soft_time_limit=None)
+@shared_task(name=PHOTOS_TASK_NAME, time_limit=PIM_SCAN_TIME_LIMIT,
+             soft_time_limit=PIM_SCAN_TIME_LIMIT - 60)
 def refresh_product_photos_task(full: bool = False) -> dict:
-    """Ночью: все фото товаров зеркала и их публичные ссылки (services/photos.py).
+    """Ночью: фото товаров зеркала и их публичные ссылки (services/photos.py).
 
-    По будням — ссылки инкрементально, от прошлого успешного прогона; по
-    воскресеньям (full=True) — полным проходом, который заодно стирает
-    отозванные. Полный идёт около часа: ~41 минута на ссылки и ~12 на файлы.
+    Сам проход — партии refresh_product_photos_batch_task: одной задачей
+    полный шёл около часа. Здесь — только раздача и ссылки по createdAt. По
+    будням ссылки инкрементально, от прошлого успешного прогона этой задачи
+    (партии водяной знак не двигают — у них своё имя); по воскресеньям
+    (full=True) партии читают ссылки всех своих файлов и стирают отозванные.
     """
     def _runner():
-        stats = refresh_product_photos(full=full, since=last_successful_run())
-        return stats['created'] + stats['updated'] + stats['deleted'] + stats['links']
+        plan = plan_photo_batches(full=full, since=last_successful_run())
+        for pks in plan['batches']:
+            # full из плана, а не аргумент: без успешного прогона проход
+            # полный и при full=False.
+            dispatch_after_commit(refresh_product_photos_batch_task, pks=pks, full=plan['full'])
+        return plan['deleted'] + plan['links']
 
     return execute_locked_task(
         task_name=PHOTOS_TASK_NAME,
-        lock_ttl=2 * 60 * 60,
+        lock_ttl=PIM_SCAN_TIME_LIMIT,
         runner=_runner,
-        # До часа списочных запросов к PIM. Запись — своей транзакцией, когда
-        # всё уже прочитано (refresh_product_photos); общая держала бы
-        # соединение открытым весь скан.
+        # Ссылки по createdAt — списочные запросы к PIM. Запись — своей
+        # короткой транзакцией, когда всё прочитано (plan_photo_batches), и
+        # партии уходят уже после неё.
+        atomic=False,
+    )
+
+
+@shared_task(name='product.refresh_product_photos_batch', time_limit=PIM_BATCH_TIME_LIMIT,
+             soft_time_limit=PIM_BATCH_TIME_LIMIT - 60)
+def refresh_product_photos_batch_task(pks: list[int], full: bool = False) -> dict:
+    def _runner():
+        stats = refresh_photo_batch(pks, full=full)
+        return stats['created'] + stats['updated'] + stats['deleted'] + stats['links']
+
+    return execute_locked_task(
+        task_name=f'product.refresh_product_photos_batch:{pks[0]}-{pks[-1]}',
+        lock_ttl=PIM_BATCH_TIME_LIMIT,
+        runner=_runner,
+        # Запросы к PIM, затем одна транзакция записи — своя, в
+        # refresh_photo_batch: общая держала бы соединение весь проход.
         atomic=False,
     )
 

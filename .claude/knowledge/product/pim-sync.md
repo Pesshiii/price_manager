@@ -140,8 +140,9 @@ and `categoriesNames` in the vector.
   and `update_prices` run on.
 - **Photos are a separate pass at 05:30**, not part of this one: `raw_data`
   has only `mainImageId`, and `ProductPhoto` is filled from PIM's
-  `ProductFile`/`Sharing` lists by a keyset scan that does *not* use
-  `fetch_list` (so no `truncated` check) — see [[product/photos]]. It reads
+  `ProductFile`/`Sharing` lists, in batches of PIM products, by keyset pages
+  that do *not* use `fetch_list` (so no `truncated` check) — see
+  [[product/photos]]. It reads
   `raw_data['id']`, so a Product this night's refresh batches have not reached
   yet is photographed the next night.
 
