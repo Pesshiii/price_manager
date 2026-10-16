@@ -4,6 +4,7 @@ from django.db import models
 from django.utils import timezone
 
 PRIORITY_FIELDS = ('price_priority', 'stock_priority')
+UPDATE_KINDS = (('price', 'Цены'), ('stock', 'Остатки'))
 PRIORITY_HELP = ('Меньше — выше. Один уровень у нескольких поставщиков — '
                  'цены — у того, чья себестоимость меньше, остаток — максимальный. '
                  'Пусто — общий нижний уровень.')
@@ -173,6 +174,23 @@ class Supplier(models.Model):
         if (now or timezone.now()) - updated_at >= timedelta(days=days):
             return 'overdue'
         return 'ok'
+
+    def update_badges(self, now=None):
+        """Бейджи «Цены»/«Остатки» (supplier/partials/update_badges.html): статус и подсказка."""
+        badges = []
+        for kind, label in UPDATE_KINDS:
+            status = self.update_status(kind, now=now)
+            if status == 'untracked':
+                title = 'Интервал обновления не задан'
+            else:
+                interval = format_interval(getattr(self, f'{kind}_update_days'))
+                if status == 'never':
+                    title = f'Не обновлялось · интервал {interval}'
+                else:
+                    updated_at = timezone.localtime(getattr(self, f'{kind}_updated_at'))
+                    title = f'Обновлено {updated_at:%d.%m.%Y %H:%M} · интервал {interval}'
+            badges.append({'label': label, 'status': status, 'title': title})
+        return badges
 
     def get_delivery_days_for_stock(self, stock):
         """Срок поставки по остатку.

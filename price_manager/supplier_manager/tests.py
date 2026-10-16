@@ -12,6 +12,7 @@ from django.urls import reverse
 from django.utils import timezone
 
 from main_product_manager.models import MainProduct
+from supplier_product_manager.models import SupplierProduct
 
 from .forms import IntervalField, SupplierForm
 from .models import Currency, Supplier, format_interval
@@ -101,6 +102,17 @@ class UpdateStatusTests(TestCase):
         s.stock_updated_at = self.now - timedelta(days=3)
         self.assertEqual(s.update_status('stock', now=self.now), 'overdue')
 
+    def test_badges(self):
+        s = _supplier('Бейджи', price_update_days=14, stock_update_days=3)
+        s.stock_updated_at = self.now
+        badges = s.update_badges(now=self.now)
+        self.assertEqual([(b['label'], b['status']) for b in badges],
+                         [('Цены', 'never'), ('Остатки', 'ok')])
+        self.assertEqual(badges[0]['title'], 'Не обновлялось · интервал 2 нед.')
+        self.assertTrue(badges[1]['title'].startswith('Обновлено '))
+        s.price_update_days = None
+        self.assertEqual(s.update_badges(now=self.now)[0]['title'], 'Интервал обновления не задан')
+
 
 class SupplierListViewTests(TestCase):
     def setUp(self):
@@ -150,11 +162,38 @@ class SupplierListViewTests(TestCase):
         cells = re.findall(r'supplier-price-(\w+)', html)
         self.assertEqual(cells, ['basic_price', 'prime_cost', 'm_price', 'wholesale_price'])
 
-    def test_status_badges_rendered(self):
-        _supplier('Бейджи', price_update_days=7, stock_update_days=None)
+    def test_freshness_and_upload_live_on_the_upload_page(self):
+        """Бейджи свежести и загрузка файла — на «Загрузке прайсов», здесь только ссылка туда."""
+        s = _supplier('Бейджи', price_update_days=7, stock_update_days=None)
         html = self._get().content.decode()
-        self.assertIn('supplier-status-never', html)
-        self.assertIn('supplier-status-untracked', html)
+        self.assertNotIn('supplier-status', html)
+        self.assertNotIn(reverse('supplier-upload', args=[s.pk]), html)
+        self.assertIn(reverse('supplier-bulk-upload'), html)
+
+    def test_price_list_and_main_rows_are_counted_separately(self):
+        """#186: строки прайса и строки ГП — два числа, и одно не умножает другое."""
+        Supplier.objects.filter(is_own_stock=True).delete()
+        s = _supplier('Счётчики')
+        for n in range(3):
+            SupplierProduct.objects.create(supplier=s, article=f'SP-{n}', name=f'SP-{n}')
+        for n in range(2):
+            MainProduct.objects.create(supplier=s, article=f'MP-{n}', name=f'MP-{n}')
+        empty = _supplier('Пустой')
+
+        response = self._get()
+
+        rows = {row['pk']: row for row in response.context['suppliers']}
+        self.assertEqual((rows[s.pk]['sp_total'], rows[s.pk]['total']), (3, 2))
+        self.assertEqual((rows[empty.pk]['sp_total'], rows[empty.pk]['total']), (0, 0))
+        names = [row['name'] for row in self._get(sort='sp_total', dir='desc').context['suppliers']]
+        self.assertEqual(names, ['Счётчики', 'Пустой'])
+
+    def test_price_cells_link_to_the_suppliers_price_managers(self):
+        """Цены строк ГП считают менеджеры цен — ячейка покрытия ведёт к ним."""
+        s = _supplier('Покрытие')
+        MainProduct.objects.create(supplier=s, article='A', name='A')
+        html = self._get().content.decode()
+        self.assertIn(f'{reverse("supplier-detail", args=[s.pk])}#pricemanagers', html)
 
 
 class SupplierPriorityUpdateTests(TestCase):
@@ -303,20 +342,32 @@ class SupplierPriorityFieldTests(TestCase):
 
 
 class SupplierFormPriorityTests(TestCase):
-    """Supplier не зарегистрирован в админке, так что форма — единственное место правки."""
+    """Уровни правятся только в ячейке списка, рядом с уровнями других поставщиков."""
 
-    def test_priorities_are_in_form_fields(self):
-        self.assertIn('price_priority', SupplierForm.Meta.fields)
-        self.assertIn('stock_priority', SupplierForm.Meta.fields)
+    def test_priorities_are_not_in_the_form(self):
+        for field in ('price_priority', 'stock_priority'):
+            self.assertNotIn(field, SupplierForm.Meta.fields)
+            self.assertNotIn(field, _layout_field_names(SupplierForm(url='/x').helper.layout))
 
-    def test_priorities_are_rendered_by_the_layout(self):
-        """В Meta.fields мало: без места в Layout crispy их просто не отрисует."""
-        form = SupplierForm(url='/suppliers/1/update')
+    def test_saving_the_form_keeps_the_levels(self):
+        supplier = _supplier('С уровнями', price_priority=2, stock_priority=3)
+        data = {
+            'name': supplier.name, 'currency': supplier.currency_id,
+            'delivery_days_available': 1, 'delivery_days_navailable': 7,
+            'msg_available': 'Есть', 'msg_navailable': 'Нет',
+        }
+        form = SupplierForm(data, instance=supplier, url='/x')
+        self.assertTrue(form.is_valid(), form.errors)
+        form.save()
+        supplier.refresh_from_db()
+        self.assertEqual((supplier.price_priority, supplier.stock_priority), (2, 3))
 
-        rendered = _layout_field_names(form.helper.layout)
-
-        self.assertIn('price_priority', rendered)
-        self.assertIn('stock_priority', rendered)
+    def test_update_page_points_to_the_list(self):
+        self.client.force_login(User.objects.create_user(username='form-levels', password='pw'))
+        supplier = _supplier('Ссылка на список')
+        response = self.client.get(reverse('supplier-update', args=[supplier.pk]))
+        self.assertContains(response, 'списке поставщиков')
+        self.assertContains(response, f'href="{reverse("supplier")}"')
 
 
 class DeliveryDaysNullStockTests(TestCase):

@@ -32,7 +32,6 @@ from crispy_forms.utils import render_crispy_form
 from product_price_manager.models import PriceManager, PriceTag
 from core.task_runner import dispatch_after_commit
 from core.utils import extract_initial_from_post
-from supplier_manager.forms import SupplierForm
 from .models import CopySupplierProductsToMainRun, DictItem, ImportRun, SupplierFile, format_count
 from .forms import *
 from .tables import *
@@ -83,15 +82,6 @@ class SupplierDetail(SingleTableMixin, FilterView):
     if self.request.htmx:
       self.template_name = 'supplier/partials/detail_products_table_partial.html'
     return super().get(request, *args, **kwargs)
-  def post(self, request, *args, **kwargs):
-    self.supplier = Supplier.objects.get(pk=self.kwargs.get('pk', None))
-    form = SupplierForm(request.POST, instance=self.supplier)
-    if form.is_valid():
-      form.save()
-      messages.success(request, 'Настройки поставщика сохранены')
-    else:
-      messages.error(request, 'Не удалось сохранить настройки поставщика')
-    return redirect(f"{reverse('supplier-detail', kwargs={'pk': self.supplier.pk})}#supplier-settings")
   def get_table_data(self):
     return super().get_table_data().filter(supplier=self.supplier).select_related('brand')
   def _resolve_selected_columns(self):
@@ -114,11 +104,12 @@ class SupplierDetail(SingleTableMixin, FilterView):
     context['supplier'] = self.supplier
     context['column_groups'] = SP_AVAILABLE_COLUMN_GROUPS
     context['selected_columns'] = self._resolve_selected_columns()
-    context['supplier_form'] = SupplierForm(instance=self.supplier)
+    context['update_badges'] = self.supplier.update_badges()
     pms = PriceManager.objects.filter(supplier=self.supplier)
     context['pricemanagers'] = pms
-    # ?import_run=<pk> — link from the «ждёт подтверждения» notification: open
-    # the confirmation dialog, but only for a still-pending run of this supplier.
+    # ?import_run=<pk> — the link of a «ждёт подтверждения» notification made
+    # before it moved to «Загрузка прайсов» (they never expire): open the
+    # confirmation dialog, but only for a still-pending run of this supplier.
     run_pk = self.request.GET.get('import_run', '')
     if run_pk.isdigit() and ImportRun.objects.filter(
         pk=run_pk, supplier=self.supplier, status=ImportRun.STATUS_NEEDS_CONFIRMATION).exists():
@@ -151,7 +142,7 @@ def store_supplier_file(request, supplier, form):
   """Сохранить файл из UploadFileForm; без выбранной настройки — создать её по имени файла.
 
   Возвращает (SupplierFile, None) или (None, причина отказа).
-  Общий путь загрузки с экрана поставщика и со страницы массовой загрузки.
+  Общий путь загрузки с карточки поставщика и со страницы «Загрузка прайсов».
   """
   instance = form.save(commit=False)
   # Read the workbook once, before anything is created. A corrupt or
@@ -292,7 +283,7 @@ def import_run_confirm(request, pk):
   '''Окно подтверждения импорта, который не прошёл проверку << import-run/<pk>/ >>'''
   run = get_object_or_404(ImportRun.objects.select_related('setting', 'supplier'), pk=pk)
   n = lambda value: format_count(value or 0)
-  # ?row=<supplier pk> — opened from «Массовая загрузка»: the buttons answer
+  # ?row=<supplier pk> — opened from «Загрузка прайсов»: the buttons answer
   # with that supplier's row instead of reloading the page.
   if request.GET.get('row') == str(run.supplier_id):
     apply_url = reverse('supplier-bulk-upload-apply', kwargs={'pk': run.supplier_id, 'run_pk': run.pk})

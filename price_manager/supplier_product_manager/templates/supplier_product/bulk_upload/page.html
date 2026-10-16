@@ -1,14 +1,15 @@
 {% extends 'base.html' %}
 
 {% block title %}
-Массовая загрузка прайсов
+Загрузка прайсов
 {% endblock %}
 
 {% block style %}
 <style>
   .bulk-list { border: 1px solid var(--bs-border-color); border-radius: var(--bs-border-radius-lg); background: var(--bs-body-bg); }
   .bulk-row, .bulk-head { display: grid; grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr) minmax(0, 1.8fr); gap: .75rem 1rem; padding: .75rem 1rem; align-items: start; }
-  .bulk-row { border-top: 1px solid var(--bs-border-color); }
+  /* The notification links to #bulk-row-<pk>: clear the sticky navbar. */
+  .bulk-row { border-top: 1px solid var(--bs-border-color); scroll-margin-top: 5rem; }
   .bulk-head { font-size: .8125rem; color: var(--bs-secondary-color); padding-top: .5rem; padding-bottom: .5rem; }
   .bulk-row-pending { background: var(--bs-warning-bg-subtle); }
   .bulk-row.bulk-dragover { background: var(--bs-primary-bg-subtle); }
@@ -38,12 +39,12 @@
   <nav aria-label="breadcrumb">
     <ol class="breadcrumb small mb-1">
       <li class="breadcrumb-item"><a href="{% url 'supplier' %}">Поставщики</a></li>
-      <li class="breadcrumb-item active" aria-current="page">Массовая загрузка</li>
+      <li class="breadcrumb-item active" aria-current="page">Загрузка прайсов</li>
     </ol>
   </nav>
   <div class="d-flex flex-wrap justify-content-between align-items-end gap-2 mb-3">
     <div>
-      <h1 class="h3 mb-1">Массовая загрузка прайсов</h1>
+      <h1 class="h3 mb-1">Загрузка прайсов</h1>
       <p class="text-muted small mb-0">Перетащите файл в строку поставщика — импорт начнётся сразу. Сверху те, кого дольше всего не обновляли.</p>
     </div>
   </div>
@@ -82,6 +83,9 @@
 <div id="import-confirm-modal" class="modal fade" tabindex="-1" aria-label="Подтверждение импорта" aria-hidden="true">
   <div class="modal-dialog modal-dialog-centered">
     <div class="modal-content">
+      {% if import_confirm_url %}
+        <div hx-get="{{ import_confirm_url }}" hx-trigger="load" hx-target="closest .modal-content" hx-swap="innerHTML"></div>
+      {% endif %}
       <div class="d-flex justify-content-center p-5"><div class="spinner-border text-primary" role="status"></div></div>
     </div>
   </div>
@@ -89,6 +93,14 @@
 {% endblock %}
 
 {% block script %}
+{% if import_confirm_url %}
+<script>
+// Opened from the «ждёт подтверждения» notification.
+window.addEventListener('DOMContentLoaded', () => {
+  bootstrap.Modal.getOrCreateInstance(document.getElementById('import-confirm-modal')).show();
+});
+</script>
+{% endif %}
 <script>
 (() => {
   const list = document.getElementById('bulk-list');

@@ -121,10 +121,16 @@ Confirmation mechanics — each piece closes a specific race:
   field a manager changed in the meantime — a priority level edited
   mid-import, for instance.
 
-UI: `SettingListTable.last_import` (`tables.py:71`, annotated by
-`SettingList.get_queryset`, `views.py:496`, one subquery, no N+1) shows the
-last run; a pending one is a button opening `import_confirm_modal.html` in
-its own compact `#import-confirm-modal` on the supplier page (not the shared
-`modal-xl` container). `SupplierDetail` opens it on load for
-`?import_run=<pk>` only while that run is still pending, so the
-`HttpResponseClientRefresh` after apply/cancel does not reopen it.
+UI: the notification's link (`import_confirmation_link`, `tasks.py:132`) is
+`/supplier/bulk-upload/?import_run=<pk>#bulk-row-<supplier>`. `BulkUploadView`
+(`bulk_upload.py:195`) opens `import_confirm_modal.html` on load with
+`?row=<supplier>` while that run is still pending, so the dialog's buttons
+answer with the bulk row instead of reloading the page. Before 2026-10-16
+the link went to the supplier card (`…/supplier/<pk>/?import_run=<pk>#settings`),
+and those notifications never expire, so **the card keeps its own handler**:
+`SupplierDetail` opens the dialog for `?import_run=<pk>` only while the run is
+pending, so the `HttpResponseClientRefresh` after apply/cancel does not
+reopen it. In the card, `SettingListTable.last_import` (`tables.py:71`, annotated by
+`SettingList.get_queryset`, one subquery, no N+1) shows the
+last run; a pending one is a button opening the dialog in
+its own compact `#import-confirm-modal` (not the shared `modal-xl` container).
