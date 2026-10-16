@@ -35,9 +35,10 @@ def sync_product_from_pim_task(pim_id: str) -> dict:
 # свою блокировку, пустил бы вторую копию поверх себя. Мягкий лимит на минуту
 # раньше бросает в runner исключение, и execute_locked_task пишет ошибку в
 # TaskRunHistory и снимает блокировку; SIGKILL не даёт сделать ни того, ни
-# другого. Но только если runner исключение не проглотит: поштучный
-# except Exception в sync_products и push_pim_links и повтор страниц в
-# stale_product_pks его глотают, и такой прогон снимает уже жёсткий лимит.
+# другого. Но только если runner исключение не проглотит, поэтому широкие
+# except Exception на пути к PIM (sync_products, _ensure_pim_category,
+# push_pim_links) пропускают SoftTimeLimitExceeded наружу. Новый такой
+# обработчик в runner-е с мягким лимитом должен делать то же.
 PIM_SCAN_TIME_LIMIT = 60 * 60
 PIM_BATCH_TIME_LIMIT = 30 * 60
 

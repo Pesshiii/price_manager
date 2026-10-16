@@ -1,5 +1,6 @@
 from unittest.mock import patch
 
+from celery.exceptions import SoftTimeLimitExceeded
 from django.contrib.postgres.search import SearchQuery
 from django.test import TestCase
 from pim_api import Entity, SiteAPI
@@ -183,6 +184,15 @@ class SyncProductFromPimTests(TestCase):
         # The product itself still persisted — one bad id doesn't abort the sync.
         self.assertEqual(saved.name, 'Товар')
 
+    def test_the_soft_time_limit_is_not_an_unresolvable_category(self):
+        # Celery's soft limit is an Exception too; skipped like a bad id, it
+        # would leave the batch running into the hard limit's SIGKILL.
+        product_payload = {'number': 'N1', 'name': 'Товар', 'categoriesIds': ['cat-1']}
+
+        with patch(CATEGORY_PATCH, side_effect=SoftTimeLimitExceeded()):
+            with self.assertRaises(SoftTimeLimitExceeded):
+                self._sync(product_payload)
+
     def test_brand_is_created_from_brand_id_and_linked(self):
         payload = {'number': 'N1', 'name': 'Товар', 'brandId': 'br-1', 'brandName': 'Grohe'}
 
@@ -329,3 +339,14 @@ class LoadProductsByNumberTests(TestCase):
         self._load({'id': 'p-1', 'number': 'D-1', 'brandId': 'br-makita'})
 
         self.assertEqual(Product.objects.get(pk=product.pk).brand, self.makita)
+
+    def test_the_soft_time_limit_is_not_retried(self):
+        # Повтор страницы — для обрыва связи. Мягкий лимит Celery повтором
+        # только проспал бы минуту до жёсткого.
+        with patch.object(SiteAPI, 'get', side_effect=SoftTimeLimitExceeded()) as get, \
+                patch('product.services.pim_sync.time.sleep') as sleep:
+            with self.assertRaises(SoftTimeLimitExceeded):
+                load_products_by_number()
+
+        self.assertEqual(get.call_count, 1)
+        sleep.assert_not_called()
