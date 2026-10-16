@@ -9,6 +9,7 @@ from product.services.pim_sync import (
     _fetch_pim_category,
     _fetch_pim_link,
     _fetch_pim_product,
+    load_products_by_number,
     sync_product_from_pim,
 )
 
@@ -224,3 +225,107 @@ class SyncProductFromPimTests(TestCase):
                 pk=saved.pk, search_vector=SearchQuery('смеситель', config='russian')
             ).exists()
         )
+
+
+def _pim_pages(*rows):
+    """site.get каталога PIM: отдаёт rows страницами по offset/maxSize запроса."""
+    def get(query, timeout=None):
+        return {'total': len(rows), 'list': list(rows[query.offset:query.offset + query.maxSize])}
+    return get
+
+
+class LoadProductsByNumberTests(TestCase):
+    """load_products_by_number: товар PIM ложится на локальный Product с тем же
+    номером без учёта регистра, если номер у нас ровно у одного товара."""
+
+    def setUp(self):
+        self.bosch = Brand.objects.create(pim_id='br-bosch', name='Bosch')
+        self.makita = Brand.objects.create(pim_id='br-makita', name='Makita')
+
+    def _load(self, *rows, page_size=1000):
+        with patch.object(SiteAPI, 'get', side_effect=_pim_pages(*rows)):
+            return load_products_by_number(page_size=page_size)
+
+    def test_a_case_variant_fills_the_local_product(self):
+        category = Category.objects.create(pim_id='cat-1', name='Дрели')
+        product = Product.objects.create(number='abc-1')
+
+        stats = self._load({'id': 'p-1', 'number': 'ABC-1', 'name': 'Дрель', 'categoriesIds': ['cat-1']})
+
+        saved = Product.objects.get(pk=product.pk)
+        self.assertEqual(saved.name, 'Дрель')
+        self.assertEqual(saved.raw_data['id'], 'p-1')
+        self.assertEqual(list(saved.categories.all()), [category])
+        self.assertEqual((stats['matched'], stats['skipped']), (1, 0))
+
+    def test_a_number_two_products_hold_in_any_case_is_skipped(self):
+        # Без бренда «ABC-1» и Bosch «abc-1» — разные товары. Бренд Bosch на
+        # первом нарушил бы уникальность пары у второго.
+        brandless = Product.objects.create(number='ABC-1')
+        branded = Product.objects.create(number='abc-1', brand=self.bosch)
+
+        stats = self._load({'id': 'p-1', 'number': 'ABC-1', 'name': 'Дрель', 'brandId': 'br-bosch'})
+
+        self.assertEqual((stats['matched'], stats['skipped']), (0, 1))
+        for product, brand in ((brandless, None), (branded, self.bosch)):
+            saved = Product.objects.get(pk=product.pk)
+            self.assertEqual(saved.raw_data, {})
+            self.assertEqual(saved.brand, brand)
+
+    def test_the_exact_case_wins_whatever_the_page_order(self):
+        upper = {'id': 'p-upper', 'number': 'ABC-1'}
+        exact = {'id': 'p-exact', 'number': 'abc-1'}
+        for rows in ((upper, exact), (exact, upper)):
+            for page_size in (1, 1000):
+                with self.subTest(order=[row['id'] for row in rows], page_size=page_size):
+                    Product.objects.all().delete()
+                    product = Product.objects.create(number='abc-1')
+
+                    stats = self._load(*rows, page_size=page_size)
+
+                    self.assertEqual(Product.objects.get(pk=product.pk).raw_data['id'], 'p-exact')
+                    self.assertEqual((stats['matched'], stats['skipped']), (1, 1))
+
+    def test_the_products_brand_wins_over_the_exact_case(self):
+        product = Product.objects.create(number='abc-1', brand=self.bosch)
+
+        self._load({'id': 'p-makita', 'number': 'abc-1', 'brandId': 'br-makita'},
+                   {'id': 'p-bosch', 'number': 'ABC-1', 'brandId': 'br-bosch'})
+
+        saved = Product.objects.get(pk=product.pk)
+        self.assertEqual(saved.raw_data['id'], 'p-bosch')
+        self.assertEqual(saved.brand, self.bosch)
+
+    def test_a_brandless_product_takes_the_pim_brand(self):
+        product = Product.objects.create(number='D-1')
+
+        self._load({'id': 'p-1', 'number': 'D-1', 'brandId': 'br-new', 'brandName': 'Новый'})
+
+        self.assertEqual(Product.objects.get(pk=product.pk).brand.name, 'Новый')
+
+    def test_pim_without_a_brand_keeps_the_local_one(self):
+        product = Product.objects.create(number='D-1', brand=self.bosch)
+
+        self._load({'id': 'p-1', 'number': 'D-1', 'name': 'Дрель'})
+
+        saved = Product.objects.get(pk=product.pk)
+        self.assertEqual(saved.brand, self.bosch)
+        self.assertEqual(saved.name, 'Дрель')
+
+    def test_a_brand_not_from_pim_is_kept_when_pim_disagrees(self):
+        product = Product.objects.create(number='D-1', brand=self.bosch)
+
+        self._load({'id': 'p-1', 'number': 'D-1', 'name': 'Дрель', 'brandId': 'br-makita'})
+
+        saved = Product.objects.get(pk=product.pk)
+        self.assertEqual(saved.brand, self.bosch)
+        # Остальное из PIM записано: отказ — только в бренде.
+        self.assertEqual(saved.name, 'Дрель')
+
+    def test_a_brand_pim_gave_follows_pim(self):
+        product = Product.objects.create(number='D-1', brand=self.bosch,
+                                         raw_data={'id': 'p-1', 'brandId': 'br-bosch'})
+
+        self._load({'id': 'p-1', 'number': 'D-1', 'brandId': 'br-makita'})
+
+        self.assertEqual(Product.objects.get(pk=product.pk).brand, self.makita)
