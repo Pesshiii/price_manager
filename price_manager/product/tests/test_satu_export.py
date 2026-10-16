@@ -137,6 +137,19 @@ class SatuExportTests(TestCase):
             'Материал', None, 'Сталь', 'Длина', 'м', '1,5', 'Сетевой', None, 'Нет'])
         self.assertIsNone(full[start + 9])
 
+    def test_product_identifier_is_pm_pk_for_every_row(self):
+        # Satu сопоставляет строки по Идентификатору_товара. pim_id не годится:
+        # у наборов его нет.
+        no_pim = Product.objects.create(pim_id=None, number='SET-1', name='Набор')
+        MainProduct.objects.create(product=no_pim, supplier=self.a, article='A-3',
+                                   name='Набор А', stock=1)
+        _, sheets = self.export()
+        rows = {row[0]: dict(zip(BASE_TITLES, row)) for row in sheets[PRODUCTS_SHEET][1:]}
+        self.assertEqual({code: row['Идентификатор_товара'] for code, row in rows.items()},
+                         {'SKU-1': str(self.product.pk), 'SKU-2': str(self.bare.pk),
+                          'SET-1': str(no_pim.pk)})
+        self.assertTrue(all(row['Уникальный_идентификатор'] is None for row in rows.values()))
+
     def test_without_stock_availability_is_fastest_delivery(self):
         _, sheets = self.export()
         row = next(r for r in sheets[PRODUCTS_SHEET][1:] if r[0] == 'SKU-2')
