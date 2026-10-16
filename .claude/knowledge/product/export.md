@@ -1,6 +1,6 @@
 ---
 title: Export — xlsx from the page and full CSV
-summary: The «Экспорт» button, main values by supplier levels, supplier sheets, FullCsvExporter.
+summary: The «Экспорт» button, main values by supplier levels, supplier sheets, FullCsvExporter; the Satu file built on the same rules is in satu-export.
 code: price_manager/product/export.py, price_manager/product/tasks.py
 ---
 # Export — xlsx from the page and full CSV
@@ -8,62 +8,65 @@ code: price_manager/product/export.py, price_manager/product/tasks.py
 ## The «Экспорт» button — `/products/` to xlsx (`product/export.py`, `product/tasks.py`)
 
 Background export of the exact page a user is looking at: click «Экспорт» →
-`export_products_task` (Celery, `EXPORT_TIME_LIMIT = 60*60`, `tasks.py:96`,
-task itself at `tasks.py:144-159`) builds the file and drops a toast
+`export_products_task` (Celery, `EXPORT_TIME_LIMIT = 60*60`, `tasks.py:236`, task
+itself at `tasks.py:285-300`) builds the file and drops a toast
 notification (`core.tasks._notify`) with a download link to `ProductExport`
 (`product-export-download`). The task is locked per user
 (`task_name=f'product.export_products:{user_id}'`, `lock_ttl=EXPORT_TIME_LIMIT`)
-and runs `atomic=False` (`tasks.py:117-124`) — reading + one file upload + one
-insert, no reason to hold a transaction for up to an hour. `ProductExport` rows
-(`product/models.py:257-279`, `upload_to='product_exports/'`) are **never
+and runs `atomic=False` (`_run_export`, `tasks.py:239-282`, `atomic=False` at
+`:264`) — reading + one file upload + one insert, no reason to hold a
+transaction for up to an hour. `ProductExport` rows
+(`product/models.py:335-357`, `upload_to='product_exports/'`) are **never
 cleaned up** — a known gap, not a bug.
 
 **The workbook is one sheet per supplier, not one wide sheet.** A user asked
 for supplier data split out, so a single sheet with a `<колонка> • <поставщик>`
 column per selected supplier column times supplier was replaced with this:
 
-- **Sheet «Товары»** (`MAIN_SHEET`, `export.py:68`) — one row per `Product`:
-  `PRODUCT_TITLES` (`export.py:69`, артикул/название/бренд/категории) + the
+- **Sheet «Товары»** (`MAIN_SHEET`, `export.py:78`) — one row per `Product`:
+  `PRODUCT_TITLES` (`export.py:79`, артикул/название/бренд/категории) + the
   selected product columns, then, per selected supplier-row column, **one
   main value**, not one column per supplier: price columns get a `… (основная)`
-  header, `stock` gets `Остаток (основной)` (`main_titles`, `export.py:271-281`),
-  then, **only if the export contains a set** (`detect_sets`, `export.py:240-242`),
+  header, `stock` gets `Остаток (основной)`, `delivery_days` gets
+  `… (минимальный)` (`main_titles`, `export.py:287-302`),
+  then, **only if the export contains a set** (`detect_sets`, `export.py:256-258`),
   `SET_TITLES` («Себестоимость из комплектующих», «Комплектующих без цены»,
-  `export.py:74`). Any other selected supplier-row column (article, stock_msg,
-  delivery_days, supplier__*…) does **not** appear on this sheet at all.
+  `export.py:84`). Any other selected supplier-row column (article, stock_msg,
+  supplier__*…) does **not** appear on this sheet at all.
 - **One sheet per supplier** that actually has a `MainProduct` row among the
   exported products, in `Supplier.price_priority` order (`ranked_suppliers`,
-  `export.py:150-162`; ascending, unranked last by name/pk, `supplier=NULL`
+  `export.py:161-173`; ascending, unranked last by name/pk, `supplier=NULL`
   rows (set rows only) always last as «Наборы»). Header is `IDENTITY_TITLES`
-  (`export.py:71`, «Артикул», «Название» — so the sheet reads standalone) +
+  (`export.py:81`, «Артикул», «Название» — so the sheet reads standalone) +
   every selected supplier-row column under its plain `COLUMN_LABELS` label,
-  built by `supplier_titles` (`export.py:293-295`). A supplier's sheet
+  built by `supplier_titles` (`export.py:314-316`). A supplier's sheet
   contains only the products it has a row for, in the same order as «Товары».
-  No supplier-row column selected → only «Товары» is written
-  (`supplier_sheets` stays `{}`, `build`, `export.py:418-456`).
-- **`sheet_names()`** (`export.py:85-103`) turns supplier names into legal,
+  No supplier-row column selected → only «Товары» is written: `suppliers()`
+  collects supplier ids only when such a column is selected
+  (`export.py:430-435`), so `build()` (`export.py:469-508`) opens no supplier sheet.
+- **`sheet_names()`** (`export.py:96-114`) turns supplier names into legal,
   distinct Excel sheet names: `SHEET_NAME_FORBIDDEN` maps `[]:*?/\` to spaces,
   truncates to `SHEET_NAME_LIMIT = 31`, and — because Excel compares sheet
   names **case-insensitively** — a name colliding with `MAIN_SHEET` or with
   another (possibly truncated) supplier name gets a `" (n)"` suffix that
   itself respects the 31-char limit. An empty/all-forbidden name becomes
   `NO_SUPPLIER` = «Наборы». `SheetNamesTests`
-  (`test_export.py:66`) is the guard, including a supplier literally named
+  (`test_export.py:115`) is the guard, including a supplier literally named
   «товары» colliding with «Товары».
 - **Main values are by supplier *levels*** (`Supplier.price_priority` /
   `stock_priority` may repeat; see [[supplier_manager]]) — the rule lives in
   `main_values.py` (see [[product/sets]]), `export.py` re-imports it
-  (`export.py:44`). `supplier_levels()` (`export.py:165-182`) groups the
+  (`export.py:45`). `supplier_levels()` (`export.py:176-193`) groups the
   exported suppliers top-down; all unranked suppliers are **one shared bottom
   level** (they used to be ordered by name, a hidden alphabetical priority),
   `supplier=NULL` rows a level of their own at the very end. `main_value(levels,
   pick)` returns `pick(non-zero values)` of the first level that has any, else
   `0` if any explicit `0`, else empty (a `NULL` stock stays distinct from a
   confirmed `0`).
-  - **Prices — winner supplier, not per-column min.** `main_value_cells()`
-    (`export.py:355-376`) orders each price level by `winner_order()`
-    (`export.py:141-147`): lowest non-zero `prime_cost` first
-    (`supplier_costs()`, `export.py:343-353`, computes it from the rows even
+  - **Prices — winner supplier, not per-column min.** `main_entries()`
+    (`export.py:378-408`) orders each price level by `winner_order()`
+    (`export.py:152-158`): lowest non-zero `prime_cost` first
+    (`supplier_costs()`, `export.py:366-376`, computes it from the rows even
     when the prime_cost column is not exported), no cost last, ties by name.
     Every MP price then takes the first non-zero value in that flat order —
     so all prices of a row come from the winner, and only a price the winner
@@ -71,30 +74,36 @@ column per selected supplier column times supplier was replaced with this:
     Per-column min was rejected by the owner: it mixed suppliers inside one
     row (a basic price below the prime cost it came with).
   - **Stock — max** on the first stock level that has a non-zero value.
-  - **Only MP prices (KZT) and stock get a main value** (`MAIN_PRICE_COLUMNS`,
-    `export.py:60`). `supplier_product_price/rrp/discount_price` are in the
+  - **Delivery days — the minimum over all the product's suppliers**, no levels
+    and no source (`main_entries`, `export.py:405-407`; `DELIVERY_COLUMN`,
+    `:69`). Not `main_value`: 0 days is a term, not «no value», hence `_min_days`
+    (`:240-242`).
+  - **Only MP prices (KZT), stock and delivery days get a main value**
+    (`MAIN_PRICE_COLUMNS`, `export.py:61`). `supplier_product_price/rrp/discount_price` are in the
     supplier's currency and cannot be compared across suppliers; they appear
     only on supplier sheets / supplier blocks of the csv.
   - **Every main price and the main stock is followed by its source,
-    `Поставщик (<колонка>)`** (`SOURCE_COLUMNS`), in both the xlsx and the
+    `Поставщик (<колонка>)`** (`SOURCE_COLUMNS`, `export.py:66`), in both the xlsx and the
     full csv. One column *per price*, not one per row: the owner chose that
     because a price the level winner lacks comes from the next supplier, so
     one row can mix sources. `main_entries()` computes `(key, value,
     supplier_pk)` through `main_values.main_entry` (`main_value` is now a thin
-    wrapper over it), and `main_cells()` interleaves the names. A zero or empty
-    main value has **no** source. The source can be `None` = set rows, shown
-    as «Наборы», so "no source" is decided by `is_zero(value)`, never by
-    `source is None`. Stock ties go to the first supplier in level order (by
-    name). **`main_value_cells()` keeps its old shape (values only, one per
-    column) on purpose:** `SatuExporter` zips it positionally with
-    `SATU_COLUMNS`, and interleaving names there would shift every Satu price.
-  - `supplier_values()` (`export.py:318-341`) folds **one supplier's own
+    wrapper over it), and `main_cells()` (`export.py:416-425`) interleaves the
+    names. A zero or empty main value has **no** source. The source can be
+    `None` = set rows, shown as «Наборы», so "no source" is decided by
+    `is_zero(value)`, never by `source is None`. Stock ties go to the first
+    supplier in level order (by name). **`main_value_cells()`
+    (`export.py:410-413`) keeps its old shape (values only, one per column) on
+    purpose:** `SatuExporter` zips it positionally with `SATU_COLUMNS`
+    (`satu_export.py:337`, [[product/satu-export]]), and interleaving names there
+    would shift every Satu price.
+  - `supplier_values()` (`export.py:339-364`) folds **one supplier's own
     `MainProduct` rows** (no unique `(product, supplier)`) by the same rule:
-    rows by `prime_cost`, prices first non-zero, stock max; `_joined()`
-    (`export.py:215-226`, «; »-separated distinct values) for every other
-    supplier-row key.
+    rows by `prime_cost`, prices first non-zero, stock max, delivery days min;
+    `_joined()` (`export.py:226-237`, «; »-separated distinct values) for every
+    other supplier-row key.
 - **Supplier columns for the header set, per-sheet values via one collected
-  `supplier_ids` set.** `suppliers()` (`export.py:378-389`) makes one chunked
+  `supplier_ids` set.** `suppliers()` (`export.py:427-438`) makes one chunked
   pre-pass over `pks` collecting `MainProduct.supplier_id` distinct *only if*
   any supplier-row column is selected, then builds `ranked_suppliers` (sheet
   order) and the price/stock levels from it before `build()` opens any sheet
@@ -102,13 +111,13 @@ column per selected supplier column times supplier was replaced with this:
   sheets and in what order. A product-page supplier filter still produces
   sheets for every supplier that appears in the filtered rows — not narrowed
   further.
-- **`export_columns()`** (`export.py:138-144`) still splits `selected` into
+- **`export_columns()`** (`export.py:143-149`) still splits `selected` into
   product columns vs. `SUPPLIER_ROW_COLUMNS`, dropping `NOT_EXPORTED =
-  {'actions', 'photo'}` (`export.py:67`) from either. «Фото» became a default
+  {'actions', 'photo'}` (`export.py:72`) from either. «Фото» became a default
   column of the page ([[product/photos]]) without touching a file: it is
   dropped here, whatever the saved selection holds.
 - **Chunked `pk__in` loses order; the pk list restores it.** `rows()`
-  (`export.py:391-416`) walks `_chunks(pks)`, looks up `products` and
+  (`export.py:440-467`) walks `_chunks(pks)`, looks up `products` and
   `main_products` per chunk by `pk__in`, then re-emits rows in the original
   chunk order — `IN` itself does not preserve order. Iterating the ordered
   queryset with `.iterator()` instead is not a drop-in swap: on Django 5.2
@@ -116,38 +125,38 @@ column per selected supplier column times supplier was replaced with this:
   `chunk_size` (older Djangos silently dropped the prefetch, bringing the
   categories N+1 back).
 - **openpyxl rejects model instances and tz-aware datetimes.** `self.cell()`
-  (`export.py:259-269`) can yield a `Supplier` object (the `supplier__*`
-  columns) or a tz-aware `*_updated_at`. `_excel_value` (`export.py:190-200`)
+  (`export.py:275-285`) can yield a `Supplier` object (the `supplier__*`
+  columns) or a tz-aware `*_updated_at`. `_excel_value` (`export.py:201-211`)
   localizes and strips tzinfo from datetimes, and stringifies anything else
   non-scalar. Caught only once every selectable column was actually
   exercised — `test_every_selectable_column_is_writable`
-  (`test_export.py:148`) exports the full `COLUMN_LABELS` set for this
+  (`test_export.py:204`) exports the full `COLUMN_LABELS` set for this
   reason; earlier tests exporting only price columns passed while a real run
   raised `Cannot convert <Supplier: …> to Excel`.
-- **`write_only=True` workbook** (`export.py:424`) — cells are streamed via
+- **`write_only=True` workbook** (`export.py:475`) — cells are streamed via
   `WriteOnlyCell`/`sheet.append`, not built in memory as a normal `Workbook`
   would. Confirmed to handle ~60 interleaved sheet appends per chunk fine
   (one to «Товары» plus up to one per supplier per row, `build()`'s main loop
-  at `export.py:446-452`). **Re-measured after the sheet split**, same
+  at `export.py:497-504`). **Re-measured after the sheet split**, same
   synthetic ~158k-product / ~174k-`MainProduct` / 60-supplier dataset in an
   isolated DB, `DEFAULT_COLUMNS`: 73.5 s, 63 sheets, 11.5 MB — faster than the
   old single-sheet shape's ~130 s, because a supplier a product has no row
   for now writes nothing instead of an empty cell pair. Re-measure again if
   `DEFAULT_COLUMNS` or the supplier count changes materially — the 60-minute
   task time limit is headroom, not a guarantee, as catalogue growth continues.
-- **`ordered_product_pks(params)`** (`export.py:114-135`) — the page-ordering
+- **`ordered_product_pks(params)`** (`export.py:119-140`) — the page-ordering
   contract this export must stay in lockstep with: reproduces `ProductPage`'s
-  `sort` param (captured as `SORT_PARAM`, `export.py:51`) → `by_category=True`
+  `sort` param (captured as `SORT_PARAM`, `export.py:52`) → `by_category=True`
   when no sort → `ProductFilter` → invalid filterset returns `[]` →
   `best_match_groups_first` when `by_category` and a search term →
-  `ProductTable(qs, order_by=…)`. `ExportOrderTests` (`test_export.py:175`)
+  `ProductTable(qs, order_by=…)`. `ExportOrderTests` (`test_export.py:333`)
   still pins it against the page's own `product_rows`. It reads
   `values_list('pk')` from `views._base_queryset`, so that queryset's
   `prefetch_related` (categories, photos) is never evaluated here.
 - **Test trap: openpyxl `read_only` `iter_rows` drops trailing empty cells.**
   A row ending in `None`/`None` (e.g. a supplier sheet where the last
   selected column is blank for that row) comes back shorter than the header
-  when read back. `test_export.py`'s `read_sheets()` helper (`:23-35`) pads
+  when read back. `test_export.py`'s `read_sheets()` helper (`:26-38`) pads
   every row to header width before comparing — write tests against that
   helper, not raw `iter_rows` output, or a real trailing-`None` bug reads as
   a passing test.
@@ -158,32 +167,33 @@ The Product changelist in the admin has a «Полный экспорт (csv)» 
 (`product/templates/admin/product/product/change_list.html`, POST to
 `admin:product_product_export_full_csv`, `ProductAdmin.export_full_csv_view`,
 view permission required) → `export_products_full_csv_task`
-(`tasks.py:162-174`). It always exports the **whole catalogue**, whatever the
+(`tasks.py:303-315`). It always exports the **whole catalogue**, whatever the
 changelist is filtered to (empty `QueryDict` → page default order), with a
-fixed column set `FULL_EXPORT_COLUMNS` (`export.py:77-78`, every price in
-`PRICE_COLUMNS` + `stock`).
+fixed column set `FULL_EXPORT_COLUMNS` (`export.py:88-89`, every price in
+`PRICE_COLUMNS` + `stock` + `delivery_days`).
 
 - **Same rules as the xlsx, not a copy of them.** `ProductExporter` was split
   into `suppliers(pks)` and the `rows()` generator; `FullCsvExporter.write()`
-  (`export.py:478-494`) consumes the same rows. Change main-value rules in
+  (`export.py:531-548`) consumes the same rows. Change main-value rules in
   one place and both formats follow. Set columns follow the same `detect_sets`
-  gate as the xlsx path (`export.py:420,480`).
+  gate as the xlsx path (`export.py:471,533`).
 - **CSV has one sheet, so suppliers are column blocks**: `<поставщик> • <колонка>`,
   price-priority order, only suppliers that have rows. A product a supplier
   lacks gets empty cells there.
 - **Format**: `;` delimiter + UTF-8 BOM + **comma decimals** (`_csv_value`,
-  `export.py:203-212`) — for RU-locale Excel. `;` with dot decimals is the
+  `export.py:214-223`) — for RU-locale Excel. `;` with dot decimals is the
   one wrong pair: that Excel reads `3.10` as 3 October. A zero collapsed by
   `main_value` is written as `0`, not `0,00`.
 - Written to a `TemporaryFile`, not `BytesIO` — hundreds of columns × ~158k
-  rows (`build_full_csv_export`, `tasks.py`/`export.py:506-518`).
+  rows (`build_full_csv_export`, `export.py:560-572`).
 - Its own lock (`product.export_products_full_csv:{user}`), so a running xlsx
-  export doesn't make it «пропущен». Both tasks share `_run_export`
-  (`tasks.py:99-141`).
+  export doesn't make it «пропущен». All three export tasks (this one, the page
+  xlsx and the Satu file) share `_run_export` (`tasks.py:239-282`).
 - `ProductExportDownloadView` takes the extension from the stored file name
-  (`views.py:295`) — it used to hardcode `.xlsx`.
+  (`views.py:376`) — it used to hardcode `.xlsx`.
 - The admin doesn't render `PersistentNotification`s; the message tells the
   user the link arrives «в оповещениях на сайте».
 
 See [[core]] for the export notification/toast mechanics (the 204 response
-trap on the triggering HTMX request) — not repeated here.
+trap on the triggering HTMX request) — not repeated here. The Satu file
+(`SatuExporter`, a third admin button) is in [[product/satu-export]].

@@ -156,5 +156,9 @@ call is a deliberate command, not a side effect.
 The number is still the sku with the supplier prefix or suffix, not the clean
 article. Existing multi-supplier brandless Products were not split. Products
 sharing a PIM `productId` were not merged. All of that is the data step,
-together with `MainProduct.link_source`, search over `MainProduct.sku` and
-Satu's «Код_товара», which can now repeat.
+together with `MainProduct.link_source` and search over `MainProduct.sku`.
+
+Satu's «Код_товара» (`Product.number`) can now repeat, but Satu does not match
+on it: it matches an import on «Идентификатор_товара», which the Satu export
+fills with `Product.pk`. That switch has its own first-upload risk — see
+[[product/satu-export]].

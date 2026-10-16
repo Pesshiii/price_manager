@@ -11,8 +11,10 @@ without the token (the proxy exists for that, see
 a product's image files plus, where PIM has one, their **public link**, so the
 browser can fetch photos from PIM directly and our 3 gunicorn workers stay out
 of it (`docker-compose.yml:79`; the proxy costs ~2 PIM requests per cold image).
+The Satu export reads the same `public_url` for its photo column
+([[product/satu-export]]).
 
-## Model — `models.py:174-207`, migration `0019_productphoto`
+## Model — `models.py:252-285`, migration `0019_productphoto`
 
 `product` (FK, `related_name='photos'`, CASCADE), `pim_file_id`, `position`,
 `is_main`, `public_url` (`URLField(max_length=500)`, empty = no link).
@@ -20,7 +22,7 @@ of it (`docker-compose.yml:79`; the proxy costs ~2 PIM requests per cold image).
 (`product_photo_file_uniq`). There is no `name` or `sorting` column: `position`
 is computed during the scan. Written only by `services/photos.py`.
 `public_url` is capped at 500 because `pim_public_url` rejects longer links
-(`main_product_manager/utils.py:452-463`).
+(`main_product_manager/utils.py:460-471`).
 
 ## PIM facts (measured on the live PIM 2026-10-12, read-only; reported to the keeper, not re-run)
 
@@ -54,7 +56,7 @@ limit (see [[core/task-runner]], *Time limits*), and a killed run wrote
 nothing. Since 2026-10-16 the pass is split, the repo's usual fan-out shape.
 
 - **Dispatcher** `plan_photo_batches(full, since)` (`photos.py:337-366`), run by
-  `refresh_product_photos_task` (`tasks.py:132`). It reads PIM first and only
+  `refresh_product_photos_task` (`tasks.py:131-158`). It reads PIM first and only
   for incremental runs: `Sharing createdAt >= since − SHARING_OVERLAP`. Then one
   short transaction deletes the photos of every Product without
   `raw_data['id']` (no batch covers them) and puts those new links on rows that
@@ -66,7 +68,7 @@ nothing. Since 2026-10-16 the pass is split, the repo's usual fan-out shape.
   the pass is full even when called with `full=False`. `updated_count` is
   deleted + links.
 - **Batch** `refresh_photo_batch(pks, full)` (`photos.py:369-394`), task
-  `refresh_product_photos_batch_task` (`tasks.py:162`). It is self-contained:
+  `refresh_product_photos_batch_task` (`tasks.py:161-175`). It is self-contained:
   `_local_products(pks)` → `ProductFile productId in` those PIM products (chunks
   of `ID_CHUNK` = 100, each paged by keyset) → plan → `Sharing fileId in`
   (all the batch's files when full, only the files of rows about to be created
@@ -132,9 +134,10 @@ nothing. Since 2026-10-16 the pass is split, the repo's usual fan-out shape.
   False`, `available is False`, or `validTill` is past. A **missing** key means
   "don't know", not "off" — list mode drops fields silently and a strict check
   would null every link. The link must also pass `pim_public_url` (https, host
-  equal to `settings.PIM_HOST` verbatim, `_on_pim_host`, `utils.py:435-437`):
-  a `PIM_HOST` that carries a scheme (the compose placeholder
-  `http://pim.invalid`) matches nothing, so dev shows proxy photos only. First
+  equal to `settings.PIM_HOST` as a whole string, compared case-insensitively:
+  `_on_pim_host`, `main_product_manager/utils.py:443-445`): a `PIM_HOST` that
+  carries a scheme (the compose placeholder `http://pim.invalid`) matches
+  nothing, so dev shows proxy photos only and stores no public link. First
   usable link per file wins.
 - **Between weekly passes a revoked link is caught in the browser**:
   `static/js/pim-photo-fallback.js`, included in `<head>` (`base.html:8`) —
@@ -142,7 +145,7 @@ nothing. Since 2026-10-16 the pass is split, the repo's usual fan-out shape.
   bubble; the head script also catches an image that fails before the body
   scripts ran). `data-fallback-src` is swapped in **once**, and
   `data-zoom-fallback-src` replaces `data-zoom-src`. The list's hover zoom does
-  the same by hand (`list.html:1144-1152`).
+  the same by hand (`list.html:1654-1662`).
 
 ## Schedule, queue, lock
 
@@ -176,19 +179,19 @@ worker, via `exec`).
   medium/large are the fallbacks; without a link the proxy is the primary and
   there is no fallback; a file id the proxy rejects (`pim_image_url` regex)
   drops out.
-- `/products/`: `_base_queryset` prefetches `'photos'` (`views.py:56`) — one
-  extra query per page; `render_photo` (`tables.py:360-388`) shows only the first
+- `/products/`: `_base_queryset` prefetches `'photos'` (`views.py:74`) — one
+  extra query per page; `render_photo` (`tables.py:391-419`) shows only the first
   photo with `class="product-photo"`, `data-fallback-src`, `data-zoom-src`,
   `data-zoom-fallback-src` — keep the class, the hover-zoom script selects it
-  (`list.html:1161-1167`). Guarded by
+  (`list.html:1672,1676`). Guarded by
   `test_views.ProductPhotoTests.test_page_shows_photos_by_default_with_one_query_for_all_rows`
   (query count for 1 row == for 3 rows).
 - `'photo'` is a **default column** now (`columns.py:87-91`). Saved column
   choices (cache `product_page:columns:user:<id>`, 30 days) are **not** migrated:
-  only users without one see it. The export still drops it (`export.py:67`).
+  only users without one see it. The export still drops it (`export.py:72`).
 - The card: `ProductDetailView.get_queryset` prefetches `'photos'`
-  (`views.py:346-349`), context `photos` = `product_photos(product)`
-  (`:379`). The old single `photo_url` thumbnail is gone.
+  (`views.py:413-416`), context `photos` = `product_photos(product)`
+  (`:446`). The old single `photo_url` thumbnail is gone.
 
 ## The card carousel — traps (`detail.html`)
 
