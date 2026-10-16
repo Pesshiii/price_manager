@@ -8,7 +8,7 @@ from django.contrib.auth import get_user_model
 from product_price_manager.models import update_prices
 
 from .utils import (
-    delete_outdated_logs, get_pim_data, iter_unpushed_product_pk_batches,
+    PIM_PUSH_CHUNK_SIZE, delete_outdated_logs, get_pim_data, iter_unpushed_product_pk_batches,
     link_unlinked_main_products, push_pim_links, update_logs, update_stocks,
 )
 from .models import MainProduct
@@ -133,7 +133,8 @@ def sync_main_products_task(user_id: int):
 # soft limit a minute earlier lets execute_locked_task record the error and
 # release the lock, which a SIGKILL skips. That works only because the broad
 # handlers in push_pim_links' path re-raise SoftTimeLimitExceeded (more in
-# product/tasks.py).
+# product/tasks.py). push_pim_links stores each chunk before searching the
+# next, so a batch the soft limit cuts short keeps what it pushed.
 REINDEX_TIME_LIMIT = 60 * 60
 REINDEX_BATCH_TIME_LIMIT = 30 * 60
 
@@ -175,11 +176,14 @@ def reindex_pim_ids_task(delay: float = 0.5, batch_size: int = 1000) -> dict:
 @shared_task(name="main_product_manager.reindex_pim_ids_batch", time_limit=REINDEX_BATCH_TIME_LIMIT,
              soft_time_limit=REINDEX_BATCH_TIME_LIMIT - 60)
 def reindex_pim_ids_batch_task(pks: list[int], delay: float = 0.5, batch_size: int = 1000) -> dict:
+    # batch_size is the dispatcher's batch. As the push chunk it would search
+    # the whole batch before storing anything, so the chunk stays smaller.
+    chunk_size = min(batch_size, PIM_PUSH_CHUNK_SIZE)
     return execute_locked_task(
         task_name=f"main_product_manager.reindex_pim_ids_batch:{pks[0]}-{pks[-1]}",
         lock_ttl=REINDEX_BATCH_TIME_LIMIT,
-        runner=lambda: push_pim_links(pks, delay=delay, batch_size=batch_size),
-        # The batch is HTTP-bound (a search per Product, then upsertAsync), so
-        # it must not hold a transaction open across the loop.
+        runner=lambda: push_pim_links(pks, delay=delay, chunk_size=chunk_size),
+        # The batch is HTTP-bound (a search per Product, an upsertAsync per
+        # chunk), so it must not hold a transaction open across the loop.
         atomic=False,
     )

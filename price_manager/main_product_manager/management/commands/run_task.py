@@ -1,5 +1,6 @@
 from django.core.management.base import BaseCommand
 from main_product_manager import tasks
+from main_product_manager.utils import PIM_PUSH_CHUNK_SIZE
 
 TASKS = {
     'update_prices': tasks.update_prices_task,
@@ -31,7 +32,8 @@ class Command(BaseCommand):
             type=int,
             default=None,
             dest='batch_size',
-            help='Размер партии (товаров на задачу и на upsertAsync) для reindex_pim_ids.',
+            help='Размер партии (товаров на задачу) для reindex_pim_ids. В upsertAsync '
+                 f'партия уходит порциями не больше {PIM_PUSH_CHUNK_SIZE} товаров.',
         )
         parser.add_argument(
             '--delay',

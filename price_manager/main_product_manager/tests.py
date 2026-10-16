@@ -420,6 +420,8 @@ class GetFileUrlTests(TestCase):
             self.assertIsNone(get_file_url('file-1'))
 
 
+import inspect
+
 from celery.exceptions import SoftTimeLimitExceeded
 
 from core.models import TaskRunHistory
@@ -870,7 +872,7 @@ class PushPimLinksTests(_PimSearchTestCase):
                 patch.object(mp_utils, '_upsert_async', side_effect=SoftTimeLimitExceeded()) as upsert:
             site.get.return_value = _pim_list()
             with self.assertRaises(SoftTimeLimitExceeded):
-                push_pim_links([first.pk, second.pk], delay=0, batch_size=1)
+                push_pim_links([first.pk, second.pk], delay=0, chunk_size=1)
 
         self.assertEqual(upsert.call_count, 1)
         self.assertIsNone(cache.get(mp_utils._PIM_LAST_ERROR_KEY))
@@ -889,6 +891,97 @@ class PushPimLinksTests(_PimSearchTestCase):
         # The soft limit itself, not the PimScanError an unanswered search raises.
         self.assertEqual(run.error, str(SoftTimeLimitExceeded()))
         self.assertIsNone(cache.get(f'task-lock:{task_name}'))
+
+    # A batch searches and stores one chunk before searching the next. When
+    # every search ran before the first write, a batch too slow for its soft
+    # limit stored nothing, and the next night handed it the same pks.
+
+    def test_each_chunk_is_stored_before_the_next_is_searched(self):
+        first = self.waiting_product('FIRST')
+        errored = self.waiting_product('ERRORED')
+        last = self.waiting_product('LAST')
+        calls = []
+
+        def search(entity):
+            number = entity.where[0].value
+            calls.append(('search', number))
+            if number == 'ERRORED':
+                raise RuntimeError('PIM down')
+            return _pim_list()
+
+        def upsert(site, items):
+            numbers = [item['payload']['number'] for item in items]
+            calls.append(('push', numbers))
+            return [_created(f'pmp-{number}') for number in numbers]
+
+        with patch.object(mp_utils, 'site') as site, \
+                patch.object(mp_utils, '_upsert_async', side_effect=upsert):
+            site.get.side_effect = search
+            # The unanswered search in the first chunk still fails the batch,
+            # after the last chunk's writes.
+            with self.assertRaises(PimScanError):
+                push_pim_links([first.pk, errored.pk, last.pk], delay=0, chunk_size=2)
+
+        self.assertEqual(calls, [
+            ('search', 'FIRST'), ('search', 'ERRORED'), ('push', ['FIRST']),
+            ('search', 'LAST'), ('push', ['LAST']),
+        ])
+        for product, pim_id in ((first, 'pmp-FIRST'), (errored, None), (last, 'pmp-LAST')):
+            product.refresh_from_db()
+            self.assertEqual(product.pim_id, pim_id)
+
+    def test_the_soft_time_limit_after_the_first_chunk_keeps_its_links(self):
+        first = self.waiting_product('FIRST')
+        second = self.waiting_product('SECOND')
+
+        with patch.object(mp_utils, 'site') as site, \
+                patch.object(mp_utils, '_upsert_async', return_value=[_created('pmp-1')]) as upsert:
+            site.get.side_effect = self._site_by_number({
+                'FIRST': _pim_list(),
+                'SECOND': SoftTimeLimitExceeded(),
+            })
+            with self.assertRaises(SoftTimeLimitExceeded):
+                push_pim_links([first.pk, second.pk], delay=0, chunk_size=1)
+
+        first.refresh_from_db()
+        second.refresh_from_db()
+        self.assertEqual(first.pim_id, 'pmp-1')
+        self.assertIsNone(second.pim_id)
+        upsert.assert_called_once()
+        self.assertEqual([i['payload']['number'] for i in upsert.call_args.args[1]], ['FIRST'])
+        self.assertIsNone(cache.get(mp_utils._PIM_LAST_ERROR_KEY))
+
+    def test_the_batch_task_keeps_the_chunks_stored_before_the_soft_time_limit(self):
+        # Through execute_locked_task: with atomic=True the error would roll
+        # the first chunk's pim_id back along with the rest of the run.
+        first = self.waiting_product('FIRST')
+        second = self.waiting_product('SECOND')
+        task_name = f'main_product_manager.reindex_pim_ids_batch:{first.pk}-{second.pk}'
+
+        with patch.object(mp_utils, 'site') as site, \
+                patch.object(mp_utils, '_upsert_async', return_value=[_created('pmp-1')]):
+            site.get.side_effect = self._site_by_number({
+                'FIRST': _pim_list(),
+                'SECOND': SoftTimeLimitExceeded(),
+            })
+            with self.assertRaises(SoftTimeLimitExceeded):
+                mp_tasks.reindex_pim_ids_batch_task(pks=[first.pk, second.pk], delay=0, batch_size=1)
+
+        run = TaskRunHistory.objects.get(task_name=task_name)
+        self.assertEqual(run.status, 'error')
+        self.assertEqual(run.error, str(SoftTimeLimitExceeded()))
+        first.refresh_from_db()
+        self.assertEqual(first.pim_id, 'pmp-1')
+
+    def test_a_default_batch_is_pushed_in_chunks_smaller_than_the_batch(self):
+        # The dispatcher hands its own batch_size to every batch task. As the
+        # push chunk it would search the whole batch before storing anything.
+        batch_size = inspect.signature(mp_tasks.reindex_pim_ids_task.run).parameters['batch_size'].default
+
+        with patch.object(mp_tasks, 'push_pim_links', return_value=0) as push:
+            mp_tasks.reindex_pim_ids_batch_task(pks=[1, 2], delay=0, batch_size=batch_size)
+
+        self.assertLess(push.call_args.kwargs['chunk_size'], batch_size)
 
 
 @override_settings(CACHES=LOCMEM_CACHE)

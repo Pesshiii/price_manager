@@ -67,7 +67,7 @@ Three consequences worth remembering:
   runner is ever entered, so it is held for the whole loop no matter where the
   write sits. `atomic=False` is the only thing that actually drops it. In
   [[main_product_manager]] that's `reindex_pim_ids_batch_task`
-  (`tasks.py:166-175`), the HTTP-bound batch — its parent `reindex_pim_ids_task`
+  (`tasks.py:176-189`), the HTTP-bound batch — its parent `reindex_pim_ids_task`
   stays atomic on purpose, since its own runner does only local DB work
   (backfill numbers, link/create `product.Product` rows) before dispatching.
 - A runner that `.delay()`s subtasks inside the transaction queues them on
@@ -78,7 +78,7 @@ Three consequences worth remembering:
   none of them, and after a rollback the already-dispatched batches keep
   running against a parent run recorded as failed. Outside a transaction it
   dispatches at once, so it is safe from views too. The `reindex_pim_ids_task`
-  fan-out in `main_product_manager/tasks.py:145-150` is the worked example.
+  fan-out in `main_product_manager/tasks.py:153-161` is the worked example.
 
 ## Time limits: `time_limit=None` is not "no limit"
 
@@ -130,9 +130,12 @@ Hence the rules, with `product/tasks.py` (`PIM_SCAN_TIME_LIMIT`,
   task has no `soft_time_limit`.
 - The error row's `error` is `str(SoftTimeLimitExceeded())`, which says
   nothing about where the limit hit.
-- A `push_pim_links` batch too slow for its limit now errors visibly, but
-  it makes no progress, because every search runs before the first write
-  ([[main_product_manager/pim-link]]).
+- A soft-limited runner that loops over HTTP calls should commit as it
+  goes, so a run the limit cuts short keeps its work. `push_pim_links`
+  searches and stores one chunk of 100 Products at a time under
+  `atomic=False`. A batch too slow for its limit still errors, but it keeps
+  every chunk stored before the cut, and those Products drop out of the
+  next night's batches ([[main_product_manager/pim-link]]).
 
 `core.tests.PimTaskTimeLimitTests` pins the seven long PIM tasks and fails
 on any `time_limit=None` or `soft_time_limit=None` in an app's `tasks.py`.
