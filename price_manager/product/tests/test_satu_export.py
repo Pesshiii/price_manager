@@ -12,11 +12,20 @@ from main_product_manager.models import MainProduct
 from pim_api import FlatEntityList
 from supplier_manager.models import Supplier
 
-from product.models import Brand, Product, ProductExport
+from product.models import Brand, Product, ProductExport, ProductPhoto
 from product.satu_export import (
     BASE_TITLES, CHARACTERISTIC_TITLES, GROUP_TITLES, GROUPS_SHEET, MIN_CHARACTERISTICS,
-    PRICE_TITLES, PRODUCTS_SHEET, build_satu_export,
+    PRICE_TITLES, PRODUCTS_SHEET, build_satu_export, group_rows, image_links,
 )
+
+# Ребёнок раньше родителя — лист групп всё равно пишет родителя первым.
+CATEGORIES = [
+    {'id': 'cat-3', 'code': '103', 'name': 'Молотки', 'parentId': 'cat-2'},
+    {'id': 'cat-1', 'code': '101', 'name': 'Инструмент', 'parentId': None},
+    {'id': 'cat-2', 'code': '102', 'name': 'Ручной', 'parentId': 'cat-1'},
+]
+
+SHARING = 'https://pim.example/sharings/'
 
 ATTRIBUTES = [
     {'id': 'a-len', 'name': 'Длина', 'sortOrder': 2},
@@ -52,6 +61,8 @@ def fake_pim(query, timeout=None):
         return {'total': len(ATTRIBUTES), 'list': ATTRIBUTES if not query.offset else []}
     if query.name == 'Country':
         return {'total': 1, 'list': [{'id': 'c-de', 'name': 'Германия'}] if not query.offset else []}
+    if query.name == 'Category':
+        return {'total': len(CATEGORIES), 'list': CATEGORIES if not query.offset else []}
     assert isinstance(query, FlatEntityList)
     if any(field.endswith('Name') for field in query.select or []):
         # Так отвечает боевой PIM: с полем-ссылкой *Name в select — запись без
@@ -96,7 +107,7 @@ class SatuExportTests(TestCase):
     def test_layout_and_values(self):
         export, sheets = self.export()
         self.assertEqual(list(sheets), [PRODUCTS_SHEET, GROUPS_SHEET])
-        self.assertEqual(sheets[GROUPS_SHEET], [GROUP_TITLES])
+        self.assertEqual(sheets[GROUPS_SHEET][0], GROUP_TITLES)
         self.assertEqual(export.rows_count, 2)
         self.assertTrue(export.file.name.endswith('.xlsx'))
 
@@ -183,10 +194,76 @@ class SatuExportTests(TestCase):
         self.assertIsNone(row['Валюта'])
         self.assertIsNone(row['Скидка'])
 
+    def test_image_links_are_public_pim_links_main_first(self):
+        # Главное фото создано последним (больший pk), но стоит первым — по position.
+        for file_id, position, url in [('f-2', 1, '2.PNG'), ('f-3', 2, ''), ('f-4', 3, '4.webp'),
+                                       ('f-5', 4, '5.gif'), ('f-1', 0, '1.jpg')]:
+            ProductPhoto.objects.create(product=self.product, pim_file_id=file_id, position=position,
+                                        is_main=position == 0,
+                                        public_url=SHARING + url if url else '')
+        # Фото без публичной ссылки Satu не скачает — ячейка пустая.
+        ProductPhoto.objects.create(product=self.bare, pim_file_id='f-6', is_main=True)
+        _, sheets = self.export()
+        rows = {row[0]: dict(zip(BASE_TITLES, row)) for row in sheets[PRODUCTS_SHEET][1:]}
+        # Без фото без ссылки и без webp: Satu берёт только JPG, GIF и PNG.
+        self.assertEqual(rows['SKU-1']['Ссылка_изображения'],
+                         f'{SHARING}1.jpg, {SHARING}2.PNG, {SHARING}5.gif')
+        self.assertIsNone(rows['SKU-2']['Ссылка_изображения'])
+
+    def test_image_links_take_one_query_for_all_products(self):
+        ProductPhoto.objects.create(product=self.product, pim_file_id='f-1',
+                                    public_url=SHARING + '1.jpg')
+        ProductPhoto.objects.create(product=self.bare, pim_file_id='f-2',
+                                    public_url=SHARING + '2.png')
+        with self.assertNumQueries(1):
+            links = image_links([self.product.pk, self.bare.pk])
+        self.assertEqual(links, {self.product.pk: SHARING + '1.jpg',
+                                 self.bare.pk: SHARING + '2.png'})
+
+    def test_groups_sheet_is_pim_categories_parents_first(self):
+        _, sheets = self.export()
+        groups = [dict(zip(GROUP_TITLES, row)) for row in sheets[GROUPS_SHEET][1:]]
+        self.assertEqual(
+            [(g['Номер_группы'], g['Название_группы'], g['Номер_родителя']) for g in groups],
+            [('101', 'Инструмент', None), ('102', 'Ручной', '101'), ('103', 'Молотки', '102')])
+        # Остальные колонки групп и группа товара на листе товаров не заполняются.
+        self.assertTrue(all(value is None for g in groups
+                            for title, value in g.items()
+                            if title not in ('Номер_группы', 'Название_группы', 'Номер_родителя')))
+        products = [dict(zip(BASE_TITLES, row)) for row in sheets[PRODUCTS_SHEET][1:]]
+        self.assertTrue(all(row['Номер_группы'] is None and row['Название_группы'] is None
+                            for row in products))
+
+    def test_category_without_code_has_no_row_and_its_children_are_top_level(self):
+        rows = group_rows({
+            'root': ('', 'Каталог', None),
+            'b': ('2', 'Сад', 'root'),
+            'a': ('1', 'Инструмент', 'root'),
+            'leaf': ('3', 'Лейки', 'b'),
+        })
+        self.assertEqual([row[:4] for row in rows], [
+            ['1', 'Инструмент', None, None],
+            ['2', 'Сад', None, None],
+            ['3', 'Лейки', None, '2'],
+        ])
+
+    def test_incomplete_category_list_stops_export(self):
+        def short_list(query, timeout=None):
+            if query.name == 'Category':
+                return {'total': len(CATEGORIES) + 1,
+                        'list': CATEGORIES if not query.offset else []}
+            return fake_pim(query, timeout)
+
+        with mock.patch('product.pim_client.site', **{'get.side_effect': short_list}), \
+                self.assertRaisesMessage(RuntimeError, 'категорий'):
+            build_satu_export(self.user.pk)
+        self.assertFalse(ProductExport.objects.exists())
+
     def export_with(self, flat, attributes, countries=None):
         with mock.patch('product.satu_export.fetch_flat_products', return_value={'pim-1': flat}), \
                 mock.patch('product.satu_export.fetch_attributes', return_value=attributes), \
-                mock.patch('product.satu_export.fetch_countries', return_value=countries or {}):
+                mock.patch('product.satu_export.fetch_countries', return_value=countries or {}), \
+                mock.patch('product.satu_export.fetch_categories', return_value={}):
             export = build_satu_export(self.user.pk)
         with export.file.open('rb') as file:
             rows = list(load_workbook(BytesIO(file.read()), read_only=True)
@@ -223,7 +300,8 @@ class SatuExportTests(TestCase):
         with mock.patch('product.satu_export.fetch_flat_products',
                         return_value={'pim-1': many}), \
                 mock.patch('product.satu_export.fetch_attributes', return_value={}), \
-                mock.patch('product.satu_export.fetch_countries', return_value={}):
+                mock.patch('product.satu_export.fetch_countries', return_value={}), \
+                mock.patch('product.satu_export.fetch_categories', return_value={}):
             export = build_satu_export(self.user.pk)
         with export.file.open('rb') as file:
             header = next(load_workbook(BytesIO(file.read()), read_only=True)
