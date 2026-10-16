@@ -28,7 +28,23 @@ def sync_product_from_pim_task(pim_id: str) -> dict:
     )
 
 
-@shared_task(name='product.backfill_products_from_pim', time_limit=None, soft_time_limit=None)
+# Лимиты задач PIM — явные числа. time_limit=None для Celery значит «не
+# задан» и отдаёт задачу общему CELERY_TASK_TIME_LIMIT (30 минут), а не снимает
+# лимит: так полный проход фото (около часа) каждую ночь убивался SIGKILL, не
+# записав ни строки. Каждый лимит — он же lock_ttl задачи: прогон, переживший
+# свою блокировку, пустил бы вторую копию поверх себя. Мягкий лимит на минуту
+# раньше бросает в runner исключение, и execute_locked_task пишет ошибку в
+# TaskRunHistory и снимает блокировку; SIGKILL не даёт сделать ни того, ни
+# другого. Но только если runner исключение не проглотит: поштучный
+# except Exception в sync_products и push_pim_links и повтор страниц в
+# stale_product_pks его глотают, и такой прогон снимает уже жёсткий лимит.
+PIM_SCAN_TIME_LIMIT = 60 * 60
+PIM_BATCH_TIME_LIMIT = 30 * 60
+PHOTOS_TIME_LIMIT = 2 * 60 * 60
+
+
+@shared_task(name='product.backfill_products_from_pim', time_limit=PIM_SCAN_TIME_LIMIT,
+             soft_time_limit=PIM_SCAN_TIME_LIMIT - 60)
 def backfill_products_from_pim_task(delay: float = 0.5, batch_size: int = 500,
                                     refresh: bool = False) -> dict:
     """Наполняет Product контентом из PIM: name, raw_data, категории, бренд, вектор.
@@ -59,16 +75,17 @@ def backfill_products_from_pim_task(delay: float = 0.5, batch_size: int = 500,
 
     return execute_locked_task(
         task_name='product.backfill_products_from_pim',
-        lock_ttl=60 * 60,
+        lock_ttl=PIM_SCAN_TIME_LIMIT,
         runner=_runner,
     )
 
 
-@shared_task(name='product.sync_products_batch', time_limit=None, soft_time_limit=None)
+@shared_task(name='product.sync_products_batch', time_limit=PIM_BATCH_TIME_LIMIT,
+             soft_time_limit=PIM_BATCH_TIME_LIMIT - 60)
 def sync_products_batch_task(pks: list[int], delay: float = 0.5) -> dict:
     return execute_locked_task(
         task_name=f'product.sync_products_batch:{pks[0]}-{pks[-1]}',
-        lock_ttl=60 * 30,
+        lock_ttl=PIM_BATCH_TIME_LIMIT,
         runner=lambda: sync_products(pks, delay=delay),
         # Партия висит на HTTP (два запроса на товар плюс категории) и спит
         # между ними — держать транзакцию открытой на весь проход нельзя.
@@ -78,7 +95,8 @@ def sync_products_batch_task(pks: list[int], delay: float = 0.5) -> dict:
     )
 
 
-@shared_task(name='product.refresh_products_from_pim', time_limit=None, soft_time_limit=None)
+@shared_task(name='product.refresh_products_from_pim', time_limit=PIM_SCAN_TIME_LIMIT,
+             soft_time_limit=PIM_SCAN_TIME_LIMIT - 60)
 def refresh_products_from_pim_task(delay: float = 0.5, batch_size: int = 500) -> dict:
     """Ночью: забирает из PIM контент товаров, у которых он разошёлся с зеркалом.
 
@@ -103,14 +121,15 @@ def refresh_products_from_pim_task(delay: float = 0.5, batch_size: int = 500) ->
 
     return execute_locked_task(
         task_name='product.refresh_products_from_pim',
-        lock_ttl=60 * 60,
+        lock_ttl=PIM_SCAN_TIME_LIMIT,
         runner=_runner,
         # Сверка — сотни списочных запросов к PIM подряд, без записей в базу.
         atomic=False,
     )
 
 
-@shared_task(name=PHOTOS_TASK_NAME, time_limit=None, soft_time_limit=None)
+@shared_task(name=PHOTOS_TASK_NAME, time_limit=PHOTOS_TIME_LIMIT,
+             soft_time_limit=PHOTOS_TIME_LIMIT - 60)
 def refresh_product_photos_task(full: bool = False) -> dict:
     """Ночью: все фото товаров зеркала и их публичные ссылки (services/photos.py).
 
@@ -124,7 +143,7 @@ def refresh_product_photos_task(full: bool = False) -> dict:
 
     return execute_locked_task(
         task_name=PHOTOS_TASK_NAME,
-        lock_ttl=2 * 60 * 60,
+        lock_ttl=PHOTOS_TIME_LIMIT,
         runner=_runner,
         # До часа списочных запросов к PIM. Запись — своей транзакцией, когда
         # всё уже прочитано (refresh_product_photos); общая держала бы
