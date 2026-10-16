@@ -269,7 +269,23 @@ class SatuExportTests(TestCase):
             return fake_pim(query, timeout)
 
         with mock.patch('product.pim_client.site', **{'get.side_effect': short_list}), \
-                self.assertRaisesMessage(RuntimeError, 'категорий'):
+                self.assertRaisesMessage(RuntimeError, 'список неполный'):
+            build_satu_export(self.user.pk)
+        self.assertFalse(ProductExport.objects.exists())
+
+    def test_categories_without_any_parent_stop_export(self):
+        # parentId не поле метаданных PIM: перестань PIM его отдавать, лист
+        # групп вышел бы плоским и перевесил бы всё дерево Satu в корень.
+        flat_tree = [{key: value for key, value in category.items() if key != 'parentId'}
+                     for category in CATEGORIES]
+
+        def without_parents(query, timeout=None):
+            if query.name == 'Category':
+                return {'total': len(flat_tree), 'list': flat_tree if not query.offset else []}
+            return fake_pim(query, timeout)
+
+        with mock.patch('product.pim_client.site', **{'get.side_effect': without_parents}), \
+                self.assertRaisesMessage(RuntimeError, 'parentId не пришёл'):
             build_satu_export(self.user.pk)
         self.assertFalse(ProductExport.objects.exists())
 

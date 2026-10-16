@@ -180,6 +180,12 @@ def fetch_categories() -> dict:
     Неполный список — ошибка: без части категорий лист групп перевесил бы их
     детей в корень Satu. Сортировка по id — как у брендов: по полю с равными
     значениями PIM при постраничном чтении дублирует и теряет строки.
+
+    parentId — не поле Category в метаданных PIM (там parents, linkMultiple,
+    и одна связь CategoryHierarchy: multiParents выключен), но в списке PIM его
+    отдаёт: по нему строит дерево probe_pim_category_size (2026-09-16, 15 корней
+    из 668). Если PIM однажды перестанет его отдавать, все группы стали бы
+    верхними и плоский лист перевесил бы дерево Satu — поэтому это ошибка.
     """
     result = fetch_list(pim_client.site, EntityList(
         name='Category', select=['id', 'code', 'name', 'parentId'],
@@ -188,11 +194,16 @@ def fetch_categories() -> dict:
         raise RuntimeError(
             f'satu_export: PIM отдал {len(result.items)} из {result.total} категорий — '
             'список неполный, выгрузка остановлена')
-    return {
+    categories = {
         item['id']: (str(item.get('code') or '').strip(), item.get('name') or '',
                      item.get('parentId'))
         for item in result.items if item.get('id')
     }
+    if len(categories) > 1 and not any(parent_id for _, _, parent_id in categories.values()):
+        raise RuntimeError(
+            f'satu_export: PIM отдал {len(categories)} категорий и ни одной с родителем — '
+            'parentId не пришёл, выгрузка остановлена')
+    return categories
 
 
 def group_rows(categories: dict) -> list[list]:
