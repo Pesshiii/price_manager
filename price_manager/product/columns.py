@@ -120,3 +120,47 @@ def save_columns(user, columns) -> list[str]:
     if user.is_authenticated:
         cache.set(_cache_key(user.id), normalized, _CACHE_TTL)
     return normalized
+
+
+# --- вид выдачи: таблица или карточки ---------------------------------------
+#
+# Хранится так же, как выбор колонок, и по той же причине: поиск, фильтр и
+# выбор колонок бьют hx-get в 'products' каждый со своим hx-include, и режим,
+# живущий только в адресе, пришлось бы протаскивать через каждый из них —
+# первый же поиск без него вернул бы таблицу. view= шлёт только переключатель,
+# остальные запросы берут сохранённое.
+
+VIEW_TABLE = 'table'
+VIEW_CARDS = 'cards'
+VIEW_MODES = (VIEW_TABLE, VIEW_CARDS)
+
+# В выпадающем списке карточки помещаются себестоимость и одна цена — первая
+# из выбранных здесь, в порядке каталога.
+CARD_PRICE_COLUMNS = [
+    'wholesale_price', 'basic_price', 'm_price', 'kaspi_price', 'wholesale_price_extra',
+    'discount_price', 'supplier_product_price', 'supplier_product_rrp',
+    'supplier_product_discount_price',
+]
+
+
+def _view_cache_key(user_id: int) -> str:
+    return f'product_page:view:user:{user_id}'
+
+
+def load_view_mode(user) -> str:
+    if not user.is_authenticated:
+        return VIEW_TABLE
+    mode = cache.get(_view_cache_key(user.id))
+    return mode if mode in VIEW_MODES else VIEW_TABLE
+
+
+def save_view_mode(user, mode) -> str:
+    mode = mode if mode in VIEW_MODES else VIEW_TABLE
+    if user.is_authenticated:
+        cache.set(_view_cache_key(user.id), mode, _CACHE_TTL)
+    return mode
+
+
+def card_price_column(columns) -> str | None:
+    """Цена для списка поставщиков в карточке: первая выбранная, или никакой."""
+    return next((key for key in CARD_PRICE_COLUMNS if key in columns), None)
