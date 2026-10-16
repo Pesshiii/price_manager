@@ -57,20 +57,31 @@ link. Every write path links the ГП row to its (sku, brand) Product itself
 until the nightly reindex, no error anywhere. Canary:
 `unlinked_main_product_count()` in `product/views.py`.
 
-`push_pim_links(pks)` (`utils.py:789-850`), run per-batch as
-`reindex_pim_ids_batch_task` (`tasks.py:166-175`, `atomic=False` — see
+`push_pim_links(pks)` (`utils.py:801-876`), run per-batch as
+`reindex_pim_ids_batch_task` (`tasks.py:176-189`, `atomic=False` — see
 [[core/task-runner]]; wrapping this in a transaction would turn
 "skip this chunk on error" into "lose everything since the last commit"):
 
+- **Chunk by chunk** (`utils.py:842-869`): search `chunk_size` Products, push
+  the answered ones as one upsertAsync job, store their `pim_id`s, then
+  search the next chunk. Chunks are counted by Products searched, not by
+  pushes collected. `PIM_PUSH_CHUNK_SIZE = 100` (`utils.py:723`) is
+  deliberately decoupled from the reindex batch (1000 pks): the dispatcher
+  forwards its own `batch_size` to every batch task, which pushes in chunks
+  of `min(batch_size, PIM_PUSH_CHUNK_SIZE)`. Until 2026-10-17 that same
+  1000 was the push chunk, so every batch ran all its searches before its
+  first write.
 - Per local Product `pim_id__isnull=True` with a `number`: search PIM by
   `number` and the Product's brand via `_search_pim_product_id` (a brandless
   Product matches only a brandless card). FOUND → push with `productId`;
   ABSENT/AMBIGUOUS → push without it; ERROR → skip (an unanswered search
   must not drop a `productId` it might have found).
 - Payload name/description come from the **lowest-pk MainProduct** on that
-  Product (`utils.py:812-842`) — description off that MainProduct's first
-  `SupplierProduct.description` (MainProduct's own field is gone).
-- `_push_pim_links` `upsertAsync`s the batch. PIM matches an upsert on the
+  Product (`utils.py:834-840`), looked up once for the whole batch —
+  description off one of that MainProduct's `SupplierProduct.description`s
+  (the query orders by `product_id, pk` only, so which price row is
+  arbitrary; MainProduct's own field is gone).
+- `_push_pim_links` `upsertAsync`s one chunk as one job. PIM matches an upsert on the
   PMP's unique field — since 2026-10-13 only `platformID` (`number` lost
   `unique` when PIM went to (number, brand)): a record with it → `NotModified`/
   `Updated` with its id. A `Failed`/id-less item (job still ends `Success`) is
@@ -78,14 +89,17 @@ until the nightly reindex, no error anywhere. Canary:
   deleted**: it repointed the PMP holding our *number* to our platformID,
   which with shared numbers would trade one PMP between Products every night.
 - Before `bulk_update`, any other local Product still holding a
-  newly-linked PMP id gets `pim_id=None` first (`utils.py:775-783`) —
-  `Product.pim_id` is `unique=True`.
+  newly-linked PMP id gets `pim_id=None` first (`utils.py:789-796`) —
+  `Product.pim_id` is `unique=True`. That includes a Product an earlier
+  chunk of the same batch linked, should PIM hand its id to a later one.
 - Result shape/length validated before zipping against the input chunk
-  (`utils.py:742-755`) — results tie back by *position only*.
+  (`utils.py:757-770`) — results tie back by *position only*. A chunk that
+  fails either check, or whose job errors or times out (`upsert_async`
+  stops polling after 60 s), stores nothing and the batch goes on.
 - Never sends `productId: null`, omits the key on no match
-  (`utils.py:840-841`) — a push can never clear a link PIM staff set by hand.
-- Raises `PimScanError` (`utils.py:845-849`) *after* all writes on any
-  unanswered search or rejected push, so `TaskRunHistory` records an error
+  (`utils.py:863-864`) — a push can never clear a link PIM staff set by hand.
+- Raises `PimScanError` (`utils.py:871-875`) *after* the last chunk's writes on any
+  unanswered search or rejected push, in any chunk, so `TaskRunHistory` records an error
   even though committed progress survives. **Returns a plain `int`** — must
   stay scalar: `core/task_runner.py`'s `_normalize_updated_count` (`:14-21`)
   sums every numeric element of a *tuple* return, so `(linked, rejected)`
@@ -94,10 +108,20 @@ until the nightly reindex, no error anywhere. Canary:
   chunk. `_search_pim_product_id` and `_push_pim_links` re-raise it ahead of
   their `except Exception` and do not pass it to `_record_pim_error`, so the
   batch ends as an error row with its lock released
-  ([[core/task-runner]], *Time limits*). Every search runs before the first
-  write, so a batch the limit cuts short in the search loop has written
-  nothing. The next run takes the same pks, so a batch too slow for its
-  limit errors every night without progress.
+  ([[core/task-runner]], *Time limits*). The chunks stored before the cut
+  stay stored, and those Products drop out of the next night's batches
+  (`iter_unpushed_product_pk_batches` selects `pim_id` NULL). A batch too
+  slow for its limit still errors, but it moves forward by at least the
+  chunks it stored every night. Only a first chunk that cannot finish
+  inside the limit makes no progress: its 100 searches would have to
+  average about 17 s each (29 min soft limit, 0.5 s delay), far above the
+  client's 5 s httpx timeout (`pim_api/__init__.py:73`). `PushPimLinksTests` pins both the
+  chunk order and the stored chunk under the soft limit, through the batch
+  task too.
+- A smaller reindex `batch_size` was the alternative, and was rejected: it
+  multiplies the batch tasks, their locks and their `TaskRunHistory` rows,
+  which nothing prunes, while the chunk alone already bounds what a cut
+  loses.
 
 PIM is unique by (number, brand) since its 2026-10-06 cleanup, so one
 number may name several cards — one per brand.
@@ -121,12 +145,12 @@ matching the *wrong* product and landing as `_SEARCH_FOUND`.
 "live" can mean production** (repo-root `.env`, gitignored, carries real PIM
 creds). `site` is bound into `utils`'s own namespace — patch
 `main_product_manager.utils.site`, not `pim_client.site`.
-`_PimSearchTestCase` (`tests.py:467-491`) is the shared fixture;
+`_PimSearchTestCase` (`tests.py:461-485`) is the shared fixture;
 `SearchPimProductIdTests`/`PushPimLinksTests`/`GetPimDataTests`
-(`tests.py:495`/`696`/`855`) are the current pattern, under
+(`tests.py:489`/`694`/`988`) are the current pattern, under
 `@override_settings(CACHES=LOCMEM_CACHE)`.
 
-## `reindex_pim_ids` — order matters (`tasks.py:129-163`)
+## `reindex_pim_ids` — order matters (`tasks.py:142-173`)
 
 The local half is `link_unlinked_main_products()` alone, inside the parent
 task's transaction. It used to be preceded by `backfill_product_numbers()`,
@@ -144,8 +168,8 @@ sku longer than `PRODUCT_NUMBER_MAX_LENGTH` (`utils.py:25`) stays unlinked,
 only logged.
 
 PIM-facing half fans out via `iter_unpushed_product_pk_batches`
-(`utils.py:652-668`), dispatched through `dispatch_after_commit`
-(`tasks.py:146-150`). **The two halves are not equally safe on a snapshot.**
+(`utils.py:700-716`), dispatched through `dispatch_after_commit`
+(`tasks.py:157-161`). **The two halves are not equally safe on a snapshot.**
 `link_unlinked_main_products()` is purely local — safe directly on prod
 data. The fan-out **writes to PIM**, so
 **never run the task itself against a snapshot with real credentials**; use

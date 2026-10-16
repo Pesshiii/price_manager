@@ -716,17 +716,23 @@ def iter_unpushed_product_pk_batches(batch_size: int = 1000):
         yield pks[start:start + batch_size]
 
 
-def _push_pim_links(targets: list, batch_size: int = 1000, delay: float = 0.5) -> tuple[int, int]:
-    """upsertAsync `targets` — [(Product, payload), ...] — as PriceManagerProduct
-    records and store each returned id as that Product's pim_id.
+# Products searched, then pushed and stored, per upsertAsync job. Far below a
+# reindex batch (1000 pks), so a batch the soft time limit cuts short keeps
+# every chunk it stored before the cut. A small job is also less likely to
+# outrun upsert_async's 60 s poll deadline, which skips the whole chunk.
+PIM_PUSH_CHUNK_SIZE = 100
 
-    Chunked to `batch_size` items per job, `delay` seconds between jobs. A
-    chunk whose transport/timeout/job call errors, or whose result has the
-    wrong shape or length, is recorded via _record_pim_error and skipped
-    without aborting the rest: results are tied back to Products only by
-    position, so a short or malformed list must never be zipped. Celery's
-    SoftTimeLimitExceeded is the exception: it is re-raised, unrecorded, so the
-    batch task ends as an error row before the hard limit SIGKILLs it.
+
+def _push_pim_links(targets: list) -> tuple[int, int]:
+    """upsertAsync `targets` — [(Product, payload), ...] — as one job of
+    PriceManagerProduct records and store each returned id as that Product's pim_id.
+
+    A job whose transport/timeout/job call errors, or whose result has the
+    wrong shape or length, is recorded via _record_pim_error and stores
+    nothing: results are tied back to Products only by position, so a short
+    or malformed list must never be zipped. Celery's SoftTimeLimitExceeded is
+    the exception: it is re-raised, unrecorded, so the batch task ends as an
+    error row before the hard limit SIGKILLs it.
 
     PIM matches an upsert on the PMP's unique field, platformID (our pk): a
     record that has it answers NotModified/Updated with its id — how a PMP
@@ -737,68 +743,62 @@ def _push_pim_links(targets: list, batch_size: int = 1000, delay: float = 0.5) -
     take-over by number would now hand one Product's PMP to another every
     night. Returns (linked, rejected).
     """
-    total_linked = 0
-    total_rejected = 0
-    for i, start in enumerate(range(0, len(targets), batch_size)):
-        if i > 0:
-            time.sleep(delay)
-        chunk = targets[start:start + batch_size]
-        items = [{'entity': PIM_LINK_ENTITY, 'payload': payload} for _, payload in chunk]
-        t0 = time.monotonic()
-        try:
-            results = _upsert_async(site, items)
-        except SoftTimeLimitExceeded:
-            raise
-        except Exception as exc:
-            _record_pim_error('push_pim_links', exc, int((time.monotonic() - t0) * 1000))
-            continue
-        if not isinstance(results, list) or not all(isinstance(r, dict) for r in results):
-            _record_pim_error(
-                'push_pim_links',
-                Exception(f'unexpected upsertAsync result shape: {results!r:.500}'),
-                int((time.monotonic() - t0) * 1000),
-            )
-            continue
-        if len(results) != len(chunk):
-            _record_pim_error(
-                'push_pim_links',
-                Exception(f'result count {len(results)} != item count {len(chunk)}'),
-                int((time.monotonic() - t0) * 1000),
-            )
-            continue
+    if not targets:
+        return 0, 0
+    items = [{'entity': PIM_LINK_ENTITY, 'payload': payload} for _, payload in targets]
+    t0 = time.monotonic()
+    try:
+        results = _upsert_async(site, items)
+    except SoftTimeLimitExceeded:
+        raise
+    except Exception as exc:
+        _record_pim_error('push_pim_links', exc, int((time.monotonic() - t0) * 1000))
+        return 0, 0
+    if not isinstance(results, list) or not all(isinstance(r, dict) for r in results):
+        _record_pim_error(
+            'push_pim_links',
+            Exception(f'unexpected upsertAsync result shape: {results!r:.500}'),
+            int((time.monotonic() - t0) * 1000),
+        )
+        return 0, 0
+    if len(results) != len(targets):
+        _record_pim_error(
+            'push_pim_links',
+            Exception(f'result count {len(results)} != item count {len(targets)}'),
+            int((time.monotonic() - t0) * 1000),
+        )
+        return 0, 0
 
-        linked = []
-        rejected = []
-        for (product, payload), result in zip(chunk, results):
-            pim_id = result.get('id')
-            if result.get('status') == 'Failed' or not pim_id:
-                rejected.append(result)
-                continue
-            product.pim_id = pim_id
-            linked.append(product)
-        if rejected:
-            error = Exception(
-                f'PIM отклонил {len(rejected)} из {len(chunk)} товаров; '
-                f'первый ответ: {rejected[0]!r:.500}'
-            )
-            logger.error('push_pim_links: %s', error)
-            _record_pim_error('push_pim_links', error, int((time.monotonic() - t0) * 1000))
-        if linked:
-            # A PMP id may still be stored on a Product it no longer belongs
-            # to (taken over before 2026-10-13, or a pk reused by another
-            # environment); PIM gave it to this one, so the other loses it
-            # here too (and is pushed afresh next run) rather than tripping
-            # pim_id's unique constraint.
-            PimProduct.objects.filter(pim_id__in=[p.pim_id for p in linked]).exclude(
-                pk__in=[p.pk for p in linked]
-            ).update(pim_id=None)
-            PimProduct.objects.bulk_update(linked, fields=['pim_id'])
-        total_linked += len(linked)
-        total_rejected += len(rejected)
-    return total_linked, total_rejected
+    linked = []
+    rejected = []
+    for (product, payload), result in zip(targets, results):
+        pim_id = result.get('id')
+        if result.get('status') == 'Failed' or not pim_id:
+            rejected.append(result)
+            continue
+        product.pim_id = pim_id
+        linked.append(product)
+    if rejected:
+        error = Exception(
+            f'PIM отклонил {len(rejected)} из {len(targets)} товаров; '
+            f'первый ответ: {rejected[0]!r:.500}'
+        )
+        logger.error('push_pim_links: %s', error)
+        _record_pim_error('push_pim_links', error, int((time.monotonic() - t0) * 1000))
+    if linked:
+        # A PMP id may still be stored on a Product it no longer belongs
+        # to (taken over before 2026-10-13, or a pk reused by another
+        # environment); PIM gave it to this one, so the other loses it
+        # here too (and is pushed afresh next run) rather than tripping
+        # pim_id's unique constraint.
+        PimProduct.objects.filter(pim_id__in=[p.pim_id for p in linked]).exclude(
+            pk__in=[p.pk for p in linked]
+        ).update(pim_id=None)
+        PimProduct.objects.bulk_update(linked, fields=['pim_id'])
+    return len(linked), len(rejected)
 
 
-def push_pim_links(pks: list[int], delay: float = 0.5, batch_size: int = 1000) -> int:
+def push_pim_links(pks: list[int], delay: float = 0.5, chunk_size: int = PIM_PUSH_CHUNK_SIZE) -> int:
     """Create the PriceManagerProduct for one batch of local Products and store its id as pim_id.
 
     For each Product still without a pim_id: search the PIM Product by
@@ -809,15 +809,19 @@ def push_pim_links(pks: list[int], delay: float = 0.5, batch_size: int = 1000) -
     might have found. The key is left out rather than sent as null when there
     is no match, so a push never clears a link PIM staff already set.
 
-    Runs as reindex_pim_ids_batch_task with atomic=False, so the writes commit
-    as they go instead of idling a transaction across the PIM calls. Safe to
-    resume: a Product that got its pim_id drops out of the next run's batches,
-    and a repeat push of a PMP whose id was never saved answers with that id.
-    Raises PimScanError after its writes if any search went unanswered or any
-    push stayed rejected, so the batch is recorded as an error, not a success.
-    The soft time limit is not an unanswered search: SoftTimeLimitExceeded
-    propagates from wherever it lands, and since every search runs before
-    the first write, a batch cut short in the search loop has written nothing.
+    Works in chunks of `chunk_size` Products: search the chunk, push it as one
+    upsertAsync job and store its pim_ids, then go on to the next chunk.
+    Runs as reindex_pim_ids_batch_task with atomic=False, so each chunk's
+    writes commit before the next chunk's searches instead of idling a
+    transaction across the PIM calls. Safe to resume: a Product that got its
+    pim_id drops out of the next run's batches, and a repeat push of a PMP
+    whose id was never saved answers with that id.
+    Raises PimScanError after its last chunk if any search went unanswered or
+    any push stayed rejected, so the batch is recorded as an error, not a
+    success. The soft time limit is not an unanswered search:
+    SoftTimeLimitExceeded propagates from wherever it lands, and the chunks
+    stored before it stay stored, so a batch too slow for its limit still
+    moves forward by those chunks every run.
     """
     products = list(
         PimProduct.objects.filter(pk__in=pks, pim_id__isnull=True).select_related('brand').order_by('pk')
@@ -835,29 +839,35 @@ def push_pim_links(pks: list[int], delay: float = 0.5, batch_size: int = 1000) -
     ):
         first_main_product.setdefault(product_id, (name, description))
 
-    targets = []
-    unanswered = 0
-    for product in products:
-        if product.pk not in first_main_product:
-            continue
-        pim_product_id, outcome = _search_pim_product_id(
-            product.number, product.brand.pim_id if product.brand_id else None)
-        time.sleep(delay)
-        if outcome == _SEARCH_ERROR:
-            unanswered += 1
-            continue
-        name, description = first_main_product[product.pk]
-        payload = {
-            'platformID': str(product.pk),
-            'number': product.number,
-            'name': name or product.name or product.number,
-            'description': description or '',
-        }
-        if pim_product_id:
-            payload['productId'] = pim_product_id
-        targets.append((product, payload))
+    linked = rejected = unanswered = 0
+    # Chunked by Products searched, not by pushes collected, so a run of
+    # unanswered searches cannot hold back the push of the answered ones.
+    for start in range(0, len(products), chunk_size):
+        targets = []
+        for product in products[start:start + chunk_size]:
+            if product.pk not in first_main_product:
+                continue
+            pim_product_id, outcome = _search_pim_product_id(
+                product.number, product.brand.pim_id if product.brand_id else None)
+            time.sleep(delay)
+            if outcome == _SEARCH_ERROR:
+                unanswered += 1
+                continue
+            name, description = first_main_product[product.pk]
+            payload = {
+                'platformID': str(product.pk),
+                'number': product.number,
+                'name': name or product.name or product.number,
+                'description': description or '',
+            }
+            if pim_product_id:
+                payload['productId'] = pim_product_id
+            targets.append((product, payload))
 
-    linked, rejected = _push_pim_links(targets, batch_size=batch_size, delay=delay)
+        chunk_linked, chunk_rejected = _push_pim_links(targets)
+        linked += chunk_linked
+        rejected += chunk_rejected
+
     if unanswered or rejected:
         raise PimScanError(
             f'Партия из {len(products)} товаров: PIM не ответил на поиск по {unanswered}, '
