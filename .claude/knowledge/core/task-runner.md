@@ -88,8 +88,9 @@ task's `time_limit=None` means *unset*: the worker takes
 to the pool default, which is that global. Six PIM tasks carried
 `time_limit=None, soft_time_limit=None` as if it lifted the limit, so each was
 capped at 30 minutes. The full photo pass (`product.refresh_product_photos`,
-about an hour) was killed every night and had not written one `ProductPhoto`
-row by 2026-10-16.
+then one task of about an hour) was killed every night and had not written
+one `ProductPhoto` row by 2026-10-16. It now runs in batches
+([[product/photos]]).
 
 A hard-limit kill is a SIGKILL of the pool process, so the `finally` never
 runs and nothing reaches `TaskRunHistory`:
@@ -99,7 +100,7 @@ runs and nothing reaches `TaskRunHistory`:
   `Hard time limit (1800s) exceeded for <task>` in the worker log.
 
 Hence the rules, with `product/tasks.py` (`PIM_SCAN_TIME_LIMIT`,
-`PIM_BATCH_TIME_LIMIT`, `PHOTOS_TIME_LIMIT`) and
+`PIM_BATCH_TIME_LIMIT`) and
 `main_product_manager/tasks.py` (`REINDEX_*_TIME_LIMIT`) as the examples:
 - **A long task gets an explicit integer limit.** Neither `None` nor `0`
   works: both read as unset.
@@ -112,10 +113,11 @@ Hence the rules, with `product/tasks.py` (`PIM_SCAN_TIME_LIMIT`,
   `push_pim_links`, and the page retry in `stale_product_pks`, swallow it,
   and those runs still end in the hard kill.
 
-`core.tests.PimTaskTimeLimitTests` pins the six tasks and fails on any
-`time_limit=None` or `soft_time_limit=None` in an app's `tasks.py`.
+`core.tests.PimTaskTimeLimitTests` pins the seven long PIM tasks and fails
+on any `time_limit=None` or `soft_time_limit=None` in an app's `tasks.py`.
 
-To run one of these past its limit by hand, call the task object directly in
-`manage.py shell` (`refresh_product_photos_task(full=True)`). That runs in
-process, outside the pool, so no time limit applies, while the lock and
-`TaskRunHistory` still work.
+Calling a task object directly in `manage.py shell` (`some_task(...)`) runs
+it in process, outside the pool, so no time limit applies while the lock and
+`TaskRunHistory` still work. For a dispatcher that only fans out (backfill,
+refresh, reindex, and the photo pass since its batching) this runs just the
+dispatch; the batches still go to the queue and its limits.

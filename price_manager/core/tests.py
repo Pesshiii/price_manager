@@ -202,6 +202,7 @@ class CeleryTaskRoutesTests(SimpleTestCase):
             product_tasks.backfill_products_from_pim_task,
             product_tasks.refresh_products_from_pim_task,
             product_tasks.refresh_product_photos_task,
+            product_tasks.refresh_product_photos_batch_task,
             product_tasks.sync_products_batch_task,
             product_tasks.sync_product_from_pim_task,
             product_tasks.sync_product_sets_task,
@@ -252,6 +253,7 @@ class PimTaskTimeLimitTests(SimpleTestCase):
             (product_tasks, product_tasks.sync_products_batch_task, {'pks': [1, 2]}),
             (product_tasks, product_tasks.refresh_products_from_pim_task, {}),
             (product_tasks, product_tasks.refresh_product_photos_task, {}),
+            (product_tasks, product_tasks.refresh_product_photos_batch_task, {'pks': [1, 2]}),
             (mp_tasks, mp_tasks.reindex_pim_ids_task, {}),
             (mp_tasks, mp_tasks.reindex_pim_ids_batch_task, {'pks': [1, 2]}),
         )
@@ -263,12 +265,6 @@ class PimTaskTimeLimitTests(SimpleTestCase):
                 self.assertIsInstance(task.soft_time_limit, int)
                 self.assertLess(0, task.soft_time_limit)
                 self.assertLess(task.soft_time_limit, task.time_limit)
-
-    def test_the_full_photo_pass_is_not_cut_at_the_worker_default(self):
-        from product import tasks as product_tasks
-
-        self.assertGreater(product_tasks.refresh_product_photos_task.time_limit or 0,
-                           settings.CELERY_TASK_TIME_LIMIT)
 
     def test_no_task_outlives_its_lock(self):
         # A run that outlives its lock_ttl lets a second copy start on top of it.
