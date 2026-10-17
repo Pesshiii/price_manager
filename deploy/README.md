@@ -15,12 +15,12 @@
 | только статика (`static/`) | `manage.py check` → `collectstatic` → HUP gunicorn | нет |
 | Python, шаблоны | то же + перезапуск beat и воркеров (выгрузки рендерят шаблоны) | нет у сайта; задачи ждут в Redis, пока воркер доделывает текущие (до 60 мин) |
 | `requirements.txt`, `Dockerfile`, `docker-compose.yml` | `build` → `check` → пересоздание web, затем воркеров | несколько секунд у сайта |
-| миграции | **ничего**: останавливается и пишет в Telegram | — |
+| миграции | **ничего**: останавливается и присылает сообщение | — |
 
 После переключения скрипт проверяет страницу входа. Если `check`, сборка,
 `collectstatic` или проверка не прошли, он возвращает чекаут на прежний коммит,
 запоминает плохой SHA в `/var/lib/pm-deploy/skipped` (дальше не пробует, пока
-main не уйдёт вперёд) и сообщает в Telegram.
+main не уйдёт вперёд) и присылает сообщение (Bitrix24 или Telegram, см. шаг 5).
 
 **Никогда не автоматически:** миграции, `db` и `redis` (перезапуск базы — только
 руками), `.env`, nginx и сами скрипты деплоя (после их правки — снова шаг 5).
@@ -38,8 +38,8 @@ sudo -u "$OWNER" -H git status
 
 Если запустить git от root, в чекауте останутся файлы root, и автодеплой на них
 споткнётся:
-- **в `.git`** — `fetch` упадёт с `Permission denied`, скрипт сразу сообщит в
-  Telegram;
+- **в `.git`** — `fetch` упадёт с `Permission denied`, скрипт сразу пришлёт
+  сообщение;
 - **в рабочем дереве** (например, каталог, который git создал при `merge` от root)
   — `merge` не сможет записать файл. Скрипт вернёт чекаут на прежний коммит и
   остановится на этом SHA.
@@ -134,7 +134,12 @@ sudo nginx -t && sudo systemctl reload nginx      # reload — без прост
 
 ### 5. Таймер
 
-Нужны `jq` и `curl`; пользователь сервиса — владелец чекаута, в группе `docker`.
+Нужны `jq` и `curl`. Пользователь сервиса — владелец чекаута, в группе `docker`.
+Проверка: должна вывестись таблица контейнеров, а не `permission denied … docker.sock`.
+
+```bash
+sudo -u "$OWNER" -H docker compose ps
+```
 
 ```bash
 sudo install -m 755 deploy/pm-deploy.sh /usr/local/bin/pm-deploy
@@ -143,13 +148,27 @@ sudo install -m 644 deploy/systemd/* /etc/systemd/system/
 sudo install -m 640 deploy/pm-deploy.env.example /etc/pm-deploy.env
 ```
 
-Затем: в `/etc/pm-deploy.env` вписать `APP_DIR`, `DOMAIN`, `WEB_PORT` и токен
-личного бота с чатом; в `/etc/systemd/system/pm-deploy.service` заменить
+Затем: в `/etc/pm-deploy.env` вписать `APP_DIR`, `DOMAIN`, `WEB_PORT` и канал
+уведомлений (ниже); в `/etc/systemd/system/pm-deploy.service` заменить
 `User=CHANGE_ME`; `sudo chgrp <группа пользователя> /etc/pm-deploy.env`.
+
+**Уведомления** уходят во все заполненные каналы:
+- **Bitrix24** — нужен только доступ с сервера к своему порталу
+  (`curl -sS -o /dev/null -w '%{http_code}\n' https://<портал>/rest/` отвечает
+  кодом, а не `000`). В Bitrix24:
+  «Приложения → Разработчикам → Другое → Входящий вебхук», права «Мессенджер
+  (im)». Адрес вебхука (`https://<портал>/rest/<id>/<код>/`) — в `B24_WEBHOOK`,
+  свой ID пользователя Bitrix24 (виден в адресе профиля) — в `B24_USER_ID`.
+  Сообщения приходят системными уведомлениями.
+- **Telegram** — `TG_TOKEN` и `TG_CHAT_ID` личного бота. Если `api.telegram.org`
+  с сервера не открывается (`curl -sS https://api.telegram.org` висит), нужен
+  `TG_PROXY` или другой канал.
+
+Адрес вебхука и токен — секреты: они живут только в `/etc/pm-deploy.env`.
 
 ```bash
 sudo systemctl daemon-reload
-pm-notify "PM: проверка уведомлений"
+sudo -u "$OWNER" pm-notify "PM: проверка уведомлений"   # должно прийти; иначе в выводе — какой канал не принял
 sudo systemctl start pm-deploy.service && journalctl -u pm-deploy -n 20   # нового нет — ничего не делает
 sudo systemctl enable --now pm-deploy.timer
 ```
@@ -194,7 +213,8 @@ sudo systemctl enable --now pm-deploy.timer
 
 ## Правка скрипта
 
-Каждую ветку `pm-deploy.sh` проверяет `bash deploy/tests/test_pm_deploy.sh` на
-временных git-репозиториях с заглушками вместо docker и curl. Этот тест — шаг
-CI. Меняете поведение скрипта — добавьте сценарий. После слияния установите
-скрипт на сервере заново (шаг 5): автодеплой напомнит об этом сам.
+Каждую ветку `pm-deploy.sh` и каналы `pm-notify.sh` проверяет
+`bash deploy/tests/test_pm_deploy.sh` на временных git-репозиториях с заглушками
+вместо docker и curl. Этот тест — шаг CI. Меняете поведение скрипта — добавьте
+сценарий. После слияния установите скрипт на сервере заново (шаг 5): автодеплой
+напомнит об этом сам, но сообщение придёт по старой версии `pm-notify`.
