@@ -49,9 +49,14 @@ case "$url" in
   *127.0.0.1*)
     n=$(cat "$W/smoke_n" 2>/dev/null || echo 0); n=$((n+1)); echo $n > "$W/smoke_n"
     if [ "$n" -le "${SMOKE_FAIL_FIRST:-0}" ]; then printf 500; else printf 200; fi ;;
-  *)  # pm-notify's channels; CURL_FAIL is a substring of the URLs that fail
+  *)  # pm-notify's channels. CURL_FAIL: a substring of the URLs that never
+      # answer; CURL_FAIL_TIMES: how many calls get no answer before one does;
+      # CURL_CODE: the HTTP code of an answer. Like curl -w, prints 000 for none.
     echo "curl send $*" >> "$LOG"
-    if [ -n "${CURL_FAIL:-}" ]; then case "$url" in *"$CURL_FAIL"*) exit 7 ;; esac; fi ;;
+    n=$(cat "$W/send_n" 2>/dev/null || echo 0); n=$((n+1)); echo $n > "$W/send_n"
+    if [ -n "${CURL_FAIL:-}" ]; then case "$url" in *"$CURL_FAIL"*) printf 000; exit 7 ;; esac; fi
+    if [ "$n" -le "${CURL_FAIL_TIMES:-0}" ]; then printf 000; exit 28; fi
+    printf '%s' "${CURL_CODE:-200}" ;;
 esac
 EOF
 printf '#!/bin/sh\necho "notify $*" >> "$LOG"\n' > "$W/bin/pm-notify"
@@ -311,9 +316,10 @@ NOTIFY=${PM_NOTIFY_SCRIPT:-$(dirname "$SCRIPT")/pm-notify.sh}
 B24="B24_WEBHOOK=https://portal.example/rest/7/secret/ B24_USER_ID=7"
 TG="TG_TOKEN=123:abc TG_CHAT_ID=42"
 notify_run() { # VAR=value overrides
-  : > "$LOG"
-  env -u TG_TOKEN -u B24_WEBHOOK "$@" sh "$NOTIFY" "PM: проверка «связи»" > "$W/out.txt" 2>&1; RC=$?
+  : > "$LOG"; rm -f "$W/send_n"
+  env -u TG_TOKEN -u B24_WEBHOOK NOTIFY_RETRY_DELAY=0 "$@" sh "$NOTIFY" "PM: проверка «связи»" > "$W/out.txt" 2>&1; RC=$?
 }
+calls() { grep -c -- "$1" "$LOG"; }
 
 echo "20. pm-notify: Bitrix24 gets a system notification"
 notify_run $B24
@@ -336,6 +342,22 @@ expect "every channel down -> rc 1" '[ $RC = 1 ] && said "Bitrix24 не прин
 echo "23. pm-notify: nothing configured -> printed only"
 notify_run
 expect "rc 0, text printed, nothing sent" '[ $RC = 0 ] && said "PM: проверка" && ! has "curl send"'
+
+echo "24. pm-notify: no answer twice, delivered on the third try"
+notify_run $B24 CURL_FAIL_TIMES=2
+expect "rc 0 after three calls" '[ $RC = 0 ] && [ "$(calls im.notify.system.add)" = 3 ]'
+notify_run $B24 CURL_FAIL_TIMES=5
+expect "gives up after NOTIFY_ATTEMPTS (3)" '[ $RC = 1 ] && [ "$(calls im.notify.system.add)" = 3 ] && said "попыток: 3"'
+
+echo "25. pm-notify: 5xx and 429 are retried, other 4xx are not"
+notify_run $B24 CURL_CODE=503
+expect "503: three calls" '[ $RC = 1 ] && [ "$(calls im.notify.system.add)" = 3 ]'
+notify_run $TG CURL_CODE=429
+expect "429: three calls" '[ $RC = 1 ] && [ "$(calls sendMessage)" = 3 ]'
+notify_run $B24 CURL_CODE=401
+expect "401: one call, the code said" '[ $RC = 1 ] && [ "$(calls im.notify.system.add)" = 1 ] && said "ответил 401"'
+notify_run $B24 CURL_FAIL_TIMES=5 NOTIFY_ATTEMPTS=1
+expect "NOTIFY_ATTEMPTS=1: one call" '[ "$(calls im.notify.system.add)" = 1 ]'
 
 echo
 echo "pm-deploy.sh, pm-notify.sh: $PASS passed, $FAILED failed"
