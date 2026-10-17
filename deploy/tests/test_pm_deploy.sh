@@ -49,6 +49,9 @@ case "$url" in
   *127.0.0.1*)
     n=$(cat "$W/smoke_n" 2>/dev/null || echo 0); n=$((n+1)); echo $n > "$W/smoke_n"
     if [ "$n" -le "${SMOKE_FAIL_FIRST:-0}" ]; then printf 500; else printf 200; fi ;;
+  *)  # pm-notify's channels; CURL_FAIL is a substring of the URLs that fail
+    echo "curl send $*" >> "$LOG"
+    if [ -n "${CURL_FAIL:-}" ]; then case "$url" in *"$CURL_FAIL"*) exit 7 ;; esac; fi ;;
 esac
 EOF
 printf '#!/bin/sh\necho "notify $*" >> "$LOG"\n' > "$W/bin/pm-notify"
@@ -303,6 +306,37 @@ if [ "$REAL_FLOCK" = 1 ]; then
   expect "rc 0, nothing done" '[ $RC = 0 ] && ! has "curl github" && said "ещё идёт"'
 fi
 
+# --- pm-notify.sh --------------------------------------------------------------
+NOTIFY=${PM_NOTIFY_SCRIPT:-$(dirname "$SCRIPT")/pm-notify.sh}
+B24="B24_WEBHOOK=https://portal.example/rest/7/secret/ B24_USER_ID=7"
+TG="TG_TOKEN=123:abc TG_CHAT_ID=42"
+notify_run() { # VAR=value overrides
+  : > "$LOG"
+  env -u TG_TOKEN -u B24_WEBHOOK "$@" sh "$NOTIFY" "PM: проверка «связи»" > "$W/out.txt" 2>&1; RC=$?
+}
+
+echo "20. pm-notify: Bitrix24 gets a system notification"
+notify_run $B24
+expect "rc 0, im.notify.system.add on the webhook" '[ $RC = 0 ] && has "https://portal.example/rest/7/secret/im.notify.system.add"'
+expect "recipient and text sent" 'has "USER_ID=7" && has "MESSAGE=PM: проверка «связи»"'
+expect "no Telegram" '! has api.telegram.org'
+
+echo "21. pm-notify: Telegram, through TG_PROXY when set"
+notify_run $TG
+expect "rc 0, sendMessage, no proxy" '[ $RC = 0 ] && has "api.telegram.org/bot123:abc/sendMessage" && ! has "--proxy"'
+notify_run $TG TG_PROXY=socks5h://proxy.example:1080
+expect "through the proxy" 'has "--proxy socks5h://proxy.example:1080"'
+
+echo "22. pm-notify: one channel down -> the other still delivers, rc 0"
+notify_run $B24 $TG CURL_FAIL=api.telegram.org
+expect "rc 0, both tried, failure said" '[ $RC = 0 ] && has im.notify.system.add && has api.telegram.org && said "Telegram не принял"'
+notify_run $B24 $TG CURL_FAIL=https
+expect "every channel down -> rc 1" '[ $RC = 1 ] && said "Bitrix24 не принял" && said "Telegram не принял"'
+
+echo "23. pm-notify: nothing configured -> printed only"
+notify_run
+expect "rc 0, text printed, nothing sent" '[ $RC = 0 ] && said "PM: проверка" && ! has "curl send"'
+
 echo
-echo "pm-deploy.sh: $PASS passed, $FAILED failed"
+echo "pm-deploy.sh, pm-notify.sh: $PASS passed, $FAILED failed"
 [ "$FAILED" = 0 ]
